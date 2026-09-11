@@ -1,0 +1,3238 @@
+openapi: 3.0.3
+info:
+  title: 倾境壁纸 API
+  version: 1.0.0
+  license:
+    name: Proprietary
+    url: https://github.com/Jerry1254/wallpapersapp
+  description: |
+    倾境壁纸 H5、正式 App 与管理后台共用的 V1 契约。
+
+    所有 Long ID 在 JSON 中使用字符串；所有时间均为带时区的 ISO 8601 字符串。
+    公开目录仅返回封面和能力描述，不返回存储键、绝对路径、内容密钥或正式资源永久地址。
+servers:
+  - url: /api/v1
+    description: 当前来源下的 V1 API；本地联调默认由开发代理转发到 API Server
+security: []
+tags:
+  - name: Public Catalog
+    description: 无需设备会话的公开目录与封面读取
+  - name: Device Identity
+    description: 匿名设备注册、挑战和短期会话
+  - name: Device Entitlement
+    description: 兑换、权益与下载描述
+  - name: Admin Session
+    description: 单管理员会话
+  - name: Admin Asset
+    description: 受控文件上传与元数据查询
+  - name: Admin Catalog
+    description: 分类、壁纸、平台变体与资源版本
+  - name: Admin Redemption
+    description: 兑换码批次、兑换事件、设备与权益查询
+
+paths:
+  /public/categories:
+    get:
+      tags: [Public Catalog]
+      operationId: listPublicCategories
+      summary: 查询公开两级分类树
+      responses:
+        '200':
+          description: 已发布内容对应的分类树
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PublicRootCategory'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /public/wallpapers:
+    get:
+      tags: [Public Catalog]
+      operationId: listPublicWallpapers
+      summary: 查询、筛选或搜索已发布壁纸
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: rootCategoryId
+          in: query
+          schema:
+            $ref: '#/components/schemas/LongId'
+        - name: childCategoryId
+          in: query
+          description: 提供时必须属于 rootCategoryId；未提供 rootCategoryId 时请求无效。
+          schema:
+            $ref: '#/components/schemas/LongId'
+        - name: view
+          in: query
+          description: 系统视图。FEATURED 由 featuredRank 计算；STATIC 由已发布静态变体计算。
+          schema:
+            type: string
+            enum: [FEATURED, STATIC]
+        - name: kind
+          in: query
+          schema:
+            $ref: '#/components/schemas/WallpaperKind'
+        - name: platform
+          in: query
+          schema:
+            $ref: '#/components/schemas/DeliveryPlatform'
+        - name: q
+          in: query
+          description: 壁纸标题或受控关键词；去除首尾空格后长度为 1 至 40。
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [DEFAULT, NEWEST]
+            default: DEFAULT
+      responses:
+        '200':
+          description: 壁纸分页
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicWallpaperPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /public/wallpapers/{wallpaperId}:
+    get:
+      tags: [Public Catalog]
+      operationId: getPublicWallpaper
+      summary: 查询已发布壁纸详情
+      parameters:
+        - $ref: '#/components/parameters/WallpaperId'
+        - name: platform
+          in: query
+          description: 提供后服务端优先返回该平台的能力描述。
+          schema:
+            $ref: '#/components/schemas/DeliveryPlatform'
+      responses:
+        '200':
+          description: 壁纸详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicWallpaperDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /public/assets/{assetId}/content:
+    get:
+      tags: [Public Catalog]
+      operationId: readPublicAssetContent
+      summary: 读取允许公开展示的分类图标或壁纸封面
+      description: 仅 Asset 被已发布目录投影引用且角色允许公开展示时返回文件字节。
+      parameters:
+        - $ref: '#/components/parameters/AssetId'
+      responses:
+        '200':
+          description: 文件内容
+          headers:
+            ETag:
+              description: 文件内容摘要对应的缓存标识
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+            image/svg+xml:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /device/registrations:
+    post:
+      tags: [Device Identity]
+      operationId: registerDevice
+      summary: 注册或重新关联匿名设备凭据
+      description: |
+        正式 App 提交平台公钥和设备证明；H5 联调只允许在启用测试 Provider 的环境提交 H5_TEST_SECRET。
+        返回的 H5 测试 secret 只出现一次，服务端不保存其明文。
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceRegistrationRequest'
+      responses:
+        '201':
+          description: 新凭据已创建或已有设备已关联
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceRegistrationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /device/session-challenges:
+    post:
+      tags: [Device Identity]
+      operationId: createDeviceSessionChallenge
+      summary: 申请一次性设备会话挑战
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [credentialKeyId]
+              properties:
+                credentialKeyId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: 挑战已创建
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceSessionChallenge'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /device/sessions:
+    post:
+      tags: [Device Identity]
+      operationId: createDeviceSession
+      summary: 使用挑战证明换取短期设备会话
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDeviceSessionRequest'
+      responses:
+        '201':
+          description: 设备会话已创建
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceSession'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /device/me/entitlements:
+    get:
+      tags: [Device Entitlement]
+      operationId: listMyEntitlements
+      summary: 查询当前设备已获得的壁纸
+      security:
+        - deviceBearer: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 当前设备有效权益分页
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntitlementPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /device/redemptions:
+    post:
+      tags: [Device Entitlement]
+      operationId: redeemWallpaper
+      summary: 使用兑换码为当前设备获得壁纸
+      description: |
+        Idempotency-Key 在同一设备内唯一。相同键与相同请求体返回原最终结果；相同键异参返回 409。
+        只有 GRANTED 消耗一次额度；ALREADY_OWNED 的 quotaDelta 为 0。
+      security:
+        - deviceBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/RequestTimestamp'
+        - $ref: '#/components/parameters/RequestNonce'
+        - $ref: '#/components/parameters/RequestSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RedeemWallpaperRequest'
+      responses:
+        '200':
+          description: 已存在的幂等结果，或设备原本已拥有壁纸
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RedemptionResult'
+        '201':
+          description: 新权益已创建
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RedemptionResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: 兑换结果为业务拒绝；响应体仍保存为该幂等请求的最终结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RedemptionResult'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /device/redemptions/{idempotencyKey}:
+    get:
+      tags: [Device Entitlement]
+      operationId: getRedemptionResult
+      summary: 按幂等键确认兑换最终结果
+      security:
+        - deviceBearer: []
+      parameters:
+        - name: idempotencyKey
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 已有最终结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RedemptionResult'
+        '202':
+          description: 请求仍在恢复或处理中
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, idempotencyKey]
+                properties:
+                  status:
+                    type: string
+                    enum: [PROCESSING]
+                  idempotencyKey:
+                    type: string
+                    format: uuid
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /device/wallpapers/{wallpaperId}/download-tickets:
+    post:
+      tags: [Device Entitlement]
+      operationId: createDownloadTicket
+      summary: 为已获得壁纸签发短时下载描述
+      description: |
+        H5_TEST 设备返回 H5_PLACEHOLDER 描述；正式 App 可返回 SECURE_PACKAGE 描述。
+        二者复用相同端点和稳定字段，客户端按 deliveryMode 选择实现。
+      security:
+        - deviceBearer: []
+      parameters:
+        - $ref: '#/components/parameters/WallpaperId'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/RequestTimestamp'
+        - $ref: '#/components/parameters/RequestNonce'
+        - $ref: '#/components/parameters/RequestSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDownloadTicketRequest'
+      responses:
+        '201':
+          description: 下载描述已签发
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadDescriptor'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /delivery/files:
+    get:
+      tags: [Device Entitlement]
+      operationId: downloadProtectedFile
+      summary: 使用短时票据读取受保护交付文件
+      description: Authorization Bearer ticket 是 60 至 120 秒有效、限定设备和资源版本的不可猜测字符串。
+      security:
+        - downloadTicketBearer: []
+      responses:
+        '200':
+          description: 加密资源包字节
+          headers:
+            Digest:
+              description: '密文摘要，例如 sha-256=:base64:'
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          description: 票据已过期或已失效
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/sessions:
+    post:
+      tags: [Admin Session]
+      operationId: createAdminSession
+      summary: 管理员登录
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminLoginRequest'
+      responses:
+        '201':
+          description: 会话已创建；session cookie 由 Set-Cookie 返回
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSession'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [Admin Session]
+      operationId: getAdminSession
+      summary: 查询当前管理员会话
+      security:
+        - adminCookie: []
+      responses:
+        '200':
+          description: 当前会话
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSession'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [Admin Session]
+      operationId: deleteAdminSession
+      summary: 退出当前管理员会话
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '204':
+          description: 会话已撤销
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/dashboard:
+    get:
+      tags: [Admin Redemption]
+      operationId: getAdminDashboard
+      summary: 查询管理首页汇总数据
+      security:
+        - adminCookie: []
+      responses:
+        '200':
+          description: 从业务事实实时或通过可丢失缓存计算的汇总
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminDashboard'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/assets:
+    post:
+      tags: [Admin Asset]
+      operationId: uploadAdminAsset
+      summary: 上传并校验一个资源文件
+      description: 文件先写入隔离暂存区；校验通过后原子移入正式相对存储键。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [purpose, file]
+              properties:
+                purpose:
+                  $ref: '#/components/schemas/AssetPurpose'
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: 文件元数据；VALIDATING 表示异步校验尚未完成
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAsset'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          description: 上传超过该用途允许的大小
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '415':
+          description: 文件类型不受支持或探测类型与声明不一致
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/assets/{assetId}:
+    get:
+      tags: [Admin Asset]
+      operationId: getAdminAsset
+      summary: 查询资源文件元数据和校验结果
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: '#/components/parameters/AssetId'
+      responses:
+        '200':
+          description: 资源文件元数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAsset'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/assets/{assetId}/content:
+    get:
+      tags: [Admin Asset]
+      operationId: readAdminAssetContent
+      summary: 读取管理端受控预览文件
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: '#/components/parameters/AssetId'
+      responses:
+        '200':
+          description: 文件内容，Content-Type 使用服务端探测结果
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/categories:
+    get:
+      tags: [Admin Catalog]
+      operationId: listAdminCategories
+      summary: 查询完整分类树
+      security:
+        - adminCookie: []
+      parameters:
+        - name: includeDeleted
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: 管理分类树
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminCategory'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [Admin Catalog]
+      operationId: createAdminCategory
+      summary: 创建一级或二级分类
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryWriteRequest'
+      responses:
+        '201':
+          description: 分类已创建
+          headers:
+            ETag:
+              $ref: '#/components/headers/EntityTag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCategory'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/categories/{categoryId}:
+    get:
+      tags: [Admin Catalog]
+      operationId: getAdminCategory
+      summary: 查询分类详情
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CategoryId'
+      responses:
+        '200':
+          description: 分类详情
+          headers:
+            ETag:
+              $ref: '#/components/headers/EntityTag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCategory'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      tags: [Admin Catalog]
+      operationId: updateAdminCategory
+      summary: 修改分类名称、图标或排序
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/CategoryId'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryWriteRequest'
+      responses:
+        '200':
+          description: 分类已更新
+          headers:
+            ETag:
+              $ref: '#/components/headers/EntityTag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCategory'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [Admin Catalog]
+      operationId: deleteAdminCategory
+      summary: 软删除未被引用的分类
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/CategoryId'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '204':
+          description: 分类已软删除
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/wallpapers:
+    get:
+      tags: [Admin Catalog]
+      operationId: listAdminWallpapers
+      summary: 查询管理端壁纸列表
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/WallpaperStatus'
+        - name: kind
+          in: query
+          schema:
+            $ref: '#/components/schemas/WallpaperKind'
+        - name: categoryId
+          in: query
+          schema:
+            $ref: '#/components/schemas/LongId'
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 40
+      responses:
+        '200':
+          description: 管理壁纸分页
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminWallpaperPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [Admin Catalog]
+      operationId: createAdminWallpaper
+      summary: 创建壁纸草稿
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WallpaperWriteRequest'
+      responses:
+        '201':
+          description: 壁纸草稿已创建
+          headers:
+            ETag:
+              $ref: '#/components/headers/EntityTag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminWallpaperDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/wallpapers/{wallpaperId}:
+    get:
+      tags: [Admin Catalog]
+      operationId: getAdminWallpaper
+      summary: 查询壁纸、平台变体与资源版本
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: '#/components/parameters/WallpaperId'
+      responses:
+        '200':
+          description: 管理壁纸详情
+          headers:
+            ETag:
+              $ref: '#/components/headers/EntityTag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminWallpaperDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      tags: [Admin Catalog]
+      operationId: updateAdminWallpaper
+      summary: 修改可编辑的壁纸作品字段
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/WallpaperId'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WallpaperWriteRequest'
+      responses:
+        '200':
+          description: 壁纸已更新
+          headers:
+            ETag:
+              $ref: '#/components/headers/EntityTag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminWallpaperDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [Admin Catalog]
+      operationId: deleteAdminWallpaperDraft
+      summary: 硬删除没有任何引用的壁纸草稿
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/WallpaperId'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '204':
+          description: 草稿已删除
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/wallpapers/{wallpaperId}/publish:
+    post:
+      tags: [Admin Catalog]
+      operationId: publishAdminWallpaper
+      summary: 发布或重新发布壁纸及指定资源版本
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/WallpaperId'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishWallpaperRequest'
+      responses:
+        '200':
+          description: 壁纸已发布，指定版本变为不可变 PUBLISHED
+          headers:
+            ETag:
+              $ref: '#/components/headers/EntityTag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminWallpaperDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/wallpapers/{wallpaperId}/offline:
+    post:
+      tags: [Admin Catalog]
+      operationId: offlineAdminWallpaper
+      summary: 下架壁纸，停止公开展示和新增兑换
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/WallpaperId'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StateChangeReasonRequest'
+      responses:
+        '200':
+          description: 壁纸已下架；已有权益默认仍可交付
+          headers:
+            ETag:
+              $ref: '#/components/headers/EntityTag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminWallpaperDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/wallpapers/{wallpaperId}/archive:
+    post:
+      tags: [Admin Catalog]
+      operationId: archiveAdminWallpaper
+      summary: 归档草稿或已下架壁纸
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/WallpaperId'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StateChangeReasonRequest'
+      responses:
+        '200':
+          description: 壁纸已归档
+          headers:
+            ETag:
+              $ref: '#/components/headers/EntityTag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminWallpaperDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/wallpapers/{wallpaperId}/variants:
+    post:
+      tags: [Admin Catalog]
+      operationId: createAdminWallpaperVariant
+      summary: 为壁纸创建平台变体
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/WallpaperId'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VariantWriteRequest'
+      responses:
+        '201':
+          description: 平台变体已创建
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminWallpaperVariant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/variants/{variantId}:
+    patch:
+      tags: [Admin Catalog]
+      operationId: updateAdminWallpaperVariant
+      summary: 修改平台变体约束
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/VariantId'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VariantWriteRequest'
+      responses:
+        '200':
+          description: 变体已更新
+          headers:
+            ETag:
+              $ref: '#/components/headers/EntityTag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminWallpaperVariant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [Admin Catalog]
+      operationId: deleteAdminWallpaperVariant
+      summary: 删除从未发布且没有历史引用的平台变体
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/VariantId'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '204':
+          description: 变体已删除
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/variants/{variantId}/resource-versions:
+    post:
+      tags: [Admin Catalog]
+      operationId: createAdminResourceVersion
+      summary: 使用已上传 Asset 创建不可变候选资源版本
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/VariantId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateResourceVersionRequest'
+      responses:
+        '201':
+          description: 候选资源版本已创建并进入校验
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminResourceVersion'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/resource-versions/{resourceVersionId}:
+    get:
+      tags: [Admin Catalog]
+      operationId: getAdminResourceVersion
+      summary: 查询资源版本、绑定与校验结果
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceVersionId'
+      responses:
+        '200':
+          description: 资源版本详情
+          headers:
+            ETag:
+              $ref: '#/components/headers/EntityTag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminResourceVersion'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/code-batches:
+    get:
+      tags: [Admin Redemption]
+      operationId: listAdminCodeBatches
+      summary: 查询兑换码批次和汇总额度
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: q
+          in: query
+          description: 按批次号或批次名查询
+          schema:
+            type: string
+            maxLength: 50
+      responses:
+        '200':
+          description: 批次分页
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodeBatchPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [Admin Redemption]
+      operationId: createAdminCodeBatch
+      summary: 原子生成兑换码批次和一次性交付票据
+      description: 同一 Idempotency-Key 重试返回同一批次，不重复生成兑换码。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCodeBatchRequest'
+      responses:
+        '201':
+          description: 批次和短时一次性交付票据已创建
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateCodeBatchResponse'
+        '200':
+          description: 返回同一幂等请求已经创建的批次
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateCodeBatchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/code-batches/{batchId}:
+    get:
+      tags: [Admin Redemption]
+      operationId: getAdminCodeBatch
+      summary: 查询批次详情
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+      responses:
+        '200':
+          description: 批次详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCodeBatchDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/code-batches/{batchId}/codes:
+    get:
+      tags: [Admin Redemption]
+      operationId: listAdminRedemptionCodes
+      summary: 查询批次内兑换码掩码和额度
+      description: 永远不返回完整兑换码或可恢复的码材料。
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/RedemptionCodeStatus'
+        - name: suffix
+          in: query
+          schema:
+            type: string
+            minLength: 4
+            maxLength: 8
+            pattern: '^[A-Z0-9]+$'
+      responses:
+        '200':
+          description: 掩码兑换码分页
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RedemptionCodePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/code-batches/{batchId}/delivery:
+    get:
+      tags: [Admin Redemption]
+      operationId: downloadAdminCodeBatchDelivery
+      summary: 使用一次性交付票据下载明文兑换码 CSV
+      description: 票据只能在短时内使用；确认交付或过期后无法从数据库恢复明文。
+      security:
+        - adminCookie: []
+          adminDeliveryTicket: []
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+      responses:
+        '200':
+          description: UTF-8 CSV 文件
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          description: 交付票据已过期、已确认或已销毁
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/code-batches/{batchId}/delivery-confirmation:
+    post:
+      tags: [Admin Redemption]
+      operationId: confirmAdminCodeBatchDelivery
+      summary: 确认已保存交付文件并销毁明文材料
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '204':
+          description: 已确认并销毁仍存在的明文交付材料
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/redemptions:
+    get:
+      tags: [Admin Redemption]
+      operationId: listAdminRedemptions
+      summary: 查询不可变兑换事件
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: codeSuffix
+          in: query
+          schema:
+            type: string
+            minLength: 4
+            maxLength: 8
+            pattern: '^[A-Z0-9]+$'
+        - name: wallpaperId
+          in: query
+          schema:
+            $ref: '#/components/schemas/LongId'
+        - name: deviceId
+          in: query
+          description: 仅管理端使用的内部字符串 ID
+          schema:
+            $ref: '#/components/schemas/LongId'
+        - name: result
+          in: query
+          schema:
+            $ref: '#/components/schemas/RedemptionResultCode'
+        - name: createdFrom
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: createdTo
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: 兑换事件分页
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminRedemptionPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/redemptions/{redemptionId}:
+    get:
+      tags: [Admin Redemption]
+      operationId: getAdminRedemption
+      summary: 查询兑换事件及关联权益详情
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: '#/components/parameters/RedemptionId'
+      responses:
+        '200':
+          description: 兑换事件详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminRedemptionDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/devices:
+    get:
+      tags: [Admin Redemption]
+      operationId: listAdminDevices
+      summary: 查询匿名设备内部视图
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: platform
+          in: query
+          schema:
+            $ref: '#/components/schemas/DevicePlatform'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ACTIVE, REVIEW, DISABLED]
+      responses:
+        '200':
+          description: 设备分页
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminDevicePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/devices/{deviceId}:
+    get:
+      tags: [Admin Redemption]
+      operationId: getAdminDevice
+      summary: 查询设备、凭据摘要和权益事实
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: 设备详情；不返回原始证据、secret、公钥私密材料或会话令牌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminDeviceDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    deviceBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-device-session
+      description: Redis 中可撤销、可过期的短期设备会话。
+    downloadTicketBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-download-ticket
+      description: 只允许读取一个资源版本的短时票据；放在 Authorization header，避免进入 URL 日志。
+    adminCookie:
+      type: apiKey
+      in: cookie
+      name: QJ_ADMIN_SESSION
+      description: HttpOnly、Secure、SameSite Cookie。
+    adminCsrf:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: 管理端写操作必须与会话绑定的 CSRF token 一致。
+    adminDeliveryTicket:
+      type: apiKey
+      in: header
+      name: X-Delivery-Ticket
+      description: 只允许读取一次性交付 CSV 的短时票据，确认交付或过期后失效。
+
+  headers:
+    EntityTag:
+      description: 当前聚合 lockVersion 的强 ETag，例如 "7"。
+      schema:
+        type: string
+        pattern: '^"[0-9]+"$'
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    WallpaperId:
+      name: wallpaperId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/LongId'
+    CategoryId:
+      name: categoryId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/LongId'
+    AssetId:
+      name: assetId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/LongId'
+    VariantId:
+      name: variantId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/LongId'
+    ResourceVersionId:
+      name: resourceVersionId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/LongId'
+    BatchId:
+      name: batchId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/LongId'
+    RedemptionId:
+      name: redemptionId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/LongId'
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/LongId'
+    RequestId:
+      name: X-Request-Id
+      in: header
+      description: 可选链路请求 UUID；缺省时由服务端生成并在错误响应返回。
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: 一次用户写入意图对应的 UUID；超时重试必须复用。
+      schema:
+        type: string
+        format: uuid
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: 上次读取到的强 ETag，用于阻止覆盖并发修改。
+      schema:
+        type: string
+        pattern: '^"[0-9]+"$'
+    RequestTimestamp:
+      name: X-Request-Timestamp
+      in: header
+      required: true
+      description: 签名覆盖的 UTC 时间，服务端限制允许偏差。
+      schema:
+        type: string
+        format: date-time
+    RequestNonce:
+      name: X-Request-Nonce
+      in: header
+      required: true
+      description: 本次敏感请求的随机 UUID，短时内不得复用。
+      schema:
+        type: string
+        format: uuid
+    RequestSignature:
+      name: X-Request-Signature
+      in: header
+      required: true
+      description: 客户端凭据对方法、路径、时间、nonce 和请求体摘要生成的 Base64URL 证明。
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 1024
+
+  responses:
+    BadRequest:
+      description: 请求格式、参数或字段校验失败
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: 会话或身份凭据缺失、无效或已过期
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: 已识别身份无权执行操作，或请求证明/CSRF 校验失败
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: 资源不存在或当前调用方不可见
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Conflict:
+      description: 唯一键、状态、引用关系或幂等键与请求内容冲突
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    PreconditionFailed:
+      description: If-Match 与当前 lockVersion 不一致
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UnprocessableEntity:
+      description: 请求格式正确但不满足领域或安全校验规则
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    TooManyRequests:
+      description: 超过设备、IP、账号、码摘要或下载频率限制
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    InternalError:
+      description: 未预期服务错误；不返回堆栈、秘密或内部路径
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+  schemas:
+    LongId:
+      type: string
+      pattern: '^[1-9][0-9]*$'
+      example: '42'
+      description: Java Long ID 的 JSON 字符串表示。
+
+    Timestamp:
+      type: string
+      format: date-time
+      example: '2026-09-11T08:30:00Z'
+
+    PageMetadata:
+      type: object
+      required: [page, pageSize, totalItems, totalPages]
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+        totalItems:
+          type: integer
+          format: int64
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code:
+              $ref: '#/components/schemas/ErrorCode'
+            message:
+              type: string
+              maxLength: 500
+            requestId:
+              type: string
+              format: uuid
+            details:
+              type: array
+              maxItems: 100
+              items:
+                $ref: '#/components/schemas/ErrorDetail'
+
+    ErrorDetail:
+      type: object
+      required: [reason]
+      properties:
+        field:
+          type: string
+          maxLength: 128
+        reason:
+          type: string
+          maxLength: 300
+
+    ErrorCode:
+      type: string
+      description: V1 稳定错误码；message 可本地化，客户端分支只依赖 code。
+      enum:
+        - VALIDATION_FAILED
+        - MALFORMED_REQUEST
+        - UNAUTHORIZED
+        - SESSION_EXPIRED
+        - INVALID_DEVICE_PROOF
+        - DEVICE_DISABLED
+        - CSRF_INVALID
+        - FORBIDDEN
+        - RESOURCE_NOT_FOUND
+        - CATEGORY_NOT_FOUND
+        - WALLPAPER_NOT_FOUND
+        - ASSET_NOT_FOUND
+        - CREDENTIAL_NOT_FOUND
+        - REDEMPTION_REQUEST_NOT_FOUND
+        - DUPLICATE_SLUG
+        - DUPLICATE_CATEGORY_NAME
+        - DUPLICATE_VARIANT
+        - IDEMPOTENCY_KEY_REUSED
+        - STATE_CONFLICT
+        - RESOURCE_IN_USE
+        - VERSION_CONFLICT
+        - DOMAIN_RULE_VIOLATION
+        - ASSET_NOT_READY
+        - ASSET_VALIDATION_FAILED
+        - RESOURCE_VERSION_NOT_READY
+        - WALLPAPER_UNAVAILABLE
+        - CODE_NOT_FOUND
+        - CODE_EXHAUSTED
+        - ENTITLEMENT_REQUIRED
+        - DELIVERY_UNAVAILABLE
+        - UNSUPPORTED_DEVICE
+        - TICKET_EXPIRED
+        - RATE_LIMITED
+        - PAYLOAD_TOO_LARGE
+        - UNSUPPORTED_MEDIA_TYPE
+        - INTERNAL_ERROR
+        - SERVICE_UNAVAILABLE
+
+    WallpaperKind:
+      type: string
+      enum: [PARALLAX_4D, DYNAMIC, STATIC]
+
+    WallpaperStatus:
+      type: string
+      enum: [DRAFT, PUBLISHED, OFFLINE, ARCHIVED]
+
+    DeliveryPlatform:
+      type: string
+      enum: [ANDROID, IOS, HARMONYOS, UNIVERSAL]
+
+    DevicePlatform:
+      type: string
+      enum: [ANDROID, IOS, HARMONYOS, H5_TEST]
+
+    ResourceType:
+      type: string
+      enum: [LAYER_PARALLAX, VIDEO, LIVE_PHOTO, STATIC_IMAGE, THEME_PACKAGE]
+
+    AssetRole:
+      type: string
+      enum:
+        - COVER
+        - BACKGROUND
+        - FOREGROUND
+        - PARALLAX_CONFIG
+        - VIDEO
+        - LIVE_PHOTO_IMAGE
+        - LIVE_PHOTO_VIDEO
+        - STATIC_IMAGE
+        - THEME_PACKAGE
+
+    AssetPurpose:
+      type: string
+      description: 决定允许的 MIME、大小、解码和压缩包安全校验规则。
+      enum:
+        - CATEGORY_ICON
+        - WALLPAPER_COVER
+        - BACKGROUND
+        - FOREGROUND
+        - PARALLAX_CONFIG
+        - VIDEO
+        - LIVE_PHOTO_IMAGE
+        - LIVE_PHOTO_VIDEO
+        - STATIC_IMAGE
+        - THEME_PACKAGE
+
+    CategorySummary:
+      type: object
+      required: [id, name, slug]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        name:
+          type: string
+          maxLength: 20
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          maxLength: 32
+
+    PublicRootCategory:
+      allOf:
+        - $ref: '#/components/schemas/CategorySummary'
+        - type: object
+          required: [icon, sortOrder, wallpaperCount, children]
+          properties:
+            icon:
+              $ref: '#/components/schemas/PublicMedia'
+            sortOrder:
+              type: integer
+              minimum: 0
+              maximum: 999999
+            wallpaperCount:
+              type: integer
+              format: int64
+              minimum: 0
+            children:
+              type: array
+              items:
+                $ref: '#/components/schemas/PublicChildCategory'
+
+    PublicChildCategory:
+      allOf:
+        - $ref: '#/components/schemas/CategorySummary'
+        - type: object
+          required: [sortOrder, wallpaperCount]
+          properties:
+            sortOrder:
+              type: integer
+              minimum: 0
+              maximum: 999999
+            wallpaperCount:
+              type: integer
+              format: int64
+              minimum: 0
+
+    PublicMedia:
+      type: object
+      required: [assetId, contentUrl, mimeType]
+      properties:
+        assetId:
+          $ref: '#/components/schemas/LongId'
+        contentUrl:
+          type: string
+          format: uri-reference
+          description: API 受控读取地址，不是 FileStorage 键或服务器文件路径。
+        mimeType:
+          type: string
+          maxLength: 100
+        widthPx:
+          type: integer
+          minimum: 1
+          nullable: true
+        heightPx:
+          type: integer
+          minimum: 1
+          nullable: true
+
+    DeliveryCapability:
+      type: object
+      required: [platform, resourceType]
+      properties:
+        platform:
+          $ref: '#/components/schemas/DeliveryPlatform'
+        resourceType:
+          $ref: '#/components/schemas/ResourceType'
+        minimumOsVersion:
+          type: string
+          maxLength: 32
+          nullable: true
+        capabilityRequirements:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 64
+
+    PublicWallpaperSummary:
+      type: object
+      required: [id, title, slug, kind, rootCategory, cover, featured, sortOrder, capabilities]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 40
+        slug:
+          type: string
+          minLength: 2
+          maxLength: 64
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        kind:
+          $ref: '#/components/schemas/WallpaperKind'
+        rootCategory:
+          $ref: '#/components/schemas/CategorySummary'
+        childCategory:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/CategorySummary'
+          nullable: true
+        cover:
+          $ref: '#/components/schemas/PublicMedia'
+        featured:
+          type: boolean
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 999999
+        capabilities:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/DeliveryCapability'
+
+    PublicWallpaperDetail:
+      allOf:
+        - $ref: '#/components/schemas/PublicWallpaperSummary'
+        - type: object
+          required: [copyrightNote, publishedAt]
+          properties:
+            copyrightNote:
+              type: string
+              minLength: 1
+              maxLength: 500
+            publishedAt:
+              $ref: '#/components/schemas/Timestamp'
+
+    PublicWallpaperPage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicWallpaperSummary'
+        page:
+          $ref: '#/components/schemas/PageMetadata'
+
+    DeviceRegistrationRequest:
+      type: object
+      required: [platform, appInstallScope, credentialType, evidenceToken]
+      properties:
+        platform:
+          $ref: '#/components/schemas/DevicePlatform'
+        appInstallScope:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: 应用签名、渠道或测试 Provider 的服务端允许值。
+        credentialType:
+          type: string
+          enum: [PLATFORM_PUBLIC_KEY, H5_TEST_SECRET]
+        publicKeyPem:
+          type: string
+          minLength: 64
+          maxLength: 8192
+          nullable: true
+          description: PLATFORM_PUBLIC_KEY 必填；H5_TEST_SECRET 必须为空。
+        evidenceToken:
+          type: string
+          minLength: 16
+          maxLength: 8192
+          writeOnly: true
+          description: 平台证明或仅限测试环境的 H5 安装证据；服务端只保留 keyed hash。
+
+    DeviceRegistrationResponse:
+      type: object
+      required: [credentialKeyId, credentialType, createdAt]
+      properties:
+        credentialKeyId:
+          type: string
+          format: uuid
+        credentialType:
+          type: string
+          enum: [PLATFORM_PUBLIC_KEY, H5_TEST_SECRET]
+        credentialSecret:
+          type: string
+          minLength: 32
+          maxLength: 512
+          nullable: true
+          readOnly: true
+          description: 仅创建 H5_TEST_SECRET 时一次性返回。
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+
+    DeviceSessionChallenge:
+      type: object
+      required: [challengeId, nonce, algorithm, expiresAt]
+      properties:
+        challengeId:
+          type: string
+          format: uuid
+        nonce:
+          type: string
+          minLength: 32
+          maxLength: 256
+        algorithm:
+          type: string
+          enum: [ED25519, ECDSA_P256_SHA256, HMAC_SHA256]
+        expiresAt:
+          $ref: '#/components/schemas/Timestamp'
+
+    CreateDeviceSessionRequest:
+      type: object
+      required: [credentialKeyId, challengeId, clientTimestamp, proof]
+      properties:
+        credentialKeyId:
+          type: string
+          format: uuid
+        challengeId:
+          type: string
+          format: uuid
+        clientTimestamp:
+          $ref: '#/components/schemas/Timestamp'
+        proof:
+          type: string
+          minLength: 16
+          maxLength: 2048
+          writeOnly: true
+          description: 对服务端规定的规范化挑战载荷生成的 Base64URL 签名或 HMAC。
+
+    DeviceSession:
+      type: object
+      required: [accessToken, tokenType, expiresAt, platform]
+      properties:
+        accessToken:
+          type: string
+          minLength: 32
+          maxLength: 2048
+          readOnly: true
+        tokenType:
+          type: string
+          enum: [Bearer]
+        expiresAt:
+          $ref: '#/components/schemas/Timestamp'
+        platform:
+          $ref: '#/components/schemas/DevicePlatform'
+
+    EntitlementSummary:
+      type: object
+      required: [id, wallpaper, grantedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        wallpaper:
+          $ref: '#/components/schemas/PublicWallpaperSummary'
+        grantedAt:
+          $ref: '#/components/schemas/Timestamp'
+
+    EntitlementPage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EntitlementSummary'
+        page:
+          $ref: '#/components/schemas/PageMetadata'
+
+    RedeemWallpaperRequest:
+      type: object
+      required: [wallpaperId, code]
+      properties:
+        wallpaperId:
+          $ref: '#/components/schemas/LongId'
+        code:
+          type: string
+          minLength: 20
+          maxLength: 32
+          writeOnly: true
+          description: 忽略空格和连字符并转大写后必须为 20 位系统字符；不得进入日志。
+
+    RedemptionResultCode:
+      type: string
+      enum:
+        - GRANTED
+        - ALREADY_OWNED
+        - CODE_NOT_FOUND
+        - CODE_EXHAUSTED
+        - WALLPAPER_UNAVAILABLE
+        - FAILED
+
+    RedemptionResult:
+      type: object
+      required: [idempotencyKey, result, quotaDelta, createdAt]
+      properties:
+        idempotencyKey:
+          type: string
+          format: uuid
+        result:
+          $ref: '#/components/schemas/RedemptionResultCode'
+        quotaDelta:
+          type: integer
+          minimum: 0
+          maximum: 1
+        entitlement:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/EntitlementSummary'
+          nullable: true
+          description: GRANTED 与 ALREADY_OWNED 时存在。
+        errorCode:
+          type: string
+          maxLength: 64
+          nullable: true
+          description: 失败时的稳定业务错误码。
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+
+    CreateDownloadTicketRequest:
+      type: object
+      required: [platform, supportedResourceTypes]
+      properties:
+        platform:
+          $ref: '#/components/schemas/DevicePlatform'
+        osVersion:
+          type: string
+          maxLength: 32
+          nullable: true
+        supportedResourceTypes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ResourceType'
+        installedVersionNo:
+          type: integer
+          minimum: 1
+          nullable: true
+
+    DownloadDescriptor:
+      type: object
+      required: [deliveryMode, wallpaperId, cover]
+      properties:
+        deliveryMode:
+          type: string
+          enum: [H5_PLACEHOLDER, SECURE_PACKAGE]
+        wallpaperId:
+          $ref: '#/components/schemas/LongId'
+        cover:
+          $ref: '#/components/schemas/PublicMedia'
+        ticket:
+          type: string
+          minLength: 32
+          maxLength: 2048
+          nullable: true
+          readOnly: true
+          description: SECURE_PACKAGE 时存在，H5_PLACEHOLDER 时为空。
+        downloadUrl:
+          type: string
+          format: uri-reference
+          nullable: true
+          description: 不含票据的受控下载地址；客户端通过 Authorization Bearer 提交 ticket。
+        expiresAt:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        resourceVersion:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/DownloadResourceVersion'
+          nullable: true
+        package:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/SecurePackageMetadata'
+          nullable: true
+
+    DownloadResourceVersion:
+      type: object
+      required: [id, versionNo, platform, resourceType, manifestSha256]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        versionNo:
+          type: integer
+          minimum: 1
+        platform:
+          $ref: '#/components/schemas/DeliveryPlatform'
+        resourceType:
+          $ref: '#/components/schemas/ResourceType'
+        manifestSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+
+    SecurePackageMetadata:
+      type: object
+      required: [sizeBytes, encryptedSha256, wrappedContentKey, keyAlgorithm]
+      properties:
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+        encryptedSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        wrappedContentKey:
+          type: string
+          minLength: 16
+          maxLength: 8192
+          readOnly: true
+        keyAlgorithm:
+          type: string
+          maxLength: 64
+
+    AdminLoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 4
+          maxLength: 64
+        password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 128
+          writeOnly: true
+
+    AdminSession:
+      type: object
+      required: [admin, csrfToken, expiresAt]
+      properties:
+        admin:
+          type: object
+          required: [id, username]
+          properties:
+            id:
+              $ref: '#/components/schemas/LongId'
+            username:
+              type: string
+              maxLength: 64
+        csrfToken:
+          type: string
+          minLength: 32
+          maxLength: 512
+          readOnly: true
+        expiresAt:
+          $ref: '#/components/schemas/Timestamp'
+
+    AdminDashboard:
+      type: object
+      required: [publishedWallpaperCount, activeDeviceCount, entitlementCount, redemptionCountToday, generatedAt]
+      properties:
+        publishedWallpaperCount:
+          type: integer
+          format: int64
+          minimum: 0
+        activeDeviceCount:
+          type: integer
+          format: int64
+          minimum: 0
+        entitlementCount:
+          type: integer
+          format: int64
+          minimum: 0
+        redemptionCountToday:
+          type: integer
+          format: int64
+          minimum: 0
+        generatedAt:
+          $ref: '#/components/schemas/Timestamp'
+
+    AssetValidationStatus:
+      type: string
+      enum: [UPLOADING, VALIDATING, READY, REJECTED]
+
+    AdminAsset:
+      type: object
+      required: [id, originalFilename, mimeType, fileExtension, sizeBytes, sha256, validationStatus, createdAt, version]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        originalFilename:
+          type: string
+          maxLength: 255
+        mimeType:
+          type: string
+          maxLength: 100
+        fileExtension:
+          type: string
+          maxLength: 16
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        sha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        widthPx:
+          type: integer
+          minimum: 1
+          nullable: true
+        heightPx:
+          type: integer
+          minimum: 1
+          nullable: true
+        durationMs:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+        validationStatus:
+          $ref: '#/components/schemas/AssetValidationStatus'
+        validationErrorCode:
+          type: string
+          maxLength: 64
+          nullable: true
+        previewUrl:
+          type: string
+          format: uri-reference
+          nullable: true
+          description: 需要管理员会话的受控读取地址。
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+
+    AdminCategory:
+      type: object
+      required: [id, level, name, slug, sortOrder, wallpaperCount, children, createdAt, updatedAt, version]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        parentId:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/LongId'
+          nullable: true
+        level:
+          type: integer
+          minimum: 1
+          maximum: 2
+        name:
+          type: string
+          minLength: 1
+          maxLength: 20
+        slug:
+          type: string
+          minLength: 2
+          maxLength: 32
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        icon:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/AdminAsset'
+          nullable: true
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 999999
+        wallpaperCount:
+          type: integer
+          format: int64
+          minimum: 0
+        deletedAt:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminCategory'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+
+    CategoryWriteRequest:
+      type: object
+      required: [name, slug, sortOrder]
+      properties:
+        parentId:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/LongId'
+          nullable: true
+          description: 为空创建一级分类；有值时必须引用未删除的一级分类。
+        name:
+          type: string
+          minLength: 1
+          maxLength: 20
+        slug:
+          type: string
+          minLength: 2
+          maxLength: 32
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        iconAssetId:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/LongId'
+          nullable: true
+          description: 一级分类必填且必须为 READY 图片；二级分类必须为空。
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 999999
+
+    WallpaperWriteRequest:
+      type: object
+      required: [title, slug, kind, rootCategoryId, coverAssetId, sortOrder, copyrightNote]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 40
+        slug:
+          type: string
+          minLength: 2
+          maxLength: 64
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        kind:
+          $ref: '#/components/schemas/WallpaperKind'
+        rootCategoryId:
+          $ref: '#/components/schemas/LongId'
+        childCategoryId:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/LongId'
+          nullable: true
+          description: 提供时必须是 rootCategoryId 的直接子节点；数据库只保存这个最深节点。
+        coverAssetId:
+          $ref: '#/components/schemas/LongId'
+        featuredRank:
+          type: integer
+          minimum: 0
+          maximum: 999999
+          nullable: true
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 999999
+        copyrightNote:
+          type: string
+          minLength: 1
+          maxLength: 500
+
+    AdminWallpaperSummary:
+      type: object
+      required: [id, title, slug, kind, rootCategory, cover, featured, sortOrder, capabilities, status, createdAt, updatedAt, version]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        title:
+          type: string
+          maxLength: 40
+        slug:
+          type: string
+          maxLength: 64
+        kind:
+          $ref: '#/components/schemas/WallpaperKind'
+        rootCategory:
+          $ref: '#/components/schemas/CategorySummary'
+        childCategory:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/CategorySummary'
+          nullable: true
+        cover:
+          $ref: '#/components/schemas/AdminAsset'
+        featured:
+          type: boolean
+        featuredRank:
+          type: integer
+          minimum: 0
+          maximum: 999999
+          nullable: true
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 999999
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeliveryCapability'
+        status:
+          $ref: '#/components/schemas/WallpaperStatus'
+        publishedAt:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+
+    AdminWallpaperDetail:
+      allOf:
+        - $ref: '#/components/schemas/AdminWallpaperSummary'
+        - type: object
+          required: [copyrightNote, variants]
+          properties:
+            copyrightNote:
+              type: string
+              maxLength: 500
+            variants:
+              type: array
+              items:
+                $ref: '#/components/schemas/AdminWallpaperVariant'
+
+    AdminWallpaperPage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminWallpaperSummary'
+        page:
+          $ref: '#/components/schemas/PageMetadata'
+
+    VariantWriteRequest:
+      type: object
+      required: [platform, resourceType]
+      properties:
+        platform:
+          $ref: '#/components/schemas/DeliveryPlatform'
+        resourceType:
+          $ref: '#/components/schemas/ResourceType'
+        minimumOsVersion:
+          type: string
+          maxLength: 32
+          nullable: true
+        capabilityRequirements:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            maxLength: 64
+
+    AdminWallpaperVariant:
+      type: object
+      required: [id, platform, resourceType, capabilityRequirements, resourceVersions, version]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        platform:
+          $ref: '#/components/schemas/DeliveryPlatform'
+        resourceType:
+          $ref: '#/components/schemas/ResourceType'
+        minimumOsVersion:
+          type: string
+          maxLength: 32
+          nullable: true
+        capabilityRequirements:
+          type: array
+          items:
+            type: string
+            maxLength: 64
+        resourceVersions:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminResourceVersion'
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+
+    ResourceVersionStatus:
+      type: string
+      enum: [DRAFT, VALIDATING, READY, PUBLISHED, RETIRED, REJECTED]
+
+    CreateResourceVersionRequest:
+      type: object
+      required: [versionNo, bindings]
+      properties:
+        versionNo:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        manifestSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+          nullable: true
+        bindings:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/CreateResourceBindingRequest'
+
+    CreateResourceBindingRequest:
+      type: object
+      required: [assetId, role, ordinal]
+      properties:
+        assetId:
+          $ref: '#/components/schemas/LongId'
+        role:
+          $ref: '#/components/schemas/AssetRole'
+        ordinal:
+          type: integer
+          minimum: 0
+          maximum: 32767
+
+    AdminResourceVersion:
+      type: object
+      required: [id, versionNo, status, bindings, createdAt, version]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        versionNo:
+          type: integer
+          minimum: 1
+        status:
+          $ref: '#/components/schemas/ResourceVersionStatus'
+        manifestSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+          nullable: true
+        validationErrors:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            required: [code, message]
+            properties:
+              code:
+                type: string
+                maxLength: 64
+              message:
+                type: string
+                maxLength: 300
+        bindings:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminResourceBinding'
+        publishedAt:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        retiredAt:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+
+    AdminResourceBinding:
+      type: object
+      required: [id, role, ordinal, asset]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        role:
+          $ref: '#/components/schemas/AssetRole'
+        ordinal:
+          type: integer
+          minimum: 0
+          maximum: 32767
+        asset:
+          $ref: '#/components/schemas/AdminAsset'
+
+    PublishWallpaperRequest:
+      type: object
+      required: [resourceVersionIds]
+      properties:
+        resourceVersionIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/LongId'
+
+    StateChangeReasonRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 300
+
+    RedemptionCodeStatus:
+      type: string
+      enum: [AVAILABLE, EXHAUSTED]
+
+    AdminCodeBatchSummary:
+      type: object
+      required: [id, batchNo, name, generatedCount, quotaPerCodeSnapshot, totalQuota, usedQuota, usagePercent, deliveryStatus, createdAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        batchNo:
+          type: string
+          minLength: 26
+          maxLength: 26
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        generatedCount:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        quotaPerCodeSnapshot:
+          type: integer
+          minimum: 1
+          maximum: 100
+        totalQuota:
+          type: integer
+          format: int64
+          minimum: 1
+        usedQuota:
+          type: integer
+          format: int64
+          minimum: 0
+        usagePercent:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 100
+        deliveryStatus:
+          type: string
+          enum: [AVAILABLE, CONFIRMED, EXPIRED]
+        deliveryConfirmedAt:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+
+    AdminCodeBatchDetail:
+      allOf:
+        - $ref: '#/components/schemas/AdminCodeBatchSummary'
+        - type: object
+          required: [availableCodeCount, exhaustedCodeCount]
+          properties:
+            availableCodeCount:
+              type: integer
+              minimum: 0
+            exhaustedCodeCount:
+              type: integer
+              minimum: 0
+
+    CodeBatchPage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminCodeBatchSummary'
+        page:
+          $ref: '#/components/schemas/PageMetadata'
+
+    CreateCodeBatchRequest:
+      type: object
+      required: [name, generatedCount, quotaPerCode]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        generatedCount:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        quotaPerCode:
+          type: integer
+          minimum: 1
+          maximum: 100
+
+    CreateCodeBatchResponse:
+      type: object
+      required: [batch, deliveryTicket, deliveryUrl, deliveryExpiresAt]
+      properties:
+        batch:
+          $ref: '#/components/schemas/AdminCodeBatchDetail'
+        deliveryTicket:
+          type: string
+          minLength: 32
+          maxLength: 2048
+          readOnly: true
+        deliveryUrl:
+          type: string
+          format: uri-reference
+        deliveryExpiresAt:
+          $ref: '#/components/schemas/Timestamp'
+
+    AdminRedemptionCode:
+      type: object
+      required: [id, maskedCode, codeSuffix, totalQuota, usedQuota, remainingQuota, status]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        maskedCode:
+          type: string
+          maxLength: 32
+          description: 仅显示安全掩码和尾号，例如 *****-*****-*****-A7K9X。
+        codeSuffix:
+          type: string
+          minLength: 4
+          maxLength: 8
+        totalQuota:
+          type: integer
+          minimum: 1
+          maximum: 100
+        usedQuota:
+          type: integer
+          minimum: 0
+          maximum: 100
+        remainingQuota:
+          type: integer
+          minimum: 0
+          maximum: 100
+        status:
+          $ref: '#/components/schemas/RedemptionCodeStatus'
+
+    RedemptionCodePage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminRedemptionCode'
+        page:
+          $ref: '#/components/schemas/PageMetadata'
+
+    AdminRedemptionSummary:
+      type: object
+      required: [id, requestId, idempotencyKey, deviceId, wallpaper, result, quotaDelta, createdAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        requestId:
+          type: string
+          format: uuid
+        idempotencyKey:
+          type: string
+          format: uuid
+        deviceId:
+          $ref: '#/components/schemas/LongId'
+        codeId:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/LongId'
+          nullable: true
+        maskedCode:
+          type: string
+          maxLength: 32
+          nullable: true
+        codeSuffix:
+          type: string
+          maxLength: 8
+          nullable: true
+        wallpaper:
+          $ref: '#/components/schemas/CategoryIndependentWallpaperRef'
+        result:
+          $ref: '#/components/schemas/RedemptionResultCode'
+        quotaDelta:
+          type: integer
+          minimum: 0
+          maximum: 1
+        errorCode:
+          type: string
+          maxLength: 64
+          nullable: true
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+
+    CategoryIndependentWallpaperRef:
+      type: object
+      required: [id, title, slug]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        title:
+          type: string
+          maxLength: 40
+        slug:
+          type: string
+          maxLength: 64
+
+    AdminRedemptionDetail:
+      allOf:
+        - $ref: '#/components/schemas/AdminRedemptionSummary'
+        - type: object
+          required: [device]
+          properties:
+            device:
+              $ref: '#/components/schemas/AdminDeviceSummary'
+            entitlement:
+              type: object
+              allOf:
+                - $ref: '#/components/schemas/AdminEntitlement'
+              nullable: true
+
+    AdminRedemptionPage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminRedemptionSummary'
+        page:
+          $ref: '#/components/schemas/PageMetadata'
+
+    AdminDeviceSummary:
+      type: object
+      required: [id, platform, appInstallScope, status, entitlementCount, lastSeenAt, createdAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        platform:
+          $ref: '#/components/schemas/DevicePlatform'
+        appInstallScope:
+          type: string
+          maxLength: 64
+        status:
+          type: string
+          enum: [ACTIVE, REVIEW, DISABLED]
+        entitlementCount:
+          type: integer
+          format: int64
+          minimum: 0
+        lastSeenAt:
+          $ref: '#/components/schemas/Timestamp'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+
+    AdminDeviceDetail:
+      allOf:
+        - $ref: '#/components/schemas/AdminDeviceSummary'
+        - type: object
+          required: [credentials, entitlements]
+          properties:
+            credentials:
+              type: array
+              items:
+                $ref: '#/components/schemas/AdminDeviceCredential'
+            entitlements:
+              type: array
+              items:
+                $ref: '#/components/schemas/AdminEntitlement'
+
+    AdminDeviceCredential:
+      type: object
+      required: [credentialKeyId, credentialType, status]
+      properties:
+        credentialKeyId:
+          type: string
+          format: uuid
+        credentialType:
+          type: string
+          enum: [PLATFORM_PUBLIC_KEY, H5_TEST_SECRET]
+        status:
+          type: string
+          enum: [ACTIVE, REVOKED]
+        lastUsedAt:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        revokedAt:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+
+    AdminEntitlement:
+      type: object
+      required: [id, wallpaper, status, grantedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        wallpaper:
+          $ref: '#/components/schemas/CategoryIndependentWallpaperRef'
+        status:
+          type: string
+          enum: [ACTIVE, REVOKED]
+        grantedAt:
+          $ref: '#/components/schemas/Timestamp'
+        revokedAt:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+
+    AdminDevicePage:
+      type: object
+      required: [items, page]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminDeviceSummary'
+        page:
+          $ref: '#/components/schemas/PageMetadata'

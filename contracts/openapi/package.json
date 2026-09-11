@@ -1,0 +1,14 @@
+{
+  "name": "@qingjing/openapi-contract",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "lint": "redocly lint openapi.yaml",
+    "test": "npm run lint && node scripts/check-contract.mjs",
+    "bundle": "redocly bundle openapi.yaml --output dist/openapi.yaml"
+  },
+  "devDependencies": {
+    "@redocly/cli": "2.52.0",
+    "yaml": "2.9.0"
+  }
+}
