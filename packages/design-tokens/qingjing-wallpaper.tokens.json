@@ -1,0 +1,137 @@
+{
+  "meta": {
+    "name": "倾境壁纸",
+    "version": "0.1.0",
+    "description": "H5、Flutter 与平台原生界面共享的视觉 Token",
+    "dimensionUnit": "platform-logical-pixel"
+  },
+  "color": {
+    "ink": "#191817",
+    "inkSoft": "#3F3B37",
+    "mutedInk": "#6F6A64",
+    "subtleInk": "#98928B",
+    "inverseInk": "#FFFFFF",
+    "accent": "#F4A91E",
+    "accentStrong": "#DB8E00",
+    "accentSoft": "#FFF3D8",
+    "blush": "#DE9C95",
+    "blushSoft": "#F8E8E5",
+    "success": "#287A55",
+    "successSoft": "#E7F4EC",
+    "danger": "#C94943",
+    "dangerSoft": "#FBE9E7",
+    "background": "#F4F3F0",
+    "surface": "#FFFFFF",
+    "surfaceMuted": "#F8F7F4",
+    "surfaceStrong": "#E8E5E0",
+    "outline": "#E7E3DD",
+    "outlineStrong": "#D8D2CA",
+    "navigation": "#191817",
+    "navigationInactive": "#FFFFFF",
+    "scrim": "#191817"
+  },
+  "space": {
+    "1": 4,
+    "2": 8,
+    "3": 12,
+    "4": 16,
+    "5": 20,
+    "6": 24,
+    "7": 28,
+    "8": 32,
+    "10": 40,
+    "12": 48
+  },
+  "radius": {
+    "small": 10,
+    "control": 14,
+    "media": 22,
+    "card": 24,
+    "sheet": 28,
+    "navigation": 30,
+    "pill": 999
+  },
+  "size": {
+    "contentMax": 430,
+    "pageGutter": 20,
+    "topBar": 64,
+    "touchTargetMin": 44,
+    "primaryControl": 54,
+    "categoryIcon": 56,
+    "bottomNavigation": 66,
+    "wallpaperCardMedia": 214,
+    "detailMedia": 470
+  },
+  "fontSize": {
+    "display": 34,
+    "pageTitle": 28,
+    "sectionTitle": 20,
+    "cardTitle": 16,
+    "bodyLarge": 16,
+    "body": 14,
+    "captionLarge": 13,
+    "caption": 12,
+    "micro": 10
+  },
+  "fontWeight": {
+    "regular": 400,
+    "medium": 500,
+    "semibold": 600,
+    "bold": 700,
+    "heavy": 800
+  },
+  "lineHeight": {
+    "display": 1.12,
+    "title": 1.25,
+    "section": 1.35,
+    "body": 1.6,
+    "caption": 1.45
+  },
+  "motion": {
+    "durationFast": 140,
+    "durationBase": 220,
+    "durationSlow": 360,
+    "easeStandard": [0.2, 0, 0, 1],
+    "easeEmphasized": [0.2, 0.8, 0.2, 1]
+  },
+  "breakpoint": {
+    "compact": 375,
+    "designBaseline": 390,
+    "contentMax": 430,
+    "tablet": 768
+  },
+  "shadow": {
+    "card": {
+      "x": 0,
+      "y": 16,
+      "blur": 42,
+      "spread": 0,
+      "color": "#31281F",
+      "opacity": 0.1
+    },
+    "soft": {
+      "x": 0,
+      "y": 8,
+      "blur": 24,
+      "spread": 0,
+      "color": "#31281F",
+      "opacity": 0.07
+    },
+    "floating": {
+      "x": 0,
+      "y": 12,
+      "blur": 34,
+      "spread": 0,
+      "color": "#191817",
+      "opacity": 0.18
+    },
+    "focus": {
+      "x": 0,
+      "y": 0,
+      "blur": 0,
+      "spread": 3,
+      "color": "#F4A91E",
+      "opacity": 0.28
+    }
+  }
+}

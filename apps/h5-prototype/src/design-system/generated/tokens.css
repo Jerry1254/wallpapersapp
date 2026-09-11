@@ -1,0 +1,92 @@
+/* Generated from packages/design-tokens/qingjing-wallpaper.tokens.json. */
+:root,
+.qj-design-system {
+  --qj-color-ink: #191817;
+  --qj-color-ink-soft: #3F3B37;
+  --qj-color-muted-ink: #6F6A64;
+  --qj-color-subtle-ink: #98928B;
+  --qj-color-inverse-ink: #FFFFFF;
+  --qj-color-accent: #F4A91E;
+  --qj-color-accent-strong: #DB8E00;
+  --qj-color-accent-soft: #FFF3D8;
+  --qj-color-blush: #DE9C95;
+  --qj-color-blush-soft: #F8E8E5;
+  --qj-color-success: #287A55;
+  --qj-color-success-soft: #E7F4EC;
+  --qj-color-danger: #C94943;
+  --qj-color-danger-soft: #FBE9E7;
+  --qj-color-background: #F4F3F0;
+  --qj-color-surface: #FFFFFF;
+  --qj-color-surface-muted: #F8F7F4;
+  --qj-color-surface-strong: #E8E5E0;
+  --qj-color-outline: #E7E3DD;
+  --qj-color-outline-strong: #D8D2CA;
+  --qj-color-navigation: #191817;
+  --qj-color-navigation-inactive: #FFFFFF;
+  --qj-color-scrim: #191817;
+
+  --qj-space-1: 4px;
+  --qj-space-2: 8px;
+  --qj-space-3: 12px;
+  --qj-space-4: 16px;
+  --qj-space-5: 20px;
+  --qj-space-6: 24px;
+  --qj-space-7: 28px;
+  --qj-space-8: 32px;
+  --qj-space-10: 40px;
+  --qj-space-12: 48px;
+
+  --qj-radius-small: 10px;
+  --qj-radius-control: 14px;
+  --qj-radius-media: 22px;
+  --qj-radius-card: 24px;
+  --qj-radius-sheet: 28px;
+  --qj-radius-navigation: 30px;
+  --qj-radius-pill: 999px;
+
+  --qj-size-content-max: 430px;
+  --qj-size-page-gutter: 20px;
+  --qj-size-top-bar: 64px;
+  --qj-size-touch-target-min: 44px;
+  --qj-size-primary-control: 54px;
+  --qj-size-category-icon: 56px;
+  --qj-size-bottom-navigation: 66px;
+  --qj-size-wallpaper-card-media: 214px;
+  --qj-size-detail-media: 470px;
+
+  --qj-font-size-display: 34px;
+  --qj-font-size-page-title: 28px;
+  --qj-font-size-section-title: 20px;
+  --qj-font-size-card-title: 16px;
+  --qj-font-size-body-large: 16px;
+  --qj-font-size-body: 14px;
+  --qj-font-size-caption-large: 13px;
+  --qj-font-size-caption: 12px;
+  --qj-font-size-micro: 10px;
+  --qj-font-weight-regular: 400;
+  --qj-font-weight-medium: 500;
+  --qj-font-weight-semibold: 600;
+  --qj-font-weight-bold: 700;
+  --qj-font-weight-heavy: 800;
+  --qj-line-height-display: 1.12;
+  --qj-line-height-title: 1.25;
+  --qj-line-height-section: 1.35;
+  --qj-line-height-body: 1.6;
+  --qj-line-height-caption: 1.45;
+
+  --qj-duration-fast: 140ms;
+  --qj-duration-base: 220ms;
+  --qj-duration-slow: 360ms;
+  --qj-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --qj-ease-emphasized: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  --qj-breakpoint-compact: 375px;
+  --qj-breakpoint-design-baseline: 390px;
+  --qj-breakpoint-content-max: 430px;
+  --qj-breakpoint-tablet: 768px;
+
+  --qj-shadow-card: 0px 16px 42px 0px rgba(49, 40, 31, 0.1);
+  --qj-shadow-soft: 0px 8px 24px 0px rgba(49, 40, 31, 0.07);
+  --qj-shadow-floating: 0px 12px 34px 0px rgba(25, 24, 23, 0.18);
+  --qj-shadow-focus: 0px 0px 0px 3px rgba(244, 169, 30, 0.28);
+}

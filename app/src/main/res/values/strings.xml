@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">4D壁纸验证版</string>
+    <string name="wallpaper_name">4D分层视差壁纸</string>
+    <string name="wallpaper_description">倾斜手机查看分层立体效果</string>
+    <string name="set_wallpaper">设置为动态壁纸</string>
+    <string name="preview_tip">左右、前后倾斜手机查看效果</string>
+</resources>

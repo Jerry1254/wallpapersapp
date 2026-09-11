@@ -1,0 +1,18 @@
+<svg width="720" height="1040" viewBox="0 0 720 1040" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="night" x1="50" y1="8" x2="648" y2="1040" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#32295B"/>
+      <stop offset=".48" stop-color="#BC4E61"/>
+      <stop offset="1" stop-color="#16171E"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="1040" rx="48" fill="url(#night)"/>
+  <circle cx="530" cy="190" r="102" fill="#F4B268" fill-opacity=".88"/>
+  <path d="M0 604H104V1040H0V604ZM94 520H220V1040H94V520ZM208 650H332V1040H208V650ZM318 438H482V1040H318V438ZM470 570H604V1040H470V570ZM590 492H720V1040H590V492Z" fill="#1B1A24"/>
+  <g fill="#F4A91E">
+    <rect x="126" y="574" width="22" height="46" rx="4"/><rect x="164" y="574" width="22" height="46" rx="4"/>
+    <rect x="354" y="492" width="24" height="48" rx="4"/><rect x="398" y="492" width="24" height="48" rx="4"/>
+    <rect x="512" y="626" width="22" height="46" rx="4"/><rect x="632" y="548" width="22" height="46" rx="4"/>
+  </g>
+  <path d="M0 886C176 830 264 892 374 918C492 946 588 912 720 860V1040H0V886Z" fill="#0F1015"/>
+</svg>

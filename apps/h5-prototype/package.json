@@ -1,0 +1,38 @@
+{
+  "name": "qingjing-wallpaper-h5-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "倾境壁纸移动端 H5 交互原型与跨端设计系统",
+  "packageManager": "npm@11.13.0",
+  "engines": {
+    "node": "24.16.0",
+    "npm": "11.13.0"
+  },
+  "scripts": {
+    "tokens:build": "node scripts/generate-design-tokens.mjs",
+    "tokens:check": "node scripts/generate-design-tokens.mjs --check",
+    "predev": "npm run tokens:build",
+    "dev": "vite --host 127.0.0.1",
+    "prebuild": "npm run tokens:check",
+    "build": "vue-tsc --noEmit && vite build",
+    "check": "npm run tokens:check && vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@lucide/vue": "1.39.0",
+    "pinia": "4.0.3",
+    "qrcode": "1.5.4",
+    "vant": "4.10.2",
+    "vue": "3.5.42",
+    "vue-router": "4.6.4"
+  },
+  "devDependencies": {
+    "@types/node": "26.4.0",
+    "@types/qrcode": "1.5.5",
+    "@vitejs/plugin-vue": "6.0.8",
+    "@vue/tsconfig": "0.9.1",
+    "typescript": "5.9.3",
+    "vite": "8.2.2",
+    "vue-tsc": "3.3.11"
+  }
+}
