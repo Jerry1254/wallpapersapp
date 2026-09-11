@@ -17,7 +17,7 @@
 | Redis | 7.4 | AOF 命名卷 | 后续会话、限流、短时票据和幂等协调 |
 | 本地资源目录 | `.runtime/storage` | 宿主机目录 | FileStorage 本地 Adapter 的运行时根目录 |
 
-API 默认映射 8080，MySQL 默认映射 3307，Redis 默认映射 6380，避免与常见的宿主机 3306/6379 服务冲突。
+API 默认映射 8080，MySQL 默认映射 3307，Redis 默认映射 6380，避免与常见的宿主机 3306/6379 服务冲突。三个端口都只绑定 `127.0.0.1`，不会监听宿主机的外部网卡。
 
 ## 2. 凭据与运行时文件
 
@@ -40,6 +40,16 @@ Compose 只引用环境变量，不保存默认密码。Flyway V1 只建结构�
 `up` 构建 Jar 和 API 镜像，等待 MySQL、Redis 容器健康后再启动 API，并等到 readiness 成功才返回。`down` 保留命名卷，因此再次 `up` 会验证 Flyway 重复启动并继续使用原 MySQL 数据。
 
 `init-admin` 只在 `admin_account` 为空时工作。脚本隐藏读取 12 至 128 位密码，使用临时环境变量重建 API 触发 BCrypt 初始化，随后再次重建 API 清除容器元数据里的明文变量。现有账号不会被该命令重置；迁移、Compose 和运行时配置文件都不保存默认管理员密码。
+
+管理后台在 API 就绪后单独启动：
+
+~~~bash
+cd apps/admin-web
+npm ci
+npm run dev
+~~~
+
+默认访问 `http://127.0.0.1:5176`。Vite 把同源 `/api` 请求代理到 `http://127.0.0.1:8080`；如需调整，仅在本机环境设置 `VITE_API_PROXY_TARGET`。
 
 ## 4. 健康检查
 

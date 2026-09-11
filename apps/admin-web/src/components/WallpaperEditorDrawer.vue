@@ -18,6 +18,7 @@ const props = defineProps<{
   modelValue: boolean;
   categories: Category[];
   wallpaper?: Wallpaper;
+  saving?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -28,6 +29,7 @@ const emit = defineEmits<{
 const blank = (): Wallpaper => ({
   id: '',
   title: '',
+  slug: '',
   categoryId: '',
   subcategoryId: '',
   kind: 'four_d',
@@ -36,8 +38,10 @@ const blank = (): Wallpaper => ({
   sort: 100,
   coverUrl: '',
   resources: {},
-  downloads: 0,
-  updatedAt: ''
+  copyrightNote: '倾境壁纸已获得该资源的发布和交付授权',
+  updatedAt: '',
+  version: 0,
+  variants: []
 });
 
 const form = reactive<Wallpaper>(blank());
@@ -47,6 +51,7 @@ const visible = computed({
   set: (value) => emit('update:modelValue', value)
 });
 const isEditing = computed(() => Boolean(props.wallpaper?.id));
+const resourceShapeLocked = computed(() => Boolean(props.wallpaper?.variants.some((item) => item.resourceVersions.length)));
 const coverPreviewSrc = computed(() => form.resources.cover?.url || form.coverUrl);
 const backgroundPreviewSrc = computed(() => form.resources.backgroundLayer?.url || coverPreviewSrc.value);
 const foregroundPreviewSrc = computed(() => form.resources.foregroundLayer?.url);
@@ -79,7 +84,7 @@ watch(() => props.wallpaper, (value) => {
 });
 watch(() => form.kind, (kind) => {
   if (kind === 'four_d') form.platforms = ['android'];
-  if (kind === 'static' && form.platforms.length === 0) form.platforms = ['android', 'ios', 'harmony'];
+  if (kind === 'static') form.platforms = ['android', 'ios', 'harmony'];
 });
 
 const setResource = (key: keyof Wallpaper['resources'], value: ResourceFile | undefined) => {
@@ -97,6 +102,7 @@ const changePrimaryCategory = () => {
 const validate = () => {
   const next: Record<string, string> = {};
   if (!form.title.trim()) next.title = '请输入壁纸名称';
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.slug)) next.slug = '请输入小写字母、数字和连字符组成的 Slug';
   if (!form.categoryId) next.categoryId = '请选择一级分类';
   if (secondaryCategories.value.length && !form.subcategoryId) next.subcategoryId = '请选择二级分类';
   if (!form.resources.cover && !form.coverUrl) next.cover = '请上传列表封面';
@@ -113,6 +119,7 @@ const validate = () => {
     if (hasPlatform('harmony') && !form.resources.harmonyPackage) next.harmonyPackage = 'HarmonyOS 需要平台资源包';
   }
   if (form.kind === 'static' && !form.resources.staticImage) next.staticImage = '请上传高清原图';
+  if (!form.copyrightNote.trim()) next.copyrightNote = '请输入版权说明';
   errors.value = next;
   return Object.keys(next).length === 0;
 };
@@ -164,7 +171,10 @@ const resourceRows = computed(() => {
           <ElForm label-position="top">
             <div class="form-grid">
               <ElFormItem label="壁纸名称" :error="errors.title">
-                <ElInput v-model="form.title" maxlength="30" show-word-limit placeholder="例如：暮色山峦" @input="delete errors.title" />
+                <ElInput v-model="form.title" maxlength="40" show-word-limit placeholder="例如：暮色山峦" @input="delete errors.title" />
+              </ElFormItem>
+              <ElFormItem label="Slug" :error="errors.slug">
+                <ElInput v-model="form.slug" maxlength="64" placeholder="例如：twilight-mountains" @input="delete errors.slug" />
               </ElFormItem>
               <ElFormItem label="一级分类" :error="errors.categoryId">
                 <ElSelect v-model="form.categoryId" placeholder="请选择" style="width: 100%" @change="changePrimaryCategory">
@@ -179,6 +189,9 @@ const resourceRows = computed(() => {
               <ElFormItem label="排序值">
                 <ElInputNumber v-model="form.sort" :min="0" :max="9999" controls-position="right" style="width: 100%" />
               </ElFormItem>
+              <ElFormItem class="span-2" label="版权说明" :error="errors.copyrightNote">
+                <ElInput v-model="form.copyrightNote" type="textarea" :rows="2" maxlength="500" show-word-limit @input="delete errors.copyrightNote" />
+              </ElFormItem>
             </div>
           </ElForm>
         </section>
@@ -186,10 +199,10 @@ const resourceRows = computed(() => {
         <section class="editor-section">
           <div class="editor-section__heading">
             <h3>选择壁纸类型</h3>
-            <p>类型决定资源组合和客户端设置方式，发布后仍可编辑，但不建议更换类型。</p>
+            <p>{{ resourceShapeLocked ? '已有资源版本，类型和平台组合已锁定；可上传新文件形成下一资源版本。' : '类型决定资源组合和客户端设置方式。' }}</p>
           </div>
           <div class="kind-picker" role="radiogroup" aria-label="壁纸类型">
-            <button v-for="item in kindOptions" :key="item.value" type="button" class="kind-option" :class="{ 'is-active': form.kind === item.value }" role="radio" :aria-checked="form.kind === item.value" @click="form.kind = item.value">
+            <button v-for="item in kindOptions" :key="item.value" type="button" class="kind-option" :class="{ 'is-active': form.kind === item.value }" :disabled="resourceShapeLocked" role="radio" :aria-checked="form.kind === item.value" @click="form.kind = item.value">
               <strong>{{ item.title }}</strong>
               <small>{{ item.text }}</small>
             </button>
@@ -202,7 +215,7 @@ const resourceRows = computed(() => {
             <p v-if="form.kind === 'four_d'">4D 分层效果当前仅支持 Android，平台已锁定。</p>
             <p v-else>勾选后请上传对应平台资源；静态壁纸可直接选择全部平台。</p>
           </div>
-          <ElCheckboxGroup v-model="form.platforms" :disabled="form.kind === 'four_d'" @change="delete errors.platforms">
+          <ElCheckboxGroup v-model="form.platforms" :disabled="form.kind === 'four_d' || form.kind === 'static' || resourceShapeLocked" @change="delete errors.platforms">
             <ElCheckboxButton value="android">Android</ElCheckboxButton>
             <ElCheckboxButton value="ios">iOS</ElCheckboxButton>
             <ElCheckboxButton value="harmony">HarmonyOS</ElCheckboxButton>
@@ -254,7 +267,7 @@ const resourceRows = computed(() => {
               <p v-if="errors.iosMov" class="field-error">{{ errors.iosMov }}</p>
             </div>
             <div v-if="hasPlatform('ios')" class="resource-grid__item">
-              <ResourceFileField :model-value="form.resources.iosPhoto" label="iOS 实况照片" hint="HEIC，与 MOV 资源标识匹配" accept="image/heic,.heic" required @update:model-value="setResource('iosPhoto', $event)" />
+              <ResourceFileField :model-value="form.resources.iosPhoto" label="iOS 实况照片" hint="JPEG，与 MOV 属于同一 Live Photo" accept="image/jpeg" required @update:model-value="setResource('iosPhoto', $event)" />
               <p v-if="errors.iosPhoto" class="field-error">{{ errors.iosPhoto }}</p>
             </div>
             <div v-if="hasPlatform('harmony')" class="resource-grid__item span-2">
@@ -306,9 +319,9 @@ const resourceRows = computed(() => {
 
     <template #footer>
       <div class="dialog-actions">
-        <ElButton @click="visible = false">取消</ElButton>
-        <ElButton @click="save('draft')">保存草稿</ElButton>
-        <ElButton type="primary" @click="save('published')">保存并发布</ElButton>
+        <ElButton :disabled="saving" @click="visible = false">取消</ElButton>
+        <ElButton :loading="saving" @click="save('draft')">{{ isEditing ? '保存修改' : '保存草稿' }}</ElButton>
+        <ElButton type="primary" :loading="saving" @click="save('published')">保存并发布</ElButton>
       </div>
     </template>
   </ElDrawer>

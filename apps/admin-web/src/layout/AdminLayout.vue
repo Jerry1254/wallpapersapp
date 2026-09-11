@@ -37,9 +37,16 @@ const updateViewport = () => {
   if (mobile.value) collapsed.value = true;
 };
 
+const handleMenuSelect = () => {
+  if (mobile.value) collapsed.value = true;
+};
+
 const logout = async () => {
-  auth.logout();
-  await router.replace('/login');
+  try {
+    await auth.logout();
+  } finally {
+    await router.replace('/login');
+  }
 };
 
 onMounted(() => {
@@ -52,6 +59,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateViewport));
 
 <template>
   <div class="admin-shell" :class="{ collapsed, mobile }">
+    <button v-if="mobile && !collapsed" class="admin-sidebar-backdrop" aria-label="关闭导航" @click="collapsed = true"></button>
     <aside class="admin-sidebar">
       <div class="admin-brand">
         <span>倾</span>
@@ -60,7 +68,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateViewport));
           <small>管理后台</small>
         </div>
       </div>
-      <ElMenu :default-active="route.path" router :collapse="collapsed" :collapse-transition="false">
+      <ElMenu :default-active="route.path" router :collapse="collapsed" :collapse-transition="false" @select="handleMenuSelect">
         <ElMenuItem v-for="item in items" :key="item.path" :index="item.path">
           <ElIcon><component :is="item.icon" /></ElIcon>
           <template #title>{{ item.label }}</template>
@@ -68,7 +76,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateViewport));
       </ElMenu>
       <div class="admin-sidebar__footer" :class="{ compact: collapsed }">
         <span class="status-dot"></span>
-        <small v-if="!collapsed">本地 Mock 数据</small>
+        <small v-if="!collapsed">本地 API 已连接</small>
       </div>
     </aside>
 

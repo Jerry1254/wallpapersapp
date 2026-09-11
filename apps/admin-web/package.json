@@ -3,14 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "倾境壁纸内容与兑换管理后台 Mock 原型",
+  "description": "倾境壁纸内容与兑换管理后台",
   "packageManager": "npm@11.13.0",
-  "engines": { "node": "24.16.0", "npm": "11.13.0" },
+  "engines": {
+    "node": "24.16.0",
+    "npm": "11.13.0"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5176",
+    "test": "vitest run",
     "typecheck": "vue-tsc --noEmit",
     "build": "npm run typecheck && vite build",
-    "check": "npm run typecheck"
+    "check": "npm test && npm run build"
   },
   "dependencies": {
     "@element-plus/icons-vue": "2.3.2",
@@ -25,6 +29,7 @@
     "@vitejs/plugin-vue": "6.0.8",
     "typescript": "5.9.3",
     "vite": "7.3.6",
+    "vitest": "5.0.0",
     "vue-tsc": "3.3.11"
   }
 }

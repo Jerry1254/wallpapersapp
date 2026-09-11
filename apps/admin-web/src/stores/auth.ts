@@ -1,28 +1,57 @@
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
-const SESSION_KEY = 'qingjing-admin-session';
-const demoUsername = import.meta.env.VITE_DEMO_ADMIN_USERNAME || '';
-const demoPassword = import.meta.env.VITE_DEMO_ADMIN_PASSWORD || '';
+import { ApiError, setCsrfToken, setUnauthorizedHandler } from '@/repositories/http/apiClient';
+import { adminRepository, type AdminSession } from '@/repositories/http/adminRepository';
 
 export const useAuthStore = defineStore('auth', () => {
-  const username = ref(window.sessionStorage.getItem(SESSION_KEY) || '');
-  const authenticated = ref(Boolean(username.value));
+  const session = ref<AdminSession>();
+  const initialized = ref(false);
+  let restoring: Promise<void> | undefined;
+
+  const username = computed(() => session.value?.admin.username || '');
+  const authenticated = computed(() => Boolean(session.value));
+  const clear = () => {
+    session.value = undefined;
+    setCsrfToken('');
+  };
+  setUnauthorizedHandler(clear);
+
+  const apply = (value: AdminSession) => {
+    session.value = value;
+    setCsrfToken(value.csrfToken);
+  };
+
+  const restore = async () => {
+    if (initialized.value) return;
+    if (restoring) return restoring;
+    restoring = (async () => {
+      try {
+        apply(await adminRepository.currentSession());
+      } catch (cause) {
+        if (!(cause instanceof ApiError) || cause.status !== 401) throw cause;
+        clear();
+      } finally {
+        initialized.value = true;
+        restoring = undefined;
+      }
+    })();
+    return restoring;
+  };
 
   const login = async (account: string, password: string) => {
-    await new Promise((resolve) => window.setTimeout(resolve, 450));
-    if (!demoUsername || !demoPassword) throw new Error('本地演示账号尚未配置');
-    if (account !== demoUsername || password !== demoPassword) throw new Error('账号或密码错误');
-    username.value = account;
-    authenticated.value = true;
-    window.sessionStorage.setItem(SESSION_KEY, account);
+    apply(await adminRepository.login(account, password));
+    initialized.value = true;
   };
 
-  const logout = () => {
-    username.value = '';
-    authenticated.value = false;
-    window.sessionStorage.removeItem(SESSION_KEY);
+  const logout = async () => {
+    try {
+      if (session.value) await adminRepository.logout();
+    } finally {
+      clear();
+      initialized.value = true;
+    }
   };
 
-  return { username, authenticated, login, logout };
+  return { username, authenticated, initialized, restore, login, logout };
 });

@@ -4,14 +4,14 @@ import { reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { useAuthStore } from '@/stores/auth';
+import { ApiError, readableApiError } from '@/repositories/http/apiClient';
 
 const auth = useAuthStore();
 const route = useRoute();
 const router = useRouter();
-const demoUsername = import.meta.env.VITE_DEMO_ADMIN_USERNAME || '';
-const form = reactive({ username: demoUsername, password: '' });
+const form = reactive({ username: 'admin', password: '' });
 const busy = ref(false);
-const error = ref('');
+const error = ref(route.query.api === 'unavailable' ? '本地 API 暂时不可用，请检查服务是否已启动' : '');
 
 const submit = async () => {
   if (busy.value) return;
@@ -26,7 +26,9 @@ const submit = async () => {
     const target = typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard';
     await router.replace(target);
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : '登录失败';
+    error.value = cause instanceof ApiError && cause.status === 401
+      ? '账号或密码错误'
+      : readableApiError(cause, '登录失败');
   } finally {
     busy.value = false;
   }
@@ -61,8 +63,8 @@ const submit = async () => {
           <ElButton class="login-submit" type="primary" native-type="submit" :loading="busy">登录</ElButton>
         </ElForm>
         <div class="login-demo-note">
-          <span>本地原型账号</span>
-          <code>{{ demoUsername || '请配置 .env.local' }} / 本地环境变量中的密码</code>
+          <span>账号由本地 API 初始化</span>
+          <code>密码只交给服务端校验，浏览器不保存</code>
         </div>
       </div>
     </section>

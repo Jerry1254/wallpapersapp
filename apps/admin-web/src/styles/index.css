@@ -44,6 +44,7 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
   transition: width .18s ease;
 }
 .admin-shell.collapsed .admin-sidebar { width: 72px; }
+.admin-sidebar-backdrop { display: none; }
 .admin-brand {
   height: 76px;
   display: flex;
@@ -304,6 +305,20 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
 
 @media (max-width: 640px) {
   .admin-sidebar { display: none; }
+  .admin-shell.mobile:not(.collapsed) .admin-sidebar {
+    display: flex;
+    width: min(280px, calc(100vw - 48px));
+    box-shadow: 18px 0 48px rgba(20, 19, 17, .24);
+  }
+  .admin-sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 19;
+    display: block;
+    width: 100%;
+    border: 0;
+    background: rgba(20, 19, 17, .38);
+  }
   .admin-main, .admin-shell.collapsed .admin-main { margin-left: 0; }
   .admin-topbar { height: 64px; }
   .page-heading { flex-direction: column; }

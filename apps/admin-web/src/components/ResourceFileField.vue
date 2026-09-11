@@ -33,7 +33,8 @@ const setFile = (selected?: File) => {
     name: selected.name,
     size: selected.size,
     mime: selected.type || 'application/octet-stream',
-    url: localObjectUrl.value
+    url: localObjectUrl.value,
+    nativeFile: selected
   });
 };
 

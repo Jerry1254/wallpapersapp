@@ -3,35 +3,46 @@ import { CollectionTag, Key, Picture, Promotion, TrendCharts } from '@element-pl
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
-import { wallpaperKindLabels, type Category, type CodeBatch, type Wallpaper } from '@/domain/admin';
-import { adminRepository } from '@/repositories/mock/adminRepository';
+import { statusLabels, wallpaperKindLabels, type AdminDashboard, type Category, type Wallpaper } from '@/domain/admin';
+import { readableApiError } from '@/repositories/http/apiClient';
+import { adminRepository } from '@/repositories/http/adminRepository';
+import { ElMessage } from 'element-plus';
 
 const router = useRouter();
 const loading = ref(true);
 const wallpapers = ref<Wallpaper[]>([]);
-const batches = ref<CodeBatch[]>([]);
 const categories = ref<Category[]>([]);
-const redemptionCount = ref(0);
+const summary = ref<AdminDashboard>({
+  publishedWallpaperCount: 0,
+  activeDeviceCount: 0,
+  entitlementCount: 0,
+  redemptionCountToday: 0,
+  generatedAt: ''
+});
 
 const stats = computed(() => [
-  { label: '壁纸总数', value: wallpapers.value.length, icon: Picture },
-  { label: '已发布', value: wallpapers.value.filter((item) => item.status === 'published').length, icon: Promotion },
-  { label: '可用兑换额度', value: batches.value.reduce((sum, item) => sum + Math.max(0, item.codeCount * item.quotaPerCode - item.redeemed), 0), icon: Key },
-  { label: '累计兑换', value: redemptionCount.value, icon: TrendCharts }
+  { label: '已发布壁纸', value: summary.value.publishedWallpaperCount, icon: Picture },
+  { label: '活跃设备', value: summary.value.activeDeviceCount, icon: Promotion },
+  { label: '累计设备权益', value: summary.value.entitlementCount, icon: Key },
+  { label: '今日兑换', value: summary.value.redemptionCountToday, icon: TrendCharts }
 ]);
 
 const load = async () => {
   loading.value = true;
-  const data = await adminRepository.dashboard();
-  wallpapers.value = data.wallpapers;
-  batches.value = data.batches;
-  categories.value = data.categories;
-  redemptionCount.value = data.redemptions.filter((item) => item.result === 'success').length;
-  loading.value = false;
+  try {
+    const [data, categoryItems] = await Promise.all([adminRepository.dashboard(), adminRepository.categories()]);
+    summary.value = data.summary;
+    wallpapers.value = data.wallpapers;
+    categories.value = categoryItems;
+  } catch (cause) {
+    ElMessage.error(readableApiError(cause, '工作台加载失败'));
+  } finally {
+    loading.value = false;
+  }
 };
 
-const statusLabel = (value: Wallpaper['status']) => ({ draft: '草稿', published: '已发布', offline: '已下架' }[value]);
-const statusType = (value: Wallpaper['status']) => ({ draft: 'info', published: 'success', offline: 'warning' }[value] as 'info' | 'success' | 'warning');
+const statusLabel = (value: Wallpaper['status']) => statusLabels[value];
+const statusType = (value: Wallpaper['status']) => ({ draft: 'info', published: 'success', offline: 'warning', archived: 'info' }[value] as 'info' | 'success' | 'warning');
 const kindLabel = (value: Wallpaper['kind']) => wallpaperKindLabels[value];
 const dataCategoryName = (id: string) => categories.value.find((item) => item.id === id)?.name || '—';
 
@@ -43,7 +54,7 @@ onMounted(load);
     <header class="page-heading">
       <div>
         <h1>工作台</h1>
-        <p>查看内容状态，快速进入壁纸上传和兑换码生成。</p>
+        <p>查看服务端实时内容、设备和兑换汇总，快速进入内容维护。</p>
       </div>
       <div class="page-actions">
         <ElButton type="primary" :icon="Picture" @click="router.push({ path: '/wallpapers', query: { create: '1' } })">上传壁纸</ElButton>
@@ -92,7 +103,7 @@ onMounted(load);
               <span><ElIcon><CollectionTag /></ElIcon></span><div><strong>维护分类</strong><small>管理首页一级分类与排序</small></div><ElIcon><Promotion /></ElIcon>
             </button>
             <button class="quick-action" type="button" @click="router.push('/codes')">
-              <span><ElIcon><Key /></ElIcon></span><div><strong>生成兑换码</strong><small>批量生成并设置兑换次数快照</small></div><ElIcon><Promotion /></ElIcon>
+              <span><ElIcon><Key /></ElIcon></span><div><strong>兑换码接口阶段</strong><small>WP-P08 将接入批次生成和一次性导出</small></div><ElIcon><Promotion /></ElIcon>
             </button>
           </div>
         </section>
@@ -100,7 +111,7 @@ onMounted(load);
           <header class="panel-heading"><div><h2>上传规则</h2><p>三种壁纸的资源组合</p></div></header>
           <div class="kind-guide">
             <article class="kind-guide__item"><header><strong>4D 分层</strong><ElTag size="small">Android</ElTag></header><p>封面 + 背景层 + 透明前景层；可附景深 JSON，详情页直接合成预览。</p></article>
-            <article class="kind-guide__item"><header><strong>动态壁纸</strong><ElTag size="small" type="warning">多平台</ElTag></header><p>Android 上传 MP4；iOS 上传 MOV 与 HEIC；鸿蒙上传资源包。</p></article>
+            <article class="kind-guide__item"><header><strong>动态壁纸</strong><ElTag size="small" type="warning">多平台</ElTag></header><p>Android 上传 MP4；iOS 上传 MOV 与 JPEG；鸿蒙上传资源包。</p></article>
             <article class="kind-guide__item"><header><strong>静态壁纸</strong><ElTag size="small" type="info">全平台</ElTag></header><p>封面 + 一张高清原图，客户端负责安全裁切。</p></article>
           </div>
         </section>

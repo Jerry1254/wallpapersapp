@@ -22,8 +22,13 @@ const router = createRouter({
   ]
 });
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const auth = useAuthStore();
+  try {
+    await auth.restore();
+  } catch {
+    if (to.name !== 'login') return { name: 'login', query: { redirect: to.fullPath, api: 'unavailable' } };
+  }
   if (to.name !== 'login' && !auth.authenticated) return { name: 'login', query: { redirect: to.fullPath } };
   if (to.name === 'login' && auth.authenticated) return { name: 'dashboard' };
   return true;

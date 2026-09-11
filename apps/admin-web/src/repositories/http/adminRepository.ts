@@ -1,0 +1,455 @@
+import dayjs from 'dayjs';
+
+import type {
+  AdminDashboard,
+  ApiPlatform,
+  Category,
+  Platform,
+  PublishStatus,
+  ResourceFile,
+  ResourceType,
+  ResourceVersionStatus,
+  Wallpaper,
+  WallpaperKind,
+  WallpaperResources,
+  WallpaperVariant
+} from '@/domain/admin';
+import { ApiError, apiRequest, apiResourceUrl } from '@/repositories/http/apiClient';
+
+type AssetPurpose = 'CATEGORY_ICON' | 'WALLPAPER_COVER' | 'BACKGROUND' | 'FOREGROUND'
+  | 'PARALLAX_CONFIG' | 'VIDEO' | 'LIVE_PHOTO_IMAGE' | 'LIVE_PHOTO_VIDEO'
+  | 'STATIC_IMAGE' | 'THEME_PACKAGE';
+type AssetRole = 'BACKGROUND' | 'FOREGROUND' | 'PARALLAX_CONFIG' | 'VIDEO'
+  | 'LIVE_PHOTO_IMAGE' | 'LIVE_PHOTO_VIDEO' | 'STATIC_IMAGE' | 'THEME_PACKAGE';
+
+interface ApiAsset {
+  id: string;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  previewUrl?: string | null;
+  validationStatus: string;
+}
+
+interface ApiCategory {
+  id: string;
+  parentId: string | null;
+  name: string;
+  slug: string;
+  icon: ApiAsset | null;
+  sortOrder: number;
+  wallpaperCount: number;
+  children: ApiCategory[];
+  version: number;
+}
+
+interface ApiCategoryList { items: ApiCategory[] }
+
+interface ApiCategorySummary {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+interface ApiResourceBinding {
+  id: string;
+  role: AssetRole;
+  ordinal: number;
+  asset: ApiAsset;
+}
+
+interface ApiResourceVersion {
+  id: string;
+  versionNo: number;
+  status: ResourceVersionStatus;
+  bindings: ApiResourceBinding[];
+}
+
+interface ApiWallpaperVariant {
+  id: string;
+  platform: ApiPlatform;
+  resourceType: ResourceType;
+  resourceVersions: ApiResourceVersion[];
+  version: number;
+}
+
+interface ApiWallpaperSummary {
+  id: string;
+  title: string;
+  slug: string;
+  kind: 'PARALLAX_4D' | 'DYNAMIC' | 'STATIC';
+  rootCategory: ApiCategorySummary;
+  childCategory: ApiCategorySummary | null;
+  cover: ApiAsset;
+  sortOrder: number;
+  status: 'DRAFT' | 'PUBLISHED' | 'OFFLINE' | 'ARCHIVED';
+  updatedAt: string;
+  version: number;
+}
+
+interface ApiWallpaperDetail extends ApiWallpaperSummary {
+  copyrightNote: string;
+  variants: ApiWallpaperVariant[];
+}
+
+interface ApiWallpaperPage {
+  items: ApiWallpaperSummary[];
+  page: { page: number; pageSize: number; totalItems: number; totalPages: number };
+}
+
+interface ApiSession {
+  admin: { id: string; username: string };
+  csrfToken: string;
+  expiresAt: string;
+}
+
+interface VariantSpec {
+  platform: ApiPlatform;
+  resourceType: ResourceType;
+  bindings: { role: AssetRole; purpose: AssetPurpose; resource: ResourceFile | undefined }[];
+}
+
+const kindToApi: Record<WallpaperKind, ApiWallpaperSummary['kind']> = {
+  four_d: 'PARALLAX_4D',
+  dynamic: 'DYNAMIC',
+  static: 'STATIC'
+};
+const kindFromApi: Record<ApiWallpaperSummary['kind'], WallpaperKind> = {
+  PARALLAX_4D: 'four_d',
+  DYNAMIC: 'dynamic',
+  STATIC: 'static'
+};
+const statusFromApi: Record<ApiWallpaperSummary['status'], PublishStatus> = {
+  DRAFT: 'draft',
+  PUBLISHED: 'published',
+  OFFLINE: 'offline',
+  ARCHIVED: 'archived'
+};
+
+const formatDate = (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm');
+const ifMatch = (version: number) => `"${version}"`;
+const jsonBody = (value: unknown) => JSON.stringify(value);
+const toResource = (asset: ApiAsset): ResourceFile => ({
+  name: asset.originalFilename,
+  size: asset.sizeBytes,
+  mime: asset.mimeType,
+  url: apiResourceUrl(asset.previewUrl),
+  assetId: asset.id
+});
+
+const categoryFromApi = (value: ApiCategory): Category => ({
+  id: value.id,
+  name: value.name,
+  slug: value.slug,
+  parentId: value.parentId ?? null,
+  iconUrl: apiResourceUrl(value.icon?.previewUrl),
+  icon: value.icon ? toResource(value.icon) : undefined,
+  sort: value.sortOrder,
+  wallpaperCount: value.wallpaperCount,
+  version: value.version
+});
+
+const flattenCategories = (items: ApiCategory[]): Category[] => items.flatMap((item) => [
+  categoryFromApi(item),
+  ...flattenCategories(item.children || [])
+]);
+
+const preferredVersion = (variant: ApiWallpaperVariant) => (
+  variant.resourceVersions.find((item) => item.status === 'READY')
+  || variant.resourceVersions.find((item) => item.status === 'PUBLISHED')
+  || variant.resourceVersions[0]
+);
+
+const platformsFromVariants = (kind: WallpaperKind, variants: ApiWallpaperVariant[]): Platform[] => {
+  if (kind === 'static' || variants.some((item) => item.platform === 'UNIVERSAL')) return ['android', 'ios', 'harmony'];
+  const result: Platform[] = [];
+  if (variants.some((item) => item.platform === 'ANDROID')) result.push('android');
+  if (variants.some((item) => item.platform === 'IOS')) result.push('ios');
+  if (variants.some((item) => item.platform === 'HARMONYOS')) result.push('harmony');
+  return result;
+};
+
+const resourcesFromApi = (value: ApiWallpaperDetail): WallpaperResources => {
+  const resources: WallpaperResources = { cover: toResource(value.cover) };
+  for (const variant of value.variants) {
+    const version = preferredVersion(variant);
+    if (!version) continue;
+    for (const binding of version.bindings) {
+      const resource = toResource(binding.asset);
+      if (binding.role === 'BACKGROUND') resources.backgroundLayer = resource;
+      if (binding.role === 'FOREGROUND') resources.foregroundLayer = resource;
+      if (binding.role === 'PARALLAX_CONFIG') resources.depthConfig = resource;
+      if (binding.role === 'VIDEO' && variant.platform === 'ANDROID') resources.androidVideo = resource;
+      if (binding.role === 'LIVE_PHOTO_VIDEO') resources.iosMov = resource;
+      if (binding.role === 'LIVE_PHOTO_IMAGE') resources.iosPhoto = resource;
+      if (binding.role === 'STATIC_IMAGE') resources.staticImage = resource;
+      if (binding.role === 'THEME_PACKAGE') resources.harmonyPackage = resource;
+    }
+  }
+  return resources;
+};
+
+const wallpaperFromApi = (value: ApiWallpaperDetail): Wallpaper => {
+  const kind = kindFromApi[value.kind];
+  return {
+    id: value.id,
+    title: value.title,
+    slug: value.slug,
+    categoryId: value.rootCategory.id,
+    subcategoryId: value.childCategory?.id || '',
+    kind,
+    platforms: platformsFromVariants(kind, value.variants),
+    status: statusFromApi[value.status],
+    sort: value.sortOrder,
+    coverUrl: apiResourceUrl(value.cover.previewUrl),
+    resources: resourcesFromApi(value),
+    copyrightNote: value.copyrightNote,
+    updatedAt: formatDate(value.updatedAt),
+    version: value.version,
+    variants: value.variants.map((item) => ({
+      id: item.id,
+      platform: item.platform,
+      resourceType: item.resourceType,
+      resourceVersions: item.resourceVersions.map((version) => ({
+        id: version.id,
+        versionNo: version.versionNo,
+        status: version.status
+      })),
+      version: item.version
+    }))
+  };
+};
+
+const variantSpecs = (value: Wallpaper): VariantSpec[] => {
+  if (value.kind === 'four_d') {
+    return [{
+      platform: 'ANDROID',
+      resourceType: 'LAYER_PARALLAX',
+      bindings: [
+        { role: 'BACKGROUND', purpose: 'BACKGROUND', resource: value.resources.backgroundLayer },
+        { role: 'FOREGROUND', purpose: 'FOREGROUND', resource: value.resources.foregroundLayer },
+        ...(value.resources.depthConfig
+          ? [{ role: 'PARALLAX_CONFIG' as const, purpose: 'PARALLAX_CONFIG' as const, resource: value.resources.depthConfig }]
+          : [])
+      ]
+    }];
+  }
+  if (value.kind === 'static') {
+    return [{
+      platform: 'UNIVERSAL',
+      resourceType: 'STATIC_IMAGE',
+      bindings: [{ role: 'STATIC_IMAGE', purpose: 'STATIC_IMAGE', resource: value.resources.staticImage }]
+    }];
+  }
+  const result: VariantSpec[] = [];
+  if (value.platforms.includes('android')) result.push({
+    platform: 'ANDROID', resourceType: 'VIDEO',
+    bindings: [{ role: 'VIDEO', purpose: 'VIDEO', resource: value.resources.androidVideo }]
+  });
+  if (value.platforms.includes('ios')) result.push({
+    platform: 'IOS', resourceType: 'LIVE_PHOTO', bindings: [
+      { role: 'LIVE_PHOTO_IMAGE', purpose: 'LIVE_PHOTO_IMAGE', resource: value.resources.iosPhoto },
+      { role: 'LIVE_PHOTO_VIDEO', purpose: 'LIVE_PHOTO_VIDEO', resource: value.resources.iosMov }
+    ]
+  });
+  if (value.platforms.includes('harmony')) result.push({
+    platform: 'HARMONYOS', resourceType: 'THEME_PACKAGE',
+    bindings: [{ role: 'THEME_PACKAGE', purpose: 'THEME_PACKAGE', resource: value.resources.harmonyPackage }]
+  });
+  return result;
+};
+
+const uploadAsset = async (resource: ResourceFile, purpose: AssetPurpose) => {
+  if (resource.assetId) return resource.assetId;
+  if (!resource.nativeFile) throw new ApiError(422, 'ASSET_NOT_READY', `缺少资源：${resource.name}`);
+  const form = new FormData();
+  form.set('purpose', purpose);
+  form.set('file', resource.nativeFile, resource.name);
+  const { data } = await apiRequest<ApiAsset>('/admin/assets', { method: 'POST', body: form, csrf: true });
+  if (data.validationStatus !== 'READY') throw new ApiError(422, 'ASSET_NOT_READY', `${resource.name} 尚未通过校验`);
+  resource.assetId = data.id;
+  resource.url = apiResourceUrl(data.previewUrl);
+  return data.id;
+};
+
+const fetchWallpaper = async (id: string) => (
+  await apiRequest<ApiWallpaperDetail>(`/admin/wallpapers/${id}`)
+).data;
+
+const eligibleVersion = (variant: ApiWallpaperVariant) => (
+  variant.resourceVersions.find((item) => item.status === 'READY')
+  || variant.resourceVersions.find((item) => item.status === 'PUBLISHED')
+);
+
+const listAllSummaries = async () => {
+  const first = (await apiRequest<ApiWallpaperPage>('/admin/wallpapers?page=1&pageSize=100')).data;
+  if (first.page.totalPages <= 1) return first.items;
+  const pages = await Promise.all(Array.from({ length: first.page.totalPages - 1 }, (_, index) => (
+    apiRequest<ApiWallpaperPage>(`/admin/wallpapers?page=${index + 2}&pageSize=100`)
+  )));
+  return [first.items, ...pages.map((item) => item.data.items)].flat();
+};
+
+export const adminRepository = {
+  async login(username: string, password: string) {
+    return (await apiRequest<ApiSession>('/admin/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Request-Id': crypto.randomUUID() },
+      body: jsonBody({ username, password })
+    })).data;
+  },
+
+  async currentSession() {
+    return (await apiRequest<ApiSession>('/admin/sessions')).data;
+  },
+
+  async logout() {
+    await apiRequest<void>('/admin/sessions', { method: 'DELETE', csrf: true });
+  },
+
+  async dashboard(): Promise<{ summary: AdminDashboard; wallpapers: Wallpaper[] }> {
+    const [summary, wallpapers] = await Promise.all([
+      apiRequest<AdminDashboard>('/admin/dashboard'),
+      this.wallpapers()
+    ]);
+    return { summary: summary.data, wallpapers };
+  },
+
+  async categories() {
+    const { data } = await apiRequest<ApiCategoryList>('/admin/categories');
+    return flattenCategories(data.items);
+  },
+
+  async saveCategory(input: Category) {
+    const iconAssetId = input.parentId === null && input.icon
+      ? await uploadAsset(input.icon, 'CATEGORY_ICON')
+      : null;
+    const payload = jsonBody({
+      parentId: input.parentId,
+      name: input.name.trim(),
+      slug: input.slug.trim(),
+      iconAssetId,
+      sortOrder: input.sort
+    });
+    const response = input.id
+      ? await apiRequest<ApiCategory>(`/admin/categories/${input.id}`, {
+          method: 'PATCH', headers: { 'If-Match': ifMatch(input.version) }, body: payload, csrf: true
+        })
+      : await apiRequest<ApiCategory>('/admin/categories', { method: 'POST', body: payload, csrf: true });
+    return categoryFromApi(response.data);
+  },
+
+  async wallpapers() {
+    const summaries = await listAllSummaries();
+    const details = await Promise.all(summaries.map((item) => fetchWallpaper(item.id)));
+    return details.map(wallpaperFromApi);
+  },
+
+  async saveWallpaper(input: Wallpaper, publish: boolean) {
+    const cover = input.resources.cover;
+    if (!cover) throw new ApiError(422, 'ASSET_NOT_READY', '请上传列表封面');
+    const coverAssetId = await uploadAsset(cover, 'WALLPAPER_COVER');
+    const payload = jsonBody({
+      title: input.title.trim(),
+      slug: input.slug.trim(),
+      kind: kindToApi[input.kind],
+      rootCategoryId: input.categoryId,
+      childCategoryId: input.subcategoryId || null,
+      coverAssetId,
+      featuredRank: null,
+      sortOrder: input.sort,
+      copyrightNote: input.copyrightNote.trim()
+    });
+    let detail = input.id
+      ? (await apiRequest<ApiWallpaperDetail>(`/admin/wallpapers/${input.id}`, {
+          method: 'PATCH', headers: { 'If-Match': ifMatch(input.version) }, body: payload, csrf: true
+        })).data
+      : (await apiRequest<ApiWallpaperDetail>('/admin/wallpapers', { method: 'POST', body: payload, csrf: true })).data;
+
+    const selectedVersions: string[] = [];
+    for (const spec of variantSpecs(input)) {
+      let variant = detail.variants.find((item) => item.platform === spec.platform && item.resourceType === spec.resourceType);
+      if (!variant) {
+        await apiRequest<ApiWallpaperVariant>(`/admin/wallpapers/${detail.id}/variants`, {
+          method: 'POST',
+          headers: { 'If-Match': ifMatch(detail.version) },
+          body: jsonBody({ platform: spec.platform, resourceType: spec.resourceType, minimumOsVersion: null, capabilityRequirements: [] }),
+          csrf: true
+        });
+        detail = await fetchWallpaper(detail.id);
+        variant = detail.variants.find((item) => item.platform === spec.platform && item.resourceType === spec.resourceType);
+      }
+      if (!variant) throw new ApiError(500, 'INTERNAL_ERROR', '资源变体创建后未返回');
+
+      const hasNewFiles = spec.bindings.some((item) => item.resource?.nativeFile);
+      let version = eligibleVersion(variant);
+      if (!version || hasNewFiles) {
+        const bindings = [];
+        for (const [ordinal, binding] of spec.bindings.entries()) {
+          if (!binding.resource) throw new ApiError(422, 'ASSET_NOT_READY', `缺少 ${binding.role} 资源`);
+          bindings.push({
+            assetId: await uploadAsset(binding.resource, binding.purpose),
+            role: binding.role,
+            ordinal
+          });
+        }
+        const versionNo = Math.max(0, ...variant.resourceVersions.map((item) => item.versionNo)) + 1;
+        version = (await apiRequest<ApiResourceVersion>(`/admin/variants/${variant.id}/resource-versions`, {
+          method: 'POST', body: jsonBody({ versionNo, manifestSha256: null, bindings }), csrf: true
+        })).data;
+      }
+      selectedVersions.push(version.id);
+    }
+
+    if (publish) {
+      detail = (await apiRequest<ApiWallpaperDetail>(`/admin/wallpapers/${detail.id}/publish`, {
+        method: 'POST',
+        headers: { 'If-Match': ifMatch(detail.version) },
+        body: jsonBody({ resourceVersionIds: selectedVersions }),
+        csrf: true
+      })).data;
+    } else {
+      detail = await fetchWallpaper(detail.id);
+    }
+    return wallpaperFromApi(detail);
+  },
+
+  async publishWallpaper(id: string) {
+    const detail = await fetchWallpaper(id);
+    const resourceVersionIds = detail.variants.map(eligibleVersion).filter(Boolean).map((item) => item!.id);
+    if (!resourceVersionIds.length) throw new ApiError(422, 'RESOURCE_VERSION_NOT_READY', '这张壁纸还没有可发布的资源版本');
+    const published = (await apiRequest<ApiWallpaperDetail>(`/admin/wallpapers/${id}/publish`, {
+      method: 'POST', headers: { 'If-Match': ifMatch(detail.version) }, body: jsonBody({ resourceVersionIds }), csrf: true
+    })).data;
+    return wallpaperFromApi(published);
+  },
+
+  async offlineWallpaper(id: string) {
+    const detail = await fetchWallpaper(id);
+    const offline = (await apiRequest<ApiWallpaperDetail>(`/admin/wallpapers/${id}/offline`, {
+      method: 'POST',
+      headers: { 'If-Match': ifMatch(detail.version) },
+      body: jsonBody({ reason: '管理员在管理后台执行下架' }),
+      csrf: true
+    })).data;
+    return wallpaperFromApi(offline);
+  },
+
+  async deleteWallpaper(value: Wallpaper) {
+    const hasHistory = value.variants.some((variant) => variant.resourceVersions.length > 0);
+    if (value.status === 'offline' || hasHistory) {
+      await apiRequest<ApiWallpaperDetail>(`/admin/wallpapers/${value.id}/archive`, {
+        method: 'POST',
+        headers: { 'If-Match': ifMatch(value.version) },
+        body: jsonBody({ reason: '管理员在管理后台执行归档' }),
+        csrf: true
+      });
+      return;
+    }
+    await apiRequest<void>(`/admin/wallpapers/${value.id}`, {
+      method: 'DELETE', headers: { 'If-Match': ifMatch(value.version) }, csrf: true
+    });
+  }
+};
+
+export type AdminSession = ApiSession;

@@ -4,7 +4,8 @@ import { ElMessage } from 'element-plus';
 import { computed, onMounted, reactive, ref, toRaw } from 'vue';
 
 import type { Category } from '@/domain/admin';
-import { adminRepository } from '@/repositories/mock/adminRepository';
+import { readableApiError } from '@/repositories/http/apiClient';
+import { adminRepository } from '@/repositories/http/adminRepository';
 
 interface CategoryNode extends Category { children?: CategoryNode[] }
 
@@ -13,8 +14,9 @@ const loading = ref(true);
 const keyword = ref('');
 const dialogOpen = ref(false);
 const editing = ref(false);
+const saving = ref(false);
 const iconInput = ref<HTMLInputElement>();
-const form = reactive<Category>({ id: '', name: '', parentId: null, iconUrl: '', sort: 100, wallpaperCount: 0 });
+const form = reactive<Category>({ id: '', name: '', slug: '', parentId: null, iconUrl: '', sort: 100, wallpaperCount: 0, version: 0 });
 const selectedNode = computed({
   get: () => form.parentId ?? '__root__',
   set: (value: string) => { form.parentId = value === '__root__' ? null : value; }
@@ -34,9 +36,18 @@ const categoryTree = computed<CategoryNode[]>(() => {
     .filter((item) => !term || item.name.includes(term) || Boolean(item.children?.length));
 });
 
-const load = async () => { loading.value = true; categories.value = await adminRepository.categories(); loading.value = false; };
+const load = async () => {
+  loading.value = true;
+  try {
+    categories.value = await adminRepository.categories();
+  } catch (cause) {
+    ElMessage.error(readableApiError(cause, '分类加载失败'));
+  } finally {
+    loading.value = false;
+  }
+};
 const openCreate = () => {
-  Object.assign(form, { id: '', name: '', parentId: null, iconUrl: '', sort: 100, wallpaperCount: 0 });
+  Object.assign(form, { id: '', name: '', slug: '', parentId: null, iconUrl: '', icon: undefined, sort: 100, wallpaperCount: 0, version: 0 });
   if (iconInput.value) iconInput.value.value = '';
   editing.value = false;
   dialogOpen.value = true;
@@ -46,10 +57,13 @@ const openEdit = (row: Category) => {
   Object.assign(form, {
     id: value.id,
     name: value.name,
+    slug: value.slug,
     parentId: value.parentId,
     iconUrl: value.iconUrl,
+    icon: value.icon,
     sort: value.sort,
-    wallpaperCount: value.wallpaperCount
+    wallpaperCount: value.wallpaperCount,
+    version: value.version
   });
   if (iconInput.value) iconInput.value.value = '';
   editing.value = true;
@@ -58,21 +72,27 @@ const openEdit = (row: Category) => {
 const selectIcon = (event: Event) => {
   const selected = (event.target as HTMLInputElement).files?.[0];
   if (!selected) return;
-  if (!selected.type.startsWith('image/')) { ElMessage.warning('请选择图片文件'); return; }
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(selected.type)) { ElMessage.warning('请选择 PNG、JPG 或 WebP 图片'); return; }
   if (selected.size > 1024 * 1024) { ElMessage.warning('图标文件请控制在 1 MB 以内'); return; }
-  const reader = new FileReader();
-  reader.onload = () => { form.iconUrl = String(reader.result || ''); };
-  reader.readAsDataURL(selected);
+  form.iconUrl = URL.createObjectURL(selected);
+  form.icon = { name: selected.name, size: selected.size, mime: selected.type, url: form.iconUrl, nativeFile: selected };
 };
 const save = async () => {
   if (!form.name.trim()) { ElMessage.warning('请输入分类名称'); return; }
-  if (form.parentId === null && !form.iconUrl) { ElMessage.warning('一级分类需要上传图标'); return; }
-  if (form.parentId !== null) form.iconUrl = '';
-  if (!form.id) form.id = `category-${Date.now()}`;
-  await adminRepository.saveCategory(form);
-  dialogOpen.value = false;
-  ElMessage.success(editing.value ? '分类已更新' : '分类已创建');
-  await load();
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.slug)) { ElMessage.warning('Slug 只能使用小写字母、数字和单个连字符'); return; }
+  if (form.parentId === null && !form.icon) { ElMessage.warning('一级分类需要上传图标'); return; }
+  if (form.parentId !== null) { form.iconUrl = ''; form.icon = undefined; }
+  saving.value = true;
+  try {
+    await adminRepository.saveCategory(toRaw(form));
+    dialogOpen.value = false;
+    ElMessage.success(editing.value ? '分类已更新' : '分类已创建');
+    await load();
+  } catch (cause) {
+    ElMessage.error(readableApiError(cause, '分类保存失败'));
+  } finally {
+    saving.value = false;
+  }
 };
 
 onMounted(load);
@@ -110,18 +130,19 @@ onMounted(load);
           </ElSelect>
           <div class="category-node-hint">{{ form.parentId === null ? '将显示在 App 首页金刚区' : '将显示在所选一级分类的横向筛选栏' }}</div>
         </ElFormItem>
-        <ElFormItem label="分类名称"><ElInput v-model="form.name" maxlength="12" show-word-limit placeholder="例如：萌宠" /></ElFormItem>
+        <ElFormItem label="分类名称"><ElInput v-model="form.name" maxlength="20" show-word-limit placeholder="例如：萌宠" /></ElFormItem>
+        <ElFormItem label="Slug"><ElInput v-model="form.slug" maxlength="32" placeholder="例如：cute-pets" /><div class="category-node-hint">公开链接使用，仅支持小写字母、数字和连字符。</div></ElFormItem>
         <ElFormItem v-if="form.parentId === null" label="分类图标">
-          <input ref="iconInput" hidden type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" @change="selectIcon" />
+          <input ref="iconInput" hidden type="file" accept="image/png,image/jpeg,image/webp" @change="selectIcon" />
           <button class="category-icon-upload" type="button" @click="iconInput?.click()">
             <img v-if="form.iconUrl" :src="form.iconUrl" alt="分类图标预览" />
             <span v-else><ElIcon :size="24"><UploadFilled /></ElIcon></span>
-            <div><strong>{{ form.iconUrl ? '更换图标' : '上传图标' }}</strong><small>PNG / JPG / WebP / SVG，不超过 1 MB</small></div>
+            <div><strong>{{ form.iconUrl ? '更换图标' : '上传图标' }}</strong><small>PNG / JPG / WebP，不超过 1 MB</small></div>
           </button>
         </ElFormItem>
         <ElFormItem label="同级排序"><ElInputNumber v-model="form.sort" :min="0" :max="9999" controls-position="right" style="width:100%" /></ElFormItem>
       </ElForm>
-      <template #footer><div class="dialog-actions"><ElButton @click="dialogOpen=false">取消</ElButton><ElButton type="primary" @click="save">保存</ElButton></div></template>
+      <template #footer><div class="dialog-actions"><ElButton @click="dialogOpen=false">取消</ElButton><ElButton type="primary" :loading="saving" @click="save">保存</ElButton></div></template>
     </ElDialog>
   </section>
 </template>
