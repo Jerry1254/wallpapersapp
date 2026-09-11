@@ -9,3 +9,7 @@ logging:
   level:
     root: WARN
     org.flywaydb: INFO
+
+qingjing:
+  storage:
+    root: ${java.io.tmpdir}/qingjing-wallpaper-integration-storage

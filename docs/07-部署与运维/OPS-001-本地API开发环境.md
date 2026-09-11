@@ -15,7 +15,7 @@
 | Java API | Spring Boot 3.5，Java 17 字节码，JRE 21 容器 | 无业务状态 | 模块化单体与健康检查 |
 | MySQL | 8.4 | Compose 命名卷 | 唯一业务事实源与 Flyway schema |
 | Redis | 7.4 | AOF 命名卷 | 后续会话、限流、短时票据和幂等协调 |
-| 本地资源目录 | `.runtime/storage` | 宿主机目录 | WP-P05 FileStorage Adapter 的运行时根目录 |
+| 本地资源目录 | `.runtime/storage` | 宿主机目录 | FileStorage 本地 Adapter 的运行时根目录 |
 
 API 默认映射 8080，MySQL 默认映射 3307，Redis 默认映射 6380，避免与常见的宿主机 3306/6379 服务冲突。
 
@@ -24,6 +24,8 @@ API 默认映射 8080，MySQL 默认映射 3307，Redis 默认映射 6380，避�
 首次执行 `./scripts/local-api.sh up` 时，脚本使用 `openssl rand` 生成 MySQL 应用密码、MySQL root 密码和 Redis 密码，并写入 `.runtime/local-api/compose.env`。脚本先设置 `umask 077`，该文件不进入 Git。
 
 Compose 只引用环境变量，不保存默认密码。Flyway V1 只建结构，不创建管理员账号、默认密码、兑换码或演示数据。
+
+本地资源目录包含 `.staging` 和 `objects`。`.staging` 只保存尚未通过校验的随机暂存文件；`objects` 按随机 UUID 的前四位分成两级目录。目录、上传内容和文件系统路径均被 `.gitignore` 排除。清理 `.runtime/storage` 会永久删除本地上传资源，因此普通停止命令不会自动清理它。
 
 ## 3. 启动与停止
 

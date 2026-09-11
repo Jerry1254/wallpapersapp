@@ -54,6 +54,20 @@ Java API 正式工程目录，承载内容目录、匿名设备、兑换、权�
 
 该脚本验证 Flyway 历史和表数量，写入无敏感内容的本地验收标记，重启 API、MySQL 和 Redis，再确认健康检查和 MySQL 数据持久化。
 
+## 本地资源存储
+
+资源上传由 `FileStorage` Port 隔离文件系统。`AssetUploadService` 先把输入流写入 `.runtime/storage/.staging`，在写入过程中执行用途级大小限制和 SHA-256 计算；内容校验通过后才使用随机分片键原子移动到 `.runtime/storage/objects`。原文件名只作为展示信息清洗保存，不参与目录或存储键生成。
+
+当前校验包括：
+
+- JPEG、PNG 解码和像素边界；WebP RIFF、块边界和像素边界。
+- MP4、QuickTime 的 `ftyp` 容器识别。
+- JSON 对象完整解析，禁止尾随第二个根值。
+- ZIP 条目数量、展开总量、重复名称和绝对路径、`..`、反斜杠等逃逸名称检查。
+- 客户端声明 MIME 与服务端探测类型一致性；`application/octet-stream` 只作为未知声明，不代替服务端探测。
+
+业务层读写只使用不透明暂存令牌和相对 `StorageKey`。本地 Adapter 在读取和提交时检查规范化路径、真实路径根边界、符号链接逃逸、文件大小和 SHA-256；数据库 `asset.storage_key` 不保存绝对路径。
+
 ## 配置边界
 
 - `local` profile 默认连接本地 Compose，并允许应用启动时执行 Flyway。
