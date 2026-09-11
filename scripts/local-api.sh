@@ -7,6 +7,14 @@ qj_runtime_dir="${qj_repo_root}/.runtime/local-api"
 qj_env_file="${qj_runtime_dir}/compose.env"
 qj_compose_file="${qj_repo_root}/infra/local/compose.yaml"
 
+qj_ensure_security_master_key() {
+  if ! grep -q '^QJ_SECURITY_MASTER_KEY=' "${qj_env_file}"; then
+    umask 077
+    printf 'QJ_SECURITY_MASTER_KEY=%s\n' "$(openssl rand -hex 32)" >> "${qj_env_file}"
+    echo "已为现有本地环境补充设备与兑换加密主密钥。"
+  fi
+}
+
 qj_generate_env() {
   mkdir -p "${qj_runtime_dir}" "${qj_repo_root}/.runtime/storage"
   if [[ -f "${qj_env_file}" ]]; then
@@ -23,6 +31,7 @@ qj_generate_env() {
     "QJ_MYSQL_PASSWORD=${qj_mysql_password}" \
     "QJ_MYSQL_ROOT_PASSWORD=${qj_mysql_root_password}" \
     "QJ_REDIS_PASSWORD=${qj_redis_password}" \
+    "QJ_SECURITY_MASTER_KEY=$(openssl rand -hex 32)" \
     'QJ_API_HOST_PORT=8080' \
     'QJ_MYSQL_HOST_PORT=3307' \
     'QJ_REDIS_HOST_PORT=6380' > "${qj_env_file}"
@@ -107,6 +116,7 @@ qj_init_admin() {
 }
 
 qj_generate_env
+qj_ensure_security_master_key
 set -a
 # shellcheck disable=SC1090
 source "${qj_env_file}"

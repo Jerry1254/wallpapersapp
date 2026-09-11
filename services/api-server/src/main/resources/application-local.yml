@@ -23,6 +23,10 @@ management:
       show-details: always
 
 qingjing:
+  device:
+    h5-test-enabled: true
+    allowed-h5-scopes:
+      - h5-local
   admin:
     cookie-secure: false
   storage:

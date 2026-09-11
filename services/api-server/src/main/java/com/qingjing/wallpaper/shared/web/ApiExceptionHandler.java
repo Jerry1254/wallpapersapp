@@ -28,7 +28,11 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
     ResponseEntity<ErrorEnvelope> handleApiException(ApiException exception, HttpServletRequest request) {
-        return response(exception.status(), exception.code(), exception.getMessage(), exception.details(), request);
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(exception.status());
+        if (exception.retryAfterSeconds() != null) {
+            builder.header("Retry-After", Long.toString(exception.retryAfterSeconds()));
+        }
+        return builder.body(envelope(exception.code(), exception.getMessage(), exception.details(), request));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -152,12 +156,19 @@ public class ApiExceptionHandler {
             String message,
             List<ApiException.ErrorDetail> details,
             HttpServletRequest request) {
-        return ResponseEntity.status(status)
-                .body(new ErrorEnvelope(new ErrorBody(
-                        code,
-                        message,
-                        requestId(request),
-                        details.isEmpty() ? null : details)));
+        return ResponseEntity.status(status).body(envelope(code, message, details, request));
+    }
+
+    private ErrorEnvelope envelope(
+            String code,
+            String message,
+            List<ApiException.ErrorDetail> details,
+            HttpServletRequest request) {
+        return new ErrorEnvelope(new ErrorBody(
+                code,
+                message,
+                requestId(request),
+                details.isEmpty() ? null : details));
     }
 
     private String requestId(HttpServletRequest request) {

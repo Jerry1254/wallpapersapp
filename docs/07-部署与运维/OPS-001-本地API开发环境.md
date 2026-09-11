@@ -14,14 +14,14 @@
 |---|---|---|---|
 | Java API | Spring Boot 3.5，Java 17 字节码，JRE 21 容器 | 无业务状态 | 模块化单体与健康检查 |
 | MySQL | 8.4 | Compose 命名卷 | 唯一业务事实源与 Flyway schema |
-| Redis | 7.4 | AOF 命名卷 | 后续会话、限流、短时票据和幂等协调 |
+| Redis | 7.4 | AOF 命名卷 | 管理/设备会话、限流、挑战、短时票据和幂等协调 |
 | 本地资源目录 | `.runtime/storage` | 宿主机目录 | FileStorage 本地 Adapter 的运行时根目录 |
 
 API 默认映射 8080，MySQL 默认映射 3307，Redis 默认映射 6380，避免与常见的宿主机 3306/6379 服务冲突。三个端口都只绑定 `127.0.0.1`，不会监听宿主机的外部网卡。
 
 ## 2. 凭据与运行时文件
 
-首次执行 `./scripts/local-api.sh up` 时，脚本使用 `openssl rand` 生成 MySQL 应用密码、MySQL root 密码和 Redis 密码，并写入 `.runtime/local-api/compose.env`。脚本先设置 `umask 077`，该文件不进入 Git。
+首次执行 `./scripts/local-api.sh up` 时，脚本使用 `openssl rand` 生成 MySQL 应用密码、MySQL root 密码、Redis 密码和 32 字节设备/兑换加密主密钥，并写入 `.runtime/local-api/compose.env`。脚本先设置 `umask 077`，该文件不进入 Git。已有本地环境缺少 `QJ_SECURITY_MASTER_KEY` 时，脚本会原地补充，不改动数据库和其他凭据。
 
 Compose 只引用环境变量，不保存默认密码。Flyway V1 只建结构，不创建管理员账号、默认密码、兑换码或演示数据。
 
@@ -70,7 +70,7 @@ cd ../..
 ./scripts/verify-local-api.sh
 ~~~
 
-`verify` 使用隔离的 Testcontainers 数据库，不读本地 Compose 业务数据。`verify-local-api.sh` 验证实际 Compose 栈的空库迁移、16 张业务表、健康检查和重启持久化。
+`verify` 使用隔离的 Testcontainers 数据库，不读本地 Compose 业务数据。当前集成测试同时验证管理身份/内容、设备挑战与签名、批次一次性交付、兑换并发额度、权益和 Redis 丢失后的 MySQL 结果恢复。`verify-local-api.sh` 验证实际 Compose 栈的空库迁移、16 张业务表、健康检查和重启持久化。
 
 ## 6. 环境隔离
 

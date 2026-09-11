@@ -145,6 +145,18 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
 .content-table .el-table { --el-table-header-bg-color: #fafafa; --el-table-row-hover-bg-color: #fffbf3; }
 .content-table .el-table th.el-table__cell { height: 48px; color: #5b5854; font-size: 13px; font-weight: 650; }
 .content-table .el-table td.el-table__cell { padding: 13px 0; }
+.table-pagination { display: flex; justify-content: flex-end; padding: 16px 18px; border-top: 1px solid var(--admin-line); }
+.filter-panel { padding: 16px 18px; }
+.filter-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
+.filter-grid > .el-date-editor { grid-column: span 2; }
+.filter-actions { display: flex; align-items: center; gap: 8px; }
+.cell-meta { display: block; margin-top: 4px; color: var(--admin-muted); font-weight: 400; }
+.detail-stack { min-height: 120px; display: grid; align-content: start; gap: 24px; }
+.detail-section { display: grid; gap: 12px; }
+.detail-section h3 { margin: 0; font-size: 15px; }
+.compact-toolbar { padding: 0 0 12px; border: 0; }
+.delivery-copy { margin: 0; color: var(--admin-muted); font-size: 13px; line-height: 1.65; }
+.break-value { overflow-wrap: anywhere; }
 .table-empty { padding: 60px 0; }
 .wallpaper-cell { display: flex; align-items: center; gap: 12px; }
 .wallpaper-thumb { width: 46px; height: 64px; border-radius: 7px; object-fit: cover; background: #ecebe8; }
@@ -289,6 +301,7 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
   .wallpaper-editor__form { border-right: 0; }
   .wallpaper-editor__preview { border-top: 1px solid var(--admin-line); }
   .preview-sticky { position: static; }
+  .filter-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
 
 @media (max-width: 860px) {
@@ -327,6 +340,11 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
   .toolbar { align-items: flex-start; flex-direction: column; }
   .toolbar__filters, .toolbar__filters .el-input, .toolbar__filters .el-select { width: 100% !important; }
   .form-grid, .kind-picker, .resource-grid { grid-template-columns: 1fr; }
+  .filter-grid { grid-template-columns: 1fr; }
+  .filter-grid > .el-date-editor { grid-column: span 1; }
+  .filter-actions, .filter-actions .el-button { width: 100%; }
+  .filter-actions .el-button { margin-left: 0; }
+  .table-pagination { overflow-x: auto; justify-content: flex-start; }
   .form-grid .span-2, .resource-grid__item.span-2 { grid-column: span 1; }
   .wallpaper-editor__form { padding: 18px 16px 30px; }
   .wallpaper-editor__preview { padding: 18px 16px; }

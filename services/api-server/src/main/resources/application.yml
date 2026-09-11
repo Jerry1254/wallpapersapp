@@ -46,6 +46,15 @@ info:
 
 qingjing:
   api-base-path: /api/v1
+  security:
+    master-key: ${QJ_SECURITY_MASTER_KEY:}
+  device:
+    h5-test-enabled: false
+    allowed-h5-scopes: []
+    challenge-ttl: 2m
+    session-ttl: 30m
+    clock-skew: 5m
+    nonce-ttl: 5m
   admin:
     session-ttl: 8h
     password-strength: 12

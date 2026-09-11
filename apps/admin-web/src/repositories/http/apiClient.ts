@@ -47,6 +47,26 @@ const isBodyInit = (value: unknown): value is BodyInit => (
   || ArrayBuffer.isView(value)
 );
 
+const throwResponseError = async (response: Response): Promise<never> => {
+  let envelope: ErrorEnvelope = {};
+  try {
+    envelope = await response.json() as ErrorEnvelope;
+  } catch {
+    // 保留统一的 HTTP 回退错误。
+  }
+  if (response.status === 401) {
+    unauthorizedHandler?.();
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('qingjing:session-expired'));
+  }
+  throw new ApiError(
+    response.status,
+    envelope.error?.code || `HTTP_${response.status}`,
+    envelope.error?.message || `请求失败（HTTP ${response.status}）`,
+    envelope.error?.requestId,
+    envelope.error?.details || []
+  );
+};
+
 export const apiRequest = async <T>(
   path: string,
   options: RequestInit & { csrf?: boolean } = {}
@@ -74,27 +94,28 @@ export const apiRequest = async <T>(
     credentials: 'include'
   });
   if (!response.ok) {
-    let envelope: ErrorEnvelope = {};
-    try {
-      envelope = await response.json() as ErrorEnvelope;
-    } catch {
-      // 保留统一的 HTTP 回退错误。
-    }
-    if (response.status === 401) {
-      unauthorizedHandler?.();
-      if (typeof window !== 'undefined') window.dispatchEvent(new Event('qingjing:session-expired'));
-    }
-    throw new ApiError(
-      response.status,
-      envelope.error?.code || `HTTP_${response.status}`,
-      envelope.error?.message || `请求失败（HTTP ${response.status}）`,
-      envelope.error?.requestId,
-      envelope.error?.details || []
-    );
+    return throwResponseError(response);
   }
 
   const data = response.status === 204 ? undefined as T : await response.json() as T;
   return { data, etag: response.headers.get('ETag') };
+};
+
+export const apiDownload = async (
+  path: string,
+  options: RequestInit = {}
+): Promise<{ data: Blob; filename: string }> => {
+  const headers = new Headers(options.headers);
+  headers.set('Accept', 'text/csv');
+  const response = await fetch(`${apiBaseUrl}/api/v1${path}`, {
+    ...options,
+    headers,
+    credentials: 'include'
+  });
+  if (!response.ok) return throwResponseError(response);
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || 'codes.csv';
+  return { data: await response.blob(), filename };
 };
 
 export const readableApiError = (cause: unknown, fallback = '操作失败') => {

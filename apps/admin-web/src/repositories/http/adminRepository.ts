@@ -2,10 +2,23 @@ import dayjs from 'dayjs';
 
 import type {
   AdminDashboard,
+  CodeBatchDetail,
+  CodeBatchSummary,
+  CreateCodeBatchResponse,
+  DeviceDetail,
+  DevicePlatform,
+  DeviceStatus,
+  DeviceSummary,
   ApiPlatform,
   Category,
+  PageMetadata,
   Platform,
   PublishStatus,
+  RedemptionCode,
+  RedemptionCodeStatus,
+  RedemptionDetail,
+  RedemptionResult,
+  RedemptionSummary,
   ResourceFile,
   ResourceType,
   ResourceVersionStatus,
@@ -14,7 +27,7 @@ import type {
   WallpaperResources,
   WallpaperVariant
 } from '@/domain/admin';
-import { ApiError, apiRequest, apiResourceUrl } from '@/repositories/http/apiClient';
+import { ApiError, apiDownload, apiRequest, apiResourceUrl } from '@/repositories/http/apiClient';
 
 type AssetPurpose = 'CATEGORY_ICON' | 'WALLPAPER_COVER' | 'BACKGROUND' | 'FOREGROUND'
   | 'PARALLAX_CONFIG' | 'VIDEO' | 'LIVE_PHOTO_IMAGE' | 'LIVE_PHOTO_VIDEO'
@@ -103,6 +116,11 @@ interface ApiSession {
   expiresAt: string;
 }
 
+interface ApiPage<T> {
+  items: T[];
+  page: PageMetadata;
+}
+
 interface VariantSpec {
   platform: ApiPlatform;
   resourceType: ResourceType;
@@ -129,6 +147,14 @@ const statusFromApi: Record<ApiWallpaperSummary['status'], PublishStatus> = {
 const formatDate = (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm');
 const ifMatch = (version: number) => `"${version}"`;
 const jsonBody = (value: unknown) => JSON.stringify(value);
+const queryString = (input: Record<string, string | number | undefined | null>) => {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(input)) {
+    if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
+  }
+  const query = params.toString();
+  return query ? `?${query}` : '';
+};
 const toResource = (asset: ApiAsset): ResourceFile => ({
   name: asset.originalFilename,
   size: asset.sizeBytes,
@@ -449,6 +475,99 @@ export const adminRepository = {
     await apiRequest<void>(`/admin/wallpapers/${value.id}`, {
       method: 'DELETE', headers: { 'If-Match': ifMatch(value.version) }, csrf: true
     });
+  },
+
+  async codeBatches(input: { page?: number; pageSize?: number; q?: string } = {}) {
+    return (await apiRequest<ApiPage<CodeBatchSummary>>(`/admin/code-batches${queryString({
+      page: input.page || 1,
+      pageSize: input.pageSize || 20,
+      q: input.q?.trim()
+    })}`)).data;
+  },
+
+  async codeBatch(id: string) {
+    return (await apiRequest<CodeBatchDetail>(`/admin/code-batches/${id}`)).data;
+  },
+
+  async createCodeBatch(
+    input: { name: string; generatedCount: number; quotaPerCode: number },
+    idempotencyKey: string
+  ) {
+    return (await apiRequest<CreateCodeBatchResponse>('/admin/code-batches', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempotencyKey },
+      body: jsonBody(input),
+      csrf: true
+    })).data;
+  },
+
+  async downloadCodeBatch(id: string, deliveryTicket: string) {
+    return apiDownload(`/admin/code-batches/${id}/delivery`, {
+      headers: { 'X-Delivery-Ticket': deliveryTicket }
+    });
+  },
+
+  async confirmCodeBatchDelivery(id: string) {
+    await apiRequest<void>(`/admin/code-batches/${id}/delivery-confirmation`, {
+      method: 'POST',
+      csrf: true
+    });
+  },
+
+  async redemptionCodes(
+    id: string,
+    input: { page?: number; pageSize?: number; status?: RedemptionCodeStatus | ''; suffix?: string } = {}
+  ) {
+    return (await apiRequest<ApiPage<RedemptionCode>>(`/admin/code-batches/${id}/codes${queryString({
+      page: input.page || 1,
+      pageSize: input.pageSize || 20,
+      status: input.status,
+      suffix: input.suffix?.trim()
+    })}`)).data;
+  },
+
+  async redemptions(input: {
+    page?: number;
+    pageSize?: number;
+    codeSuffix?: string;
+    wallpaperId?: string;
+    deviceId?: string;
+    result?: RedemptionResult | '';
+    createdFrom?: string;
+    createdTo?: string;
+  } = {}) {
+    return (await apiRequest<ApiPage<RedemptionSummary>>(`/admin/redemptions${queryString({
+      page: input.page || 1,
+      pageSize: input.pageSize || 20,
+      codeSuffix: input.codeSuffix?.trim(),
+      wallpaperId: input.wallpaperId?.trim(),
+      deviceId: input.deviceId?.trim(),
+      result: input.result,
+      createdFrom: input.createdFrom,
+      createdTo: input.createdTo
+    })}`)).data;
+  },
+
+  async redemption(id: string) {
+    return (await apiRequest<RedemptionDetail>(`/admin/redemptions/${id}`)).data;
+  },
+
+  async devices(input: {
+    page?: number;
+    pageSize?: number;
+    platform?: DevicePlatform | '';
+    status?: DeviceStatus | '';
+  } = {}) {
+    return (await apiRequest<ApiPage<DeviceSummary>>(`/admin/devices${queryString({
+      page: input.page || 1,
+      pageSize: input.pageSize || 20,
+      platform: input.platform,
+      status: input.status
+    })}`)).data;
+  },
+
+  async device(id: string) {
+    return (await apiRequest<DeviceDetail>(`/admin/devices/${id}`)).data;
   }
 };
 

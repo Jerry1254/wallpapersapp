@@ -5,15 +5,26 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.qingjing.wallpaper.shared.security.SecurityCrypto;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import javax.imageio.ImageIO;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -51,7 +62,9 @@ class InfrastructureIntegrationIT {
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
             .withDatabaseName("wallpaper_app")
             .withUsername("wallpaper_test")
-            .withPassword(MYSQL_PASSWORD);
+            .withPassword(MYSQL_PASSWORD)
+            .withStartupTimeout(Duration.ofMinutes(5))
+            .withStartupTimeoutSeconds(300);
 
     @Container
     static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7.4-alpine")
@@ -83,6 +96,9 @@ class InfrastructureIntegrationIT {
 
     @Autowired
     PasswordEncoder passwordEncoder;
+
+    @Autowired
+    SecurityCrypto securityCrypto;
 
     @Test
     void emptyDatabaseMigratesToTheSixteenDomainTables() {
@@ -509,6 +525,233 @@ class InfrastructureIntegrationIT {
                 .isZero();
     }
 
+    @Test
+    void deviceRedemptionFlowIsIdempotentQuotaSafeAndRecoverableAfterRedisLoss() throws Exception {
+        ensureAdmin();
+        AdminTestSession admin = login();
+        long wallpaperId = createPublishedWallpaperFixture();
+
+        String batchIdempotencyKey = UUID.randomUUID().toString();
+        Map<String, Object> batchRequest = Map.of(
+                "name", "WP-P08 integration batch",
+                "generatedCount", 1,
+                "quotaPerCode", 3);
+        HttpHeaders batchHeaders = headers(admin, true, null);
+        batchHeaders.setContentType(MediaType.APPLICATION_JSON);
+        batchHeaders.set("Idempotency-Key", batchIdempotencyKey);
+        ResponseEntity<JsonNode> batch = http.exchange(
+                "/api/v1/admin/code-batches",
+                HttpMethod.POST,
+                new HttpEntity<>(batchRequest, batchHeaders),
+                JsonNode.class);
+        assertThat(batch.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String batchId = batch.getBody().path("batch").path("id").asText();
+        String deliveryTicket = batch.getBody().path("deliveryTicket").asText();
+        assertThat(deliveryTicket).hasSizeGreaterThanOrEqualTo(32);
+
+        HttpHeaders deliveryHeaders = headers(admin, false, null);
+        deliveryHeaders.set("X-Delivery-Ticket", deliveryTicket);
+        ResponseEntity<byte[]> delivery = http.exchange(
+                "/api/v1/admin/code-batches/" + batchId + "/delivery",
+                HttpMethod.GET,
+                new HttpEntity<>(deliveryHeaders),
+                byte[].class);
+        assertThat(delivery.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String csv = new String(delivery.getBody(), StandardCharsets.UTF_8);
+        String code = csv.lines().skip(1).findFirst().orElseThrow().split(",")[1];
+        String normalizedCode = code.replace("-", "");
+        assertThat(normalizedCode).matches("^[A-Z0-9]{20}$");
+
+        ResponseEntity<JsonNode> batchRetry = http.exchange(
+                "/api/v1/admin/code-batches",
+                HttpMethod.POST,
+                new HttpEntity<>(batchRequest, batchHeaders),
+                JsonNode.class);
+        assertThat(batchRetry.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(batchRetry.getBody().path("batch").path("id").asText()).isEqualTo(batchId);
+
+        ResponseEntity<JsonNode> batchConflict = http.exchange(
+                "/api/v1/admin/code-batches",
+                HttpMethod.POST,
+                new HttpEntity<>(Map.of(
+                        "name", "Different request",
+                        "generatedCount", 1,
+                        "quotaPerCode", 3), batchHeaders),
+                JsonNode.class);
+        assertThat(batchConflict.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(batchConflict.getBody().path("error").path("code").asText())
+                .isEqualTo("IDEMPOTENCY_KEY_REUSED");
+
+        HttpHeaders concurrentBatchHeaders = headers(admin, true, null);
+        concurrentBatchHeaders.setContentType(MediaType.APPLICATION_JSON);
+        concurrentBatchHeaders.set("Idempotency-Key", UUID.randomUUID().toString());
+        Map<String, Object> concurrentBatchRequest = Map.of(
+                "name", "WP-P08 concurrent idempotency",
+                "generatedCount", 1,
+                "quotaPerCode", 1);
+        ExecutorService batchExecutor = Executors.newFixedThreadPool(2);
+        List<ResponseEntity<JsonNode>> batchRace = new ArrayList<>();
+        try {
+            List<Future<ResponseEntity<JsonNode>>> futures = List.of(
+                    batchExecutor.submit(() -> http.exchange(
+                            "/api/v1/admin/code-batches",
+                            HttpMethod.POST,
+                            new HttpEntity<>(concurrentBatchRequest, concurrentBatchHeaders),
+                            JsonNode.class)),
+                    batchExecutor.submit(() -> http.exchange(
+                            "/api/v1/admin/code-batches",
+                            HttpMethod.POST,
+                            new HttpEntity<>(concurrentBatchRequest, concurrentBatchHeaders),
+                            JsonNode.class)));
+            for (Future<ResponseEntity<JsonNode>> future : futures) {
+                batchRace.add(future.get());
+            }
+        } finally {
+            batchExecutor.shutdownNow();
+        }
+        assertThat(batchRace).extracting(ResponseEntity::getStatusCode)
+                .containsExactlyInAnyOrder(HttpStatus.CREATED, HttpStatus.OK);
+        assertThat(batchRace.get(0).getBody().path("batch").path("id").asText())
+                .isEqualTo(batchRace.get(1).getBody().path("batch").path("id").asText());
+
+        ResponseEntity<Void> confirmed = http.exchange(
+                "/api/v1/admin/code-batches/" + batchId + "/delivery-confirmation",
+                HttpMethod.POST,
+                new HttpEntity<>(headers(admin, true, null)),
+                Void.class);
+        assertThat(confirmed.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        ResponseEntity<JsonNode> expiredDelivery = http.exchange(
+                "/api/v1/admin/code-batches/" + batchId + "/delivery",
+                HttpMethod.GET,
+                new HttpEntity<>(deliveryHeaders),
+                JsonNode.class);
+        assertThat(expiredDelivery.getStatusCode()).isEqualTo(HttpStatus.GONE);
+
+        Map<String, Object> storedCode = jdbc.queryForMap(
+                "SELECT code_hash, code_suffix, total_quota, used_quota FROM redemption_code WHERE batch_id = ?",
+                Long.parseLong(batchId));
+        assertThat(storedCode.get("code_hash").toString()).hasSize(64).isNotEqualTo(normalizedCode);
+        assertThat(storedCode.get("code_suffix").toString()).isEqualTo(normalizedCode.substring(15));
+        assertThat(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'redemption_code' AND column_name IN ('code', 'plaintext_code')",
+                        Long.class))
+                .isZero();
+
+        DeviceTestSession owner = registerAndCreateSession("integration-owner-" + UUID.randomUUID());
+        String firstKey = UUID.randomUUID().toString();
+        Map<String, Object> redemptionBody = orderedMap("wallpaperId", Long.toString(wallpaperId), "code", code);
+        ResponseEntity<JsonNode> granted = signedPost(
+                "/api/v1/device/redemptions", redemptionBody, owner, firstKey);
+        assertThat(granted.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(granted.getBody().path("result").asText()).isEqualTo("GRANTED");
+        assertThat(granted.getBody().path("quotaDelta").asInt()).isEqualTo(1);
+
+        ResponseEntity<JsonNode> replay = signedPost(
+                "/api/v1/device/redemptions", redemptionBody, owner, firstKey);
+        assertThat(replay.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(replay.getBody()).isEqualTo(granted.getBody());
+        assertThat(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM redemption_event e JOIN redemption_request r ON r.id = e.request_id WHERE r.idempotency_key = ?",
+                        Long.class,
+                        firstKey))
+                .isEqualTo(1);
+
+        ResponseEntity<JsonNode> reusedKey = signedPost(
+                "/api/v1/device/redemptions",
+                orderedMap("wallpaperId", Long.toString(wallpaperId), "code", "AAAAAAAAAAAAAAAAAAAA"),
+                owner,
+                firstKey);
+        assertThat(reusedKey.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(reusedKey.getBody().path("error").path("code").asText())
+                .isEqualTo("IDEMPOTENCY_KEY_REUSED");
+
+        ResponseEntity<JsonNode> alreadyOwned = signedPost(
+                "/api/v1/device/redemptions", redemptionBody, owner, UUID.randomUUID().toString());
+        assertThat(alreadyOwned.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(alreadyOwned.getBody().path("result").asText()).isEqualTo("ALREADY_OWNED");
+        assertThat(alreadyOwned.getBody().path("quotaDelta").asInt()).isZero();
+
+        List<DeviceTestSession> competitors = List.of(
+                registerAndCreateSession("integration-device-a-" + UUID.randomUUID()),
+                registerAndCreateSession("integration-device-b-" + UUID.randomUUID()),
+                registerAndCreateSession("integration-device-c-" + UUID.randomUUID()));
+        ExecutorService executor = Executors.newFixedThreadPool(competitors.size());
+        List<ResponseEntity<JsonNode>> concurrentResults = new ArrayList<>();
+        try {
+            List<Future<ResponseEntity<JsonNode>>> futures = competitors.stream()
+                    .map(device -> executor.submit(() -> signedPost(
+                            "/api/v1/device/redemptions",
+                            redemptionBody,
+                            device,
+                            UUID.randomUUID().toString())))
+                    .toList();
+            for (Future<ResponseEntity<JsonNode>> future : futures) {
+                concurrentResults.add(future.get());
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+        assertThat(concurrentResults.stream().filter(response -> response.getStatusCode() == HttpStatus.CREATED))
+                .hasSize(2);
+        assertThat(concurrentResults.stream().filter(response -> response.getStatusCode() == HttpStatus.UNPROCESSABLE_ENTITY))
+                .singleElement()
+                .satisfies(response -> assertThat(response.getBody().path("result").asText()).isEqualTo("CODE_EXHAUSTED"));
+        assertThat(jdbc.queryForObject(
+                        "SELECT used_quota FROM redemption_code WHERE batch_id = ?",
+                        Integer.class,
+                        Long.parseLong(batchId)))
+                .isEqualTo(3);
+        assertThat(jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM device_entitlement WHERE wallpaper_id = ? AND status = 'ACTIVE'",
+                        Long.class,
+                        wallpaperId))
+                .isEqualTo(3);
+
+        ResponseEntity<JsonNode> entitlements = http.exchange(
+                "/api/v1/device/me/entitlements",
+                HttpMethod.GET,
+                new HttpEntity<>(deviceHeaders(owner)),
+                JsonNode.class);
+        assertThat(entitlements.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(entitlements.getBody().path("items")).hasSize(1);
+        assertThat(entitlements.getBody().path("items").get(0).path("wallpaper").path("id").asText())
+                .isEqualTo(Long.toString(wallpaperId));
+
+        ResponseEntity<JsonNode> descriptor = signedPost(
+                "/api/v1/device/wallpapers/" + wallpaperId + "/download-tickets",
+                orderedMap("platform", "H5_TEST", "supportedResourceTypes", List.of("STATIC_IMAGE")),
+                owner,
+                null);
+        assertThat(descriptor.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(descriptor.getBody().path("deliveryMode").asText()).isEqualTo("H5_PLACEHOLDER");
+        assertThat(descriptor.getBody().has("ticket")).isFalse();
+
+        ResponseEntity<JsonNode> adminRedemptions = getJson("/api/v1/admin/redemptions?pageSize=100", admin);
+        assertThat(adminRedemptions.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(adminRedemptions.getBody().path("page").path("totalItems").asLong()).isGreaterThanOrEqualTo(5);
+        ResponseEntity<JsonNode> adminDevices = getJson("/api/v1/admin/devices?pageSize=100", admin);
+        assertThat(adminDevices.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(adminDevices.getBody().path("page").path("totalItems").asLong()).isGreaterThanOrEqualTo(4);
+        String deviceId = adminDevices.getBody().path("items").get(0).path("id").asText();
+        ResponseEntity<JsonNode> deviceDetail = getJson("/api/v1/admin/devices/" + deviceId, admin);
+        assertThat(deviceDetail.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(deviceDetail.getBody().toString())
+                .doesNotContain("secretHash", "credentialSecret", "evidenceHash", "publicKeyPem");
+
+        redis.execute((org.springframework.data.redis.core.RedisCallback<Void>) connection -> {
+            connection.serverCommands().flushDb();
+            return null;
+        });
+        DeviceTestSession renewed = createSession(owner.credentialKeyId(), owner.credentialSecret());
+        ResponseEntity<JsonNode> recovered = http.exchange(
+                "/api/v1/device/redemptions/" + firstKey,
+                HttpMethod.GET,
+                new HttpEntity<>(deviceHeaders(renewed)),
+                JsonNode.class);
+        assertThat(recovered.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(recovered.getBody()).isEqualTo(granted.getBody());
+    }
+
     private void ensureAdmin() {
         String hash = passwordEncoder.encode("integration-password-2026");
         jdbc.update(
@@ -521,6 +764,145 @@ class InfrastructureIntegrationIT {
                     password_changed_at = VALUES(password_changed_at)
                 """,
                 hash);
+    }
+
+    private long createPublishedWallpaperFixture() {
+        String token = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        Long adminId = jdbc.queryForObject("SELECT id FROM admin_account WHERE singleton_key = 1", Long.class);
+        jdbc.update(
+                """
+                INSERT INTO asset
+                    (storage_key, original_filename, mime_type, file_extension, size_bytes, sha256,
+                     width_px, height_px, validation_status, created_by_admin_id)
+                VALUES (?, ?, 'image/png', 'png', 128, ?, 1080, 2160, 'READY', ?)
+                """,
+                "integration/wp-p08-" + token + ".png",
+                "wp-p08-" + token + ".png",
+                securityCrypto.sha256Hex(token),
+                adminId);
+        Long assetId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update(
+                """
+                INSERT INTO category (parent_id, level, name, slug, icon_asset_id, sort_order)
+                VALUES (NULL, 1, ?, ?, ?, 1)
+                """,
+                "P08-" + token.substring(0, 8), "p08-" + token, assetId);
+        Long categoryId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update(
+                """
+                INSERT INTO wallpaper
+                    (title, slug, kind, category_id, cover_asset_id, sort_order, copyright_note,
+                     status, published_at)
+                VALUES (?, ?, 'STATIC', ?, ?, 1, 'integration fixture', 'PUBLISHED', UTC_TIMESTAMP(6))
+                """,
+                "P08 wallpaper " + token.substring(0, 6), "p08-wallpaper-" + token, categoryId, assetId);
+        Long wallpaperId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update(
+                """
+                INSERT INTO wallpaper_variant
+                    (wallpaper_id, platform, resource_type, capability_requirements)
+                VALUES (?, 'UNIVERSAL', 'STATIC_IMAGE', JSON_ARRAY())
+                """,
+                wallpaperId);
+        Long variantId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update(
+                """
+                INSERT INTO resource_version
+                    (variant_id, version_no, status, manifest_sha256, published_at, created_by_admin_id)
+                VALUES (?, 1, 'PUBLISHED', ?, UTC_TIMESTAMP(6), ?)
+                """,
+                variantId, securityCrypto.sha256Hex("manifest-" + token), adminId);
+        return wallpaperId;
+    }
+
+    private DeviceTestSession registerAndCreateSession(String evidence) throws Exception {
+        ResponseEntity<JsonNode> registration = http.postForEntity(
+                "/api/v1/device/registrations",
+                Map.of(
+                        "platform", "H5_TEST",
+                        "appInstallScope", "h5-integration",
+                        "credentialType", "H5_TEST_SECRET",
+                        "evidenceToken", evidence),
+                JsonNode.class);
+        assertThat(registration.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String credentialKeyId = registration.getBody().path("credentialKeyId").asText();
+        String credentialSecret = registration.getBody().path("credentialSecret").asText();
+        assertThat(credentialSecret).hasSizeGreaterThanOrEqualTo(32);
+        String storedHash = jdbc.queryForObject(
+                "SELECT secret_hash FROM device_credential WHERE credential_key_id = ?",
+                String.class,
+                credentialKeyId);
+        assertThat(storedHash).hasSize(64).isNotEqualTo(credentialSecret);
+        return createSession(credentialKeyId, credentialSecret);
+    }
+
+    private DeviceTestSession createSession(String credentialKeyId, String credentialSecret) throws Exception {
+        ResponseEntity<JsonNode> challenge = http.postForEntity(
+                "/api/v1/device/session-challenges",
+                Map.of("credentialKeyId", credentialKeyId),
+                JsonNode.class);
+        assertThat(challenge.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String challengeId = challenge.getBody().path("challengeId").asText();
+        String nonce = challenge.getBody().path("nonce").asText();
+        String timestamp = Instant.now().toString();
+        String payload = "QJ-DEVICE-SESSION-V1\n" + credentialKeyId + "\n" + challengeId + "\n" + nonce + "\n" + timestamp;
+        String proof = hmac(credentialSecret, payload);
+        ResponseEntity<JsonNode> session = http.postForEntity(
+                "/api/v1/device/sessions",
+                Map.of(
+                        "credentialKeyId", credentialKeyId,
+                        "challengeId", challengeId,
+                        "clientTimestamp", timestamp,
+                        "proof", proof),
+                JsonNode.class);
+        assertThat(session.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        return new DeviceTestSession(
+                credentialKeyId,
+                credentialSecret,
+                session.getBody().path("accessToken").asText());
+    }
+
+    private ResponseEntity<JsonNode> signedPost(
+            String path,
+            Object body,
+            DeviceTestSession device,
+            String idempotencyKey) throws Exception {
+        String json = objectMapper.writeValueAsString(body);
+        String timestamp = Instant.now().toString();
+        String nonce = UUID.randomUUID().toString();
+        String bodyHash = java.util.HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(json.getBytes(StandardCharsets.UTF_8)));
+        String payload = "QJ-SIGNED-REQUEST-V1\nPOST\n" + path + "\n" + timestamp + "\n" + nonce + "\n" + bodyHash;
+        HttpHeaders headers = deviceHeaders(device);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Request-Timestamp", timestamp);
+        headers.set("X-Request-Nonce", nonce);
+        headers.set("X-Request-Signature", hmac(device.credentialSecret(), payload));
+        if (idempotencyKey != null) {
+            headers.set("Idempotency-Key", idempotencyKey);
+        }
+        return http.exchange(path, HttpMethod.POST, new HttpEntity<>(json, headers), JsonNode.class);
+    }
+
+    private HttpHeaders deviceHeaders(DeviceTestSession device) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(device.accessToken());
+        return headers;
+    }
+
+    private static String hmac(String key, String value) throws Exception {
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        return Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(mac.doFinal(value.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private static Map<String, Object> orderedMap(Object... values) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (int index = 0; index < values.length; index += 2) {
+            result.put(values[index].toString(), values[index + 1]);
+        }
+        return result;
     }
 
     private AdminTestSession login() throws Exception {
@@ -603,5 +985,8 @@ class InfrastructureIntegrationIT {
     }
 
     private record AdminTestSession(String cookie, String csrf) {
+    }
+
+    private record DeviceTestSession(String credentialKeyId, String credentialSecret, String accessToken) {
     }
 }

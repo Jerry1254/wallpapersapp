@@ -175,3 +175,56 @@ describe('adminRepository.categories', () => {
     ]);
   });
 });
+
+describe('adminRepository code delivery', () => {
+  it('创建批次后用一次性交付票据下载并确认销毁', async () => {
+    setCsrfToken('csrf-token');
+    const requests: { url: string; options: RequestInit }[] = [];
+    const fetchMock = vi.fn(async (urlValue: string | URL | Request, options: RequestInit = {}) => {
+      const url = String(urlValue);
+      requests.push({ url, options });
+      if (url.endsWith('/admin/code-batches') && options.method === 'POST') {
+        return json({
+          batch: {
+            id: '70', batchNo: 'BATCH000000000000000000001', name: '首发批次',
+            generatedCount: 2, quotaPerCodeSnapshot: 3, totalQuota: 6, usedQuota: 0,
+            usagePercent: 0, deliveryStatus: 'AVAILABLE', createdAt: '2026-09-11T08:00:00Z',
+            availableCodeCount: 2, exhaustedCodeCount: 0
+          },
+          deliveryTicket: 'one-time-ticket',
+          deliveryUrl: '/api/v1/admin/code-batches/70/delivery',
+          deliveryExpiresAt: '2026-09-11T08:10:00Z'
+        }, 201);
+      }
+      if (url.endsWith('/admin/code-batches/70/delivery') && !options.method) {
+        return new Response('batchNo,code,totalQuota\r\nBATCH,AAAAA-BBBBB-CCCCC-DDDDD,3\r\n', {
+          status: 200,
+          headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="batch.csv"' }
+        });
+      }
+      if (url.endsWith('/admin/code-batches/70/delivery-confirmation') && options.method === 'POST') {
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`unexpected request: ${options.method || 'GET'} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const created = await adminRepository.createCodeBatch(
+      { name: '首发批次', generatedCount: 2, quotaPerCode: 3 },
+      '00000000-0000-4000-8000-000000000008'
+    );
+    const downloaded = await adminRepository.downloadCodeBatch(created.batch.id, created.deliveryTicket);
+    await adminRepository.confirmCodeBatchDelivery(created.batch.id);
+
+    expect(downloaded.filename).toBe('batch.csv');
+    await expect(downloaded.data.text()).resolves.toContain('AAAAA-BBBBB-CCCCC-DDDDD');
+    const createHeaders = requests[0].options.headers as Headers;
+    expect(createHeaders.get('Idempotency-Key')).toBe('00000000-0000-4000-8000-000000000008');
+    expect(createHeaders.get('X-CSRF-Token')).toBe('csrf-token');
+    const deliveryHeaders = requests[1].options.headers as Headers;
+    expect(deliveryHeaders.get('X-Delivery-Ticket')).toBe('one-time-ticket');
+    expect(deliveryHeaders.get('Accept')).toBe('text/csv');
+    const confirmationHeaders = requests[2].options.headers as Headers;
+    expect(confirmationHeaders.get('X-CSRF-Token')).toBe('csrf-token');
+  });
+});

@@ -78,6 +78,112 @@ export interface AdminDashboard {
   generatedAt: string;
 }
 
+export interface PageMetadata {
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+}
+
+export type DeliveryStatus = 'AVAILABLE' | 'CONFIRMED' | 'EXPIRED';
+export type RedemptionCodeStatus = 'AVAILABLE' | 'EXHAUSTED';
+export type RedemptionResult = 'GRANTED' | 'ALREADY_OWNED' | 'CODE_NOT_FOUND' | 'CODE_EXHAUSTED' | 'WALLPAPER_UNAVAILABLE' | 'FAILED';
+export type DevicePlatform = 'ANDROID' | 'IOS' | 'HARMONYOS' | 'H5_TEST';
+export type DeviceStatus = 'ACTIVE' | 'REVIEW' | 'DISABLED';
+
+export interface CodeBatchSummary {
+  id: string;
+  batchNo: string;
+  name: string;
+  generatedCount: number;
+  quotaPerCodeSnapshot: number;
+  totalQuota: number;
+  usedQuota: number;
+  usagePercent: number;
+  deliveryStatus: DeliveryStatus;
+  deliveryConfirmedAt?: string | null;
+  createdAt: string;
+}
+
+export interface CodeBatchDetail extends CodeBatchSummary {
+  availableCodeCount: number;
+  exhaustedCodeCount: number;
+}
+
+export interface CreateCodeBatchResponse {
+  batch: CodeBatchDetail;
+  deliveryTicket: string;
+  deliveryUrl: string;
+  deliveryExpiresAt: string;
+}
+
+export interface RedemptionCode {
+  id: string;
+  maskedCode: string;
+  codeSuffix: string;
+  totalQuota: number;
+  usedQuota: number;
+  remainingQuota: number;
+  status: RedemptionCodeStatus;
+}
+
+export interface WallpaperRef {
+  id: string;
+  title: string;
+  slug: string;
+}
+
+export interface RedemptionSummary {
+  id: string;
+  redemptionRequestId: string;
+  idempotencyKey: string;
+  deviceId: string;
+  codeId?: string | null;
+  maskedCode?: string | null;
+  codeSuffix?: string | null;
+  wallpaper: WallpaperRef;
+  result: RedemptionResult;
+  quotaDelta: number;
+  errorCode?: string | null;
+  createdAt: string;
+}
+
+export interface DeviceSummary {
+  id: string;
+  platform: DevicePlatform;
+  appInstallScope: string;
+  status: DeviceStatus;
+  entitlementCount: number;
+  lastSeenAt: string;
+  createdAt: string;
+}
+
+export interface DeviceCredential {
+  credentialKeyId: string;
+  credentialType: 'PLATFORM_PUBLIC_KEY' | 'H5_TEST_SECRET';
+  status: 'ACTIVE' | 'REVOKED';
+  lastUsedAt?: string | null;
+  revokedAt?: string | null;
+}
+
+export interface AdminEntitlement {
+  id: string;
+  wallpaper: WallpaperRef;
+  status: 'ACTIVE' | 'REVOKED';
+  grantedAt: string;
+  revokedAt?: string | null;
+}
+
+export interface DeviceDetail extends DeviceSummary {
+  credentials: DeviceCredential[];
+  entitlements: AdminEntitlement[];
+}
+
+export interface RedemptionDetail extends RedemptionSummary {
+  device: DeviceSummary;
+  entitlement?: AdminEntitlement | null;
+}
+
 export const wallpaperKindLabels: Record<WallpaperKind, string> = {
   four_d: '4D 分层',
   dynamic: '动态壁纸',
