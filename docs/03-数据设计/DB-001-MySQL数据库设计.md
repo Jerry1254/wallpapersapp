@@ -175,9 +175,10 @@ erDiagram
 | `platform` | `VARCHAR(16)` | 否 | `ANDROID/IOS/HARMONYOS/UNIVERSAL` |
 | `resource_type` | `VARCHAR(24)` | 否 | `LAYER_PARALLAX/VIDEO/LIVE_PHOTO/STATIC_IMAGE/THEME_PACKAGE` |
 | `minimum_os_version` | `VARCHAR(32)` | 是 | 平台版本约束，保持原始规范形式 |
+| `capability_requirements` | `JSON` | 否 | 受控能力字符串数组；服务端按 OpenAPI 枚举校验，不作为任意扩展字段 |
 | `lock_version` | `BIGINT` | 否 | 乐观锁 |
 
-唯一约束为 `(wallpaper_id, platform, resource_type)`。服务校验允许的组合，例如 `PARALLAX_4D + ANDROID + LAYER_PARALLAX`。
+唯一约束为 `(wallpaper_id, platform, resource_type)`。数据库 CHECK 要求 `capability_requirements` 为 JSON 数组；服务校验数组成员和允许的组合，例如 `PARALLAX_4D + ANDROID + LAYER_PARALLAX`。业务查询不依赖 JSON 内字段，兼容性由读取变体后在应用层计算。
 
 ### 5.6 `resource_version`
 

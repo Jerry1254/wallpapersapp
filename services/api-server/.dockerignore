@@ -1,0 +1,5 @@
+target/*
+!target/wallpaper-api-server-*.jar
+.idea
+*.iml
+.DS_Store

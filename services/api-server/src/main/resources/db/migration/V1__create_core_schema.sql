@@ -1,0 +1,382 @@
+CREATE TABLE admin_account (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    singleton_key TINYINT NOT NULL DEFAULT 1,
+    username VARCHAR(64) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
+    password_hash VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    password_changed_at DATETIME(6) NOT NULL,
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT pk_admin_account PRIMARY KEY (id),
+    CONSTRAINT uk_admin_account_singleton UNIQUE (singleton_key),
+    CONSTRAINT uk_admin_account_username UNIQUE (username),
+    CONSTRAINT ck_admin_account_singleton CHECK (singleton_key = 1),
+    CONSTRAINT ck_admin_account_lock_version CHECK (lock_version >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE asset (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    storage_key VARCHAR(512) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    original_filename VARCHAR(255) NOT NULL,
+    mime_type VARCHAR(100) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
+    file_extension VARCHAR(16) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
+    size_bytes BIGINT NOT NULL,
+    sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    width_px INT NULL,
+    height_px INT NULL,
+    duration_ms BIGINT NULL,
+    validation_status VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    validation_error_code VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    created_by_admin_id BIGINT NULL,
+    deleted_at DATETIME(6) NULL,
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT pk_asset PRIMARY KEY (id),
+    CONSTRAINT uk_asset_storage_key UNIQUE (storage_key),
+    CONSTRAINT fk_asset_created_by_admin FOREIGN KEY (created_by_admin_id) REFERENCES admin_account (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT ck_asset_size CHECK (size_bytes >= 0),
+    CONSTRAINT ck_asset_width CHECK (width_px IS NULL OR width_px > 0),
+    CONSTRAINT ck_asset_height CHECK (height_px IS NULL OR height_px > 0),
+    CONSTRAINT ck_asset_duration CHECK (duration_ms IS NULL OR duration_ms >= 0),
+    CONSTRAINT ck_asset_sha256 CHECK (sha256 REGEXP '^[a-f0-9]{64}$'),
+    CONSTRAINT ck_asset_validation_status CHECK (validation_status IN ('UPLOADING', 'VALIDATING', 'READY', 'REJECTED')),
+    CONSTRAINT ck_asset_validation_error CHECK ((validation_status = 'REJECTED') OR validation_error_code IS NULL),
+    CONSTRAINT ck_asset_lock_version CHECK (lock_version >= 0),
+    INDEX ix_asset_sha256 (sha256),
+    INDEX ix_asset_validation_created (validation_status, created_at),
+    INDEX ix_asset_deleted (deleted_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE category (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    parent_id BIGINT NULL,
+    parent_scope_id BIGINT GENERATED ALWAYS AS (IFNULL(parent_id, 0)) STORED,
+    level TINYINT NOT NULL,
+    name VARCHAR(20) NOT NULL,
+    slug VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    icon_asset_id BIGINT NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    deleted_at DATETIME(6) NULL,
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT pk_category PRIMARY KEY (id),
+    CONSTRAINT uk_category_slug UNIQUE (slug),
+    CONSTRAINT uk_category_parent_name UNIQUE (parent_scope_id, name),
+    CONSTRAINT fk_category_parent FOREIGN KEY (parent_id) REFERENCES category (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT fk_category_icon_asset FOREIGN KEY (icon_asset_id) REFERENCES asset (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT ck_category_level CHECK (level IN (1, 2)),
+    CONSTRAINT ck_category_shape CHECK (
+        (level = 1 AND parent_id IS NULL AND icon_asset_id IS NOT NULL)
+        OR (level = 2 AND parent_id IS NOT NULL AND icon_asset_id IS NULL)
+    ),
+    CONSTRAINT ck_category_sort_order CHECK (sort_order BETWEEN 0 AND 999999),
+    CONSTRAINT ck_category_lock_version CHECK (lock_version >= 0),
+    INDEX ix_category_parent_sort (parent_scope_id, deleted_at, sort_order, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE wallpaper (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    title VARCHAR(40) NOT NULL,
+    slug VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    kind VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    category_id BIGINT NOT NULL,
+    cover_asset_id BIGINT NOT NULL,
+    featured_rank INT NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    copyright_note VARCHAR(500) NOT NULL,
+    status VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'DRAFT',
+    published_at DATETIME(6) NULL,
+    archived_at DATETIME(6) NULL,
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT pk_wallpaper PRIMARY KEY (id),
+    CONSTRAINT uk_wallpaper_slug UNIQUE (slug),
+    CONSTRAINT fk_wallpaper_category FOREIGN KEY (category_id) REFERENCES category (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT fk_wallpaper_cover_asset FOREIGN KEY (cover_asset_id) REFERENCES asset (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT ck_wallpaper_kind CHECK (kind IN ('PARALLAX_4D', 'DYNAMIC', 'STATIC')),
+    CONSTRAINT ck_wallpaper_status CHECK (status IN ('DRAFT', 'PUBLISHED', 'OFFLINE', 'ARCHIVED')),
+    CONSTRAINT ck_wallpaper_featured_rank CHECK (featured_rank IS NULL OR featured_rank BETWEEN 0 AND 999999),
+    CONSTRAINT ck_wallpaper_sort_order CHECK (sort_order BETWEEN 0 AND 999999),
+    CONSTRAINT ck_wallpaper_published_at CHECK (status NOT IN ('PUBLISHED', 'OFFLINE', 'ARCHIVED') OR published_at IS NOT NULL),
+    CONSTRAINT ck_wallpaper_archived_at CHECK ((status = 'ARCHIVED') = (archived_at IS NOT NULL)),
+    CONSTRAINT ck_wallpaper_lock_version CHECK (lock_version >= 0),
+    INDEX ix_wallpaper_public_category (status, category_id, sort_order, id),
+    INDEX ix_wallpaper_public_featured (status, featured_rank, id),
+    INDEX ix_wallpaper_public_kind (status, kind, sort_order, id),
+    INDEX ix_wallpaper_admin_updated (status, updated_at, id),
+    INDEX ix_wallpaper_title (title)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE wallpaper_variant (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    wallpaper_id BIGINT NOT NULL,
+    platform VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    resource_type VARCHAR(24) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    minimum_os_version VARCHAR(32) NULL,
+    capability_requirements JSON NOT NULL,
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT pk_wallpaper_variant PRIMARY KEY (id),
+    CONSTRAINT uk_variant_wallpaper_platform_type UNIQUE (wallpaper_id, platform, resource_type),
+    CONSTRAINT fk_variant_wallpaper FOREIGN KEY (wallpaper_id) REFERENCES wallpaper (id) ON UPDATE RESTRICT ON DELETE CASCADE,
+    CONSTRAINT ck_variant_platform CHECK (platform IN ('ANDROID', 'IOS', 'HARMONYOS', 'UNIVERSAL')),
+    CONSTRAINT ck_variant_resource_type CHECK (resource_type IN ('LAYER_PARALLAX', 'VIDEO', 'LIVE_PHOTO', 'STATIC_IMAGE', 'THEME_PACKAGE')),
+    CONSTRAINT ck_variant_capabilities_array CHECK (JSON_TYPE(capability_requirements) = 'ARRAY'),
+    CONSTRAINT ck_variant_lock_version CHECK (lock_version >= 0),
+    INDEX ix_variant_wallpaper (wallpaper_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE resource_version (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    variant_id BIGINT NOT NULL,
+    version_no INT NOT NULL,
+    status VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'DRAFT',
+    manifest_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    published_at DATETIME(6) NULL,
+    retired_at DATETIME(6) NULL,
+    created_by_admin_id BIGINT NULL,
+    published_slot TINYINT GENERATED ALWAYS AS (CASE WHEN status = 'PUBLISHED' THEN 1 ELSE NULL END) STORED,
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT pk_resource_version PRIMARY KEY (id),
+    CONSTRAINT uk_resource_version_number UNIQUE (variant_id, version_no),
+    CONSTRAINT uk_resource_version_published UNIQUE (variant_id, published_slot),
+    CONSTRAINT fk_resource_version_variant FOREIGN KEY (variant_id) REFERENCES wallpaper_variant (id) ON UPDATE RESTRICT ON DELETE CASCADE,
+    CONSTRAINT fk_resource_version_admin FOREIGN KEY (created_by_admin_id) REFERENCES admin_account (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT ck_resource_version_number CHECK (version_no BETWEEN 1 AND 2147483647),
+    CONSTRAINT ck_resource_version_status CHECK (status IN ('DRAFT', 'VALIDATING', 'READY', 'PUBLISHED', 'RETIRED', 'REJECTED')),
+    CONSTRAINT ck_resource_version_manifest CHECK (manifest_sha256 IS NULL OR manifest_sha256 REGEXP '^[a-f0-9]{64}$'),
+    CONSTRAINT ck_resource_version_published_at CHECK (status NOT IN ('PUBLISHED', 'RETIRED') OR published_at IS NOT NULL),
+    CONSTRAINT ck_resource_version_retired_at CHECK ((status = 'RETIRED') = (retired_at IS NOT NULL)),
+    CONSTRAINT ck_resource_version_lock_version CHECK (lock_version >= 0),
+    INDEX ix_resource_version_status (variant_id, status, version_no)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE resource_binding (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    resource_version_id BIGINT NOT NULL,
+    asset_id BIGINT NOT NULL,
+    role VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    ordinal SMALLINT NOT NULL DEFAULT 0,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    CONSTRAINT pk_resource_binding PRIMARY KEY (id),
+    CONSTRAINT uk_binding_version_role_ordinal UNIQUE (resource_version_id, role, ordinal),
+    CONSTRAINT fk_binding_resource_version FOREIGN KEY (resource_version_id) REFERENCES resource_version (id) ON UPDATE RESTRICT ON DELETE CASCADE,
+    CONSTRAINT fk_binding_asset FOREIGN KEY (asset_id) REFERENCES asset (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT ck_binding_role CHECK (role IN ('COVER', 'BACKGROUND', 'FOREGROUND', 'PARALLAX_CONFIG', 'VIDEO', 'LIVE_PHOTO_IMAGE', 'LIVE_PHOTO_VIDEO', 'STATIC_IMAGE', 'THEME_PACKAGE')),
+    CONSTRAINT ck_binding_ordinal CHECK (ordinal BETWEEN 0 AND 32767),
+    INDEX ix_binding_asset (asset_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE anonymous_device (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    public_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    platform VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    app_install_scope VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    evidence_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    status VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'ACTIVE',
+    last_seen_at DATETIME(6) NOT NULL,
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT pk_anonymous_device PRIMARY KEY (id),
+    CONSTRAINT uk_device_public_id UNIQUE (public_id),
+    CONSTRAINT uk_device_evidence UNIQUE (platform, app_install_scope, evidence_hash),
+    CONSTRAINT ck_device_platform CHECK (platform IN ('ANDROID', 'IOS', 'HARMONYOS', 'H5_TEST')),
+    CONSTRAINT ck_device_evidence_hash CHECK (evidence_hash REGEXP '^[a-f0-9]{64}$'),
+    CONSTRAINT ck_device_status CHECK (status IN ('ACTIVE', 'REVIEW', 'DISABLED')),
+    CONSTRAINT ck_device_lock_version CHECK (lock_version >= 0),
+    INDEX ix_device_last_seen (last_seen_at, id),
+    INDEX ix_device_status (status, last_seen_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE device_credential (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    device_id BIGINT NOT NULL,
+    credential_key_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    credential_type VARCHAR(24) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    public_key_pem TEXT NULL,
+    secret_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    status VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'ACTIVE',
+    last_used_at DATETIME(6) NULL,
+    revoked_at DATETIME(6) NULL,
+    active_slot TINYINT GENERATED ALWAYS AS (CASE WHEN status = 'ACTIVE' THEN 1 ELSE NULL END) STORED,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT pk_device_credential PRIMARY KEY (id),
+    CONSTRAINT uk_credential_key_id UNIQUE (credential_key_id),
+    CONSTRAINT uk_credential_active_type UNIQUE (device_id, credential_type, active_slot),
+    CONSTRAINT fk_credential_device FOREIGN KEY (device_id) REFERENCES anonymous_device (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT ck_credential_type CHECK (credential_type IN ('PLATFORM_PUBLIC_KEY', 'H5_TEST_SECRET')),
+    CONSTRAINT ck_credential_material CHECK (
+        (credential_type = 'PLATFORM_PUBLIC_KEY' AND public_key_pem IS NOT NULL AND secret_hash IS NULL)
+        OR (credential_type = 'H5_TEST_SECRET' AND public_key_pem IS NULL AND secret_hash IS NOT NULL)
+    ),
+    CONSTRAINT ck_credential_secret_hash CHECK (secret_hash IS NULL OR secret_hash REGEXP '^[a-f0-9]{64}$'),
+    CONSTRAINT ck_credential_status CHECK (status IN ('ACTIVE', 'REVOKED')),
+    CONSTRAINT ck_credential_revoked_at CHECK ((status = 'REVOKED') = (revoked_at IS NOT NULL)),
+    INDEX ix_credential_device (device_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE code_batch (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    batch_no CHAR(26) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    name VARCHAR(50) NOT NULL,
+    generated_count INT NOT NULL,
+    quota_per_code_snapshot INT NOT NULL,
+    created_by_admin_id BIGINT NOT NULL,
+    delivery_confirmed_at DATETIME(6) NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    CONSTRAINT pk_code_batch PRIMARY KEY (id),
+    CONSTRAINT uk_code_batch_no UNIQUE (batch_no),
+    CONSTRAINT fk_code_batch_admin FOREIGN KEY (created_by_admin_id) REFERENCES admin_account (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT ck_code_batch_count CHECK (generated_count BETWEEN 1 AND 10000),
+    CONSTRAINT ck_code_batch_quota CHECK (quota_per_code_snapshot BETWEEN 1 AND 100),
+    INDEX ix_code_batch_created (created_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE redemption_code (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    batch_id BIGINT NOT NULL,
+    code_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    code_key_version SMALLINT NOT NULL,
+    code_suffix VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    total_quota INT NOT NULL,
+    used_quota INT NOT NULL DEFAULT 0,
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT pk_redemption_code PRIMARY KEY (id),
+    CONSTRAINT uk_redemption_code_hash UNIQUE (code_hash),
+    CONSTRAINT fk_redemption_code_batch FOREIGN KEY (batch_id) REFERENCES code_batch (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT ck_redemption_code_key_version CHECK (code_key_version > 0),
+    CONSTRAINT ck_redemption_code_suffix CHECK (code_suffix REGEXP '^[A-Z0-9]{4,8}$'),
+    CONSTRAINT ck_redemption_code_total_quota CHECK (total_quota BETWEEN 1 AND 100),
+    CONSTRAINT ck_redemption_code_used_quota CHECK (used_quota BETWEEN 0 AND total_quota),
+    CONSTRAINT ck_redemption_code_lock_version CHECK (lock_version >= 0),
+    INDEX ix_redemption_code_batch (batch_id, id),
+    INDEX ix_redemption_code_suffix (code_suffix, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE device_entitlement (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    device_id BIGINT NOT NULL,
+    wallpaper_id BIGINT NOT NULL,
+    source_code_id BIGINT NOT NULL,
+    status VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'ACTIVE',
+    granted_at DATETIME(6) NOT NULL,
+    revoked_at DATETIME(6) NULL,
+    revoke_reason VARCHAR(300) NULL,
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT pk_device_entitlement PRIMARY KEY (id),
+    CONSTRAINT uk_entitlement_device_wallpaper UNIQUE (device_id, wallpaper_id),
+    CONSTRAINT fk_entitlement_device FOREIGN KEY (device_id) REFERENCES anonymous_device (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT fk_entitlement_wallpaper FOREIGN KEY (wallpaper_id) REFERENCES wallpaper (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT fk_entitlement_source_code FOREIGN KEY (source_code_id) REFERENCES redemption_code (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT ck_entitlement_status CHECK (status IN ('ACTIVE', 'REVOKED')),
+    CONSTRAINT ck_entitlement_revoke_shape CHECK (
+        (status = 'ACTIVE' AND revoked_at IS NULL AND revoke_reason IS NULL)
+        OR (status = 'REVOKED' AND revoked_at IS NOT NULL AND revoke_reason IS NOT NULL)
+    ),
+    CONSTRAINT ck_entitlement_lock_version CHECK (lock_version >= 0),
+    INDEX ix_entitlement_device_status (device_id, status, granted_at, id),
+    INDEX ix_entitlement_wallpaper (wallpaper_id, status, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE redemption_request (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    device_id BIGINT NOT NULL,
+    idempotency_key CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    request_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    status VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'PROCESSING',
+    completed_at DATETIME(6) NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT pk_redemption_request PRIMARY KEY (id),
+    CONSTRAINT uk_redemption_request_idempotency UNIQUE (device_id, idempotency_key),
+    CONSTRAINT fk_redemption_request_device FOREIGN KEY (device_id) REFERENCES anonymous_device (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT ck_redemption_request_hash CHECK (request_hash REGEXP '^[a-f0-9]{64}$'),
+    CONSTRAINT ck_redemption_request_status CHECK (status IN ('PROCESSING', 'SUCCEEDED', 'REJECTED')),
+    CONSTRAINT ck_redemption_request_completed CHECK ((status = 'PROCESSING' AND completed_at IS NULL) OR (status <> 'PROCESSING' AND completed_at IS NOT NULL)),
+    INDEX ix_redemption_request_recovery (status, created_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE redemption_event (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    request_id BIGINT NOT NULL,
+    device_id BIGINT NOT NULL,
+    wallpaper_id BIGINT NOT NULL,
+    code_id BIGINT NULL,
+    code_suffix VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    entitlement_id BIGINT NULL,
+    result VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    quota_delta TINYINT NOT NULL DEFAULT 0,
+    error_code VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    CONSTRAINT pk_redemption_event PRIMARY KEY (id),
+    CONSTRAINT uk_redemption_event_request UNIQUE (request_id),
+    CONSTRAINT fk_redemption_event_request FOREIGN KEY (request_id) REFERENCES redemption_request (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT fk_redemption_event_device FOREIGN KEY (device_id) REFERENCES anonymous_device (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT fk_redemption_event_wallpaper FOREIGN KEY (wallpaper_id) REFERENCES wallpaper (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT fk_redemption_event_code FOREIGN KEY (code_id) REFERENCES redemption_code (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT fk_redemption_event_entitlement FOREIGN KEY (entitlement_id) REFERENCES device_entitlement (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT ck_redemption_event_result CHECK (result IN ('GRANTED', 'ALREADY_OWNED', 'CODE_NOT_FOUND', 'CODE_EXHAUSTED', 'WALLPAPER_UNAVAILABLE', 'FAILED')),
+    CONSTRAINT ck_redemption_event_delta CHECK (quota_delta IN (0, 1)),
+    CONSTRAINT ck_redemption_event_granted CHECK (
+        (result = 'GRANTED' AND quota_delta = 1 AND code_id IS NOT NULL AND entitlement_id IS NOT NULL AND error_code IS NULL)
+        OR (result <> 'GRANTED' AND quota_delta = 0)
+    ),
+    CONSTRAINT ck_redemption_event_owned CHECK (result <> 'ALREADY_OWNED' OR entitlement_id IS NOT NULL),
+    CONSTRAINT ck_redemption_event_code_suffix CHECK (code_suffix IS NULL OR code_suffix REGEXP '^[A-Z0-9]{4,8}$'),
+    INDEX ix_redemption_event_device_created (device_id, created_at, id),
+    INDEX ix_redemption_event_wallpaper_created (wallpaper_id, created_at, id),
+    INDEX ix_redemption_event_code_created (code_id, created_at, id),
+    INDEX ix_redemption_event_suffix_created (code_suffix, created_at, id),
+    INDEX ix_redemption_event_result_created (result, created_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE download_event (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    entitlement_id BIGINT NOT NULL,
+    resource_version_id BIGINT NOT NULL,
+    ticket_jti_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    result VARCHAR(24) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    request_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    CONSTRAINT pk_download_event PRIMARY KEY (id),
+    CONSTRAINT uk_download_event_ticket UNIQUE (ticket_jti_hash),
+    CONSTRAINT fk_download_event_entitlement FOREIGN KEY (entitlement_id) REFERENCES device_entitlement (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT fk_download_event_resource_version FOREIGN KEY (resource_version_id) REFERENCES resource_version (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT ck_download_event_ticket_hash CHECK (ticket_jti_hash REGEXP '^[a-f0-9]{64}$'),
+    CONSTRAINT ck_download_event_result CHECK (result IN ('ISSUED', 'STARTED', 'COMPLETED', 'REJECTED', 'EXPIRED')),
+    INDEX ix_download_event_entitlement (entitlement_id, created_at, id),
+    INDEX ix_download_event_resource (resource_version_id, created_at, id),
+    INDEX ix_download_event_request (request_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE audit_event (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    actor_admin_id BIGINT NULL,
+    request_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    action VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    aggregate_type VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    aggregate_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    result VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    change_summary JSON NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    CONSTRAINT pk_audit_event PRIMARY KEY (id),
+    CONSTRAINT fk_audit_event_admin FOREIGN KEY (actor_admin_id) REFERENCES admin_account (id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT ck_audit_event_aggregate_type CHECK (aggregate_type IN ('ADMIN_ACCOUNT', 'ASSET', 'CATEGORY', 'WALLPAPER', 'WALLPAPER_VARIANT', 'RESOURCE_VERSION', 'CODE_BATCH', 'REDEMPTION_CODE', 'ANONYMOUS_DEVICE', 'DEVICE_ENTITLEMENT', 'DOWNLOAD_TICKET', 'SYSTEM')),
+    CONSTRAINT ck_audit_event_result CHECK (result IN ('SUCCEEDED', 'FAILED')),
+    INDEX ix_audit_event_request (request_id),
+    INDEX ix_audit_event_actor_created (actor_admin_id, created_at, id),
+    INDEX ix_audit_event_aggregate_created (aggregate_type, aggregate_id, created_at, id),
+    INDEX ix_audit_event_action_created (action, created_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

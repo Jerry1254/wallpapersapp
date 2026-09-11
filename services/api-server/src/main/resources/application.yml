@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: qingjing-wallpaper-api
+  profiles:
+    default: local
+  flyway:
+    enabled: false
+    locations: classpath:db/migration
+    validate-migration-naming: true
+  jackson:
+    default-property-inclusion: non_null
+    time-zone: UTC
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+server:
+  shutdown: graceful
+  error:
+    include-message: never
+    include-stacktrace: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+info:
+  app:
+    name: ${spring.application.name}
+    contract-version: 1.0.0
+
+qingjing:
+  api-base-path: /api/v1

@@ -3067,13 +3067,12 @@ components:
 
     AdminRedemptionSummary:
       type: object
-      required: [id, requestId, idempotencyKey, deviceId, wallpaper, result, quotaDelta, createdAt]
+      required: [id, redemptionRequestId, idempotencyKey, deviceId, wallpaper, result, quotaDelta, createdAt]
       properties:
         id:
           $ref: '#/components/schemas/LongId'
-        requestId:
-          type: string
-          format: uuid
+        redemptionRequestId:
+          $ref: '#/components/schemas/LongId'
         idempotencyKey:
           type: string
           format: uuid
