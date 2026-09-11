@@ -33,10 +33,13 @@ Compose 只引用环境变量，不保存默认密码。Flyway V1 只建结构�
 ./scripts/local-api.sh up
 ./scripts/local-api.sh status
 ./scripts/local-api.sh logs api
+./scripts/local-api.sh init-admin
 ./scripts/local-api.sh down
 ~~~
 
 `up` 构建 Jar 和 API 镜像，等待 MySQL、Redis 容器健康后再启动 API，并等到 readiness 成功才返回。`down` 保留命名卷，因此再次 `up` 会验证 Flyway 重复启动并继续使用原 MySQL 数据。
+
+`init-admin` 只在 `admin_account` 为空时工作。脚本隐藏读取 12 至 128 位密码，使用临时环境变量重建 API 触发 BCrypt 初始化，随后再次重建 API 清除容器元数据里的明文变量。现有账号不会被该命令重置；迁移、Compose 和运行时配置文件都不保存默认管理员密码。
 
 ## 4. 健康检查
 

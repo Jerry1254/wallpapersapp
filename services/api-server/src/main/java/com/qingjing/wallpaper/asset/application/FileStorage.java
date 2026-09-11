@@ -16,5 +16,7 @@ public interface FileStorage {
 
     StoredContent open(StorageKey storageKey);
 
+    void delete(StorageKey storageKey);
+
     void discard(StagedObject stagedObject);
 }

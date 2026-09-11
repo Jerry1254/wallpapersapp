@@ -87,6 +87,26 @@ class LocalFileStorageTest {
     }
 
     @Test
+    void deletesOnlyTheObjectAddressedByItsOpaqueKey() {
+        LocalFileStorage storage = new LocalFileStorage(temporaryDirectory.resolve("storage"));
+        StagedObject firstStage = storage.stage(new ByteArrayInputStream(new byte[] {1}), 1);
+        StagedObject secondStage = storage.stage(new ByteArrayInputStream(new byte[] {2}), 1);
+        StoredObject first = storage.commit(firstStage, "bin");
+        StoredObject second = storage.commit(secondStage, "bin");
+
+        storage.delete(first.storageKey());
+
+        assertThatThrownBy(() -> storage.open(first.storageKey()))
+                .isInstanceOf(FileStorageException.class);
+        try (StoredContent remaining = storage.open(second.storageKey())) {
+            assertThat(remaining.sizeBytes()).isEqualTo(1);
+        } catch (IOException exception) {
+            throw new AssertionError(exception);
+        }
+        storage.delete(first.storageKey());
+    }
+
+    @Test
     void commitRejectsStagedContentChangedAfterHashing() throws IOException {
         Path root = temporaryDirectory.resolve("storage");
         LocalFileStorage storage = new LocalFileStorage(root);

@@ -138,6 +138,32 @@ public final class LocalFileStorage implements FileStorage {
     }
 
     @Override
+    public void delete(StorageKey storageKey) {
+        Objects.requireNonNull(storageKey, "storageKey");
+        if (!storageKey.value().startsWith("objects/")) {
+            throw new FileStorageException(STORAGE_BOUNDARY_VIOLATION, "The storage key is outside object storage");
+        }
+        Path candidate = root.resolve(storageKey.value()).normalize();
+        try {
+            Path realObjectsRoot = objectsRoot.toRealPath();
+            Path realFile = candidate.toRealPath();
+            if (!realFile.startsWith(realObjectsRoot)
+                    || !Files.isRegularFile(realFile, LinkOption.NOFOLLOW_LINKS)) {
+                throw new FileStorageException(
+                        STORAGE_BOUNDARY_VIOLATION,
+                        "The stored object resolves outside object storage");
+            }
+            Files.delete(realFile);
+        } catch (FileStorageException exception) {
+            throw exception;
+        } catch (NoSuchFileException exception) {
+            return;
+        } catch (IOException exception) {
+            throw new FileStorageException(STORAGE_IO_ERROR, "The stored object cannot be deleted", exception);
+        }
+    }
+
+    @Override
     public void discard(StagedObject stagedObject) {
         Objects.requireNonNull(stagedObject, "stagedObject");
         Path candidate = stagingRoot.resolve(stagedObject.token()).normalize();

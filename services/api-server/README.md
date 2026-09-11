@@ -32,10 +32,19 @@ Java API 正式工程目录，承载内容目录、匿名设备、兑换、权�
 ~~~bash
 ./scripts/local-api.sh status
 ./scripts/local-api.sh logs api
+./scripts/local-api.sh init-admin
 ./scripts/local-api.sh down
 ~~~
 
 `down` 只停止并移除本地容器，保留 MySQL 和 Redis 命名卷。脚本不提供删除数据卷的快捷命令。
+
+本地数据库第一次启动后，执行 `init-admin` 交互创建唯一管理员。初始化密码不会写入运行时文件；服务端保存 BCrypt 摘要后，脚本会立即清除容器中的临时初始化环境变量。管理员已经存在时命令会拒绝重置，避免意外改密。
+
+## 管理身份与内容 API
+
+管理接口位于 `/api/v1/admin`。登录响应设置 `QJ_ADMIN_SESSION` HttpOnly、SameSite Cookie 并返回会话绑定的 CSRF token；除 GET/HEAD 外的管理请求必须同时带 Cookie 和 `X-CSRF-Token`。资源、分类、壁纸、变体、资源版本和发布接口均按 OpenAPI V1 返回字符串形式 Long ID。
+
+分类、壁纸与变体修改使用响应中的强 ETag。客户端把该值原样放入下一次写请求的 `If-Match`；版本落后时返回 412 `VERSION_CONFLICT`，不会覆盖并发修改。资源版本创建后不可修改，重新发布通过创建新版本并在发布事务中退役旧版本完成。
 
 ## 构建与测试
 

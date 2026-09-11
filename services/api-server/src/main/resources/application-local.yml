@@ -23,5 +23,7 @@ management:
       show-details: always
 
 qingjing:
+  admin:
+    cookie-secure: false
   storage:
     root: ${QJ_STORAGE_ROOT:.runtime/storage}

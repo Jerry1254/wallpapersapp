@@ -55,6 +55,8 @@ services:
       QJ_REDIS_PORT: 6379
       QJ_REDIS_PASSWORD: ${QJ_REDIS_PASSWORD}
       QJ_STORAGE_ROOT: /app/.runtime/storage
+      QJ_ADMIN_USERNAME: ${QJ_ADMIN_USERNAME:-}
+      QJ_ADMIN_PASSWORD: ${QJ_ADMIN_PASSWORD:-}
       TZ: UTC
     ports:
       - "${QJ_API_HOST_PORT:-8080}:8080"

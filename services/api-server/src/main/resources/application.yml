@@ -12,6 +12,10 @@ spring:
     time-zone: UTC
   lifecycle:
     timeout-per-shutdown-phase: 20s
+  servlet:
+    multipart:
+      max-file-size: 260MB
+      max-request-size: 261MB
 
 server:
   shutdown: graceful
@@ -42,3 +46,10 @@ info:
 
 qingjing:
   api-base-path: /api/v1
+  admin:
+    session-ttl: 8h
+    password-strength: 12
+    cookie-secure: true
+    bootstrap:
+      username: ${QJ_ADMIN_USERNAME:}
+      password: ${QJ_ADMIN_PASSWORD:}

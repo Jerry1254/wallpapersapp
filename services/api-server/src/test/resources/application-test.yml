@@ -11,5 +11,8 @@ logging:
     org.flywaydb: INFO
 
 qingjing:
+  admin:
+    cookie-secure: false
+    password-strength: 4
   storage:
     root: ${java.io.tmpdir}/qingjing-wallpaper-integration-storage
