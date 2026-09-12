@@ -28,6 +28,10 @@ public class PublicWallpaperViewReader {
     }
 
     public PublicWallpaperSummary summary(long wallpaperId) {
+        return summary(wallpaperId, null);
+    }
+
+    public PublicWallpaperSummary summary(long wallpaperId, DeliveryPlatform preferredPlatform) {
         List<WallpaperRow> rows = jdbc.query(
                 """
                 SELECT w.id, w.title, w.slug, w.kind, w.featured_rank, w.sort_order,
@@ -70,20 +74,25 @@ public class PublicWallpaperViewReader {
                 ? selected
                 : new CategorySummary(Long.toString(row.parentId()), row.parentName(), row.parentSlug());
         CategorySummary child = row.selectedLevel() == 2 ? selected : null;
-        List<DeliveryCapability> capabilities = jdbc.query(
-                """
+        String capabilitySql = """
                 SELECT v.platform, v.resource_type, v.minimum_os_version, v.capability_requirements
                 FROM wallpaper_variant v
                 JOIN resource_version rv ON rv.variant_id = v.id AND rv.status = 'PUBLISHED'
                 WHERE v.wallpaper_id = ?
-                ORDER BY v.id
-                """,
+                """ + (preferredPlatform == null
+                        ? " ORDER BY v.id"
+                        : " ORDER BY CASE WHEN v.platform = ? THEN 0 WHEN v.platform = 'UNIVERSAL' THEN 1 ELSE 2 END, v.id");
+        Object[] capabilityParameters = preferredPlatform == null
+                ? new Object[] {wallpaperId}
+                : new Object[] {wallpaperId, preferredPlatform.name()};
+        List<DeliveryCapability> capabilities = jdbc.query(
+                capabilitySql,
                 (resultSet, rowNumber) -> new DeliveryCapability(
                         DeliveryPlatform.valueOf(resultSet.getString("platform")),
                         ResourceType.valueOf(resultSet.getString("resource_type")),
                         resultSet.getString("minimum_os_version"),
                         stringList(resultSet.getString("capability_requirements"))),
-                wallpaperId);
+                capabilityParameters);
         return new PublicWallpaperSummary(
                 Long.toString(row.id()),
                 row.title(),

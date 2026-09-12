@@ -378,6 +378,7 @@ class InfrastructureIntegrationIT {
         wallpaperRequest.put("childCategoryId", childCategory.getBody().path("id").asText());
         wallpaperRequest.put("coverAssetId", cover.path("id").asText());
         wallpaperRequest.put("sortOrder", 20);
+        wallpaperRequest.put("featuredRank", 2);
         wallpaperRequest.put("copyrightNote", "API integration test asset");
         ResponseEntity<JsonNode> wallpaper = jsonExchange(
                 "/api/v1/admin/wallpapers",
@@ -388,6 +389,12 @@ class InfrastructureIntegrationIT {
         assertThat(wallpaper.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         String wallpaperId = wallpaper.getBody().path("id").asText();
         String initialEtag = wallpaper.getHeaders().getETag();
+        assertThat(http.getForEntity("/api/v1/public/wallpapers/" + wallpaperId, JsonNode.class)
+                .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(http.getForEntity("/api/v1/public/assets/" + cover.path("id").asText() + "/content", byte[].class)
+                .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(http.getForEntity("/api/v1/public/assets/" + icon.path("id").asText() + "/content", byte[].class)
+                .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
 
         Map<String, Object> variantRequest = Map.of(
                 "platform", "UNIVERSAL",
@@ -431,6 +438,59 @@ class InfrastructureIntegrationIT {
         assertThat(publishedOne.getBody().path("capabilities")).hasSize(1);
         assertThat(publishedOne.getBody().path("childCategory").path("id").asText())
                 .isEqualTo(childCategory.getBody().path("id").asText());
+
+        String rootId = category.getBody().path("id").asText();
+        String childId = childCategory.getBody().path("id").asText();
+        JsonNode publicCategories = http.getForObject("/api/v1/public/categories", JsonNode.class);
+        JsonNode publicRoot = null;
+        for (JsonNode item : publicCategories.path("items")) {
+            if (item.path("id").asText().equals(rootId)) publicRoot = item;
+        }
+        assertThat(publicRoot).isNotNull();
+        assertThat(publicRoot.path("wallpaperCount").asLong()).isEqualTo(1);
+        assertThat(publicRoot.path("children")).hasSize(1);
+        assertThat(publicRoot.path("children").get(0).path("id").asText()).isEqualTo(childId);
+        assertThat(publicRoot.path("icon").path("contentUrl").asText())
+                .isEqualTo("/api/v1/public/assets/" + icon.path("id").asText() + "/content");
+
+        String publicList = "/api/v1/public/wallpapers?rootCategoryId=" + rootId
+                + "&childCategoryId=" + childId + "&view=STATIC&platform=ANDROID"
+                + "&q=api-integration-static-wallpaper&pageSize=1";
+        JsonNode publicPage = http.getForObject(publicList, JsonNode.class);
+        assertThat(publicPage.path("items")).hasSize(1);
+        assertThat(publicPage.path("items").get(0).path("id").asText()).isEqualTo(wallpaperId);
+        assertThat(publicPage.path("page").path("totalItems").asLong()).isEqualTo(1);
+        assertThat(publicPage.path("page").path("totalPages").asInt()).isEqualTo(1);
+        assertThat(http.getForObject("/api/v1/public/wallpapers?rootCategoryId=" + rootId + "&q=集成静态",
+                JsonNode.class).path("items").get(0).path("id").asText()).isEqualTo(wallpaperId);
+        assertThat(http.getForObject(publicList + "&page=2", JsonNode.class).path("items")).isEmpty();
+        assertThat(http.getForObject("/api/v1/public/wallpapers?rootCategoryId=" + rootId + "&view=FEATURED",
+                JsonNode.class).path("items").get(0).path("featured").asBoolean()).isTrue();
+        assertThat(http.getForObject("/api/v1/public/wallpapers?rootCategoryId=" + rootId + "&q=%25",
+                JsonNode.class).path("page").path("totalItems").asLong()).isZero();
+        assertThat(http.getForEntity("/api/v1/public/wallpapers?childCategoryId=" + childId,
+                JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(http.getForEntity("/api/v1/public/wallpapers?rootCategoryId=" + rootId + "&childCategoryId=" + rootId,
+                JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(http.getForEntity("/api/v1/public/wallpapers?pageSize=101",
+                JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(http.getForEntity("/api/v1/public/wallpapers?q= ",
+                JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        JsonNode publicDetail = http.getForObject("/api/v1/public/wallpapers/" + wallpaperId + "?platform=ANDROID",
+                JsonNode.class);
+        assertThat(publicDetail.path("copyrightNote").asText()).isEqualTo("API integration test asset");
+        assertThat(publicDetail.path("publishedAt").asText()).isNotBlank();
+        assertThat(publicDetail.path("capabilities").get(0).path("platform").asText()).isEqualTo("UNIVERSAL");
+        assertThat(publicDetail.toString()).doesNotContain("storageKey", "storage_key", "password", "secret", "bindings");
+        ResponseEntity<byte[]> publicCover = http.getForEntity(publicDetail.path("cover").path("contentUrl").asText(),
+                byte[].class);
+        assertThat(publicCover.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(publicCover.getBody()).isEqualTo(image);
+        assertThat(publicCover.getHeaders().getETag()).isEqualTo("\"" + cover.path("sha256").asText() + "\"");
+        assertThat(publicCover.getHeaders().getCacheControl()).contains("public", "max-age=3600");
+        assertThat(http.getForEntity("/api/v1/public/assets/" + staticAsset.path("id").asText() + "/content",
+                byte[].class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
 
         ResponseEntity<JsonNode> staleUpdate = jsonExchange(
                 "/api/v1/admin/wallpapers/" + wallpaperId,
@@ -496,6 +556,11 @@ class InfrastructureIntegrationIT {
                 publishedTwo.getHeaders().getETag());
         assertThat(offline.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(offline.getBody().path("status").asText()).isEqualTo("OFFLINE");
+        assertThat(http.getForEntity("/api/v1/public/wallpapers/" + wallpaperId, JsonNode.class)
+                .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(http.getForObject(publicList, JsonNode.class).path("items")).isEmpty();
+        assertThat(http.getForEntity("/api/v1/public/assets/" + cover.path("id").asText() + "/content", byte[].class)
+                .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(jdbc.queryForObject(
                         "SELECT status FROM resource_version WHERE id = ?",
                         String.class,

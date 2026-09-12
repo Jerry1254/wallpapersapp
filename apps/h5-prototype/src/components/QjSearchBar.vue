@@ -11,7 +11,8 @@ const emit = defineEmits<{ 'update:modelValue': [value: string]; search: [] }>()
     <input
       :value="modelValue"
       type="search"
-      :placeholder="placeholder || '搜索壁纸名称、分类或风格'"
+      maxlength="40"
+      :placeholder="placeholder || '搜索壁纸名称'"
       aria-label="搜索壁纸"
       @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
     />

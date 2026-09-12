@@ -1,31 +1,66 @@
 <script setup lang="ts">
-import { Flame, Flower2, Image, Mountain, Sparkles } from '@lucide/vue';
-import type { Component } from 'vue';
-import { computed, ref } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 import QjMobileShell from '@/components/QjMobileShell.vue';
+import QjCatalogMore from '@/components/QjCatalogMore.vue';
 import QjSearchBar from '@/components/QjSearchBar.vue';
+import { useWallpaperPage } from '@/composables/useWallpaperPage';
 import QjBrandHeader from '@/design-system/components/QjBrandHeader.vue';
 import QjCategoryTile from '@/design-system/components/QjCategoryTile.vue';
+import QjStatePanel from '@/design-system/components/QjStatePanel.vue';
 import QjSubcategoryRail from '@/design-system/components/QjSubcategoryRail.vue';
 import QjWallpaperCard from '@/design-system/components/QjWallpaperCard.vue';
-import { categories, getCategory, getWallpapersByCategory } from '@/mocks/catalog';
+import type { PublicRootCategory } from '@/domain/catalog';
+import { wallpaperTypeLabel } from '@/domain/catalog';
+import { catalogErrorMessage } from '@/repositories/http/apiClient';
+import { catalogRepository, type WallpaperListQuery } from '@/repositories/http/catalogRepository';
 
 const router = useRouter();
 const activeSubcategory = ref('all');
 const searchKeyword = ref('');
-const homeCategory = getCategory('recommend');
+const categories = ref<PublicRootCategory[]>([]);
+const categoryLoading = ref(true);
+const {
+  items: visibleWallpapers, loading, loadingMore, errorMessage, moreErrorMessage,
+  hasMore, load, loadMore
+} = useWallpaperPage();
+let catalogVersion = 0;
 
-const categoryIcons: Record<string, Component> = {
-  recommend: Sparkles,
-  scenery: Mountain,
-  zen: Flower2,
-  character: Flame,
-  static: Image
+const systemViews = [
+  { id: 'all', label: '精选推荐' },
+  { id: 'new', label: '最近上新' },
+  { id: 'depth', label: '4D 景深' },
+  { id: 'static', label: '静态壁纸' }
+];
+const tones = ['amber', 'sage', 'blush', 'stone'] as const;
+
+const selectedQuery = (): WallpaperListQuery => {
+  if (activeSubcategory.value === 'new') return { pageSize: 20, sort: 'NEWEST' };
+  if (activeSubcategory.value === 'depth') return { pageSize: 20, kind: 'PARALLAX_4D' };
+  if (activeSubcategory.value === 'static') return { pageSize: 20, view: 'STATIC' };
+  return { pageSize: 20, view: 'FEATURED' };
 };
 
-const visibleWallpapers = computed(() => getWallpapersByCategory('recommend', activeSubcategory.value));
+const loadCatalog = async () => {
+  const version = ++catalogVersion;
+  categoryLoading.value = true;
+  try {
+    const [categoryItems] = await Promise.all([
+      catalogRepository.categories(),
+      load(selectedQuery())
+    ]);
+    if (version !== catalogVersion) return;
+    categories.value = categoryItems;
+  } catch (error) {
+    if (version === catalogVersion) errorMessage.value = catalogErrorMessage(error);
+  } finally {
+    if (version === catalogVersion) categoryLoading.value = false;
+  }
+};
+
+onMounted(loadCatalog);
+watch(activeSubcategory, loadCatalog);
 
 const openCategory = (categoryId: string) => {
   void router.push(`/categories/${categoryId}`);
@@ -33,6 +68,11 @@ const openCategory = (categoryId: string) => {
 
 const openWallpaper = (wallpaperId: string) => {
   void router.push(`/wallpapers/${wallpaperId}`);
+};
+
+const openFirstCategory = () => {
+  const first = categories.value[0];
+  if (first) openCategory(first.id);
 };
 
 const search = () => {
@@ -46,18 +86,27 @@ const search = () => {
     <QjBrandHeader @service="router.push('/customer-service')" />
     <QjSearchBar v-model="searchKeyword" @search="search" />
 
+    <van-skeleton v-if="loading || categoryLoading" class="home-loading" title :row="8" />
+    <QjStatePanel
+      v-else-if="errorMessage"
+      class="home-state"
+      kind="error"
+      :description="errorMessage"
+      @action="loadCatalog"
+    />
+
+    <template v-else>
     <section class="prototype-section">
       <div class="prototype-section__header">
         <h2>壁纸分类</h2>
       </div>
       <div class="home-category-grid">
         <QjCategoryTile
-          v-for="category in categories"
+          v-for="(category, index) in categories"
           :key="category.id"
-          :label="category.label"
-          :icon="categoryIcons[category.id]!"
-          :tone="category.tone"
-          :active="category.id === 'recommend'"
+          :label="category.name"
+          :icon-src="category.icon.contentUrl"
+          :tone="tones[index % tones.length]"
           @select="openCategory(category.id)"
         />
       </div>
@@ -66,20 +115,23 @@ const search = () => {
     <section class="prototype-section">
       <div class="prototype-section__header">
         <h2>精选壁纸</h2>
-        <button type="button" @click="openCategory('recommend')">查看全部</button>
+        <button v-if="categories.length" type="button" @click="openFirstCategory">查看分类</button>
       </div>
-      <QjSubcategoryRail v-model="activeSubcategory" :items="homeCategory.subcategories" />
-      <div class="prototype-wallpaper-grid">
+      <QjSubcategoryRail v-model="activeSubcategory" :items="systemViews" />
+      <div v-if="visibleWallpapers.length" class="prototype-wallpaper-grid">
         <QjWallpaperCard
           v-for="wallpaper in visibleWallpapers"
           :key="wallpaper.id"
-          :src="wallpaper.image"
+          :src="wallpaper.cover.contentUrl"
           :title="wallpaper.title"
-          :type="wallpaper.type"
+          :type="wallpaperTypeLabel(wallpaper.kind)"
           @select="openWallpaper(wallpaper.id)"
         />
       </div>
+      <QjStatePanel v-else class="home-state" description="暂时没有符合条件的已发布壁纸" action-label="刷新目录" @action="loadCatalog" />
+      <QjCatalogMore :has-more="hasMore" :loading="loadingMore" :error-message="moreErrorMessage" @load="loadMore" />
     </section>
+    </template>
   </QjMobileShell>
 </template>
 
@@ -88,5 +140,10 @@ const search = () => {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: var(--qj-space-2);
+}
+
+.home-loading,
+.home-state {
+  margin-top: var(--qj-space-7);
 }
 </style>

@@ -10,6 +10,7 @@ const props = withDefaults(defineProps<{
   kind?: 'empty' | 'error' | 'offline';
   title?: string;
   description?: string;
+  actionLabel?: string;
 }>(), {
   kind: 'empty',
   title: '',
@@ -35,7 +36,7 @@ const defaultTitle = computed(() => {
     <span><component :is="icon" :size="26" :stroke-width="1.7" aria-hidden="true" /></span>
     <strong>{{ defaultTitle }}</strong>
     <p>{{ description || '稍后再来看看' }}</p>
-    <button type="button" @click="$emit('action')">{{ kind === 'empty' ? '返回首页' : '重新加载' }}</button>
+    <button type="button" @click="$emit('action')">{{ actionLabel || (kind === 'empty' ? '返回首页' : '重新加载') }}</button>
   </section>
 </template>
 

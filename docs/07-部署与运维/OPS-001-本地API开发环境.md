@@ -51,6 +51,16 @@ npm run dev
 
 默认访问 `http://127.0.0.1:5176`。Vite 把同源 `/api` 请求代理到 `http://127.0.0.1:8080`；如需调整，仅在本机环境设置 `VITE_API_PROXY_TARGET`。
 
+H5 使用同一 API，单独启动：
+
+~~~bash
+cd apps/h5-prototype
+npm ci
+npm run dev
+~~~
+
+默认访问 http://127.0.0.1:5175/home，使用相同的同源代理配置。首页、分类、搜索和详情读取真实已发布目录；预览和系统壁纸设置仍为 H5 占位演示。
+
 ## 4. 健康检查
 
 - `/actuator/health/liveness`：Java 进程可工作。

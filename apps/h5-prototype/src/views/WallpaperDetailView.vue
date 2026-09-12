@@ -1,23 +1,31 @@
 <script setup lang="ts">
 import { showToast } from 'vant';
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import QjMobileShell from '@/components/QjMobileShell.vue';
+import QjPageHeader from '@/components/QjPageHeader.vue';
 import QjSettingTutorialPlayer from '@/components/QjSettingTutorialPlayer.vue';
 import QjWallpaperTrial from '@/components/QjWallpaperTrial.vue';
 import QjDownloadPanel from '@/design-system/components/QjDownloadPanel.vue';
 import QjRedeemPanel from '@/design-system/components/QjRedeemPanel.vue';
+import QjStatePanel from '@/design-system/components/QjStatePanel.vue';
 import QjWallpaperHero from '@/design-system/components/QjWallpaperHero.vue';
 import QjWallpaperTargetSheet from '@/design-system/components/QjWallpaperTargetSheet.vue';
-import { getWallpaper } from '@/mocks/catalog';
+import type { PublicWallpaperDetail } from '@/domain/catalog';
+import { wallpaperTypeLabel } from '@/domain/catalog';
+import { catalogErrorMessage } from '@/repositories/http/apiClient';
+import { catalogRepository } from '@/repositories/http/catalogRepository';
 import { usePrototypeStore } from '@/stores/prototype';
 
 const route = useRoute();
 const router = useRouter();
 const store = usePrototypeStore();
 
-const wallpaper = computed(() => getWallpaper(String(route.params.id)));
+const wallpaper = ref<PublicWallpaperDetail>();
+const loading = ref(true);
+const errorMessage = ref('');
+let detailVersion = 0;
 const redeemVisible = ref(false);
 const redeemCode = ref('QJ8FT-W2C6P-9MR4K-X7D3A');
 const redeemStatus = ref<'idle' | 'validating' | 'success' | 'error'>('idle');
@@ -38,16 +46,34 @@ let downloadTimer: number | undefined;
 let transitionTimer: number | undefined;
 let permissionTimer: number | undefined;
 
+const wallpaperCompatible = computed(() => Boolean(wallpaper.value?.capabilities.length));
 const isOwned = computed(() => wallpaper.value ? store.isOwned(wallpaper.value.id) : false);
 const isDownloaded = computed(() => wallpaper.value ? store.isDownloaded(wallpaper.value.id) : false);
 const isApplied = computed(() => wallpaper.value ? store.isApplied(wallpaper.value.id) : false);
 
 const actionLabel = computed(() => {
-  if (!wallpaper.value?.compatible) return '当前设备不支持';
+  if (!wallpaperCompatible.value) return '当前设备不支持';
   if (isApplied.value) return '重新设置';
   if (isDownloaded.value) return '设置壁纸';
   return '下载壁纸';
 });
+
+const loadWallpaper = async () => {
+  const version = ++detailVersion;
+  loading.value = true;
+  errorMessage.value = '';
+  wallpaper.value = undefined;
+  try {
+    const detail = await catalogRepository.wallpaper(String(route.params.id));
+    if (version === detailVersion) wallpaper.value = detail;
+  } catch (error) {
+    if (version === detailVersion) errorMessage.value = catalogErrorMessage(error);
+  } finally {
+    if (version === detailVersion) loading.value = false;
+  }
+};
+
+watch(() => route.params.id, loadWallpaper, { immediate: true });
 
 const clearDownloadTimer = () => {
   if (downloadTimer) window.clearInterval(downloadTimer);
@@ -121,7 +147,7 @@ const submitRedeem = () => {
 };
 
 const openPrimaryFlow = () => {
-  if (!wallpaper.value?.compatible) return;
+  if (!wallpaperCompatible.value) return;
   if (isDownloaded.value) {
     settingSuccess.value = false;
     settingFailure.value = '';
@@ -160,7 +186,7 @@ const confirmSetting = () => {
     settingFailure.value = '';
     return;
   }
-  if (wallpaper.value.type !== '静态' && !dynamicPermissionGranted.value) {
+  if (wallpaper.value.kind !== 'STATIC' && !dynamicPermissionGranted.value) {
     settingFailure.value = '未获得动态壁纸权限，暂时无法应用动态效果';
     return;
   }
@@ -183,6 +209,7 @@ const requestDynamicPermission = () => {
 };
 
 onBeforeUnmount(() => {
+  detailVersion += 1;
   clearDownloadTimer();
   if (transitionTimer) window.clearTimeout(transitionTimer);
   if (permissionTimer) window.clearTimeout(permissionTimer);
@@ -191,22 +218,32 @@ onBeforeUnmount(() => {
 
 <template>
   <QjMobileShell :show-navigation="false" class="detail-shell">
+    <QjPageHeader v-if="loading || errorMessage" title="壁纸详情" @back="router.push('/home')" />
+    <van-skeleton v-if="loading" class="detail-loading" title avatar :row="8" />
+    <QjStatePanel
+      v-else-if="errorMessage"
+      class="detail-loading"
+      kind="error"
+      :description="errorMessage"
+      @action="loadWallpaper"
+    />
     <QjWallpaperHero
-      v-if="wallpaper"
-      :src="wallpaper.image"
+      v-else-if="wallpaper"
+      :src="wallpaper.cover.contentUrl"
       :title="wallpaper.title"
       :action-label="actionLabel"
-      :action-disabled="!wallpaper.compatible"
+      :action-disabled="!wallpaperCompatible"
       :show-trial="!isOwned"
-      :trial-disabled="!wallpaper.compatible"
+      :trial-disabled="!wallpaperCompatible"
       @back="router.back()"
       @tutorial="tutorialVisible = true"
       @trial="trialVisible = true"
       @action="openPrimaryFlow"
     />
-    <section v-else class="missing-wallpaper">
-      <strong>壁纸不存在</strong>
-      <button type="button" @click="router.replace('/home')">返回首页</button>
+    <section v-if="wallpaper" class="wallpaper-facts">
+      <span>{{ wallpaperTypeLabel(wallpaper.kind) }}</span>
+      <span>{{ wallpaper.rootCategory.name }}<template v-if="wallpaper.childCategory"> · {{ wallpaper.childCategory.name }}</template></span>
+      <p>{{ wallpaper.copyrightNote }}</p>
     </section>
 
     <van-popup v-model:show="redeemVisible" position="bottom" round>
@@ -228,7 +265,7 @@ onBeforeUnmount(() => {
         :loading="settingLoading"
         :success="settingSuccess"
         :failure-reason="settingFailure"
-        :permission-required="Boolean(settingFailure) && wallpaper?.type !== '静态' && !dynamicPermissionGranted"
+        :permission-required="Boolean(settingFailure) && wallpaper?.kind !== 'STATIC' && !dynamicPermissionGranted"
         @confirm="confirmSetting"
         @request-permission="requestDynamicPermission"
       />
@@ -237,7 +274,7 @@ onBeforeUnmount(() => {
     <QjWallpaperTrial
       v-if="wallpaper"
       v-model="trialVisible"
-      :src="wallpaper.image"
+      :src="wallpaper.cover.contentUrl"
       :title="wallpaper.title"
       @expired="showToast({ message: '2 分钟试用已结束', position: 'bottom' })"
     />
@@ -249,20 +286,31 @@ onBeforeUnmount(() => {
   padding-bottom: var(--qj-space-5);
 }
 
-.missing-wallpaper {
-  display: grid;
-  min-height: 70dvh;
-  place-items: center;
-  align-content: center;
-  gap: var(--qj-space-4);
+.detail-loading {
+  margin-top: var(--qj-space-6);
 }
 
-.missing-wallpaper button {
-  min-height: 44px;
-  padding: 0 18px;
-  border: 0;
-  border-radius: var(--qj-radius-pill);
-  color: var(--qj-color-ink);
-  background: var(--qj-color-accent);
+.wallpaper-facts {
+  display: flex;
+  margin-top: var(--qj-space-4);
+  flex-wrap: wrap;
+  gap: var(--qj-space-2);
 }
+
+.wallpaper-facts span {
+  padding: 6px 10px;
+  border-radius: var(--qj-radius-pill);
+  color: var(--qj-color-muted-ink);
+  font-size: var(--qj-font-size-caption);
+  background: var(--qj-color-surface-muted);
+}
+
+.wallpaper-facts p {
+  width: 100%;
+  margin: var(--qj-space-2) 0 0;
+  color: var(--qj-color-muted-ink);
+  font-size: var(--qj-font-size-caption-large);
+  line-height: 1.7;
+}
+
 </style>

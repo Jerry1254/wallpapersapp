@@ -3,7 +3,8 @@ import type { Component } from 'vue';
 
 withDefaults(defineProps<{
   label: string;
-  icon: Component;
+  icon?: Component;
+  iconSrc?: string;
   active?: boolean;
   tone?: 'amber' | 'blush' | 'sage' | 'stone';
 }>(), {
@@ -26,7 +27,8 @@ defineEmits<{
     @click="$emit('select')"
   >
     <span class="qj-category-tile__icon">
-      <component :is="icon" :size="23" :stroke-width="1.8" aria-hidden="true" />
+      <img v-if="iconSrc" :src="iconSrc" alt="" />
+      <component v-else-if="icon" :is="icon" :size="23" :stroke-width="1.8" aria-hidden="true" />
     </span>
     <span>{{ label }}</span>
   </button>
@@ -59,6 +61,13 @@ defineEmits<{
   transition:
     border-color var(--qj-duration-fast) var(--qj-ease-standard),
     box-shadow var(--qj-duration-fast) var(--qj-ease-standard);
+}
+
+.qj-category-tile__icon img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
 }
 
 .qj-category-tile[data-tone='amber'] {
