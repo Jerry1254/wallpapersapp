@@ -12,27 +12,36 @@ import QjRedeemPanel from '@/design-system/components/QjRedeemPanel.vue';
 import QjStatePanel from '@/design-system/components/QjStatePanel.vue';
 import QjWallpaperHero from '@/design-system/components/QjWallpaperHero.vue';
 import QjWallpaperTargetSheet from '@/design-system/components/QjWallpaperTargetSheet.vue';
-import type { PublicWallpaperDetail } from '@/domain/catalog';
+import type { PublicWallpaperDetail, PublicWallpaperSummary } from '@/domain/catalog';
+import type { RedemptionResult } from '@/domain/device';
 import { wallpaperTypeLabel } from '@/domain/catalog';
-import { catalogErrorMessage } from '@/repositories/http/apiClient';
+import { ApiClientError, catalogErrorMessage } from '@/repositories/http/apiClient';
 import { catalogRepository } from '@/repositories/http/catalogRepository';
+import { deviceRepository } from '@/repositories/http/deviceRepository';
+import { deviceErrorMessage } from '@/repositories/http/h5DeviceProvider';
+import { RedemptionUncertain, redemptionResultMessage } from '@/services/redemptionCoordinator';
+import { useDeviceStore } from '@/stores/device';
 import { usePrototypeStore } from '@/stores/prototype';
 
 const route = useRoute();
 const router = useRouter();
 const store = usePrototypeStore();
+const device = useDeviceStore();
 
-const wallpaper = ref<PublicWallpaperDetail>();
+const wallpaper = ref<PublicWallpaperSummary & Partial<PublicWallpaperDetail>>();
 const loading = ref(true);
 const errorMessage = ref('');
 let detailVersion = 0;
 const redeemVisible = ref(false);
-const redeemCode = ref('QJ8FT-W2C6P-9MR4K-X7D3A');
-const redeemStatus = ref<'idle' | 'validating' | 'success' | 'error'>('idle');
+const redeemCode = ref('');
+const redeemStatus = ref<'idle' | 'validating' | 'success' | 'error' | 'unknown'>('idle');
 const redeemError = ref('');
+const redeemSuccess = ref('');
+const primaryLoading = ref(false);
 const downloadVisible = ref(false);
 const downloadProgress = ref(0);
 const downloadStatus = ref<'downloading' | 'verifying' | 'success' | 'error'>('downloading');
+const downloadError = ref('');
 const settingVisible = ref(false);
 const settingTarget = ref<'home' | 'lock' | 'both'>('both');
 const settingSuccess = ref(false);
@@ -41,18 +50,19 @@ const settingLoading = ref(false);
 const tutorialVisible = ref(false);
 const trialVisible = ref(false);
 const dynamicPermissionGranted = ref(window.sessionStorage.getItem('qj-dynamic-wallpaper-permission') === 'granted');
-const forceDownloadError = ref(false);
 let downloadTimer: number | undefined;
 let transitionTimer: number | undefined;
 let permissionTimer: number | undefined;
 
-const wallpaperCompatible = computed(() => Boolean(wallpaper.value?.capabilities.length));
-const isOwned = computed(() => wallpaper.value ? store.isOwned(wallpaper.value.id) : false);
-const isDownloaded = computed(() => wallpaper.value ? store.isDownloaded(wallpaper.value.id) : false);
-const isApplied = computed(() => wallpaper.value ? store.isApplied(wallpaper.value.id) : false);
+const wallpaperCompatible = computed(() => Boolean(wallpaper.value?.capabilities.length) || isOwned.value);
+const isOwned = computed(() => wallpaper.value ? device.isOwned(wallpaper.value.id) : false);
+const isDownloaded = computed(() => Boolean(isOwned.value && wallpaper.value && store.isDownloaded(wallpaper.value.id)));
+const isApplied = computed(() => Boolean(isOwned.value && wallpaper.value && store.isApplied(wallpaper.value.id)));
+const pendingHere = computed(() => device.pending?.wallpaperId === wallpaper.value?.id);
 
 const actionLabel = computed(() => {
   if (!wallpaperCompatible.value) return '当前设备不支持';
+  if (pendingHere.value) return '确认兑换结果';
   if (isApplied.value) return '重新设置';
   if (isDownloaded.value) return '设置壁纸';
   return '下载壁纸';
@@ -63,30 +73,60 @@ const loadWallpaper = async () => {
   loading.value = true;
   errorMessage.value = '';
   wallpaper.value = undefined;
+  redeemVisible.value = false;
+  downloadVisible.value = false;
+  settingVisible.value = false;
+  redeemCode.value = '';
+  redeemStatus.value = 'idle';
+  primaryLoading.value = false;
+  settingLoading.value = false;
+  clearDownloadTimer();
+  if (transitionTimer) window.clearTimeout(transitionTimer);
+  if (permissionTimer) window.clearTimeout(permissionTimer);
   try {
     const detail = await catalogRepository.wallpaper(String(route.params.id));
     if (version === detailVersion) wallpaper.value = detail;
   } catch (error) {
-    if (version === detailVersion) errorMessage.value = catalogErrorMessage(error);
+    // Existing entitlements remain usable when a wallpaper leaves the public catalog.
+    if (error instanceof ApiClientError && error.status === 404) {
+      try {
+        const owned = await device.ensureOwned(String(route.params.id));
+        if (version === detailVersion && owned) wallpaper.value = owned.wallpaper;
+      } catch { /* Show the public error until the user can synchronize ownership. */ }
+    }
+    if (version === detailVersion && !wallpaper.value) errorMessage.value = catalogErrorMessage(error);
   } finally {
     if (version === detailVersion) loading.value = false;
   }
+  void device.ensureOwned(String(route.params.id)).catch(() => {});
 };
-
-watch(() => route.params.id, loadWallpaper, { immediate: true });
 
 const clearDownloadTimer = () => {
   if (downloadTimer) window.clearInterval(downloadTimer);
   downloadTimer = undefined;
 };
 
-const startDownload = () => {
+const startDownload = async () => {
   if (!wallpaper.value) return;
+  const id = wallpaper.value.id;
+  const version = detailVersion;
   clearDownloadTimer();
   redeemVisible.value = false;
   downloadVisible.value = true;
-  downloadProgress.value = 8;
+  downloadProgress.value = 0;
   downloadStatus.value = 'downloading';
+  downloadError.value = '';
+  try {
+    const descriptor = await deviceRepository.download(id);
+    if (version !== detailVersion) return;
+    if (descriptor.deliveryMode !== 'H5_PLACEHOLDER' || descriptor.wallpaperId !== id) throw new Error('当前浏览器不支持此交付方式');
+  } catch (error) {
+    if (version === detailVersion) {
+      downloadError.value = deviceErrorMessage(error);
+      downloadStatus.value = 'error';
+    }
+    return;
+  }
   downloadTimer = window.setInterval(() => {
     if (downloadProgress.value < 88) {
       downloadProgress.value = Math.min(88, downloadProgress.value + 13);
@@ -97,65 +137,79 @@ const startDownload = () => {
       downloadProgress.value = 96;
       return;
     }
-    if (forceDownloadError.value) {
-      clearDownloadTimer();
-      forceDownloadError.value = false;
-      downloadStatus.value = 'error';
-      return;
-    }
     clearDownloadTimer();
     downloadProgress.value = 100;
     downloadStatus.value = 'success';
-    store.markDownloaded(wallpaper.value!.id);
+    store.markDownloaded(id);
   }, 260);
 };
 
-const submitRedeem = () => {
-  if (redeemStatus.value === 'validating') return;
-  const code = redeemCode.value.trim().toUpperCase();
-  redeemStatus.value = 'validating';
-  redeemError.value = '';
-  window.setTimeout(() => {
-    if (code === 'INVALID') {
-      redeemError.value = '兑换码无效，请检查后重试';
-      redeemStatus.value = 'error';
-      return;
-    }
-    if (code === 'USEDUP') {
-      redeemError.value = '兑换额度已用完，请联系客服';
-      redeemStatus.value = 'error';
-      return;
-    }
-    if (code === 'UNKNOWN') {
-      redeemError.value = '兑换结果确认中，请稍后再次查询';
-      redeemStatus.value = 'error';
-      return;
-    }
-    if (code.length < 6) {
-      redeemError.value = '请输入客服发送的兑换码';
-      redeemStatus.value = 'error';
-      return;
-    }
-    forceDownloadError.value = code === 'NETERR';
-    store.grantWallpaper(wallpaper.value!.id);
+const acceptRedemption = (result: RedemptionResult) => {
+  redeemCode.value = '';
+  if (['GRANTED', 'ALREADY_OWNED'].includes(result.result)) {
     redeemStatus.value = 'success';
-    transitionTimer = window.setTimeout(() => {
-      redeemVisible.value = false;
-      transitionTimer = window.setTimeout(startDownload, 320);
-    }, 420);
-  }, 650);
+    redeemSuccess.value = redemptionResultMessage(result);
+  } else {
+    redeemStatus.value = 'error';
+    redeemError.value = redemptionResultMessage(result);
+  }
 };
 
-const openPrimaryFlow = () => {
-  if (!wallpaperCompatible.value) return;
-  if (isDownloaded.value) {
+const runRedemption = async (confirm: boolean) => {
+  if (!wallpaper.value || redeemStatus.value === 'validating') return;
+  if (redeemStatus.value === 'success') { await startDownload(); return; }
+  const version = detailVersion;
+  const id = wallpaper.value.id;
+  redeemStatus.value = 'validating';
+  redeemError.value = '';
+  try {
+    const result = confirm ? await device.confirmRedemption() : await device.redeem(id, redeemCode.value);
+    if (version === detailVersion) acceptRedemption(result);
+  } catch (error) {
+    if (version !== detailVersion) return;
+    redeemStatus.value = error instanceof RedemptionUncertain ? 'unknown' : 'error';
+    redeemError.value = error instanceof RedemptionUncertain ? error.message : deviceErrorMessage(error);
+    if (error instanceof RedemptionUncertain) redeemCode.value = '';
+  }
+};
+const submitRedeem = () => { void runRedemption(false); };
+const confirmRedemption = () => { void runRedemption(true); };
+
+const openPrimaryFlow = async () => {
+  if (!wallpaperCompatible.value || !wallpaper.value || primaryLoading.value) return;
+  device.syncPending();
+  if (device.pending && !pendingHere.value) {
+    showToast('请先确认上一次兑换结果');
+    await router.push(`/wallpapers/${device.pending.wallpaperId}`);
+    return;
+  }
+  if (pendingHere.value) {
+    redeemStatus.value = 'unknown';
+    redeemError.value = '上次兑换尚未确认，请先确认结果';
+    redeemVisible.value = true;
+    return;
+  }
+  const version = detailVersion;
+  primaryLoading.value = true;
+  try {
+    await device.refresh();
+    await device.ensureOwned(wallpaper.value.id);
+  } catch (error) {
+    if (version === detailVersion) showToast(deviceErrorMessage(error));
+    return;
+  } finally { primaryLoading.value = false; }
+  if (version !== detailVersion) return;
+  if (isDownloaded.value && isOwned.value) {
+    try { await deviceRepository.download(wallpaper.value.id); }
+    catch (error) { showToast(deviceErrorMessage(error)); return; }
+    if (version !== detailVersion) return;
     settingSuccess.value = false;
     settingFailure.value = '';
     settingVisible.value = true;
     return;
   }
   if (isOwned.value) {
-    startDownload();
+    await startDownload();
     return;
   }
   redeemStatus.value = 'idle';
@@ -214,6 +268,8 @@ onBeforeUnmount(() => {
   if (transitionTimer) window.clearTimeout(transitionTimer);
   if (permissionTimer) window.clearTimeout(permissionTimer);
 });
+
+watch(() => route.params.id, loadWallpaper, { immediate: true });
 </script>
 
 <template>
@@ -232,6 +288,7 @@ onBeforeUnmount(() => {
       :src="wallpaper.cover.contentUrl"
       :title="wallpaper.title"
       :action-label="actionLabel"
+      :action-loading="primaryLoading"
       :action-disabled="!wallpaperCompatible"
       :show-trial="!isOwned"
       :trial-disabled="!wallpaperCompatible"
@@ -244,6 +301,8 @@ onBeforeUnmount(() => {
       <span>{{ wallpaperTypeLabel(wallpaper.kind) }}</span>
       <span>{{ wallpaper.rootCategory.name }}<template v-if="wallpaper.childCategory"> · {{ wallpaper.childCategory.name }}</template></span>
       <p>{{ wallpaper.copyrightNote }}</p>
+      <p>浏览器联调环境：预览、下载与系统设置为演示交互。</p>
+      <button v-if="isOwned" type="button" class="detail-repeat" @click="startDownload">重新准备下载演示</button>
     </section>
 
     <van-popup v-model:show="redeemVisible" position="bottom" round>
@@ -251,12 +310,15 @@ onBeforeUnmount(() => {
         v-model="redeemCode"
         :status="redeemStatus"
         :error-message="redeemError"
+        :success-message="redeemSuccess"
+        :pending="pendingHere"
         @redeem="submitRedeem"
+        @confirm="confirmRedemption"
       />
     </van-popup>
 
     <van-popup v-model:show="downloadVisible" position="bottom" round :close-on-click-overlay="downloadStatus === 'success' || downloadStatus === 'error'">
-      <QjDownloadPanel :progress="downloadProgress" :status="downloadStatus" @action="continueAfterDownload" />
+      <QjDownloadPanel :progress="downloadProgress" :status="downloadStatus" placeholder :error-message="downloadError" @action="continueAfterDownload" />
     </van-popup>
 
     <van-popup v-model:show="settingVisible" position="bottom" round>
@@ -282,6 +344,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.detail-repeat { min-height: 44px; padding: 0 16px; border: 1px solid var(--qj-color-outline); border-radius: var(--qj-radius-pill); color: var(--qj-color-ink); background: var(--qj-color-surface); }
 .detail-shell {
   padding-bottom: var(--qj-space-5);
 }

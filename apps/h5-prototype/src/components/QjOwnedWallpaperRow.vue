@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { ChevronRight } from '@lucide/vue';
+import { ref, watch } from 'vue';
 
 import QjTypeBadge from '@/design-system/components/QjTypeBadge.vue';
 
-defineProps<{
+const props = defineProps<{
   src: string;
   title: string;
   type: string;
 }>();
+const imageFailed = ref(false);
+watch(() => props.src, () => { imageFailed.value = false; });
 
 defineEmits<{
   select: [];
@@ -16,7 +19,8 @@ defineEmits<{
 
 <template>
   <button type="button" class="qj-owned-row" @click="$emit('select')">
-    <img :src="src" :alt="title + '壁纸缩略图'" />
+    <img v-if="!imageFailed" :src="src" :alt="title + '壁纸缩略图'" @error="imageFailed = true" />
+    <span v-else class="qj-owned-row__fallback">封面暂不可用</span>
     <span class="qj-owned-row__content">
       <span><QjTypeBadge :label="type" tone="light" /></span>
       <strong>{{ title }}</strong>
@@ -42,12 +46,13 @@ defineEmits<{
   cursor: pointer;
 }
 
-.qj-owned-row > img {
+.qj-owned-row > img, .qj-owned-row__fallback {
   width: 76px;
   height: 96px;
   border-radius: 16px;
   object-fit: cover;
 }
+.qj-owned-row__fallback { display: grid; padding: 8px; place-items: center; color: var(--qj-color-muted-ink); font-size: var(--qj-font-size-caption); background: var(--qj-color-surface-muted); }
 
 .qj-owned-row__content {
   display: grid;

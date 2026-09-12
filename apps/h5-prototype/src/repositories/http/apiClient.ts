@@ -20,15 +20,24 @@ export class ApiClientError extends Error {
   }
 }
 
-export const apiRequest = async <T>(path: string): Promise<T> => {
+export interface ApiRequestOptions {
+  method?: 'GET' | 'POST';
+  body?: string;
+  headers?: Record<string, string>;
+  acceptedStatuses?: number[];
+}
+
+export const apiRequest = async <T>(path: string, options: ApiRequestOptions = {}): Promise<T> => {
   const timeout = new AbortController();
   const timer = setTimeout(() => timeout.abort(), 15000);
   try {
     const response = await fetch(`/api/v1${path}`, {
-      headers: { Accept: 'application/json' },
+      method: options.method ?? 'GET',
+      body: options.body,
+      headers: { Accept: 'application/json', ...options.headers },
       signal: timeout.signal
     });
-    if (response.ok) return await response.json() as T;
+    if (response.ok || options.acceptedStatuses?.includes(response.status)) return await response.json() as T;
 
     let envelope: ErrorEnvelope = {};
     try {

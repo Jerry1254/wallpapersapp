@@ -5,8 +5,10 @@ import QjPrimaryAction from './QjPrimaryAction.vue';
 
 withDefaults(defineProps<{
   modelValue?: string;
-  status?: 'idle' | 'validating' | 'success' | 'error';
+  status?: 'idle' | 'validating' | 'success' | 'error' | 'unknown';
   errorMessage?: string;
+  successMessage?: string;
+  pending?: boolean;
 }>(), {
   modelValue: '',
   status: 'idle'
@@ -14,6 +16,7 @@ withDefaults(defineProps<{
 
 defineEmits<{
   redeem: [];
+  confirm: [];
   'update:modelValue': [value: string];
 }>();
 </script>
@@ -35,12 +38,15 @@ defineEmits<{
       placeholder="请输入兑换码"
       autocomplete="off"
       autocapitalize="characters"
+      maxlength="32"
+      :disabled="status === 'validating' || status === 'success'"
       @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
     />
-    <p v-if="status === 'success'" class="feedback feedback--success">兑换成功，已绑定当前设备</p>
-    <p v-else-if="status === 'error'" class="feedback feedback--error">{{ errorMessage || '兑换码无效或额度已用完' }}</p>
+    <p v-if="status === 'success'" class="feedback feedback--success">{{ successMessage || '兑换成功，已绑定当前设备' }}</p>
+    <p v-else-if="status === 'error' || status === 'unknown'" class="feedback feedback--error" role="status">{{ errorMessage || '兑换码无效或额度已用完' }}</p>
+    <QjPrimaryAction v-if="pending" label="确认兑换结果" :loading="status === 'validating'" @press="$emit('confirm')" />
     <QjPrimaryAction
-      :label="status === 'success' ? '下载壁纸' : '验证并兑换'"
+      :label="status === 'success' ? '下载壁纸' : pending ? '使用原码重试本次兑换' : '验证并兑换'"
       :loading="status === 'validating'"
       @press="$emit('redeem')"
     />

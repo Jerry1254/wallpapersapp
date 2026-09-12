@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ChevronLeft, CirclePlay, Timer } from '@lucide/vue';
+import { ref, watch } from 'vue';
 
 import QjPrimaryAction from './QjPrimaryAction.vue';
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   src: string;
   title: string;
   actionLabel?: string;
@@ -18,6 +19,8 @@ withDefaults(defineProps<{
   showTrial: true,
   trialDisabled: false
 });
+const imageFailed = ref(false);
+watch(() => props.src, () => { imageFailed.value = false; });
 
 defineEmits<{
   back: [];
@@ -40,7 +43,8 @@ defineEmits<{
       </button>
     </header>
     <div class="qj-wallpaper-hero__media">
-      <img :src="src" :alt="title + '大图预览'" />
+      <img v-if="!imageFailed" :src="src" :alt="title + '大图预览'" @error="imageFailed = true" />
+      <p v-else class="qj-wallpaper-hero__fallback">封面暂不可用，已获得权益仍可核验</p>
       <div class="qj-wallpaper-hero__actions">
         <button
           v-if="showTrial"
@@ -65,6 +69,7 @@ defineEmits<{
 </template>
 
 <style scoped>
+.qj-wallpaper-hero__fallback { display: grid; min-height: 440px; margin: 0; padding: 24px; place-items: center; color: var(--qj-color-muted-ink); text-align: center; }
 .qj-wallpaper-hero {
   display: grid;
   gap: var(--qj-space-4);

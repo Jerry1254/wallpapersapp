@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiClientError, catalogErrorMessage } from './apiClient';
+import { ApiClientError, apiRequest, catalogErrorMessage } from './apiClient';
 import { catalogRepository } from './catalogRepository';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('public catalog HTTP contract', () => {
+  it('accepts the redemption 422 business result without treating it as an error envelope', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ result: 'CODE_EXHAUSTED', quotaDelta: 0 }), { status: 422 })));
+    await expect(apiRequest('/device/redemptions', { method: 'POST', body: '{}', acceptedStatuses: [422] })).resolves.toMatchObject({ result: 'CODE_EXHAUSTED' });
+  });
   it('encodes keywords and string IDs without sending undefined filters', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [], page: {} }), {
       headers: { 'Content-Type': 'application/json' }

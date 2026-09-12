@@ -1,15 +1,11 @@
 <script setup lang="ts">
-import { Copy, RotateCcw, Smartphone } from '@lucide/vue';
+import { RotateCcw, Smartphone } from '@lucide/vue';
 import { useRouter } from 'vue-router';
 
 import QjMobileShell from '@/components/QjMobileShell.vue';
 import QjPageHeader from '@/components/QjPageHeader.vue';
-import { useCustomerService } from '@/composables/useCustomerService';
-import { usePrototypeStore } from '@/stores/prototype';
 
 const router = useRouter();
-const store = usePrototypeStore();
-const { copySupportId } = useCustomerService();
 </script>
 
 <template>
@@ -17,16 +13,15 @@ const { copySupportId } = useCustomerService();
     <QjPageHeader title="设备恢复" action="service" @back="router.back()" @service="router.push('/customer-service')" />
     <section class="device-help-card">
       <span><Smartphone :size="28" aria-hidden="true" /></span>
-      <small>当前设备支持编号</small>
-      <strong>{{ store.deviceSupportId }}</strong>
-      <button type="button" @click="copySupportId(store.deviceSupportId)"><Copy :size="16" aria-hidden="true" />复制编号</button>
+      <small>当前为浏览器联调环境</small>
+      <strong>浏览器测试设备</strong>
     </section>
     <section class="restore-steps">
       <h2>恢复方式</h2>
       <ol>
-        <li><b>自动识别</b><span>再次安装后，App 会识别当前设备并同步已购买壁纸。</span></li>
+        <li><b>重新同步</b><span>同一浏览器的站点数据未清除时，刷新“我的”即可从服务同步已获得壁纸。</span></li>
         <li><b>重新下载</b><span>在“我的”中打开对应壁纸，不需要再次输入兑换码。</span></li>
-        <li><b>联系客服</b><span>自动恢复失败时，把上面的设备支持编号发给客服。</span></li>
+        <li><b>联系客服</b><span>清除浏览器数据或更换浏览器后将创建新的测试设备。权益异常时请联系客服确认。</span></li>
       </ol>
       <button type="button" class="restore-button" @click="router.push('/mine')"><RotateCcw :size="17" aria-hidden="true" />返回我的壁纸</button>
     </section>

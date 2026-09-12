@@ -7,6 +7,8 @@ import QjPrimaryAction from './QjPrimaryAction.vue';
 const props = withDefaults(defineProps<{
   progress?: number;
   status?: 'downloading' | 'verifying' | 'success' | 'error';
+  placeholder?: boolean;
+  errorMessage?: string;
 }>(), {
   progress: 0,
   status: 'downloading'
@@ -17,6 +19,11 @@ defineEmits<{
 }>();
 
 const title = computed(() => {
+  if (props.placeholder) {
+    if (props.status === 'success') return '演示准备完成';
+    if (props.status === 'error') return '准备失败';
+    return '正在准备壁纸演示';
+  }
   if (props.status === 'verifying') return '正在校验资源';
   if (props.status === 'success') return '壁纸下载完成';
   if (props.status === 'error') return '下载失败';
@@ -24,6 +31,8 @@ const title = computed(() => {
 });
 
 const description = computed(() => {
+  if (props.status === 'error' && props.errorMessage) return props.errorMessage;
+  if (props.placeholder) return '当前浏览器仅演示下载与设置流程，未下载正式资源或修改系统壁纸';
   if (props.status === 'verifying') return '确认文件完整性与资源签名';
   if (props.status === 'success') return '资源已安全保存到当前设备';
   if (props.status === 'error') return '网络中断，请重新尝试';
@@ -51,7 +60,7 @@ const icon = computed(() => {
     </div>
     <QjPrimaryAction
       v-if="status === 'success' || status === 'error'"
-      :label="status === 'success' ? '设置壁纸' : '重新下载'"
+      :label="status === 'success' ? placeholder ? '演示设置' : '设置壁纸' : '重新尝试'"
       :tone="status === 'success' ? 'accent' : 'dark'"
       @press="$emit('action')"
     />
