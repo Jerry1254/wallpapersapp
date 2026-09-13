@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { parse } from 'yaml';
 
 const document = parse(await readFile(new URL('../openapi.yaml', import.meta.url), 'utf8'));
@@ -121,4 +121,27 @@ assert.ok(
   'download contract must retain the future App secure package mode'
 );
 
+// Generated clients cannot decode an implementation error omitted by the enum.
+const knownErrors = new Set(document.components.schemas.ErrorCode.enum);
+let checkedErrorLiterals = 0;
+async function checkJavaErrors(directory) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const url = new URL(entry.name + (entry.isDirectory() ? '/' : ''), directory);
+    if (entry.isDirectory()) await checkJavaErrors(url);
+    else if (entry.name.endsWith('.java')) {
+      const source = await readFile(url, 'utf8');
+      for (const match of source.matchAll(/new ApiException\(\s*HttpStatus\.\w+\s*,\s*"([A-Z_]+)"/g)) {
+        assert.ok(knownErrors.has(match[1]), `Java API exposes an undocumented ErrorCode: ${match[1]}`);
+        checkedErrorLiterals++;
+      }
+    }
+  }
+}
+await checkJavaErrors(new URL('../../../services/api-server/src/main/java/', import.meta.url));
+assert.ok(checkedErrorLiterals > 0, 'Java error coverage must inspect implementation sources');
+assert.ok(document.paths['/device/redemptions'].post.responses['202'], 'redemption processing must be documented');
+assert.ok(document.paths['/device/redemptions'].post.responses['404'], 'missing wallpaper must be a definite error');
+assert.ok(document.paths['/device/wallpapers/{wallpaperId}/download-tickets'].post.responses['409'], 'nonce reuse conflict must be documented');
+
 console.log(`Contract coverage checks passed for ${operations.length} operations and ${Object.keys(document.components.schemas).length} schemas.`);
+console.log(`ErrorCode coverage passed for ${checkedErrorLiterals} direct Java ApiException literals.`);

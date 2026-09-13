@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 1.0.0
+  version: 1.0.1
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -238,6 +238,8 @@ paths:
                 $ref: '#/components/schemas/DeviceSessionChallenge'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '429':
@@ -271,6 +273,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
         '429':
@@ -295,6 +299,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EntitlementPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '429':
@@ -337,12 +343,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RedemptionResult'
+        '202':
+          description: 请求仍在处理中；客户端保留原 key 并查询确认
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, idempotencyKey]
+                properties:
+                  status:
+                    type: string
+                    enum: [PROCESSING]
+                  idempotencyKey:
+                    type: string
+                    format: uuid
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
         '422':
@@ -391,10 +413,14 @@ paths:
                   idempotencyKey:
                     type: string
                     format: uuid
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '500':
@@ -437,6 +463,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '429':
@@ -1959,6 +1987,26 @@ components:
         - UNSUPPORTED_MEDIA_TYPE
         - INTERNAL_ERROR
         - SERVICE_UNAVAILABLE
+        - CHALLENGE_INVALID
+        - CODE_BATCH_NOT_FOUND
+        - CODE_GENERATION_CONFLICT
+        - CREDENTIAL_INVALID
+        - CREDENTIAL_REVOKED
+        - DELIVERY_EXPIRED
+        - DELIVERY_TICKET_INVALID
+        - DEVICE_NOT_FOUND
+        - DEVICE_PROVIDER_NOT_ALLOWED
+        - DEVICE_PROVIDER_UNAVAILABLE
+        - DOWNLOAD_TICKET_INVALID
+        - PLATFORM_MISMATCH
+        - PROOF_INVALID
+        - REDEMPTION_NOT_FOUND
+        - REDEMPTION_PROCESSING
+        - REQUEST_NONCE_REUSED
+        - REQUEST_SIGNATURE_INVALID
+        - SECURE_PACKAGE_NOT_READY
+        - SIGNED_REQUEST_INVALID
+        - TIMESTAMP_INVALID
 
     WallpaperKind:
       type: string

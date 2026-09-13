@@ -2,9 +2,9 @@
 
 **状态：** 已确认
 
-**版本：** V1.0.0
+**版本：** V1.0.1
 
-**日期：** 2026-09-11
+**日期：** 2026-09-13
 
 **机器契约：** [`contracts/openapi/openapi.yaml`](../../contracts/openapi/openapi.yaml)
 
@@ -21,6 +21,8 @@ V1 使用同一份 OpenAPI 3.0.3 契约服务 H5、正式 App 和管理后台，
 | 管理端 | `/admin` | HttpOnly Cookie；写操作另带 CSRF token | 管理登录、资源、分类、壁纸、版本、批次、事件和设备查询 |
 
 数据库实体不直接作为响应模型。公开模型、设备模型和管理模型独立裁剪，任何响应都不得包含 `storageKey`、绝对路径、兑换码摘要、设备证据摘要、密码摘要、私钥或明文内容密钥。
+
+WP-P12 冻结版本为 1.0.1，47 个操作和 72 个 Schema 保持不变。相对 1.0.0 补齐已实现的 20 个设备/交付错误码，以及处理中的 202、设备挑战/会话、缺失壁纸和 nonce 冲突响应；不存在的 wallpaperId 兑换改为 404 WALLPAPER_NOT_FOUND，事务回滚，不形成权益或额度扣减。业务拒绝仍为 422 RedemptionResult。冻结文件摘要和变更门禁见 [App 开工门禁](../10-项目管理/PM-003-App开工门禁与接入清单.md)。
 
 ## 2. 端点范围
 
@@ -137,19 +139,21 @@ QJ-SIGNED-REQUEST-V1
 
 | HTTP | 稳定错误码 |
 |---|---|
-| 400 | `VALIDATION_FAILED`、`MALFORMED_REQUEST` |
-| 401 | `UNAUTHORIZED`、`SESSION_EXPIRED` |
-| 403 | `INVALID_DEVICE_PROOF`、`DEVICE_DISABLED`、`CSRF_INVALID`、`FORBIDDEN` |
-| 404 | `RESOURCE_NOT_FOUND`、`CATEGORY_NOT_FOUND`、`WALLPAPER_NOT_FOUND`、`ASSET_NOT_FOUND`、`CREDENTIAL_NOT_FOUND`、`REDEMPTION_REQUEST_NOT_FOUND` |
-| 409 | `DUPLICATE_SLUG`、`DUPLICATE_CATEGORY_NAME`、`DUPLICATE_VARIANT`、`IDEMPOTENCY_KEY_REUSED`、`STATE_CONFLICT`、`RESOURCE_IN_USE` |
+| 400 | `VALIDATION_FAILED`、`MALFORMED_REQUEST`、`SIGNED_REQUEST_INVALID` |
+| 401 | `UNAUTHORIZED`、`SESSION_EXPIRED`、`CHALLENGE_INVALID`、`CREDENTIAL_INVALID`、`CREDENTIAL_REVOKED`、`PROOF_INVALID`、`TIMESTAMP_INVALID`、`DOWNLOAD_TICKET_INVALID` |
+| 403 | `INVALID_DEVICE_PROOF`、`DEVICE_DISABLED`、`CSRF_INVALID`、`FORBIDDEN`、`DEVICE_PROVIDER_NOT_ALLOWED`、`DEVICE_PROVIDER_UNAVAILABLE`、`REQUEST_SIGNATURE_INVALID`、`PLATFORM_MISMATCH`、`ENTITLEMENT_REQUIRED`、`DELIVERY_TICKET_INVALID` |
+| 404 | `RESOURCE_NOT_FOUND`、`CATEGORY_NOT_FOUND`、`WALLPAPER_NOT_FOUND`、`ASSET_NOT_FOUND`、`CREDENTIAL_NOT_FOUND`、`REDEMPTION_REQUEST_NOT_FOUND`、`CODE_BATCH_NOT_FOUND`、`DEVICE_NOT_FOUND`、`REDEMPTION_NOT_FOUND` |
+| 409 | `DUPLICATE_SLUG`、`DUPLICATE_CATEGORY_NAME`、`DUPLICATE_VARIANT`、`IDEMPOTENCY_KEY_REUSED`、`STATE_CONFLICT`、`RESOURCE_IN_USE`、`CODE_GENERATION_CONFLICT`、`REDEMPTION_PROCESSING`、`REQUEST_NONCE_REUSED`、`DELIVERY_EXPIRED` |
 | 412 | `VERSION_CONFLICT` |
 | 413/415 | `PAYLOAD_TOO_LARGE`、`UNSUPPORTED_MEDIA_TYPE` |
-| 422 | `DOMAIN_RULE_VIOLATION`、`ASSET_NOT_READY`、`ASSET_VALIDATION_FAILED`、`RESOURCE_VERSION_NOT_READY`、`WALLPAPER_UNAVAILABLE`、`CODE_NOT_FOUND`、`CODE_EXHAUSTED`、`ENTITLEMENT_REQUIRED`、`DELIVERY_UNAVAILABLE`、`UNSUPPORTED_DEVICE` |
-| 410 | `TICKET_EXPIRED` |
+| 422 | `DOMAIN_RULE_VIOLATION`、`ASSET_NOT_READY`、`ASSET_VALIDATION_FAILED`、`RESOURCE_VERSION_NOT_READY`、`WALLPAPER_UNAVAILABLE`、`CODE_NOT_FOUND`、`CODE_EXHAUSTED`、`DELIVERY_UNAVAILABLE`、`UNSUPPORTED_DEVICE`、`SECURE_PACKAGE_NOT_READY` |
+| 410 | `TICKET_EXPIRED`、`DELIVERY_EXPIRED` |
 | 429 | `RATE_LIMITED`，并返回 `Retry-After` |
 | 500/503 | `INTERNAL_ERROR`、`SERVICE_UNAVAILABLE` |
 
 兑换业务拒绝使用 `422`，响应体为已持久化的 `RedemptionResult`，其中 `result` 精确区分码不存在、额度耗尽和壁纸不可用。这样客户端重试和结果查询能得到同一最终事实。
+
+POST 兑换和 GET 结果的 202 均返回 `{status: "PROCESSING", idempotencyKey}`，保留原意图等待确认。不存在的 wallpaperId 用 404 ErrorEnvelope 区分于已存在但下线作品的 422 最终业务结果。`DELIVERY_EXPIRED` 在重新生成已确认批次交付时为 409，在读取已过期/已确认 CSV 时为 410。表中保留的通用码不代表所有端点都会返回，具体响应以机器契约为准；客户端保留未知 code 的安全回退。
 
 ## 5. 下载模式兼容
 
@@ -172,3 +176,5 @@ npm test
 ~~~
 
 `npm test` 先使用 Redocly 校验 OpenAPI 结构和引用，再执行项目专项检查，确认关键端点、稳定 operationId、Long ID 字符串、兑换结果枚举、幂等头、乐观锁头、敏感设备签名头和禁止暴露字段没有漂移。
+
+专项检查还比对 Java 中直接写出的 ApiException 字面量错误码与 ErrorCode 枚举；它不能证明动态错误码或每个响应实例都满足 Schema。`npm run baseline:check` 另外核验冻结文件 SHA-256 与版本，不代替运行时集成测试。

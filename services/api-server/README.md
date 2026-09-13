@@ -83,6 +83,8 @@ Java API 正式工程目录，承载内容目录、匿名设备、兑换、权�
 
 ## 配置边界
 
+App 开工契约已冻结为 OpenAPI 1.0.1，见 [PM-003](../../docs/10-项目管理/PM-003-App开工门禁与接入清单.md)。当前设备 Provider 仅支持 local/test H5_TEST，正式平台公钥证明与 SECURE_PACKAGE 交付仍需后续实现；受保护文件读取稳定拒绝，不签发永久资源地址。不存在的 wallpaperId 兑换返回 404 WALLPAPER_NOT_FOUND、事务回滚，已存在但下线作品仍返回 422 最终兑换结果。
+
 - `local` profile 默认连接本地 Compose，并允许应用启动时执行 Flyway。
 - `test` profile 只连接 Testcontainers 创建的独立数据服务。
 - 基础配置默认关闭 Flyway；后续测试和生产环境必须显式决定迁移步骤，生产迁移不与 API 流量切换绑定。

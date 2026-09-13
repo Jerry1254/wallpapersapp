@@ -1,8 +1,9 @@
 # DB-001 MySQL 数据库设计
 
 **状态：** 已确认  
-**版本：** V1.0.0  
-**日期：** 2026-09-11  
+**版本：** V1.0.1
+
+**日期：** 2026-09-13
 **数据库：** MySQL 8.4 LTS  
 **关联领域：** [DM-001 统一领域模型](DM-001-统一领域模型.md)  
 **适用阶段：** WP-P02 至 WP-P12
@@ -412,15 +413,17 @@ CodeBatch、RedemptionCode、RedemptionEvent 和 AuditEvent 是额度或审计�
 
 隔离级别沿用 MySQL 默认 `REPEATABLE READ`，关键行显式加锁：
 
-1. 根据设备会话取得 device_id，插入或锁定 `redemption_request`。
+1. 根据设备会话取得 device_id，先锁定 anonymous_device 行，再非锁定读取/插入 `redemption_request`，同设备写入由设备行串行化，不锁定不存在幂等行的索引范围。
 2. 同幂等键异参立即返回冲突；已完成请求直接返回原结果。
-3. 锁定或查询 `(device_id, wallpaper_id)` 权益。已存在时写 ALREADY_OWNED，额度不变。
+3. 查询 `(device_id, wallpaper_id)` 权益。已存在时写 ALREADY_OWNED，额度不变；不存在的作品返回 404 并回滚请求，已下线作品保存最终拒绝事件。
 4. 计算兑换码 HMAC，`SELECT ... FOR UPDATE` 锁定单码行。
 5. 校验 `used_quota < total_quota`，插入权益。
 6. 以条件 UPDATE 增加 `used_quota`，写 GRANTED 事件和最终请求结果。
 7. 任何 SQL 失败全部回滚。唯一键冲突重新读取权益或幂等结果，不盲目重放。
 
 数据库锁内不执行文件 IO、网络调用、密码哈希或媒体探测。
+
+批次并发生成单独采用 READ COMMITTED 和批次号唯一约束收敛。WP-P12 的 V1.0.1 文档修订仅对齐现有实现与验收结果，Flyway V1 SQL 保持原样；当前没有 V2 结构变更，后续升级场景待实际迁移创建后验证。
 
 ### 9.2 内容编辑与发布
 

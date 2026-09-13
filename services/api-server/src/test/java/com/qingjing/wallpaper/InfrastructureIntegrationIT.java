@@ -703,6 +703,16 @@ class InfrastructureIntegrationIT {
                 .isZero();
 
         DeviceTestSession owner = registerAndCreateSession("integration-owner-" + UUID.randomUUID());
+        String missingWallpaperKey = UUID.randomUUID().toString();
+        ResponseEntity<JsonNode> missingWallpaper = signedPost(
+                "/api/v1/device/redemptions", orderedMap("wallpaperId", Long.toString(Long.MAX_VALUE), "code", code),
+                owner, missingWallpaperKey);
+        assertThat(missingWallpaper.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(missingWallpaper.getBody().path("error").path("code").asText()).isEqualTo("WALLPAPER_NOT_FOUND");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM redemption_request WHERE idempotency_key = ?", Long.class, missingWallpaperKey)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT SUM(used_quota) FROM redemption_code WHERE batch_id = ?", Long.class, Long.parseLong(batchId))).isZero();
         String firstKey = UUID.randomUUID().toString();
         Map<String, Object> redemptionBody = orderedMap("wallpaperId", Long.toString(wallpaperId), "code", code);
         ResponseEntity<JsonNode> granted = signedPost(

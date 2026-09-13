@@ -103,7 +103,7 @@ public class RedemptionService {
         List<String> wallpaperStatuses = jdbc.queryForList(
                 "SELECT status FROM wallpaper WHERE id = ?", String.class, wallpaperId);
         if (wallpaperStatuses.isEmpty()) {
-            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "WALLPAPER_UNAVAILABLE", "The wallpaper is unavailable");
+            throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_FOUND", "The wallpaper was not found");
         }
         if (!wallpaperStatuses.get(0).equals("PUBLISHED")) {
             complete(
