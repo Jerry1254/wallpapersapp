@@ -13,12 +13,14 @@ const props = withDefaults(defineProps<{
   success?: boolean;
   failureReason?: string;
   permissionRequired?: boolean;
+  demo?: boolean;
 }>(), {
   availableTargets: () => ['home', 'lock', 'both'],
   loading: false,
   success: false,
   failureReason: '',
-  permissionRequired: false
+  permissionRequired: false,
+  demo: false
 });
 
 const emit = defineEmits<{
@@ -37,9 +39,9 @@ const visibleOptions = computed(() => options.filter((item) => props.availableTa
 
 const actionLabel = computed(() => {
   if (props.success) return '完成';
-  if (props.permissionRequired) return '获取动态壁纸权限';
-  if (props.failureReason) return '重新设置';
-  return '确认设置';
+  if (props.permissionRequired) return props.demo ? '模拟授权并演示' : '获取动态壁纸权限';
+  if (props.failureReason) return props.demo ? '重新演示' : '重新设置';
+  return props.demo ? '确认演示' : '确认设置';
 });
 
 const handleAction = () => {
@@ -58,15 +60,15 @@ const handleAction = () => {
     <div v-if="success" class="qj-target-sheet__success" role="status">
       <span><CheckCircle2 :size="28" :stroke-width="2" aria-hidden="true" /></span>
       <div>
-        <h3>壁纸设置成功</h3>
-        <p>请返回桌面观看效果</p>
+        <h3>{{ demo ? '设置演示完成' : '壁纸设置成功' }}</h3>
+        <p>{{ demo ? '浏览器未修改系统壁纸，请在正式 App 中设置' : '请返回桌面观看效果' }}</p>
       </div>
     </div>
 
     <div v-else-if="failureReason" class="qj-target-sheet__failure" role="alert">
       <span><CircleAlert :size="28" :stroke-width="2" aria-hidden="true" /></span>
       <div>
-        <h3>壁纸设置失败</h3>
+        <h3>{{ demo ? '设置演示待授权' : '壁纸设置失败' }}</h3>
         <p>{{ failureReason }}</p>
       </div>
     </div>
@@ -74,7 +76,7 @@ const handleAction = () => {
     <template v-else>
       <header>
         <h3>设置到哪里</h3>
-        <p>选项由当前手机的系统能力决定</p>
+        <p>{{ demo ? '仅演示设置位置，浏览器不会修改系统壁纸' : '选项由当前手机的系统能力决定' }}</p>
       </header>
 
       <div class="qj-target-sheet__options" role="radiogroup" aria-label="壁纸设置位置">

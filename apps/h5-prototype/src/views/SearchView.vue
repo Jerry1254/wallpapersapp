@@ -48,7 +48,7 @@ const search = () => {
     <section class="search-results">
       <div class="prototype-section__header">
         <h2>{{ submittedKeyword ? `“${submittedKeyword}”` : '搜索结果' }}</h2>
-        <span>{{ page.totalItems }} 张壁纸</span>
+        <span v-if="!loading && !errorMessage">{{ page.totalItems }} 张壁纸</span>
       </div>
       <van-skeleton v-if="loading" title :row="6" />
       <QjStatePanel

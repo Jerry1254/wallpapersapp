@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Wallpaper } from '@/domain/admin';
-import { apiRequest, setCsrfToken } from '@/repositories/http/apiClient';
-import { adminRepository } from '@/repositories/http/adminRepository';
+import { ApiError, apiDownload, apiRequest, readableApiError, setCsrfToken } from '@/repositories/http/apiClient';
+import { adminRepository, WallpaperSaveError } from '@/repositories/http/adminRepository';
 
 const json = (value: unknown, status = 200, headers: HeadersInit = {}) => new Response(
   JSON.stringify(value),
@@ -48,11 +48,29 @@ const detail = (
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   setCsrfToken('');
 });
 
 describe('apiRequest', () => {
+  it('网络失败提供中文恢复提示，下载也遵循相同错误处理', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+    for (const request of [() => apiRequest('/admin/categories'), () => apiDownload('/admin/code-batches/1/delivery')]) {
+      await expect(request()).rejects.toMatchObject({ code: 'NETWORK_ERROR', status: 0 });
+    }
+    expect(readableApiError(new ApiError(409, 'DUPLICATE_SLUG', 'Already exists'))).toBe('此 Slug 已被使用，请换一个');
+  });
+
+  it('无响应超过 15 秒中止请求，提示先确认提交结果', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn((_url: string, options: RequestInit) => new Promise((_resolve, reject) => {
+      options.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    })));
+    const assertion = expect(apiRequest('/admin/categories')).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT', status: 0 });
+    await vi.advanceTimersByTimeAsync(15_000);
+    await assertion;
+  });
   it('在管理写请求上携带 Cookie、CSRF 与请求 ID', async () => {
     setCsrfToken('csrf-token');
     const fetchMock = vi.fn().mockResolvedValue(json({ ok: true }, 200, { ETag: '"3"' }));
@@ -68,6 +86,7 @@ describe('apiRequest', () => {
     expect(response.etag).toBe('"3"');
     const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(options.credentials).toBe('include');
+    expect(options.cache).toBe('no-store');
     const headers = options.headers as Headers;
     expect(headers.get('X-CSRF-Token')).toBe('csrf-token');
     expect(headers.get('X-Request-Id')).toMatch(/^[0-9a-f-]{36}$/);
@@ -92,6 +111,97 @@ describe('apiRequest', () => {
 });
 
 describe('adminRepository.saveWallpaper', () => {
+  it.each([
+    { kind: 'four_d' as const, apiKind: 'PARALLAX_4D', platform: 'ANDROID', type: 'LAYER_PARALLAX',
+      roles: ['BACKGROUND', 'FOREGROUND', 'PARALLAX_CONFIG'], keys: ['backgroundLayer', 'foregroundLayer', 'depthConfig'] },
+    { kind: 'dynamic' as const, apiKind: 'DYNAMIC', platform: 'IOS', type: 'LIVE_PHOTO',
+      roles: ['LIVE_PHOTO_IMAGE', 'LIVE_PHOTO_VIDEO'], keys: ['iosPhoto', 'iosMov'] }
+  ])('$kind 多角色版本按照角色分别使用 ordinal 0 发布', async (scenario) => {
+    setCsrfToken('csrf-token');
+    const bindings = scenario.roles.map((role, index) => ({ id: String(60 + index), role, ordinal: 0, asset: asset(String(index + 2), 'resource') }));
+    const version = { id: '50', versionNo: 1, status: 'READY', bindings };
+    const variant = { id: '40', platform: scenario.platform, resourceType: scenario.type, version: 0, resourceVersions: [] };
+    const wallpaper = { ...detail('DRAFT', 0, [variant]), kind: scenario.apiKind };
+    const fetchMock = vi.fn(async (url: string, options: RequestInit = {}) => {
+      if (url.endsWith('/resource-versions')) {
+        const body = JSON.parse(String(options.body));
+        if (body.bindings.some((binding: { ordinal: number }) => binding.ordinal !== 0)) {
+          return json({ error: { code: 'DOMAIN_RULE_VIOLATION', message: 'Every role must use ordinal zero' } }, 422);
+        }
+        return json(version, 201);
+      }
+      if (url.endsWith('/publish')) return json({ ...wallpaper, status: 'PUBLISHED', variants: [{ ...variant, resourceVersions: [{ ...version, status: 'PUBLISHED' }] }] });
+      return json(wallpaper);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const resources = Object.fromEntries(scenario.keys.map((key, index) => [key, { name: key, assetId: String(index + 2), size: 68, mime: 'image/png' }]));
+    const input: Wallpaper = { id: '30', title: '多角色发布', slug: 'multi-role', categoryId: '20', subcategoryId: '',
+      kind: scenario.kind, platforms: scenario.kind === 'four_d' ? ['android'] : ['ios'], status: 'draft', sort: 1, featuredRank: null,
+      coverUrl: '', copyrightNote: '本地测试', updatedAt: '', version: 0, variants: [], resources: {
+        ...resources, cover: { name: 'cover.png', assetId: '1', size: 68, mime: 'image/png' }
+      } };
+    expect((await adminRepository.saveWallpaper(input, true)).status).toBe('published');
+    const created = fetchMock.mock.calls.find(([url]) => url.endsWith('/resource-versions'));
+    expect(JSON.parse(String(created?.[1]?.body)).bindings).toEqual(scenario.roles.map((role, index) => ({ role, ordinal: 0, assetId: String(index + 2) })));
+  });
+  it('草稿创建后上传失败保留作品 ID 和最新版本，再次保存继续同一作品', async () => {
+    setCsrfToken('csrf-token');
+    const variant = { id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', version: 0, resourceVersions: [] };
+    let created = false;
+    let uploadFails = true;
+    const fetchMock = vi.fn(async (url: string, options: RequestInit = {}) => {
+      if (url.endsWith('/admin/assets')) {
+        if ((options.body as FormData).get('purpose') === 'STATIC_IMAGE' && uploadFails) {
+          return json({ error: { code: 'ASSET_VALIDATION_FAILED', message: 'Invalid image' } }, 422);
+        }
+        return json(asset('1', 'cover.png'), 201);
+      }
+      if (url.endsWith('/admin/wallpapers') && options.method === 'POST') {
+        created = true;
+        return json(detail('DRAFT', 0, []), 201);
+      }
+      if (url.endsWith('/variants')) return json(variant, 201);
+      if (url.endsWith('/resource-versions')) return json({ id: '50', status: 'READY', versionNo: 1 }, 201);
+      return json(detail('DRAFT', created ? 1 : 0, [variant]));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const file = new File(['invalid'], 'image.png', { type: 'image/png' });
+    const input: Wallpaper = { id: '', title: '恢复草稿', slug: 'recover', categoryId: '20', subcategoryId: '',
+      kind: 'static', platforms: ['android', 'ios', 'harmony'], status: 'draft', sort: 1, featuredRank: null,
+      coverUrl: '', copyrightNote: '本地测试', updatedAt: '', version: 0, variants: [], resources: {
+        cover: { name: file.name, size: file.size, mime: file.type, nativeFile: file },
+        staticImage: { name: file.name, size: file.size, mime: file.type, nativeFile: file }
+      } };
+    const failure = await adminRepository.saveWallpaper(input, false).catch((cause: unknown) => cause);
+    expect(failure).toBeInstanceOf(WallpaperSaveError);
+    const recovery = (failure as WallpaperSaveError).wallpaper;
+    expect(recovery).toMatchObject({ id: '30', version: 1 });
+    expect(recovery.resources.staticImage?.nativeFile).toBe(file);
+    uploadFails = false;
+    await adminRepository.saveWallpaper(recovery, false);
+    expect(fetchMock.mock.calls.filter(([url, options]) => url.endsWith('/admin/wallpapers') && options?.method === 'POST')).toHaveLength(1);
+    const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    expect((patch?.[1]?.headers as Headers).get('If-Match')).toBe('"1"');
+  });
+  it('重新读取并保存壁纸时保留服务器的精选排序和可空二级分类', async () => {
+    setCsrfToken('csrf-token');
+    const variant = { id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', version: 0,
+      resourceVersions: [{ id: '50', versionNo: 1, status: 'PUBLISHED', bindings: [
+        { id: '60', role: 'STATIC_IMAGE', ordinal: 0, asset: asset('2', 'wallpaper.png') }
+      ] }] };
+    const saved = { ...detail('PUBLISHED', 2, [variant]), childCategory: null, featuredRank: 7 };
+    const fetchMock = vi.fn(async (url: string, options: RequestInit = {}) => {
+      if (url.includes('/admin/wallpapers?')) return json({ items: [saved], page: { totalPages: 1 } });
+      return json(saved);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const [input] = await adminRepository.wallpapers();
+    expect(input.featuredRank).toBe(7);
+    expect(input.subcategoryId).toBe('');
+    await adminRepository.saveWallpaper(input, false);
+    const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
+    expect(JSON.parse(String(patch?.[1]?.body))).toMatchObject({ featuredRank: 7, childCategoryId: null });
+  });
   it('按资源上传、草稿、变体、版本、发布的顺序完成静态壁纸闭环', async () => {
     setCsrfToken('csrf-token');
     const requests: { url: string; options: RequestInit }[] = [];
@@ -129,7 +239,7 @@ describe('adminRepository.saveWallpaper', () => {
     const input: Wallpaper = {
       id: '', title: '晨雾山峦', slug: 'misty-mountains', categoryId: '20', subcategoryId: '21',
       kind: 'static', platforms: ['android', 'ios', 'harmony'], status: 'published', sort: 10,
-      coverUrl: '', copyrightNote: '已获得授权', updatedAt: '', version: 0, variants: [],
+      coverUrl: '', featuredRank: 2, copyrightNote: '已获得授权', updatedAt: '', version: 0, variants: [],
       resources: {
         cover: { name: 'cover.png', size: png.size, mime: png.type, nativeFile: png },
         staticImage: { name: 'wallpaper.png', size: png.size, mime: png.type, nativeFile: png }
@@ -149,6 +259,7 @@ describe('adminRepository.saveWallpaper', () => {
       'POST /admin/wallpapers/30/publish'
     ]);
     const variantRequest = requests[2].options.headers as Headers;
+    expect(JSON.parse(String(requests[1].options.body)).featuredRank).toBe(2);
     expect(variantRequest.get('If-Match')).toBe('"0"');
     expect(variantRequest.get('Content-Type')).toBe('application/json');
     const publishRequest = requests[6].options.headers as Headers;

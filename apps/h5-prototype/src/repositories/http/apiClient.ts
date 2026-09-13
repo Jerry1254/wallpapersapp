@@ -35,7 +35,8 @@ export const apiRequest = async <T>(path: string, options: ApiRequestOptions = {
       method: options.method ?? 'GET',
       body: options.body,
       headers: { Accept: 'application/json', ...options.headers },
-      signal: timeout.signal
+      signal: timeout.signal,
+      cache: 'no-store'
     });
     if (response.ok || options.acceptedStatuses?.includes(response.status)) return await response.json() as T;
 

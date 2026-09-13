@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AdminLoadNotice from '@/components/AdminLoadNotice.vue';
 import { Edit, Plus, Search, UploadFilled } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import { computed, onMounted, reactive, ref, toRaw } from 'vue';
@@ -11,6 +12,7 @@ interface CategoryNode extends Category { children?: CategoryNode[] }
 
 const categories = ref<Category[]>([]);
 const loading = ref(true);
+const loadError = ref('');
 const keyword = ref('');
 const dialogOpen = ref(false);
 const editing = ref(false);
@@ -38,10 +40,11 @@ const categoryTree = computed<CategoryNode[]>(() => {
 
 const load = async () => {
   loading.value = true;
+  loadError.value = '';
   try {
     categories.value = await adminRepository.categories();
   } catch (cause) {
-    ElMessage.error(readableApiError(cause, '分类加载失败'));
+    loadError.value = readableApiError(cause, '分类加载失败');
   } finally {
     loading.value = false;
   }
@@ -104,12 +107,13 @@ onMounted(load);
       <div><h1>分类管理</h1><p>维护首页一级分类和其下二级分类；只有一级分类需要上传图标。</p></div>
       <div class="page-actions"><ElButton type="primary" :icon="Plus" @click="openCreate">新增分类</ElButton></div>
     </header>
+    <AdminLoadNotice :error="loadError" :loading="loading" @retry="load" />
     <section class="surface toolbar">
       <div class="toolbar__filters"><ElInput v-model="keyword" :prefix-icon="Search" clearable placeholder="搜索一级或二级分类" style="width:250px" /></div>
-      <span class="toolbar__result">共 {{ categories.length }} 个节点</span>
+      <span v-if="!loadError" class="toolbar__result">共 {{ categories.length }} 个节点</span>
     </section>
-    <section v-loading="loading" class="surface content-table">
-      <ElTable :data="categoryTree" row-key="id" default-expand-all :tree-props="{ children: 'children' }">
+    <section v-if="!loadError" v-loading="loading" class="surface content-table">
+      <ElTable :data="categoryTree" empty-text="暂无分类" row-key="id" default-expand-all :tree-props="{ children: 'children' }">
         <ElTableColumn label="图标" width="100">
           <template #default="{ row }"><img v-if="row.parentId === null && row.iconUrl" class="category-image" :src="row.iconUrl" :alt="`${row.name}图标`" /><span v-else class="category-no-icon">—</span></template>
         </ElTableColumn>

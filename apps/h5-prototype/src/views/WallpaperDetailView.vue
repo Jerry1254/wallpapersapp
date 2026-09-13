@@ -63,8 +63,8 @@ const pendingHere = computed(() => device.pending?.wallpaperId === wallpaper.val
 const actionLabel = computed(() => {
   if (!wallpaperCompatible.value) return '当前设备不支持';
   if (pendingHere.value) return '确认兑换结果';
-  if (isApplied.value) return '重新设置';
-  if (isDownloaded.value) return '设置壁纸';
+  if (isApplied.value) return '重新演示设置';
+  if (isDownloaded.value) return '演示设置';
   return '下载壁纸';
 });
 
@@ -241,7 +241,7 @@ const confirmSetting = () => {
     return;
   }
   if (wallpaper.value.kind !== 'STATIC' && !dynamicPermissionGranted.value) {
-    settingFailure.value = '未获得动态壁纸权限，暂时无法应用动态效果';
+    settingFailure.value = '请先模拟动态壁纸授权，继续体验设置流程；浏览器不会获取系统权限';
     return;
   }
   store.markApplied(wallpaper.value.id, settingTarget.value);
@@ -258,7 +258,7 @@ const requestDynamicPermission = () => {
     settingLoading.value = false;
     store.markApplied(wallpaper.value!.id, settingTarget.value);
     settingSuccess.value = true;
-    showToast({ message: '已获取动态壁纸权限', position: 'bottom' });
+    showToast({ message: '模拟授权完成，未获取系统权限', position: 'bottom' });
   }, 650);
 };
 
@@ -323,6 +323,7 @@ watch(() => route.params.id, loadWallpaper, { immediate: true });
 
     <van-popup v-model:show="settingVisible" position="bottom" round>
       <QjWallpaperTargetSheet
+        demo
         v-model="settingTarget"
         :loading="settingLoading"
         :success="settingSuccess"

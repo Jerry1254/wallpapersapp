@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AdminLoadNotice from '@/components/AdminLoadNotice.vue';
 import { Download, Plus, Search, View } from '@element-plus/icons-vue';
 import dayjs from 'dayjs';
 import { ElMessage, ElMessageBox } from 'element-plus';
@@ -9,6 +10,7 @@ import { adminRepository } from '@/repositories/http/adminRepository';
 import { readableApiError } from '@/repositories/http/apiClient';
 
 const loading = ref(true);
+const loadError = ref('');
 const batches = ref<CodeBatchSummary[]>([]);
 const page = reactive<PageMetadata>({ page: 1, pageSize: 20, totalItems: 0, totalPages: 0 });
 const query = ref('');
@@ -25,6 +27,9 @@ const codesPage = reactive<PageMetadata>({ page: 1, pageSize: 20, totalItems: 0,
 const codeStatus = ref<RedemptionCodeStatus | ''>('');
 const codeSuffix = ref('');
 const detailLoading = ref(false);
+const detailError = ref('');
+const codesError = ref('');
+const selectedBatch = ref<CodeBatchSummary>();
 
 const deliveryLabels = { AVAILABLE: '待确认', CONFIRMED: '已确认', EXPIRED: '已过期' } as const;
 const deliveryTag = { AVAILABLE: 'warning', CONFIRMED: 'success', EXPIRED: 'info' } as const;
@@ -34,12 +39,13 @@ const date = (value?: string | null) => value ? dayjs(value).format('YYYY-MM-DD 
 
 const load = async () => {
   loading.value = true;
+  loadError.value = '';
   try {
     const result = await adminRepository.codeBatches({ page: page.page, pageSize: page.pageSize, q: query.value });
     batches.value = result.items;
     Object.assign(page, result.page);
   } catch (cause) {
-    ElMessage.error(readableApiError(cause, '兑换码批次加载失败'));
+    loadError.value = readableApiError(cause, '兑换码批次加载失败');
   } finally {
     loading.value = false;
   }
@@ -86,7 +92,7 @@ const downloadDelivery = async () => {
     saveBlob(file.data, file.filename);
     await adminRepository.confirmCodeBatchDelivery(delivery.value.batch.id);
     delivery.value = undefined;
-    ElMessage.success('兑换码 CSV 已下载，服务端明文交付材料已销毁');
+    ElMessage.success('已发起 CSV 下载，服务端明文交付材料已销毁，请检查浏览器下载记录');
     await load();
   } catch (cause) {
     ElMessage.error(readableApiError(cause, '兑换码交付失败'));
@@ -110,6 +116,7 @@ const discardDelivery = async () => {
 
 const loadCodes = async () => {
   if (!detail.value) return;
+  codesError.value = '';
   detailLoading.value = true;
   try {
     const result = await adminRepository.redemptionCodes(detail.value.id, {
@@ -121,12 +128,16 @@ const loadCodes = async () => {
     codes.value = result.items;
     Object.assign(codesPage, result.page);
   } catch (cause) {
-    ElMessage.error(readableApiError(cause, '兑换码额度加载失败'));
+    codesError.value = readableApiError(cause, '兑换码额度加载失败');
   } finally {
     detailLoading.value = false;
   }
 };
 const openDetail = async (row: CodeBatchSummary) => {
+  selectedBatch.value = row;
+  detail.value = undefined;
+  codes.value = [];
+  detailError.value = '';
   detailOpen.value = true;
   detailLoading.value = true;
   codeStatus.value = '';
@@ -136,7 +147,7 @@ const openDetail = async (row: CodeBatchSummary) => {
     detail.value = await adminRepository.codeBatch(row.id);
     await loadCodes();
   } catch (cause) {
-    ElMessage.error(readableApiError(cause, '批次详情加载失败'));
+    detailError.value = readableApiError(cause, '批次详情加载失败');
   } finally {
     detailLoading.value = false;
   }
@@ -151,16 +162,17 @@ onMounted(load);
       <div><h1>兑换码</h1><p>生成兑换码批次，只在创建后交付一次明文 CSV；日常查询仅显示掩码与额度。</p></div>
       <div class="page-actions"><ElButton type="primary" :icon="Plus" @click="openCreate">生成批次</ElButton></div>
     </header>
+    <AdminLoadNotice :error="loadError" :loading="loading" @retry="load" />
 
-    <ElAlert title="明文只交付一次" description="下载完成后系统立即销毁临时明文材料；数据库仅保存不可逆摘要与末五位。" type="warning" show-icon :closable="false" />
+    <ElAlert title="明文只交付一次" description="点击下载后系统确认交付并销毁临时明文材料；请保管浏览器下载的 CSV。数据库仅保存不可逆摘要与末五位。" type="warning" show-icon :closable="false" />
     <section class="surface toolbar">
       <div class="toolbar__filters">
         <ElInput v-model="query" :prefix-icon="Search" clearable placeholder="搜索批次号或名称" style="width:280px" @keyup.enter="search" />
         <ElButton @click="search">查询</ElButton>
       </div>
-      <span class="toolbar__result">共 {{ page.totalItems }} 个批次</span>
+      <span v-if="!loadError" class="toolbar__result">共 {{ page.totalItems }} 个批次</span>
     </section>
-    <section v-loading="loading" class="surface content-table">
+    <section v-if="!loadError" v-loading="loading" class="surface content-table">
       <ElTable :data="batches" empty-text="暂无兑换码批次">
         <ElTableColumn prop="batchNo" label="批次号" min-width="220" />
         <ElTableColumn prop="name" label="批次名称" min-width="180" />
@@ -197,6 +209,7 @@ onMounted(load);
     </ElDialog>
 
     <ElDrawer v-model="detailOpen" title="批次详情" size="min(820px, 96vw)">
+      <AdminLoadNotice :error="detailError" :loading="detailLoading" @retry="selectedBatch && openDetail(selectedBatch)" />
       <div v-if="detail" class="detail-stack">
         <ElDescriptions :column="2" border>
           <ElDescriptionsItem label="批次号">{{ detail.batchNo }}</ElDescriptionsItem>
@@ -214,7 +227,8 @@ onMounted(load);
               <ElButton :icon="Search" @click="codesPage.page=1; loadCodes()">查询</ElButton>
             </div>
           </div>
-          <ElTable v-loading="detailLoading" :data="codes" empty-text="没有符合条件的兑换码">
+          <AdminLoadNotice :error="codesError" :loading="detailLoading" @retry="loadCodes" />
+          <ElTable v-if="!codesError" v-loading="detailLoading" :data="codes" empty-text="没有符合条件的兑换码">
             <ElTableColumn prop="maskedCode" label="兑换码掩码" min-width="220" />
             <ElTableColumn label="额度" width="120"><template #default="{ row }">{{ row.usedQuota }} / {{ row.totalQuota }}</template></ElTableColumn>
             <ElTableColumn prop="remainingQuota" label="剩余" width="90" />

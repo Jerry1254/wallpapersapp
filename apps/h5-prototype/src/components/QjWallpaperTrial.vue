@@ -19,6 +19,7 @@ const emit = defineEmits<{
 
 const remainingSeconds = ref(props.durationSeconds);
 let countdownTimer: number | undefined;
+let expiresAt = 0;
 
 const remainingText = computed(() => {
   const minutes = Math.floor(remainingSeconds.value / 60).toString().padStart(2, '0');
@@ -39,8 +40,9 @@ const close = () => {
 const startCountdown = () => {
   clearCountdown();
   remainingSeconds.value = props.durationSeconds;
+  expiresAt = Date.now() + props.durationSeconds * 1000;
   countdownTimer = window.setInterval(() => {
-    remainingSeconds.value -= 1;
+    remainingSeconds.value = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
     if (remainingSeconds.value > 0) return;
     clearCountdown();
     emit('update:modelValue', false);
@@ -89,9 +91,9 @@ onBeforeUnmount(() => {
 
         <footer>
           <div>
-            <small>2 分钟完整效果试用</small>
+            <small>2 分钟预览演示</small>
             <h2>{{ title }}</h2>
-            <p>轻轻转动手机，体验壁纸动态与景深效果</p>
+            <p>浏览器仅展示封面预览，正式效果请在 App 中体验</p>
           </div>
           <button type="button" @click="close">结束试用</button>
         </footer>

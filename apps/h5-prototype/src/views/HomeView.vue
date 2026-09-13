@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 import QjMobileShell from '@/components/QjMobileShell.vue';
@@ -34,6 +34,7 @@ const systemViews = [
   { id: 'static', label: '静态壁纸' }
 ];
 const tones = ['amber', 'sage', 'blush', 'stone'] as const;
+const sectionTitle = computed(() => activeSubcategory.value === 'all' ? '精选壁纸' : systemViews.find((item) => item.id === activeSubcategory.value)?.label || '壁纸');
 
 const selectedQuery = (): WallpaperListQuery => {
   if (activeSubcategory.value === 'new') return { pageSize: 20, sort: 'NEWEST' };
@@ -114,7 +115,7 @@ const search = () => {
 
     <section class="prototype-section">
       <div class="prototype-section__header">
-        <h2>精选壁纸</h2>
+        <h2>{{ sectionTitle }}</h2>
         <button v-if="categories.length" type="button" @click="openFirstCategory">查看分类</button>
       </div>
       <QjSubcategoryRail v-model="activeSubcategory" :items="systemViews" />

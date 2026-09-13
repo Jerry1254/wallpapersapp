@@ -76,7 +76,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateViewport));
       </ElMenu>
       <div class="admin-sidebar__footer" :class="{ compact: collapsed }">
         <span class="status-dot"></span>
-        <small v-if="!collapsed">本地 API 已连接</small>
+        <small v-if="!collapsed">本地管理环境</small>
       </div>
     </aside>
 

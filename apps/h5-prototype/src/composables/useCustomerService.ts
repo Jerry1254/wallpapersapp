@@ -24,9 +24,15 @@ const copyText = async (value: string, message: string) => {
     const input = document.createElement('textarea');
     input.value = value;
     document.body.append(input);
-    input.select();
-    document.execCommand('copy');
-    input.remove();
+    try {
+      input.select();
+      if (!document.execCommand('copy')) throw new Error('Clipboard unavailable');
+    } catch {
+      showToast({ message: '复制失败，请手动选择文字复制', position: 'bottom' });
+      return;
+    } finally {
+      input.remove();
+    }
   }
   showToast({ message, position: 'bottom' });
 };
@@ -43,7 +49,7 @@ export const useCustomerService = () => {
     anchor.href = image;
     anchor.download = '倾境壁纸客服二维码.png';
     anchor.click();
-    showToast({ message: '二维码已保存', position: 'bottom' });
+    showToast({ message: '已发起二维码下载，请检查浏览器下载记录', position: 'bottom' });
   };
 
   return {

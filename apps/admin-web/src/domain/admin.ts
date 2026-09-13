@@ -63,6 +63,7 @@ export interface Wallpaper {
   status: PublishStatus;
   sort: number;
   coverUrl: string;
+  featuredRank: number | null;
   resources: WallpaperResources;
   copyrightNote: string;
   updatedAt: string;
@@ -90,6 +91,8 @@ export type RedemptionCodeStatus = 'AVAILABLE' | 'EXHAUSTED';
 export type RedemptionResult = 'GRANTED' | 'ALREADY_OWNED' | 'CODE_NOT_FOUND' | 'CODE_EXHAUSTED' | 'WALLPAPER_UNAVAILABLE' | 'FAILED';
 export type DevicePlatform = 'ANDROID' | 'IOS' | 'HARMONYOS' | 'H5_TEST';
 export type DeviceStatus = 'ACTIVE' | 'REVIEW' | 'DISABLED';
+export const devicePlatformLabels: Record<DevicePlatform, string> = { ANDROID: 'Android', IOS: 'iOS', HARMONYOS: 'HarmonyOS', H5_TEST: 'H5 联调' };
+export const deviceStatusLabels: Record<DeviceStatus, string> = { ACTIVE: '正常', REVIEW: '待核查', DISABLED: '已停用' };
 
 export interface CodeBatchSummary {
   id: string;

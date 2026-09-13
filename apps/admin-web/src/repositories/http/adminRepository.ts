@@ -96,6 +96,7 @@ interface ApiWallpaperSummary {
   cover: ApiAsset;
   sortOrder: number;
   status: 'DRAFT' | 'PUBLISHED' | 'OFFLINE' | 'ARCHIVED';
+  featuredRank?: number | null;
   updatedAt: string;
   version: number;
 }
@@ -227,6 +228,7 @@ const wallpaperFromApi = (value: ApiWallpaperDetail): Wallpaper => {
     platforms: platformsFromVariants(kind, value.variants),
     status: statusFromApi[value.status],
     sort: value.sortOrder,
+    featuredRank: value.featuredRank ?? null,
     coverUrl: apiResourceUrl(value.cover.previewUrl),
     resources: resourcesFromApi(value),
     copyrightNote: value.copyrightNote,
@@ -314,6 +316,13 @@ const listAllSummaries = async () => {
   return [first.items, ...pages.map((item) => item.data.items)].flat();
 };
 
+export class WallpaperSaveError extends Error {
+  constructor(public readonly originalError: unknown, public readonly wallpaper: Wallpaper) {
+    super('壁纸已保存部分步骤，请修正资源后继续保存');
+    this.name = 'WallpaperSaveError';
+  }
+}
+
 export const adminRepository = {
   async login(username: string, password: string) {
     return (await apiRequest<ApiSession>('/admin/sessions', {
@@ -383,62 +392,79 @@ export const adminRepository = {
       rootCategoryId: input.categoryId,
       childCategoryId: input.subcategoryId || null,
       coverAssetId,
-      featuredRank: null,
+      featuredRank: input.featuredRank ?? null,
       sortOrder: input.sort,
       copyrightNote: input.copyrightNote.trim()
     });
-    let detail = input.id
-      ? (await apiRequest<ApiWallpaperDetail>(`/admin/wallpapers/${input.id}`, {
-          method: 'PATCH', headers: { 'If-Match': ifMatch(input.version) }, body: payload, csrf: true
-        })).data
-      : (await apiRequest<ApiWallpaperDetail>('/admin/wallpapers', { method: 'POST', body: payload, csrf: true })).data;
+    let detail: ApiWallpaperDetail | undefined;
+    try {
+      detail = input.id
+        ? (await apiRequest<ApiWallpaperDetail>(`/admin/wallpapers/${input.id}`, {
+            method: 'PATCH', headers: { 'If-Match': ifMatch(input.version) }, body: payload, csrf: true
+          })).data
+        : (await apiRequest<ApiWallpaperDetail>('/admin/wallpapers', { method: 'POST', body: payload, csrf: true })).data;
 
-    const selectedVersions: string[] = [];
-    for (const spec of variantSpecs(input)) {
-      let variant = detail.variants.find((item) => item.platform === spec.platform && item.resourceType === spec.resourceType);
-      if (!variant) {
-        await apiRequest<ApiWallpaperVariant>(`/admin/wallpapers/${detail.id}/variants`, {
+      const selectedVersions: string[] = [];
+      for (const spec of variantSpecs(input)) {
+        let variant = detail.variants.find((item) => item.platform === spec.platform && item.resourceType === spec.resourceType);
+        if (!variant) {
+          await apiRequest<ApiWallpaperVariant>(`/admin/wallpapers/${detail.id}/variants`, {
+            method: 'POST',
+            headers: { 'If-Match': ifMatch(detail.version) },
+            body: jsonBody({ platform: spec.platform, resourceType: spec.resourceType, minimumOsVersion: null, capabilityRequirements: [] }),
+            csrf: true
+          });
+          detail = await fetchWallpaper(detail.id);
+          variant = detail.variants.find((item) => item.platform === spec.platform && item.resourceType === spec.resourceType);
+        }
+        if (!variant) throw new ApiError(500, 'INTERNAL_ERROR', '资源变体创建后未返回');
+
+        const hasNewFiles = spec.bindings.some((item) => item.resource?.nativeFile);
+        let version = eligibleVersion(variant);
+        if (!version || hasNewFiles) {
+          const bindings = [];
+          for (const binding of spec.bindings) {
+            if (!binding.resource) throw new ApiError(422, 'ASSET_NOT_READY', `缺少 ${binding.role} 资源`);
+            bindings.push({
+              assetId: await uploadAsset(binding.resource, binding.purpose),
+              role: binding.role,
+              ordinal: 0
+            });
+          }
+          const versionNo = Math.max(0, ...variant.resourceVersions.map((item) => item.versionNo)) + 1;
+          version = (await apiRequest<ApiResourceVersion>(`/admin/variants/${variant.id}/resource-versions`, {
+            method: 'POST', body: jsonBody({ versionNo, manifestSha256: null, bindings }), csrf: true
+          })).data;
+        }
+        selectedVersions.push(version.id);
+      }
+
+      if (publish) {
+        detail = (await apiRequest<ApiWallpaperDetail>(`/admin/wallpapers/${detail.id}/publish`, {
           method: 'POST',
           headers: { 'If-Match': ifMatch(detail.version) },
-          body: jsonBody({ platform: spec.platform, resourceType: spec.resourceType, minimumOsVersion: null, capabilityRequirements: [] }),
+          body: jsonBody({ resourceVersionIds: selectedVersions }),
           csrf: true
-        });
-        detail = await fetchWallpaper(detail.id);
-        variant = detail.variants.find((item) => item.platform === spec.platform && item.resourceType === spec.resourceType);
-      }
-      if (!variant) throw new ApiError(500, 'INTERNAL_ERROR', '资源变体创建后未返回');
-
-      const hasNewFiles = spec.bindings.some((item) => item.resource?.nativeFile);
-      let version = eligibleVersion(variant);
-      if (!version || hasNewFiles) {
-        const bindings = [];
-        for (const [ordinal, binding] of spec.bindings.entries()) {
-          if (!binding.resource) throw new ApiError(422, 'ASSET_NOT_READY', `缺少 ${binding.role} 资源`);
-          bindings.push({
-            assetId: await uploadAsset(binding.resource, binding.purpose),
-            role: binding.role,
-            ordinal
-          });
-        }
-        const versionNo = Math.max(0, ...variant.resourceVersions.map((item) => item.versionNo)) + 1;
-        version = (await apiRequest<ApiResourceVersion>(`/admin/variants/${variant.id}/resource-versions`, {
-          method: 'POST', body: jsonBody({ versionNo, manifestSha256: null, bindings }), csrf: true
         })).data;
+      } else {
+        detail = await fetchWallpaper(detail.id);
       }
-      selectedVersions.push(version.id);
+      return wallpaperFromApi(detail);
+    } catch (cause) {
+      // 上传/版本/发布是多个 API 步骤。保留已创建的 ID 与最新锁版本，
+      // 让资源失败后的重试继续编辑同一作品，避免重复 Slug 或旧版本冲突。
+      if (!detail) throw cause;
+      const latest = await fetchWallpaper(detail.id).catch(() => detail!);
+      const persisted = wallpaperFromApi(latest);
+      throw new WallpaperSaveError(cause, {
+        ...input,
+        id: persisted.id,
+        version: persisted.version,
+        status: persisted.status,
+        variants: persisted.variants,
+        resources: { ...persisted.resources, ...input.resources }
+      });
     }
-
-    if (publish) {
-      detail = (await apiRequest<ApiWallpaperDetail>(`/admin/wallpapers/${detail.id}/publish`, {
-        method: 'POST',
-        headers: { 'If-Match': ifMatch(detail.version) },
-        body: jsonBody({ resourceVersionIds: selectedVersions }),
-        csrf: true
-      })).data;
-    } else {
-      detail = await fetchWallpaper(detail.id);
-    }
-    return wallpaperFromApi(detail);
   },
 
   async publishWallpaper(id: string) {

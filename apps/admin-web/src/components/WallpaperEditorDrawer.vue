@@ -37,6 +37,7 @@ const blank = (): Wallpaper => ({
   status: 'draft',
   sort: 100,
   coverUrl: '',
+  featuredRank: null,
   resources: {},
   copyrightNote: '倾境壁纸已获得该资源的发布和交付授权',
   updatedAt: '',
@@ -104,7 +105,6 @@ const validate = () => {
   if (!form.title.trim()) next.title = '请输入壁纸名称';
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.slug)) next.slug = '请输入小写字母、数字和连字符组成的 Slug';
   if (!form.categoryId) next.categoryId = '请选择一级分类';
-  if (secondaryCategories.value.length && !form.subcategoryId) next.subcategoryId = '请选择二级分类';
   if (!form.resources.cover && !form.coverUrl) next.cover = '请上传列表封面';
   if (form.platforms.length === 0) next.platforms = '请至少选择一个平台';
 
@@ -182,13 +182,20 @@ const resourceRows = computed(() => {
                   <ElOption v-for="item in primaryCategories" :key="item.id" :label="item.name" :value="item.id" />
                 </ElSelect>
               </ElFormItem>
-              <ElFormItem label="二级分类" :error="errors.subcategoryId">
-                <ElSelect v-model="form.subcategoryId" :disabled="!form.categoryId || secondaryCategories.length === 0" placeholder="请先选择一级分类" style="width:100%" @change="delete errors.subcategoryId">
+              <ElFormItem label="二级分类（可选）" :error="errors.subcategoryId">
+                <ElSelect v-model="form.subcategoryId" clearable :disabled="!form.categoryId || secondaryCategories.length === 0" :placeholder="form.categoryId ? '可不选择二级分类' : '请先选择一级分类'" style="width:100%" @change="delete errors.subcategoryId">
                   <ElOption v-for="item in secondaryCategories" :key="item.id" :label="item.name" :value="item.id" />
                 </ElSelect>
               </ElFormItem>
               <ElFormItem label="排序值">
                 <ElInputNumber v-model="form.sort" :min="0" :max="9999" controls-position="right" style="width: 100%" />
+              </ElFormItem>
+              <ElFormItem label="精选推荐">
+                <div class="featured-controls">
+                  <ElCheckbox :model-value="form.featuredRank !== null" @change="form.featuredRank = $event ? 1 : null">加入首页精选</ElCheckbox>
+                  <ElInputNumber v-if="form.featuredRank !== null" v-model="form.featuredRank" :min="0" :max="999999" aria-label="精选排序" controls-position="right" />
+                  <small>排序值越小越靠前；取消勾选后不进入精选。</small>
+                </div>
               </ElFormItem>
               <ElFormItem class="span-2" label="版权说明" :error="errors.copyrightNote">
                 <ElInput v-model="form.copyrightNote" type="textarea" :rows="2" maxlength="500" show-word-limit @input="delete errors.copyrightNote" />
@@ -311,7 +318,7 @@ const resourceRows = computed(() => {
               <span>{{ item.label }}</span>
               <span :class="item.ready ? 'success-text' : 'warning-text'">
                 <ElIcon v-if="item.ready"><Check /></ElIcon>
-                {{ item.ready ? '已就绪' : '待上传' }}
+                {{ item.ready ? '已选择' : '待上传' }}
               </span>
             </div>
           </div>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AdminLoadNotice from '@/components/AdminLoadNotice.vue';
 import { Delete, Edit, Plus, Search } from '@element-plus/icons-vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { computed, onMounted, ref, watch } from 'vue';
@@ -7,11 +8,12 @@ import { useRoute, useRouter } from 'vue-router';
 import WallpaperEditorDrawer from '@/components/WallpaperEditorDrawer.vue';
 import { platformLabels, statusLabels, wallpaperKindLabels, type Category, type Platform, type ResourceFile, type Wallpaper, type WallpaperKind } from '@/domain/admin';
 import { readableApiError } from '@/repositories/http/apiClient';
-import { adminRepository } from '@/repositories/http/adminRepository';
+import { adminRepository, WallpaperSaveError } from '@/repositories/http/adminRepository';
 
 const route = useRoute();
 const router = useRouter();
 const loading = ref(true);
+const loadError = ref('');
 const keywords = ref('');
 const kind = ref<WallpaperKind | ''>('');
 const status = ref<Wallpaper['status'] | ''>('');
@@ -32,10 +34,11 @@ const filtered = computed(() => wallpapers.value.filter((item) => {
 
 const load = async () => {
   loading.value = true;
+  loadError.value = '';
   try {
     [categories.value, wallpapers.value] = await Promise.all([adminRepository.categories(), adminRepository.wallpapers()]);
   } catch (cause) {
-    ElMessage.error(readableApiError(cause, '壁纸加载失败'));
+    loadError.value = readableApiError(cause, '壁纸加载失败');
   } finally {
     loading.value = false;
   }
@@ -50,7 +53,12 @@ const save = async (value: Wallpaper) => {
     drawerOpen.value = false;
     await load();
   } catch (cause) {
-    ElMessage.error(readableApiError(cause, '壁纸保存失败'));
+    if (cause instanceof WallpaperSaveError) {
+      editing.value = cause.wallpaper;
+      ElMessage.error(`${readableApiError(cause.originalError, '壁纸保存失败')}；已保留保存进度，请修正后继续保存`);
+    } else {
+      ElMessage.error(readableApiError(cause, '壁纸保存失败'));
+    }
   } finally {
     saving.value = false;
   }
@@ -90,7 +98,7 @@ const remove = async (value: Wallpaper) => {
 };
 
 const requiredResources = (value: Wallpaper) => {
-  if (value.kind === 'four_d') return [value.resources.cover || value.coverUrl, value.resources.backgroundLayer, value.resources.foregroundLayer];
+  if (value.kind === 'four_d') return [value.resources.cover || value.coverUrl, value.resources.backgroundLayer, value.resources.foregroundLayer, value.resources.depthConfig];
   if (value.kind === 'static') return [value.resources.cover || value.coverUrl, value.resources.staticImage];
   const result: (ResourceFile | string | undefined)[] = [value.resources.cover || value.coverUrl];
   if (value.platforms.includes('android')) result.push(value.resources.androidVideo);
@@ -124,6 +132,7 @@ onMounted(load);
       <div><h1>壁纸管理</h1><p>上传、检查并发布 4D 分层、动态和静态壁纸。</p></div>
       <div class="page-actions"><ElButton type="primary" :icon="Plus" @click="create">上传壁纸</ElButton></div>
     </header>
+    <AdminLoadNotice :error="loadError" :loading="loading" @retry="load" />
 
     <section class="surface toolbar">
       <div class="toolbar__filters">
@@ -135,10 +144,10 @@ onMounted(load);
           <ElOption label="草稿" value="draft" /><ElOption label="已发布" value="published" /><ElOption label="已下架" value="offline" /><ElOption label="已归档" value="archived" />
         </ElSelect>
       </div>
-      <span class="toolbar__result">共 {{ filtered.length }} 条</span>
+      <span v-if="!loadError" class="toolbar__result">共 {{ filtered.length }} 条</span>
     </section>
 
-    <section v-loading="loading" class="surface content-table">
+    <section v-if="!loadError" v-loading="loading" class="surface content-table">
       <ElTable :data="filtered" row-key="id">
         <ElTableColumn label="壁纸" min-width="215" fixed="left">
           <template #default="{ row }">

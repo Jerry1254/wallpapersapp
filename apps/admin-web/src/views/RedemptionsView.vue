@@ -1,20 +1,23 @@
 <script setup lang="ts">
+import AdminLoadNotice from '@/components/AdminLoadNotice.vue';
 import { Search, View } from '@element-plus/icons-vue';
 import dayjs from 'dayjs';
-import { ElMessage } from 'element-plus';
 import { onMounted, reactive, ref } from 'vue';
 
-import type { PageMetadata, RedemptionDetail, RedemptionResult, RedemptionSummary } from '@/domain/admin';
+import { devicePlatformLabels, deviceStatusLabels, type PageMetadata, type RedemptionDetail, type RedemptionResult, type RedemptionSummary } from '@/domain/admin';
 import { adminRepository } from '@/repositories/http/adminRepository';
 import { readableApiError } from '@/repositories/http/apiClient';
 
 const loading = ref(true);
+const loadError = ref('');
 const rows = ref<RedemptionSummary[]>([]);
 const page = reactive<PageMetadata>({ page: 1, pageSize: 20, totalItems: 0, totalPages: 0 });
 const filters = reactive({ codeSuffix: '', wallpaperId: '', deviceId: '', result: '' as RedemptionResult | '' });
 const createdRange = ref<[Date, Date]>();
 const detailOpen = ref(false);
 const detailLoading = ref(false);
+const detailError = ref('');
+const selectedRedemption = ref<RedemptionSummary>();
 const detail = ref<RedemptionDetail>();
 
 const resultLabels: Record<RedemptionResult, string> = {
@@ -33,6 +36,7 @@ const date = (value?: string | null) => value ? dayjs(value).format('YYYY-MM-DD 
 
 const load = async () => {
   loading.value = true;
+  loadError.value = '';
   try {
     const result = await adminRepository.redemptions({
       page: page.page,
@@ -44,7 +48,7 @@ const load = async () => {
     rows.value = result.items;
     Object.assign(page, result.page);
   } catch (cause) {
-    ElMessage.error(readableApiError(cause, '兑换记录加载失败'));
+    loadError.value = readableApiError(cause, '兑换记录加载失败');
   } finally {
     loading.value = false;
   }
@@ -56,12 +60,15 @@ const reset = () => {
   search();
 };
 const openDetail = async (row: RedemptionSummary) => {
+  selectedRedemption.value = row;
+  detail.value = undefined;
+  detailError.value = '';
   detailOpen.value = true;
   detailLoading.value = true;
   try {
     detail.value = await adminRepository.redemption(row.id);
   } catch (cause) {
-    ElMessage.error(readableApiError(cause, '兑换详情加载失败'));
+    detailError.value = readableApiError(cause, '兑换详情加载失败');
   } finally {
     detailLoading.value = false;
   }
@@ -73,6 +80,7 @@ onMounted(load);
 <template>
   <section class="page-shell">
     <header class="page-heading"><div><h1>兑换记录</h1><p>查询兑换码、壁纸和匿名设备之间已落库的兑换事实。</p></div></header>
+    <AdminLoadNotice :error="loadError" :loading="loading" @retry="load" />
     <section class="surface filter-panel">
       <div class="filter-grid">
         <ElInput v-model="filters.codeSuffix" clearable placeholder="兑换码末位" @keyup.enter="search" />
@@ -85,7 +93,7 @@ onMounted(load);
         <div class="filter-actions"><ElButton :icon="Search" type="primary" @click="search">查询</ElButton><ElButton @click="reset">重置</ElButton></div>
       </div>
     </section>
-    <section v-loading="loading" class="surface content-table">
+    <section v-if="!loadError" v-loading="loading" class="surface content-table">
       <ElTable :data="rows" empty-text="暂无兑换记录">
         <ElTableColumn label="结果" width="120"><template #default="{ row }"><ElTag :type="resultTag(row.result)" effect="plain">{{ resultLabel(row.result) }}</ElTag></template></ElTableColumn>
         <ElTableColumn label="壁纸" min-width="180"><template #default="{ row }"><strong>{{ row.wallpaper.title }}</strong><small class="cell-meta">ID {{ row.wallpaper.id }}</small></template></ElTableColumn>
@@ -99,6 +107,7 @@ onMounted(load);
     </section>
 
     <ElDrawer v-model="detailOpen" title="兑换事实详情" size="min(680px, 96vw)">
+      <AdminLoadNotice :error="detailError" :loading="detailLoading" @retry="selectedRedemption && openDetail(selectedRedemption)" />
       <div v-loading="detailLoading" class="detail-stack">
         <template v-if="detail">
           <ElDescriptions :column="2" border>
@@ -115,8 +124,8 @@ onMounted(load);
             <h3>匿名设备</h3>
             <ElDescriptions :column="2" border>
               <ElDescriptionsItem label="设备 ID">{{ detail.device.id }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="平台">{{ detail.device.platform }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="状态">{{ detail.device.status }}</ElDescriptionsItem>
+              <ElDescriptionsItem label="平台">{{ devicePlatformLabels[detail.device.platform] }}</ElDescriptionsItem>
+              <ElDescriptionsItem label="状态">{{ deviceStatusLabels[detail.device.status] }}</ElDescriptionsItem>
               <ElDescriptionsItem label="最后活跃">{{ date(detail.device.lastSeenAt) }}</ElDescriptionsItem>
             </ElDescriptions>
           </section>
@@ -124,7 +133,7 @@ onMounted(load);
             <h3>授予权益</h3>
             <ElDescriptions :column="2" border>
               <ElDescriptionsItem label="权益 ID">{{ detail.entitlement.id }}</ElDescriptionsItem>
-              <ElDescriptionsItem label="状态">{{ detail.entitlement.status }}</ElDescriptionsItem>
+              <ElDescriptionsItem label="状态">{{ detail.entitlement.status === 'ACTIVE' ? '有效' : '已撤销' }}</ElDescriptionsItem>
               <ElDescriptionsItem label="壁纸">{{ detail.entitlement.wallpaper.title }}</ElDescriptionsItem>
               <ElDescriptionsItem label="授予时间">{{ date(detail.entitlement.grantedAt) }}</ElDescriptionsItem>
             </ElDescriptions>

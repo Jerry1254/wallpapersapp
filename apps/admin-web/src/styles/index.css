@@ -230,6 +230,10 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
 .editor-section__heading p { margin: 5px 0 0; color: var(--admin-muted); font-size: 12px; line-height: 1.6; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
 .form-grid .span-2 { grid-column: span 2; }
+.featured-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; width: 100%; }
+.featured-controls .el-checkbox { flex-shrink: 0; margin-right: 0; }
+.featured-controls .el-input-number { width: 120px; }
+.featured-controls small { flex-basis: 100%; color: var(--admin-muted); line-height: 1.6; }
 .kind-picker { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
 .kind-option { min-height: 94px; padding: 14px; border: 1px solid var(--admin-line); border-radius: 10px; background: #fff; color: inherit; cursor: pointer; text-align: left; }
 .kind-option strong, .kind-option small { display: block; }

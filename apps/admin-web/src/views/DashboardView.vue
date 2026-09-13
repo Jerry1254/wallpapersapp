@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AdminLoadNotice from '@/components/AdminLoadNotice.vue';
 import { CollectionTag, Key, Picture, Promotion, TrendCharts } from '@element-plus/icons-vue';
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
@@ -6,10 +7,10 @@ import { useRouter } from 'vue-router';
 import { statusLabels, wallpaperKindLabels, type AdminDashboard, type Category, type Wallpaper } from '@/domain/admin';
 import { readableApiError } from '@/repositories/http/apiClient';
 import { adminRepository } from '@/repositories/http/adminRepository';
-import { ElMessage } from 'element-plus';
 
 const router = useRouter();
 const loading = ref(true);
+const loadError = ref('');
 const wallpapers = ref<Wallpaper[]>([]);
 const categories = ref<Category[]>([]);
 const summary = ref<AdminDashboard>({
@@ -29,13 +30,14 @@ const stats = computed(() => [
 
 const load = async () => {
   loading.value = true;
+  loadError.value = '';
   try {
     const [data, categoryItems] = await Promise.all([adminRepository.dashboard(), adminRepository.categories()]);
     summary.value = data.summary;
     wallpapers.value = data.wallpapers;
     categories.value = categoryItems;
   } catch (cause) {
-    ElMessage.error(readableApiError(cause, '工作台加载失败'));
+    loadError.value = readableApiError(cause, '工作台加载失败');
   } finally {
     loading.value = false;
   }
@@ -60,8 +62,9 @@ onMounted(load);
         <ElButton type="primary" :icon="Picture" @click="router.push({ path: '/wallpapers', query: { create: '1' } })">上传壁纸</ElButton>
       </div>
     </header>
+    <AdminLoadNotice :error="loadError" :loading="loading" @retry="load" />
 
-    <div class="stat-grid">
+    <div v-if="!loadError" class="stat-grid">
       <article v-for="item in stats" :key="item.label" class="surface stat-card">
         <div class="stat-card__icon"><ElIcon :size="19"><component :is="item.icon" /></ElIcon></div>
         <span>{{ item.label }}</span>
@@ -69,7 +72,7 @@ onMounted(load);
       </article>
     </div>
 
-    <div class="dashboard-grid">
+    <div v-if="!loadError" class="dashboard-grid">
       <section class="surface content-table">
         <header class="panel-heading">
           <div><h2>最近更新</h2><p>按最后编辑时间展示壁纸内容</p></div>
