@@ -103,14 +103,14 @@ onMounted(load);
               <span><ElIcon><CollectionTag /></ElIcon></span><div><strong>维护分类</strong><small>管理首页一级分类与排序</small></div><ElIcon><Promotion /></ElIcon>
             </button>
             <button class="quick-action" type="button" @click="router.push('/codes')">
-              <span><ElIcon><Key /></ElIcon></span><div><strong>兑换码接口阶段</strong><small>WP-P08 将接入批次生成和一次性导出</small></div><ElIcon><Promotion /></ElIcon>
+              <span><ElIcon><Key /></ElIcon></span><div><strong>生成兑换码</strong><small>批次生成、额度快照和一次性交付</small></div><ElIcon><Promotion /></ElIcon>
             </button>
           </div>
         </section>
         <section class="surface">
           <header class="panel-heading"><div><h2>上传规则</h2><p>三种壁纸的资源组合</p></div></header>
           <div class="kind-guide">
-            <article class="kind-guide__item"><header><strong>4D 分层</strong><ElTag size="small">Android</ElTag></header><p>封面 + 背景层 + 透明前景层；可附景深 JSON，详情页直接合成预览。</p></article>
+            <article class="kind-guide__item"><header><strong>4D 分层</strong><ElTag size="small">Android</ElTag></header><p>封面 + 背景层 + 透明前景层 + 景深 JSON，详情页直接合成预览。</p></article>
             <article class="kind-guide__item"><header><strong>动态壁纸</strong><ElTag size="small" type="warning">多平台</ElTag></header><p>Android 上传 MP4；iOS 上传 MOV 与 JPEG；鸿蒙上传资源包。</p></article>
             <article class="kind-guide__item"><header><strong>静态壁纸</strong><ElTag size="small" type="info">全平台</ElTag></header><p>封面 + 一张高清原图，客户端负责安全裁切。</p></article>
           </div>

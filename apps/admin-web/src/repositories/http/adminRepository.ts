@@ -254,9 +254,7 @@ const variantSpecs = (value: Wallpaper): VariantSpec[] => {
       bindings: [
         { role: 'BACKGROUND', purpose: 'BACKGROUND', resource: value.resources.backgroundLayer },
         { role: 'FOREGROUND', purpose: 'FOREGROUND', resource: value.resources.foregroundLayer },
-        ...(value.resources.depthConfig
-          ? [{ role: 'PARALLAX_CONFIG' as const, purpose: 'PARALLAX_CONFIG' as const, resource: value.resources.depthConfig }]
-          : [])
+        { role: 'PARALLAX_CONFIG', purpose: 'PARALLAX_CONFIG', resource: value.resources.depthConfig }
       ]
     }];
   }
@@ -372,6 +370,9 @@ export const adminRepository = {
   },
 
   async saveWallpaper(input: Wallpaper, publish: boolean) {
+    if (input.kind === 'four_d' && !input.resources.depthConfig) {
+      throw new ApiError(422, 'ASSET_NOT_READY', '请上传景深配置 JSON');
+    }
     const cover = input.resources.cover;
     if (!cover) throw new ApiError(422, 'ASSET_NOT_READY', '请上传列表封面');
     const coverAssetId = await uploadAsset(cover, 'WALLPAPER_COVER');

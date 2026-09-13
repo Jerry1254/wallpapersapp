@@ -111,11 +111,12 @@ const validate = () => {
   if (form.kind === 'four_d') {
     if (!form.resources.backgroundLayer) next.backgroundLayer = '请上传背景层';
     if (!form.resources.foregroundLayer) next.foregroundLayer = '请上传透明前景层';
+    if (!form.resources.depthConfig) next.depthConfig = '请上传景深配置 JSON';
   }
   if (form.kind === 'dynamic') {
     if (hasPlatform('android') && !form.resources.androidVideo) next.androidVideo = 'Android 需要 MP4 视频';
     if (hasPlatform('ios') && !form.resources.iosMov) next.iosMov = 'iOS 需要 MOV 视频';
-    if (hasPlatform('ios') && !form.resources.iosPhoto) next.iosPhoto = 'iOS 需要配套 HEIC 照片';
+    if (hasPlatform('ios') && !form.resources.iosPhoto) next.iosPhoto = 'iOS 需要配套 JPEG 照片';
     if (hasPlatform('harmony') && !form.resources.harmonyPackage) next.harmonyPackage = 'HarmonyOS 需要平台资源包';
   }
   if (form.kind === 'static' && !form.resources.staticImage) next.staticImage = '请上传高清原图';
@@ -136,13 +137,13 @@ const resourceRows = computed(() => {
     rows.push(
       { label: '背景层', ready: Boolean(form.resources.backgroundLayer) },
       { label: '透明前景层', ready: Boolean(form.resources.foregroundLayer) },
-      { label: '景深配置（选填）', ready: Boolean(form.resources.depthConfig) }
+      { label: '景深配置', ready: Boolean(form.resources.depthConfig) }
     );
   } else if (form.kind === 'dynamic') {
     if (hasPlatform('android')) rows.push({ label: 'Android MP4', ready: Boolean(form.resources.androidVideo) });
     if (hasPlatform('ios')) rows.push(
       { label: 'iOS MOV', ready: Boolean(form.resources.iosMov) },
-      { label: 'iOS HEIC', ready: Boolean(form.resources.iosPhoto) }
+      { label: 'iOS JPEG', ready: Boolean(form.resources.iosPhoto) }
     );
     if (hasPlatform('harmony')) rows.push({ label: 'HarmonyOS 资源包', ready: Boolean(form.resources.harmonyPackage) });
   } else {
@@ -245,7 +246,7 @@ const resourceRows = computed(() => {
           </div>
           <div v-if="form.kind === 'four_d'" class="resource-grid">
             <div class="resource-grid__item">
-              <ResourceFileField :model-value="form.resources.backgroundLayer" label="背景层" hint="JPG / WebP，建议宽度 ≥ 1440px" accept="image/jpeg,image/webp" required @update:model-value="setResource('backgroundLayer', $event)" />
+              <ResourceFileField :model-value="form.resources.backgroundLayer" label="背景层" hint="PNG / JPG / WebP，建议宽度 ≥ 1440px" accept="image/png,image/jpeg,image/webp" required @update:model-value="setResource('backgroundLayer', $event)" />
               <p v-if="errors.backgroundLayer" class="field-error">{{ errors.backgroundLayer }}</p>
             </div>
             <div class="resource-grid__item">
@@ -253,7 +254,8 @@ const resourceRows = computed(() => {
               <p v-if="errors.foregroundLayer" class="field-error">{{ errors.foregroundLayer }}</p>
             </div>
             <div class="resource-grid__item span-2">
-              <ResourceFileField :model-value="form.resources.depthConfig" label="景深配置" hint="JSON，可配置各层移动幅度" accept="application/json,.json" @update:model-value="setResource('depthConfig', $event)" />
+              <ResourceFileField :model-value="form.resources.depthConfig" label="景深配置" hint="JSON，资源版本必需的各层配置" accept="application/json,.json" required @update:model-value="setResource('depthConfig', $event)" />
+              <p v-if="errors.depthConfig" class="field-error">{{ errors.depthConfig }}</p>
             </div>
           </div>
 
@@ -263,7 +265,7 @@ const resourceRows = computed(() => {
               <p v-if="errors.androidVideo" class="field-error">{{ errors.androidVideo }}</p>
             </div>
             <div v-if="hasPlatform('ios')" class="resource-grid__item">
-              <ResourceFileField :model-value="form.resources.iosMov" label="iOS 实况视频" hint="MOV，与 HEIC 同一 Live Photo" accept="video/quicktime,.mov" required @update:model-value="setResource('iosMov', $event)" />
+              <ResourceFileField :model-value="form.resources.iosMov" label="iOS 实况视频" hint="MOV，与 JPEG 同一 Live Photo" accept="video/quicktime,.mov" required @update:model-value="setResource('iosMov', $event)" />
               <p v-if="errors.iosMov" class="field-error">{{ errors.iosMov }}</p>
             </div>
             <div v-if="hasPlatform('ios')" class="resource-grid__item">
