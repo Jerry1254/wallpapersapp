@@ -4,8 +4,41 @@ import argparse
 import json
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import time
+
+
+def video_presentations(run, package_name):
+    # Some ROMs return constant MediaPlayer frame counters. Query only the
+    # buffered child of this package's video wallpaper, never another layer.
+    package = run('shell', 'cmd', 'package', 'list', 'packages', '-U', '--user', '0', package_name)
+    owner = re.fullmatch(r'package:' + re.escape(package_name) + r' uid:(\d+)\s*', package)
+    if owner is None:
+        raise RuntimeError('Video presentation owner UID unavailable')
+    dump = run('shell', 'dumpsys', 'SurfaceFlinger')
+    candidates = []
+    for block in re.split(r'(?=^\+ )', dump, flags=re.M):
+        header = re.match(r'\+ BufferStateLayer \((.+?)\s+screenFlags =[^)]*\) uid=(\d+)', block)
+        if header is None or header.group(2) != owner.group(1):
+            continue
+        if (re.search(r'parent=.*com\.qingjing\.wallpaper_android\.playback\.VideoWallpaperService#\d+', block)
+                and re.search(r'activeBuffer=\[[1-9]\d*x[1-9]\d*:', block)
+                and re.search(r'Region VisibleRegion.*count=[1-9]\d*\)', block)):
+            candidates.append(header.group(1).strip())
+    if len(candidates) != 1:
+        raise RuntimeError('Owned visible video presentation layer unavailable or ambiguous')
+    history = run('shell', 'dumpsys SurfaceFlinger --latency ' + shlex.quote(candidates[0]))
+    timestamps = sorted(set(int(row.split()[1]) for row in history.splitlines()[1:]
+                            if re.fullmatch(r'\d+\s+\d+\s+\d+', row)
+                            and 0 < int(row.split()[1]) < 2**63-1))
+    result = {'source': 'owned SurfaceFlinger actual presentation timestamps',
+              'sampleCount': len(timestamps)}
+    if timestamps:
+        result['latestPresentNs'] = timestamps[-1]
+    if len(timestamps) >= 30 and timestamps[-1] > timestamps[0]:
+        result['framesPerSecond'] = (len(timestamps)-1)*1e9/(timestamps[-1]-timestamps[0])
+    return result
 
 
 def main():
@@ -44,6 +77,7 @@ def main():
         if len(rows) != 1:
             raise RuntimeError('Read-only playback diagnostics unavailable')
         return json.loads(rows[0])
+
 
     def snapshot(phase):
         playback = engines()
@@ -84,10 +118,16 @@ def main():
             previous = next((x for x in reversed(samples) if x['phase'] in ['warmup', 'visible']), None)
             if previous and 'frames' in current:
                 old = next(e for e in previous['engines'] if not e.get('preview') and e.get('visible'))
-                if 'frames' in old and current['frames'] >= old['frames']:
-                    value['observedFramesPerSecond'] = (current['frames']-old['frames']) * 1000 / (value['elapsed']-previous['elapsed'])
+                if 'frames' in old and current['frames'] > old['frames']:
+                    value['mediaPlayerReportedFramesPerSecond'] = (current['frames']-old['frames']) * 1000 / (value['elapsed']-previous['elapsed'])
                 if 'droppedFrames' in current and 'droppedFrames' in old:
                     value['droppedFramesDelta'] = current['droppedFrames']-old['droppedFrames']
+            value['videoPresentation'] = video_presentations(run, args.package)
+            if 'framesPerSecond' in value['videoPresentation']:
+                value['observedFramesPerSecond'] = value['videoPresentation']['framesPerSecond']
+            if (previous and 'latestPresentNs' in value['videoPresentation']
+                    and value['videoPresentation']['latestPresentNs'] <= previous.get('videoPresentation', {}).get('latestPresentNs', 0)):
+                raise RuntimeError('Visible video presentation timestamps stopped advancing')
         if phase == 'hidden':
             if any(e.get('visible') or e.get('rendering') or e.get('playing') or
                    e.get('sensorRegistered') or e.get('decodedBytes', 0) for e in playback['engines']):
