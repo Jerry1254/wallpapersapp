@@ -1103,6 +1103,39 @@ class InfrastructureIntegrationIT {
                 .extracting(e -> ((com.qingjing.wallpaper.shared.web.ApiException)e).code()).isEqualTo("REQUEST_NONCE_REUSED");
         Long nonceTtl = redis.getExpire("device:signed-nonce:"+keyId+":"+nonce);
         assertThat(nonceTtl).isGreaterThan(590L);
+        ensureAdmin();
+        AdminTestSession admin = login();
+        long wallpaperId = createPublishedWallpaperFixture();
+        HttpHeaders batchHeaders = headers(admin, true, null);
+        batchHeaders.setContentType(MediaType.APPLICATION_JSON);
+        batchHeaders.set("Idempotency-Key", UUID.randomUUID().toString());
+        ResponseEntity<JsonNode> batch = http.exchange("/api/v1/admin/code-batches", HttpMethod.POST,
+                new HttpEntity<>(Map.of("name", "Android A04", "generatedCount", 1, "quotaPerCode", 1), batchHeaders), JsonNode.class);
+        assertThat(batch.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String batchId = batch.getBody().path("batch").path("id").asText();
+        HttpHeaders deliveryHeaders = headers(admin, false, null);
+        deliveryHeaders.set("X-Delivery-Ticket", batch.getBody().path("deliveryTicket").asText());
+        ResponseEntity<byte[]> delivered = http.exchange("/api/v1/admin/code-batches/" + batchId + "/delivery",
+                HttpMethod.GET, new HttpEntity<>(deliveryHeaders), byte[].class);
+        assertThat(delivered.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String code = new String(delivered.getBody(), StandardCharsets.UTF_8).lines().skip(1).findFirst().orElseThrow().split(",")[1];
+        String requestKey = UUID.randomUUID().toString();
+        Map<String, Object> redemption = orderedMap("wallpaperId", Long.toString(wallpaperId), "code", code);
+        ResponseEntity<JsonNode> granted = androidRedemption(key, token, requestKey, redemption);
+        assertThat(granted.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(granted.getBody().path("quotaDelta").asInt()).isEqualTo(1);
+        assertThat(androidRedemption(key, token, requestKey, redemption).getBody()).isEqualTo(granted.getBody());
+        HttpHeaders auth = new HttpHeaders(); auth.setBearerAuth(token);
+        assertThat(http.exchange("/api/v1/device/redemptions/" + requestKey, HttpMethod.GET, new HttpEntity<>(auth), JsonNode.class).getBody()).isEqualTo(granted.getBody());
+        assertThat(androidRedemption(key, token, UUID.randomUUID().toString(), redemption).getBody().path("result").asText()).isEqualTo("ALREADY_OWNED");
+        assertThat(jdbc.queryForObject("SELECT used_quota FROM redemption_code WHERE batch_id = ?", Integer.class, Long.parseLong(batchId))).isEqualTo(1);
+        assertThat(http.exchange("/api/v1/device/me/entitlements", HttpMethod.GET, new HttpEntity<>(auth), JsonNode.class).getBody().path("items")).hasSize(1);
+        long unavailable = createPublishedWallpaperFixture();
+        jdbc.update("UPDATE wallpaper_variant SET platform='IOS',resource_type='LIVE_PHOTO' WHERE wallpaper_id=?", unavailable);
+        ResponseEntity<JsonNode> rejected = androidRedemption(key, token, UUID.randomUUID().toString(), orderedMap("wallpaperId", Long.toString(unavailable), "code", code));
+        assertThat(rejected.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(rejected.getBody().path("result").asText()).isEqualTo("WALLPAPER_UNAVAILABLE");
+        assertThat(rejected.getBody().path("quotaDelta").asInt()).isZero();
         jdbc.update("UPDATE device_credential SET status='REVOKED',revoked_at=UTC_TIMESTAMP(6) WHERE credential_key_id=?", keyId);
         assertThatThrownBy(() -> androidIdentity.requireSession(token)).isInstanceOf(com.qingjing.wallpaper.shared.web.ApiException.class);
         ResponseEntity<JsonNode> revoked = http.postForEntity("/api/v1/device/registrations", androidRegistration(key), JsonNode.class);
@@ -1111,6 +1144,15 @@ class InfrastructureIntegrationIT {
         ResponseEntity<JsonNode> newInstallation = http.postForEntity("/api/v1/device/registrations", androidRegistration(generator.generateKeyPair()), JsonNode.class);
         assertThat(newInstallation.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(newInstallation.getBody().path("credentialKeyId").asText()).isNotEqualTo(keyId);
+    }
+
+    private ResponseEntity<JsonNode> androidRedemption(java.security.KeyPair key, String token, String requestKey, Map<String, Object> body) throws Exception {
+        String json = objectMapper.writeValueAsString(body), timestamp = Instant.now().toString(), nonce = UUID.randomUUID().toString();
+        String hash = java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.getBytes(StandardCharsets.UTF_8)));
+        HttpHeaders headers = new HttpHeaders(); headers.setBearerAuth(token); headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("Idempotency-Key", requestKey); headers.set("X-Request-Timestamp", timestamp); headers.set("X-Request-Nonce", nonce);
+        headers.set("X-Request-Signature", androidSign(key, "QJ-SIGNED-REQUEST-V1\nPOST\n/api/v1/device/redemptions\n" + timestamp + "\n" + nonce + "\n" + hash));
+        return http.exchange("/api/v1/device/redemptions", HttpMethod.POST, new HttpEntity<>(json, headers), JsonNode.class);
     }
 
     private Map<String, Object> androidRegistration(java.security.KeyPair key) throws Exception {

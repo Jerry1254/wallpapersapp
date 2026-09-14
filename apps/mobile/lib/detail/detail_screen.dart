@@ -3,6 +3,8 @@ import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
 import '../catalog/catalog.dart';
 import '../catalog/catalog_image.dart';
 import 'delivery.dart';
+import '../entitlements/redemption.dart';
+import '../entitlements/redemption_dialog.dart';
 import 'help_screen.dart';
 
 class DetailScreen extends StatefulWidget {
@@ -10,12 +12,14 @@ class DetailScreen extends StatefulWidget {
     super.key,
     required this.repository,
     required this.id,
+    this.redemptions,
     this.capabilities = const WallpaperCapabilities(
       platform: ClientPlatform.android,
     ),
   });
   final CatalogRepository repository;
   final String id;
+  final RedemptionCoordinator? redemptions;
   final WallpaperCapabilities capabilities;
   @override
   State<DetailScreen> createState() => _DetailScreenState();
@@ -146,7 +150,25 @@ class _DetailScreenState extends State<DetailScreen> {
             ),
             const Text('当前原生预览、下载和系统设置尚未接入。资源类型匹配不代表手机支持设置；能力确认前不消耗兑换额度。'),
             const SizedBox(height: 16),
-            const FilledButton(onPressed: null, child: Text('试用与兑换待能力接入')),
+            FilledButton(
+              onPressed:
+                  widget.redemptions != null &&
+                      effect != null &&
+                      widget.capabilities.previewEffects.contains(effect) &&
+                      WallpaperTarget.values.any(
+                        (target) =>
+                            widget.capabilities.canApply(effect, target),
+                      )
+                  ? () => showDialog<void>(
+                      context: context,
+                      builder: (_) => RedemptionDialog(
+                        coordinator: widget.redemptions!,
+                        wallpaperId: wallpaper.id,
+                      ),
+                    )
+                  : null,
+              child: const Text('兑换壁纸（需原生能力就绪）'),
+            ),
             if (wallpaper.copyright?.isNotEmpty ?? false) ...[
               const SizedBox(height: 20),
               Text('版权说明：${wallpaper.copyright}'),

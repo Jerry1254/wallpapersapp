@@ -68,6 +68,24 @@ class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                         signature.initSign(privateKey); signature.update(payload.toByteArray(Charsets.UTF_8))
                         url64(signature.sign())
                     }
+                    "readPendingRedemption" -> {
+                        keyStore()
+                        context.getSharedPreferences("qingjing.identity", Context.MODE_PRIVATE).getString("pendingRedemption", null)
+                    }
+                    "writePendingRedemption" -> {
+                        keyStore()
+                        val value = call.argument<String>("value")
+                        if (value != null) {
+                            require(value.length <= 256)
+                            val json = org.json.JSONObject(value)
+                            require(json.length() == 3)
+                            require(java.util.UUID.fromString(json.getString("key")).toString() == json.getString("key"))
+                            require(json.getString("wallpaperId").matches(Regex("[1-9][0-9]*")))
+                            require(json.getString("bodyHash").matches(Regex("[0-9a-f]{64}")))
+                        }
+                        check(context.getSharedPreferences("qingjing.identity", Context.MODE_PRIVATE).edit().putString("pendingRedemption", value).commit())
+                        null
+                    }
                     "rememberCredential" -> {
                         val id = call.argument<String>("credentialKeyId") ?: throw IllegalArgumentException()
                         require(java.util.UUID.fromString(id).toString() == id)

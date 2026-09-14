@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:qingjing_design_tokens/qingjing_design_tokens.dart';
 import 'catalog.dart';
+import '../entitlements/redemption.dart';
 import '../detail/detail_screen.dart';
 import 'catalog_image.dart';
 
@@ -8,10 +9,12 @@ class CatalogScreen extends StatefulWidget {
   const CatalogScreen({
     super.key,
     required this.repository,
+    this.redemptions,
     this.category,
     this.search,
   });
   final CatalogRepository repository;
+  final RedemptionCoordinator? redemptions;
   final Category? category;
   final String? search;
   @override
@@ -76,8 +79,11 @@ class _CatalogScreenState extends State<CatalogScreen> {
     Navigator.push(
       context,
       MaterialPageRoute<void>(
-        builder: (_) =>
-            CatalogScreen(repository: widget.repository, search: term),
+        builder: (_) => CatalogScreen(
+          repository: widget.repository,
+          search: term,
+          redemptions: widget.redemptions,
+        ),
       ),
     );
   }
@@ -155,6 +161,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                                 context,
                                 MaterialPageRoute<void>(
                                   builder: (_) => CatalogScreen(
+                                    redemptions: widget.redemptions,
                                     repository: widget.repository,
                                     category: category,
                                   ),
@@ -283,6 +290,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                         context,
                         MaterialPageRoute<void>(
                           builder: (_) => DetailScreen(
+                            redemptions: widget.redemptions,
                             repository: widget.repository,
                             id: item.id,
                           ),

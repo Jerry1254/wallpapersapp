@@ -105,7 +105,18 @@ public class RedemptionService {
         if (wallpaperStatuses.isEmpty()) {
             throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_FOUND", "The wallpaper was not found");
         }
-        if (!wallpaperStatuses.get(0).equals("PUBLISHED")) {
+        String platform = jdbc.queryForObject("SELECT platform FROM anonymous_device WHERE id = ?", String.class, deviceId);
+        boolean androidDelivery = true;
+        if ("ANDROID".equals(platform)) {
+            Long compatible = jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM wallpaper_variant v
+                    JOIN resource_version r ON r.variant_id = v.id AND r.status = 'PUBLISHED'
+                    WHERE v.wallpaper_id = ? AND v.platform IN ('ANDROID', 'UNIVERSAL')
+                      AND v.resource_type IN ('STATIC_IMAGE', 'VIDEO', 'LAYER_PARALLAX')
+                    """, Long.class, wallpaperId);
+            androidDelivery = compatible != null && compatible > 0;
+        }
+        if (!wallpaperStatuses.get(0).equals("PUBLISHED") || !androidDelivery) {
             complete(
                     requestId, deviceId, wallpaperId, null, suffix(normalizedCode), null,
                     RedemptionResultCode.WALLPAPER_UNAVAILABLE, 0, "WALLPAPER_UNAVAILABLE", "REJECTED");

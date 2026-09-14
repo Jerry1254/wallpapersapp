@@ -5,6 +5,8 @@ import 'catalog/catalog.dart';
 import 'catalog/catalog_screen.dart';
 import 'detail/help_screen.dart';
 import 'device/device_session.dart';
+import 'entitlements/redemption.dart';
+import 'entitlements/entitlements_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -52,35 +54,10 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
-  bool connecting = false;
-  String identityMessage = '连接设备身份后，读取已获得的壁纸';
-  Future<void> connectIdentity() async {
-    setState(() {
-      connecting = true;
-    });
-    try {
-      await widget.sessions.authenticated('/device/me/entitlements');
-      if (mounted) {
-        setState(() {
-          identityMessage = 'Android 安装身份已验证，权益服务连接正常';
-        });
-      }
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          identityMessage = error is DeviceApiError
-              ? error.message
-              : '安装凭据暂时不可用，请重试或联系客服';
-        });
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          connecting = false;
-        });
-      }
-    }
-  }
+  late final redemptions = RedemptionCoordinator(
+    SessionRedemptionApi(widget.sessions),
+    AndroidPendingStore(),
+  );
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -103,31 +80,14 @@ class _HomeShellState extends State<HomeShell> {
       child: IndexedStack(
         index: index,
         children: [
-          CatalogScreen(repository: widget.repository),
-          Padding(
-            padding: EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '我的壁纸',
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
-                ),
-                SizedBox(height: 16),
-                Text(identityMessage),
-                FilledButton(
-                  onPressed: connecting ? null : connectIdentity,
-                  child: Text(connecting ? '正在验证…' : '连接设备身份'),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(builder: (_) => const HelpScreen()),
-                  ),
-                  child: const Text('壁纸教程'),
-                ),
-              ],
-            ),
+          CatalogScreen(
+            repository: widget.repository,
+            redemptions: redemptions,
+          ),
+          EntitlementsScreen(
+            sessions: widget.sessions,
+            catalog: widget.repository,
+            redemptions: redemptions,
           ),
         ],
       ),
