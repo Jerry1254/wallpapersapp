@@ -11,6 +11,9 @@ import com.qingjing.wallpaper_android.install.PackageRuntime
 import java.util.concurrent.Executors
 
 class VideoWallpaperService : WallpaperService() {
+    override fun dump(fd: java.io.FileDescriptor,writer: java.io.PrintWriter,args: Array<String>) {
+        PlaybackDiagnostics.dump(this,writer,debugStates())
+    }
     companion object {
         private val states = mutableMapOf<Int,Map<String,Any?>>()
         @Synchronized fun debugStates() = states.values.toList()

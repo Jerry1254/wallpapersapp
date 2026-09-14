@@ -81,7 +81,9 @@ internal class ParallaxSurfaceRenderer(private val context: Context,private val 
             var drew = false
             var memoryFailure = false
             try {
-                canvas = holder.lockCanvas()
+                // API 26 is our minimum. Full-resolution layered bitmaps use GPU Canvas;
+                // software lockCanvas made the 1080x2400 Redmi fixture render at ~5 fps.
+                canvas = holder.lockHardwareCanvas()
                 if (canvas != null && valid(renderGeneration)) { current.draw(canvas,x,y); drew = true }
             } catch (_: RuntimeException) { }
             catch (_: OutOfMemoryError) { memoryFailure = true }

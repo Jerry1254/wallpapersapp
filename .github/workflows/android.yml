@@ -22,12 +22,19 @@ jobs:
         working-directory: apps/mobile
       - run: flutter analyze && flutter test
         working-directory: apps/mobile
+      - name: Generate ephemeral public loopback certificate for internal manifest checks
+        shell: bash
+        run: |
+          qj_tls_dir=$(mktemp -d)
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=localhost' -keyout "$qj_tls_dir/key.pem" -out "$qj_tls_dir/cert.pem" >/dev/null 2>&1
+          rm "$qj_tls_dir/key.pem"
+          echo "QJ_INTERNAL_TLS_CERT_FILE=$qj_tls_dir/cert.pem" >> "$GITHUB_ENV"
       - run: ./gradlew :wallpaper_android:testDebugUnitTest :wallpaper_android:lintDebug
         working-directory: apps/mobile/android
       - run: flutter build apk --debug --flavor local
         working-directory: apps/mobile
       - run: flutter build apk --release --flavor local
         working-directory: apps/mobile
-      - run: ./gradlew :app:processProdReleaseManifest
+      - run: ./gradlew :app:processProdReleaseManifest :app:processInternalReleaseManifest
         working-directory: apps/mobile/android
       - run: python3 scripts/verify-mobile-manifests.py

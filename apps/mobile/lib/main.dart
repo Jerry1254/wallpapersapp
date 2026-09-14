@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:qingjing_design_tokens/qingjing_design_tokens.dart';
 import 'config/app_config.dart';
+import 'config/internal_tls.dart';
 import 'catalog/catalog.dart';
 import 'catalog/catalog_screen.dart';
 import 'detail/help_screen.dart';
@@ -12,7 +13,9 @@ import 'package:wallpaper_android/wallpaper_android.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(QingjingApp(config: AppConfig.fromBuild()));
+  final config = AppConfig.fromBuild();
+  configureInternalTls(config);
+  runApp(QingjingApp(config: config));
 }
 
 class QingjingApp extends StatelessWidget {

@@ -10,6 +10,7 @@ for variant, package, cleartext in [
     ('localDebug', 'com.qingjing.qingjing_wallpaper.local', 'true'),
     ('localRelease', 'com.qingjing.qingjing_wallpaper.local', 'false'),
     ('prodRelease', 'com.qingjing.qingjing_wallpaper', 'false'),
+    ('internalRelease', 'com.qingjing.qingjing_wallpaper.internal', 'false'),
 ]:
     paths = list((base / variant).glob('*/AndroidManifest.xml'))
     if len(paths) != 1:
@@ -20,6 +21,21 @@ for variant, package, cleartext in [
     assert app is not None
     assert app.attrib[android + 'usesCleartextTraffic'] == cleartext, variant
     assert app.attrib[android + 'allowBackup'] == 'false', variant
+    if variant.startswith('internal'):
+        assert app.attrib[android + 'networkSecurityConfig'] == '@xml/internal_network_security', variant
+        assert any(m.attrib.get(android + 'name') == 'qingjing.internalDiagnostics' and m.attrib.get(android + 'value') == 'true' for m in app.findall('meta-data')), variant
+        policy = ET.parse(root / 'apps/mobile/android/app/src/internal/res/xml/internal_network_security.xml').getroot()
+        assert policy.find('base-config').attrib['cleartextTrafficPermitted'] == 'false'
+        domains = policy.findall('domain-config')
+        assert len(domains) == 1
+        assert domains[0].attrib['cleartextTrafficPermitted'] == 'false'
+        assert {d.text for d in domains[0].findall('domain')} == {'127.0.0.1', 'localhost'}
+        assert all(d.attrib.get('includeSubdomains', 'false') == 'false' for d in domains[0].findall('domain'))
+        assert not policy.findall('debug-overrides')
+        assert all(c.attrib['src'] in {'system', '@raw/qingjing_internal_loopback'} for c in policy.iter('certificates'))
+    else:
+        assert android + 'networkSecurityConfig' not in app.attrib, variant
+        assert not any(m.attrib.get(android + 'name') == 'qingjing.internalDiagnostics' for m in app.findall('meta-data')), variant
     if variant.endswith('Release'):
         assert app.attrib.get(android + 'debuggable', 'false') == 'false', variant
     permissions = {p.attrib[android + 'name'] for p in manifest.findall('uses-permission')}

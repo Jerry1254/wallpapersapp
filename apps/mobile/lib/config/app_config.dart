@@ -7,7 +7,7 @@ class AppConfig {
     required this.apiBase,
     required bool debug,
   }) {
-    if (!{'local', 'prod'}.contains(environment) ||
+    if (!{'local', 'internal', 'prod'}.contains(environment) ||
         apiBase.host.isEmpty ||
         apiBase.userInfo.isNotEmpty ||
         apiBase.hasQuery ||
@@ -17,6 +17,10 @@ class AppConfig {
     if (apiBase.scheme != 'https' &&
         !(environment == 'local' && debug && apiBase.scheme == 'http')) {
       throw ArgumentError('此构建只允许 HTTPS API');
+    }
+    if (environment == 'internal' &&
+        !{'127.0.0.1', 'localhost'}.contains(apiBase.host)) {
+      throw ArgumentError('本地候选内测只允许 loopback API');
     }
   }
   final String environment;

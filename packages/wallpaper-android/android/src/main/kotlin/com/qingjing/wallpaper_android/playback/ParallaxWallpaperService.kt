@@ -9,6 +9,9 @@ import android.util.Log
 import android.view.SurfaceHolder
 
 class ParallaxWallpaperService : WallpaperService() {
+    override fun dump(fd: java.io.FileDescriptor,writer: java.io.PrintWriter,args: Array<String>) {
+        PlaybackDiagnostics.dump(this,writer,debugStates())
+    }
     companion object {
         private val engines = mutableMapOf<Int,() -> Map<String,Any?>>()
         @Synchronized fun debugStates() = engines.values.map { it() }

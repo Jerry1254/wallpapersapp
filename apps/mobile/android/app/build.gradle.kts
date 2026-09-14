@@ -1,3 +1,22 @@
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.TaskAction
+
+abstract class GenerateInternalTrustResources : DefaultTask() {
+    @get:InputFile abstract val certificate: RegularFileProperty
+    @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+    @TaskAction fun generate() {
+        val pem = certificate.get().asFile.readText()
+        require(pem.contains("-----BEGIN CERTIFICATE-----") && !pem.contains("PRIVATE KEY"))
+        val destination = outputDirectory.get().file("raw/qingjing_internal_loopback.pem").asFile
+        destination.parentFile.mkdirs()
+        destination.writeText(pem)
+    }
+}
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -42,6 +61,13 @@ android {
             resValue("string", "qj_package_signing_key_id", System.getenv("QJ_PROD_PACKAGE_SIGNING_KEY_ID") ?: "")
             resValue("string", "qj_package_signing_public_key", System.getenv("QJ_PROD_PACKAGE_PUBLIC_KEY_DER") ?: "")
         }
+        create("internal") {
+            dimension = "environment"
+            applicationIdSuffix = ".internal"
+            resValue("string", "app_name", "倾境壁纸·候选内测")
+            resValue("string", "qj_package_signing_key_id", System.getenv("QJ_INTERNAL_PACKAGE_SIGNING_KEY_ID") ?: "")
+            resValue("string", "qj_package_signing_public_key", System.getenv("QJ_INTERNAL_PACKAGE_PUBLIC_KEY_DER") ?: "")
+        }
     }
 
     buildTypes {
@@ -58,3 +84,25 @@ flutter {
 
 // Test signing applies only to local artifacts, never to production.
 android.productFlavors.getByName("local").signingConfig = android.signingConfigs.getByName("debug")
+
+// Independent installation and signer for destructive QA; production stays unsigned.
+val internalStore = System.getenv("QJ_INTERNAL_KEYSTORE_FILE")
+if (!internalStore.isNullOrBlank()) {
+    val internalSigning = android.signingConfigs.create("internalTest") {
+        storeFile = file(internalStore)
+        storePassword = System.getenv("QJ_INTERNAL_KEYSTORE_PASSWORD")
+        keyAlias = System.getenv("QJ_INTERNAL_KEY_ALIAS")
+        keyPassword = System.getenv("QJ_INTERNAL_KEY_PASSWORD")
+    }
+    android.productFlavors.getByName("internal").signingConfig = internalSigning
+}
+
+val generateInternalTrustResources = tasks.register<GenerateInternalTrustResources>("generateInternalTrustResources") {
+    certificate.set(layout.file(providers.environmentVariable("QJ_INTERNAL_TLS_CERT_FILE").map { file(it) }))
+    outputDirectory.set(layout.buildDirectory.dir("generated/internalTrust/res"))
+}
+androidComponents {
+    onVariants(selector().withFlavor("environment" to "internal")) { variant ->
+        variant.sources.res?.addGeneratedSourceDirectory(generateInternalTrustResources) { it.outputDirectory }
+    }
+}
