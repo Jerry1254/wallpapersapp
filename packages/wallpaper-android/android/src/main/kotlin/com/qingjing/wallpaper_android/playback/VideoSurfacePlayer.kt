@@ -7,6 +7,8 @@ import java.io.File
 /** Every preview/engine owns its player. No global player or Surface can be stolen by a second preview. */
 internal class VideoSurfacePlayer(private val ready: () -> Unit, private val failed: () -> Unit) {
     private var player: MediaPlayer? = null
+    var rendered: Boolean = false
+        private set
     val playing: Boolean get() = try { player?.isPlaying == true } catch (_: Exception) { false }
     fun frameMetrics(): Map<String,Int> = try {
         val metrics = player?.metrics
@@ -32,6 +34,7 @@ internal class VideoSurfacePlayer(private val ready: () -> Unit, private val fai
             }
             next.setOnInfoListener { media,what,_ ->
                 if (player === media && what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
+                    rendered = true
                     try { ready() } catch (_: Exception) { close(); failed() }
                 }
                 false
@@ -40,5 +43,5 @@ internal class VideoSurfacePlayer(private val ready: () -> Unit, private val fai
             next.prepareAsync()
         } catch (_: Exception) { close(); failed() }
     }
-    fun close() { val old = player; player = null; try { old?.release() } catch (_: Exception) { } }
+    fun close() { val old = player; player = null; rendered = false; try { old?.release() } catch (_: Exception) { } }
 }

@@ -15,6 +15,8 @@ def main():
     parser.add_argument('--package', default='com.qingjing.qingjing_wallpaper.internal')
     parser.add_argument('--effect', choices=['video', 'parallax'], required=True)
     parser.add_argument('--output', required=True)
+    parser.add_argument('--hidden-only', action='store_true',
+                        help='Repeat only the fixed 10-minute hidden phase after a condition interruption')
     args = parser.parse_args()
     adb = [args.adb, '-s', args.serial]
     service = ('Parallax' if args.effect == 'parallax' else 'Video') + 'WallpaperService'
@@ -23,7 +25,8 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     samples = []
     report = {'effect': args.effect, 'package': args.package,
-              'conditionsSeconds': {'warmup': 300, 'visible': 1800, 'hidden': 600},
+              'conditionsSeconds': {'warmup': 0 if args.hidden_only else 300,
+                                   'visible': 0 if args.hidden_only else 1800, 'hidden': 600},
               'samples': samples, 'completed': False}
 
     def run(*command):
@@ -44,6 +47,12 @@ def main():
 
     def snapshot(phase):
         playback = engines()
+        if phase == 'hidden':
+            focus = run('shell', 'dumpsys', 'window')
+            if not any(args.package in line for line in focus.splitlines() if 'mCurrentFocus=' in line):
+                report['conditionInterrupted'] = True
+                report['interruptedPlayback'] = playback
+                raise RuntimeError('Hidden condition interrupted: test application is no longer foreground')
         memory = run('shell', 'dumpsys', 'meminfo', args.package)
         pss = re.search(r'TOTAL PSS:\s*(\d+)', memory)
         if pss is None:
@@ -106,20 +115,28 @@ def main():
         for _ in range(15):
             current = engines()
             if any(not e.get('preview') and e.get('visible') and
-                   e.get('rendering' if args.effect == 'parallax' else 'playing') for e in current['engines']):
+                   e.get('rendering') for e in current['engines']):
                 report['firstVisibleReadyMs'] = current['elapsed']-began
                 ready = True
                 break
             time.sleep(.1)
         if not ready or report['firstVisibleReadyMs'] > 3000:
             raise RuntimeError('Visible first-frame threshold exceeded')
-        for phase, duration in [('warmup', 300), ('visible', 1800), ('hidden', 600)]:
+        phases = [('hidden', 600)] if args.hidden_only else [('warmup', 300), ('visible', 1800), ('hidden', 600)]
+        for phase, duration in phases:
             if phase == 'hidden':
                 began = int(float(run('shell', 'cat', '/proc/uptime').split()[0])*1000)
                 run('shell', 'am', 'start', '-n', args.package + '/com.qingjing.qingjing_wallpaper.MainActivity')
-                current = engines()
-                report['hiddenReleaseObservedMs'] = current['elapsed']-began
-                if report['hiddenReleaseObservedMs'] > 1000:
+                released = False
+                for _ in range(15):
+                    current = engines()
+                    if not any(e.get('visible') or e.get('rendering') or e.get('playing') or
+                               e.get('sensorRegistered') or e.get('decodedBytes', 0) for e in current['engines']):
+                        report['hiddenReleaseObservedMs'] = current['elapsed']-began
+                        released = True
+                        break
+                    time.sleep(.05)
+                if not released or report['hiddenReleaseObservedMs'] > 1000:
                     raise RuntimeError('Hidden release observation exceeded 1s; repeat with precise lifecycle timestamps')
             deadline = time.monotonic()+duration
             first = snapshot(phase)
@@ -130,9 +147,10 @@ def main():
                 snapshot(phase)
             report[phase+'Completed'] = True
             save()
-        measured = [sample['pssKiB'] for sample in samples if sample['phase'] == 'visible']
-        report['maximumWarmedPssGrowthKiB'] = max(measured)-report['warmedPssKiB']
-        report['pssThresholdPassed'] = report['maximumWarmedPssGrowthKiB'] <= 20*1024
+        if not args.hidden_only:
+            measured = [sample['pssKiB'] for sample in samples if sample['phase'] == 'visible']
+            report['maximumWarmedPssGrowthKiB'] = max(measured)-report['warmedPssKiB']
+            report['pssThresholdPassed'] = report['maximumWarmedPssGrowthKiB'] <= 20*1024
         report['completed'] = True
     except Exception as error:
         report['failure'] = str(error)
