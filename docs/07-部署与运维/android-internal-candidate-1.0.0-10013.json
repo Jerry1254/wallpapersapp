@@ -1,0 +1,106 @@
+{
+  "status": "PREPARING",
+  "application": {
+    "name": "倾境壁纸·候选内测",
+    "package": "com.qingjing.qingjing_wallpaper.internal",
+    "versionName": "1.0.0",
+    "versionCode": 10013,
+    "architecture": "arm64-v8a",
+    "minSdk": 26,
+    "compileSdk": 36,
+    "targetSdk": 36,
+    "debuggable": false,
+    "sourceCommit": "03538121eab835e2d1cc2296a65001298c983fbd",
+    "stageTag": null
+  },
+  "artifact": {
+    "sha256": "11aa3c2f6906065d454e7540467a5e566aef3e13cc163f22864fe63bf8a9e5cf",
+    "bytes": 16915381,
+    "signerCertificateSha256": "f46b13574dc73b8bba32d008d4967306edf6d06181b174569ba94b0b7709bfa8",
+    "deliveryPath": null
+  },
+  "api": {
+    "apiContractVersion": "1.3.1",
+    "sourceCommit": "b13c90ea014a6f16efb17cd46df9ef6bab59f91a",
+    "jarSha256": "259ef3caa7e7ad5ab13cdb8ac8857886c3907f1fc57a13cb69fcf9145939afb4"
+  },
+  "resources": {
+    "formalFormatVersion": 2,
+    "trialFormatVersion": 3,
+    "testedPublishedSamples": [
+      {
+        "type": "STATIC_IMAGE",
+        "versionNo": 2,
+        "resourceVersionId": "6"
+      },
+      {
+        "type": "VIDEO",
+        "versionNo": 2,
+        "resourceVersionId": "4"
+      },
+      {
+        "type": "LAYER_PARALLAX",
+        "versionNo": 2,
+        "resourceVersionId": "5"
+      }
+    ]
+  },
+  "localTls": {
+    "host": "127.0.0.1",
+    "port": 8443,
+    "certificateDerSha256": "92a4ad1fdee4253875875ea8a17798e2e140f5ae4cd08a400f70107243a1234a",
+    "certificateExpiresUtc": "2026-12-13T10:43:05Z",
+    "scope": "internal loopback only"
+  },
+  "toolchain": {
+    "flutter": "3.38.10",
+    "dart": "3.10.9",
+    "java": "17",
+    "gradle": "8.14",
+    "agp": "8.11.1",
+    "kotlin": "2.2.20",
+    "flutterLockSha256": "003a6329e1bed3c434ccd6aa5464b733bc1969b6d14e62d5bfc3b1ef91ba3269"
+  },
+  "validation": {
+    "a10Status": "IN_PROGRESS",
+    "candidateFreshInstall": "PENDING",
+    "signedUpgrade10011To10013": "PASSED",
+    "identityDataClearAndUninstall": "PENDING",
+    "androidCi": "https://github.com/Jerry1254/wallpapersapp/actions/runs/34841301254",
+    "apiCi": "https://github.com/Jerry1254/wallpapersapp/actions/runs/34839176057",
+    "nativeTests": 30,
+    "nativeFailures": 0,
+    "lintErrors": 0,
+    "lintWarnings": 25,
+    "flutterTestsPassed": 38,
+    "flutterExistingLocalIntegrationSkipped": 1,
+    "apiUnitTests": 35,
+    "apiIntegrationTests": 9,
+    "h5Tests": 19,
+    "adminTests": 13
+  },
+  "testedDeviceMatrix": [
+    {
+      "model": "Redmi M2012K11AC",
+      "android": "13",
+      "display": "1080x2400",
+      "architecture": "arm64-v8a"
+    }
+  ],
+  "scopeExclusions": [
+    {
+      "scope": "memory and storage exhaustion stress tests",
+      "reason": "explicitly canceled by the user on 2026-09-14",
+      "result": "NOT_EXECUTED_NOT_PASSED"
+    }
+  ],
+  "knownLimits": [
+    "Other devices and Android versions are untested",
+    "No independently selectable dynamic lock-screen support on this Redmi",
+    "Android 13 cannot confirm all live wallpaper locations from the app",
+    "MIUI may recreate the main activity after static wallpaper color changes",
+    "Charging conditions do not establish discharge power compliance"
+  ],
+  "publicRelease": false,
+  "harmonyHandoffStatus": "PENDING_A10_A11"
+}

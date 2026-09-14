@@ -8,3 +8,6 @@
 
 - [OPS-001 本地 API 开发环境](OPS-001-本地API开发环境.md)
 - [OPS-002 Android 真机连接本地 API](OPS-002-Android真机连接本地API.md)
+
+- [OPS-003 Android 内部候选版安装说明（准备中）](OPS-003-Android内部候选版安装说明.md)
+- [Android 内部候选版版本清单（准备中）](android-internal-candidate-1.0.0-10013.json)
