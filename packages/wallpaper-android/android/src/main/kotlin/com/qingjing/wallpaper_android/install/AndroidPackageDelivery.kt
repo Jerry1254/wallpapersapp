@@ -27,8 +27,9 @@ import javax.crypto.Cipher
 import javax.crypto.spec.OAEPParameterSpec
 import javax.crypto.spec.PSource
 
-internal class AndroidPackageDelivery(private val context: Context, private val event: (Map<String, Any>) -> Unit) {
-    private val store = PackageRuntime.store(context)
+internal class AndroidPackageDelivery(private val context: Context,private val purpose: PackagePurpose = PackagePurpose.FORMAL, private val event: (Map<String, Any>) -> Unit) {
+    private val trial get() = purpose == PackagePurpose.APP_PREVIEW
+    private val store = if(trial) TrialRuntime.store(context) else PackageRuntime.store(context)
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private class Transfer(val id: String) {
@@ -56,7 +57,8 @@ internal class AndroidPackageDelivery(private val context: Context, private val 
             var phase = "metadata"
             try {
                 val descriptor = arguments["descriptor"] as? Map<*, *> ?: error("Missing descriptor")
-                require(descriptor["deliveryMode"] == "SECURE_PACKAGE")
+                require(descriptor["deliveryMode"] == if(trial) "APP_PREVIEW" else "SECURE_PACKAGE")
+                if(trial) require(descriptor["purpose"] == "APP_PREVIEW" && descriptor["durationSeconds"] == 120)
                 val version = descriptor["resourceVersion"] as? Map<*, *> ?: error("Missing version")
                 val metadata = descriptor["package"] as? Map<*, *> ?: error("Missing package metadata")
                 fun string(map: Map<*, *>, name: String) = map[name] as? String ?: error("Invalid metadata string")
@@ -64,17 +66,18 @@ internal class AndroidPackageDelivery(private val context: Context, private val 
                     val value = map[name] as? Number ?: error("Invalid metadata number")
                     require(value is Int || value is Long); return value.toLong()
                 }
-                require(integer(metadata,"formatVersion") == 2L && metadata["keyAlgorithm"] == "RSA-OAEP-SHA256-MGF1-SHA1")
+                require(integer(metadata,"formatVersion") == purpose.format && metadata["keyAlgorithm"] == "RSA-OAEP-SHA256-MGF1-SHA1")
                 require(version["platform"] in setOf("ANDROID","UNIVERSAL"))
                 val number = integer(version,"versionNo"); require(number in 1..Int.MAX_VALUE)
                 val expected = PackageExpectation(string(descriptor,"wallpaperId"),string(version,"variantId"),string(version,"id"),number.toInt(),
                     string(version,"resourceType"),integer(metadata,"sizeBytes"),integer(metadata,"plaintextSizeBytes"),string(metadata,"encryptedSha256"),
                     string(metadata,"plaintextSha256"),string(version,"manifestSha256"),string(metadata,"signingKeyId"))
                 require(expected.wallpaperId == arguments["wallpaperId"] && expected.type == arguments["resourceType"])
-                require(descriptor["downloadUrl"] == "/api/v1/delivery/files")
+                val path = if(trial) "/api/v1/preview/files" else "/api/v1/delivery/files"
+                require(descriptor["downloadUrl"] == path)
                 val token = string(descriptor,"ticket"); require(token.matches(Regex("[A-Za-z0-9_-]{43}")))
                 val uri = URI(arguments["url"] as? String ?: error("Invalid URL"))
-                require(uri.rawPath == "/api/v1/delivery/files" && uri.rawQuery == null && uri.rawFragment == null && uri.rawUserInfo == null && !uri.host.isNullOrBlank())
+                require(uri.rawPath == path && uri.rawQuery == null && uri.rawFragment == null && uri.rawUserInfo == null && !uri.host.isNullOrBlank())
                 require(uri.scheme == "https" || (uri.scheme == "http" && context.packageName.endsWith(".local") && uri.host in setOf("127.0.0.1","localhost","10.0.2.2")))
                 val trustId = resource("qj_package_signing_key_id")
                 val trustDer = resource("qj_package_signing_public_key")
@@ -89,6 +92,7 @@ internal class AndroidPackageDelivery(private val context: Context, private val 
                 cipher.init(Cipher.DECRYPT_MODE,keys.getKey(ENCRYPTION_ALIAS,null) as PrivateKey,
                     OAEPParameterSpec("SHA-256","MGF1",MGF1ParameterSpec.SHA1,PSource.PSpecified.DEFAULT))
                 key = cipher.doFinal(Base64.decode(wrapped,Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)); require(key.size == 32)
+                if(trial) TrialRuntime.prepare(context)
                 if (store.root.usableSpace < expected.size * 3 + 16*1024*1024) throw NoSpace()
                 partial = store.partial(); staging = store.staging()
                 fun report(status: String, received: Long = 0) {
@@ -100,12 +104,14 @@ internal class AndroidPackageDelivery(private val context: Context, private val 
                 phase = "verify"; report("verifying",expected.size)
                 // GCM providers may buffer until tag verification. Reserve heap before decoding.
                 memory(expected.plaintextSize * 4 + 16*1024*1024)
-                SecurePackageVerifier(::media).verify(partial,staging,expected,key,trustId,trust) { transfer.cancelled.get() }
+                SecurePackageVerifier(purpose,::media).verify(partial,staging,expected,key,trustId,trust) { transfer.cancelled.get() }
                 if (transfer.cancelled.get()) throw Cancelled()
                 report("installing",expected.size)
                 val installed = store.commit(staging,expected)
                 report("completed",expected.size)
-                main.post { result.success(mapOf("installedId" to installed,"wallpaperId" to expected.wallpaperId,"versionId" to expected.versionId,"versionNo" to expected.versionNo,"resourceType" to expected.type)) }
+                val response = if(trial) mapOf("trialId" to TrialRuntime.installed(context,installed,expected.type),"resourceType" to expected.type)
+                    else mapOf("installedId" to installed,"wallpaperId" to expected.wallpaperId,"versionId" to expected.versionId,"versionNo" to expected.versionNo,"resourceType" to expected.type)
+                main.post { result.success(response) }
             } catch (error: Exception) {
                 val code = when {
                     transfer.cancelled.get() || error is Cancelled -> "DOWNLOAD_CANCELLED"
@@ -126,7 +132,7 @@ internal class AndroidPackageDelivery(private val context: Context, private val 
             } finally {
                 key?.fill(0); transfer.connection?.disconnect()
                 try { partial?.let { AtomicPackageStore.remove(it) }; staging?.let { AtomicPackageStore.remove(it) } }
-                finally { active.compareAndSet(transfer,null) }
+                finally { active.compareAndSet(transfer,null); if(trial) TrialRuntime.cleanup(context) }
             }
         }
     }
@@ -165,6 +171,7 @@ internal class AndroidPackageDelivery(private val context: Context, private val 
                 val width=format.getInteger(MediaFormat.KEY_WIDTH); val height=format.getInteger(MediaFormat.KEY_HEIGHT)
                 require(width in 1..4096 && height in 1..4096 && format.getLong(MediaFormat.KEY_DURATION) in 1..30_000_000)
                 if(format.containsKey(MediaFormat.KEY_FRAME_RATE)) require(format.getInteger(MediaFormat.KEY_FRAME_RATE) in 1..60)
+                if(trial) require(width <= 1280 && height <= 1280 && (!format.containsKey(MediaFormat.KEY_FRAME_RATE) || format.getInteger(MediaFormat.KEY_FRAME_RATE) <= 15))
                 return MediaInfo(width,height)
             } finally { extractor.release() }
         }

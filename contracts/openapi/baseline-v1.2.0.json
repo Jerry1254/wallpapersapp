@@ -1,32 +1,31 @@
 {
   "frozenOn": "2026-09-14",
-  "previousAcceptedCommit": "95a168ea49a13cd4f5ca79befe20e7c035e3432c",
-  "contractVersion": "1.3.0",
-  "domainVersion": "1.3.0",
-  "databaseDesignVersion": "1.3.0",
+  "previousAcceptedCommit": "3fb24ba276450e2ab9849edd906774a7a7f5700e",
+  "contractVersion": "1.2.0",
+  "domainVersion": "1.2.0",
+  "databaseDesignVersion": "1.2.0",
   "migrationVersions": [
     "1",
-    "2",
-    "3"
+    "2"
   ],
-  "operationCount": 51,
-  "schemaCount": 77,
+  "operationCount": 49,
+  "schemaCount": 74,
   "files": [
     {
       "path": "contracts/openapi/openapi.yaml",
-      "sha256": "a8e98d9372afa9449cd4c18eb508f5cc220fcceb8196e0772ad329b6eef4785b"
+      "sha256": "79c287791a0b4d6b94fa18c431c550dd4f336272dac35a70380ed3d4c4830333"
     },
     {
       "path": "docs/03-数据设计/DM-001-统一领域模型.md",
-      "sha256": "aa0290147193f9ab495e8724d81726aa794438eae4e5cb2a5c24c74731c221d6"
+      "sha256": "2fbc81d3794e39d61147e29c9bc6e1eb15dae66b8ef7e432e660ae9cf7b8bb5c"
     },
     {
       "path": "docs/03-数据设计/DB-001-MySQL数据库设计.md",
-      "sha256": "d5a14bc60ca0d06adef973d66c5d151cbb36d18cd92e6c60f62af2b9b1ad7b1c"
+      "sha256": "7fbdcad5bd40024a1faf6647a256b1fc2706ab9c7f39290510bbed73862ceb18"
     },
     {
       "path": "docs/04-接口设计/API-001-OpenAPI-V1契约说明.md",
-      "sha256": "2377d27cdb73af5ed2907ba1640a243ea9415d836d177b7ff7ab227f63fef2dc"
+      "sha256": "e7df4e8dfcf2323941b1d30155250e9cc60213e660f384a06470236a7b7ebde2"
     },
     {
       "path": "docs/02-系统架构/ARC-001-混合客户端与平台架构方案.md",
@@ -67,18 +66,6 @@
     {
       "path": "packages/wallpaper-format/parallax-config-v2.schema.json",
       "sha256": "5ae6620d2aced2cbb91d951be3bdc205ded4189fe1d21507f2edc070d9a55caf"
-    },
-    {
-      "path": "services/api-server/src/main/resources/db/migration/V3__app_preview_delivery.sql",
-      "sha256": "c59796f61db40543420954155d238926b716331bb27caa9f4530f7bf24b9bf70"
-    },
-    {
-      "path": "docs/05-安全与合规/SEC-004-Android受限试用交付协议.md",
-      "sha256": "17ddfc7c14df29f2d0a6b7e88079c6f5c833b6db254c20cf44a791e60f597c2a"
-    },
-    {
-      "path": "packages/wallpaper-format/manifest-preview-v3.schema.json",
-      "sha256": "03bcad1afe7fdc4c002bb2725c94e05034e0634cf411d52898635dd280d16f77"
     }
   ]
 }

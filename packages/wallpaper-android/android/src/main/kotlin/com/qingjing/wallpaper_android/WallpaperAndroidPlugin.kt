@@ -11,6 +11,8 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.EventChannel
 import com.qingjing.wallpaper_android.install.AndroidPackageDelivery
+import com.qingjing.wallpaper_android.install.PackagePurpose
+import com.qingjing.wallpaper_android.install.TrialRuntime
 import com.qingjing.wallpaper_android.playback.WallpaperPlaybackBridge
 import com.qingjing.wallpaper_android.playback.LiveSelection
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
@@ -26,6 +28,7 @@ class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, A
     private lateinit var channel: MethodChannel
     private lateinit var context: Context
     private lateinit var delivery: AndroidPackageDelivery
+    private lateinit var previews: AndroidPackageDelivery
     private lateinit var events: EventChannel
     private lateinit var playback: WallpaperPlaybackBridge
     private var activityBinding: ActivityPluginBinding? = null
@@ -47,11 +50,12 @@ class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, A
             override fun onCancel(arguments: Any?) { eventSink = null }
         })
         delivery = AndroidPackageDelivery(context) { eventSink?.success(it) }
+        previews = AndroidPackageDelivery(context,PackagePurpose.APP_PREVIEW) { eventSink?.success(it) }
         playback = WallpaperPlaybackBridge(context)
     }
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
-        events.setStreamHandler(null); eventSink = null; delivery.close()
+        events.setStreamHandler(null); eventSink = null; delivery.close();previews.close()
         playback.close(); worker.shutdown()
     }
     private fun keyStore(): KeyStore = synchronized(keyLock) {
@@ -85,6 +89,15 @@ class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, A
     }
     private fun url64(bytes: ByteArray) = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        if(call.method == "openTrial") {
+            try { playback.trial(call,result) } catch(_: Exception) { result.error("PREVIEW_UNAVAILABLE","试用暂时不可用",null) };return
+        }
+        if(call.method == "installPreview" || call.method == "cancelPreviewDownload") {
+            try {
+                if(call.method == "installPreview") previews.start(call.arguments as Map<*,*>,result)
+                else { previews.cancel(call.argument<String>("requestId") ?: throw IllegalArgumentException());result.success(null) }
+            } catch(_: Exception) { result.error("PACKAGE_INVALID","试用资源信息不可用，请重试",null) };return
+        }
         if (call.method == "previewPackage" || call.method == "applyWallpaper") { playback.launch(call,result); return }
         if (call.method == "debugPlaybackState") { try { result.success(playback.debugState()) } catch (_: Exception) { result.error("UNAVAILABLE","调试状态不可用",null) }; return }
         if (call.method == "installPackage" || call.method == "cancelDownload") {
@@ -97,6 +110,8 @@ class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, A
         worker.execute {
             try {
                 val response: Any? = when (call.method) {
+                    "recoverTrial" -> TrialRuntime.recover(context)
+                    "discardTrial" -> { TrialRuntime.finish(context,call.argument<String>("trialId") ?: throw IllegalArgumentException());null }
                     "deliveryInfo" -> delivery.info()
                     "playbackCapabilities" -> playback.information()
                     "installedPackage" -> delivery.current(call.argument<String>("wallpaperId") ?: throw IllegalArgumentException(),call.argument<String>("resourceType") ?: throw IllegalArgumentException())

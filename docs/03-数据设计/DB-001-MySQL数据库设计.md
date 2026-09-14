@@ -1,7 +1,7 @@
 # DB-001 MySQL 数据库设计
 
 **状态：** 已确认  
-**版本：** V1.2.0
+**版本：** V1.3.0
 
 **日期：** 2026-09-14
 **数据库：** MySQL 8.4 LTS  
@@ -529,3 +529,9 @@ V1 原字节保留。V2__secure_package_delivery.sql 新增两表，总计 18 �
 包存储 key 唯一，不返回 API。内容密钥使用 SecurityCrypto 独立 purpose secure-package-key-v2:{resourceVersionId} 保护。总密文长度不超过 65 MiB，明文 ZIP 长度为密文长度减 36 字节包头/nonce/tag。包与资源版本的 FK 使用 RESTRICT，防止删除历史包引用。生成包与版本真实 manifest 摘要更新处于同一数据库事务，回滚清理本次 FileStorage 对象。
 
 已有安装和凭据从 V1 升级保留测试已通过；既有权益业务回归在 V2 结构下通过。票据不建业务表，Redis 仅保存设备/凭据/公钥摘要/版本/失效时间，token 本身不作为明文 Redis key。
+
+## 1.3.0 / Flyway V3 受限试用资源
+
+V1/V2 原字节保留，V3__app_preview_delivery.sql 新增 preview_resource_package，总计 19 张业务表。resource_version_id 为 PK/FK → resource_version.id，ON DELETE RESTRICT；storage_key 唯一，format_version=3 与 purpose=APP_PREVIEW 由 CHECK 固定。保存受限包自己的密文/明文长度与 SHA-256、manifest SHA-256、signing_key_id、加密 content_key_ciphertext 和创建时间；长度约束与正式包相同，文件字节独立存储。内容密钥保护域为 preview-package-key-v1:{resourceVersionId}，与正式包不同。
+
+没有新增试用权益、额度或设备计时表。独立 Redis preview-ticket-v1 票据 90 秒失效，Android 120 秒单调时钟只限制本地交互。READY 成对制作使用同一数据库事务并回滚清理本次两个文件；PUBLISHED 补建只新增派生事实，不覆盖正式包。V1→V2→V3 升级测试保留既有安装/凭据，真实媒体集成测试覆盖成对幂等、回滚删除、历史包补建和授权隔离。

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:qingjing:wallpaper:app-preview:manifest:3",
+  "title": "Qingjing App preview manifest v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["formatVersion", "wallpaperId", "variantId", "versionNo", "resourceType", "signingKeyId", "files", "purpose"],
+  "properties": {
+    "formatVersion": {"const": 3},
+    "purpose": {"const": "APP_PREVIEW"},
+    "wallpaperId": {"$ref": "#/$defs/id"},
+    "variantId": {"$ref": "#/$defs/id"},
+    "versionNo": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+    "resourceType": {"enum": ["STATIC_IMAGE", "VIDEO", "LAYER_PARALLAX"]},
+    "signingKeyId": {"type": "string", "pattern": "^[a-z0-9-]{1,64}$"},
+    "files": {
+      "type": "array", "minItems": 1, "maxItems": 16,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["path", "role", "ordinal", "mimeType", "sizeBytes", "sha256"],
+        "properties": {
+          "path": {"type": "string", "pattern": "^payload/(static_image|video|background|foreground|parallax_config)-([0-9]|1[0-5])\\.(jpg|png|webp|mp4|json)$"},
+          "role": {"enum": ["STATIC_IMAGE", "VIDEO", "BACKGROUND", "FOREGROUND", "PARALLAX_CONFIG"]},
+          "ordinal": {"type": "integer", "minimum": 0, "maximum": 15},
+          "mimeType": {"enum": ["image/jpeg", "image/png", "image/webp", "video/mp4", "application/json"]},
+          "sizeBytes": {"type": "integer", "minimum": 1, "maximum": 67108864},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    }
+  },
+  "$defs": {"id": {"type": "string", "pattern": "^[1-9][0-9]{0,18}$"}}
+}

@@ -3,6 +3,7 @@ import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
 import '../catalog/catalog.dart';
 import '../catalog/catalog_image.dart';
 import 'delivery.dart';
+import 'trial_manager.dart';
 import '../entitlements/redemption.dart';
 import '../entitlements/redemption_dialog.dart';
 import 'help_screen.dart';
@@ -21,6 +22,7 @@ class DetailScreen extends StatefulWidget {
       platform: ClientPlatform.android,
     ),
     this.playback,
+    this.trials,
   });
   final CatalogRepository repository;
   final String id;
@@ -28,6 +30,7 @@ class DetailScreen extends StatefulWidget {
   final DownloadManager? downloads;
   final WallpaperCapabilities capabilities;
   final AndroidWallpaperPlayback? playback;
+  final TrialManager? trials;
   @override
   State<DetailScreen> createState() => _DetailScreenState();
 }
@@ -35,12 +38,46 @@ class DetailScreen extends StatefulWidget {
 class _DetailScreenState extends State<DetailScreen> {
   late Future<Wallpaper> future;
   WallpaperEffect? selected;
+  late final TrialManager? trials =
+      widget.trials ??
+      (widget.downloads == null
+          ? null
+          : TrialManager(
+              widget.downloads!.sessions,
+              widget.downloads!.apiBase,
+              widget.downloads!.installer,
+            ));
+  bool? owned;
+  String? ownershipError;
   late WallpaperCapabilities capabilities = widget.capabilities;
   @override
   void initState() {
     super.initState();
     future = widget.repository.detail(widget.id);
     _capabilities();
+    _ownership();
+  }
+
+  Future<void> _ownership() async {
+    if (trials == null) return;
+    if (mounted) {
+      setState(() {
+        owned = null;
+        ownershipError = null;
+      });
+    }
+    try {
+      final result = await trials!.isOwned(widget.id);
+      if (mounted) setState(() => owned = result);
+    } catch (_) {
+      if (mounted) setState(() => ownershipError = '权益暂时无法确认，请重试');
+    }
+  }
+
+  @override
+  void dispose() {
+    if (widget.trials == null) trials?.dispose();
+    super.dispose();
   }
 
   Future<void> _capabilities() async {
@@ -178,7 +215,56 @@ class _DetailScreenState extends State<DetailScreen> {
                 child: const Text('重新检测手机能力'),
               ),
             ],
-            if (widget.downloads != null && effect != null) ...[
+            if (trials != null && owned == null) ...[
+              Text(ownershipError ?? '正在确认此作品权益…'),
+              if (ownershipError != null)
+                TextButton(onPressed: _ownership, child: const Text('重新确认权益')),
+            ],
+            if (trials != null &&
+                owned == false &&
+                effect != null &&
+                capabilities.previewEffects.contains(effect)) ...[
+              const SizedBox(height: 12),
+              const Text('可在 App 内试用两分钟。试用画面带标记，进入后台仍会计时。'),
+              ValueListenableBuilder<TrialState>(
+                valueListenable: trials!,
+                builder: (context, state, _) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (state.message != null) Text(state.message!),
+                    if (state.busy && state.status != 'previewing') ...[
+                      const Text('正在准备试用画面…'),
+                      LinearProgressIndicator(
+                        value: state.total > 0
+                            ? state.received / state.total
+                            : null,
+                      ),
+                      TextButton(
+                        onPressed: trials!.cancel,
+                        child: const Text('取消准备'),
+                      ),
+                    ],
+                    OutlinedButton(
+                      onPressed: state.busy
+                          ? null
+                          : () async {
+                              await trials!.start(
+                                wallpaper.id,
+                                AndroidWallpaperPlayback.resourceType(effect),
+                              );
+                              if (mounted && trials!.value.status == 'owned') {
+                                await _ownership();
+                              }
+                            },
+                      child: const Text('试用两分钟'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (widget.downloads != null &&
+                effect != null &&
+                (trials == null || owned == true)) ...[
               const SizedBox(height: 12),
               DownloadPanel(
                 key: ValueKey('${wallpaper.id}-${effect.name}'),
@@ -204,13 +290,16 @@ class _DetailScreenState extends State<DetailScreen> {
                       WallpaperTarget.values.any(
                         (target) => capabilities.canApply(effect, target),
                       )
-                  ? () => showDialog<void>(
-                      context: context,
-                      builder: (_) => RedemptionDialog(
-                        coordinator: widget.redemptions!,
-                        wallpaperId: wallpaper.id,
-                      ),
-                    )
+                  ? () async {
+                      await showDialog<void>(
+                        context: context,
+                        builder: (_) => RedemptionDialog(
+                          coordinator: widget.redemptions!,
+                          wallpaperId: wallpaper.id,
+                        ),
+                      );
+                      if (mounted) await _ownership();
+                    }
                   : null,
               child: const Text('兑换壁纸'),
             ),

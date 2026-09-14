@@ -32,6 +32,7 @@ for variant, package, cleartext in [
         assert service.attrib[android + 'exported'] == 'true', variant
         assert service.attrib[android + 'permission'] == 'android.permission.BIND_WALLPAPER', variant
         assert any(m.attrib.get(android + 'name') == 'android.service.wallpaper' for m in service.findall('meta-data')), variant
-    viewers = [a for a in app.findall('activity') if a.attrib[android + 'name'].endswith('.NativeWallpaperActivity')]
-    assert len(viewers) == 1 and viewers[0].attrib[android + 'exported'] == 'false', variant
+    for name in ['NativeWallpaperActivity', 'NativeTrialActivity']:
+        viewers = [a for a in app.findall('activity') if a.attrib[android + 'name'].endswith('.' + name)]
+        assert len(viewers) == 1 and viewers[0].attrib[android + 'exported'] == 'false', variant
     print(f'{variant}: identity, network, backup and wallpaper component policy passed')

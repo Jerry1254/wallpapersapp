@@ -68,6 +68,30 @@ class FakeTransport implements DeviceTransport {
   }
 }
 
+class CachedCredentialTransport extends FakeTransport {
+  DeviceApiError error = const DeviceApiError(404, 'CREDENTIAL_NOT_FOUND');
+  @override
+  Future<Map<String, dynamic>> request(
+    String path, {
+    String method = 'GET',
+    String? body,
+    Map<String, String> headers = const {},
+    Set<int> accepted = const {},
+  }) async {
+    if (path.endsWith('/session-challenges') &&
+        jsonDecode(body!)['credentialKeyId'] == 'cached') {
+      throw error;
+    }
+    return super.request(
+      path,
+      method: method,
+      body: body,
+      headers: headers,
+      accepted: accepted,
+    );
+  }
+}
+
 class EncryptionIdentity extends FakeIdentity {
   @override
   Future<Map<String, String>> encryptionPublicKey() async => {
@@ -110,6 +134,32 @@ class BindingTransport extends FakeTransport {
 }
 
 void main() {
+  test('空本地 API 没有旧缓存编号时重新证明同一公钥，保留安装身份', () async {
+    final identity = FakeIdentity()..id = 'cached',
+        transport = CachedCredentialTransport();
+    final manager = DeviceSessionManager(transport, identity: identity);
+    await manager.session();
+    expect(transport.registrations, 1);
+    expect(identity.id, 'key');
+    expect(
+      identity.payloads.first,
+      startsWith('QJ-ANDROID-REGISTER-V1\ntest-scope\nfingerprint\n'),
+    );
+  });
+  test('撤销、禁用和网络不确定不会触发重新注册', () async {
+    for (final error in [
+      const DeviceApiError(401, 'CREDENTIAL_REVOKED'),
+      const DeviceApiError(403, 'DEVICE_DISABLED'),
+      const DeviceApiError(0, 'NETWORK_ERROR'),
+    ]) {
+      final identity = FakeIdentity()..id = 'cached',
+          transport = CachedCredentialTransport()..error = error;
+      final manager = DeviceSessionManager(transport, identity: identity);
+      await expectLater(manager.session(), throwsA(isA<DeviceApiError>()));
+      expect(transport.registrations, 0);
+      expect(identity.id, 'cached');
+    }
+  });
   test(
     'encryption binding coalesces callers without replacing installation identity',
     () async {

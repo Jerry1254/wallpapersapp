@@ -47,6 +47,17 @@ public final class SecurePackageCodec {
                           String manifestSha256, String signingKeyId) {}
 
     public Encoded encode(Identity identity, List<Payload> payloads, String signingKeyId, PrivateKey signingKey) {
+        return encodePurpose(identity,payloads,signingKeyId,signingKey,false);
+    }
+    /** Preview has its own magic, signed purpose and AAD. It cannot be installed as a format-2 paid package. */
+    public Encoded encodePreview(Identity identity, List<Payload> reducedPreviewPayloads, String signingKeyId, PrivateKey signingKey) {
+        return encodePurpose(identity,reducedPreviewPayloads,signingKeyId,signingKey,true);
+    }
+    public static byte[] previewAad(Identity identity) {
+        return ("QJ-PREVIEW-V1\n"+identity.wallpaperId()+"\n"+identity.variantId()+"\n"+identity.versionNo()+"\n"+identity.resourceType())
+                .getBytes(StandardCharsets.UTF_8);
+    }
+    private Encoded encodePurpose(Identity identity,List<Payload> payloads,String signingKeyId,PrivateKey signingKey,boolean preview) {
         if (signingKeyId == null || !signingKeyId.matches("[a-z0-9-]{1,64}") ||
                 !(signingKey instanceof RSAKey rsa) || rsa.getModulus().bitLength() != 2048) {
             throw new IllegalArgumentException("Invalid package signing key");
@@ -62,7 +73,9 @@ public final class SecurePackageCodec {
                         "mimeType", payload.mimeType(), "sizeBytes", payload.content().length, "sha256", sha256(payload.content())));
             }
             Map<String, Object> manifest = new LinkedHashMap<>();
-            manifest.put("formatVersion", 2); manifest.put("wallpaperId", Long.toString(identity.wallpaperId()));
+            manifest.put("formatVersion", preview ? 3 : 2);
+            if (preview) manifest.put("purpose","APP_PREVIEW");
+            manifest.put("wallpaperId", Long.toString(identity.wallpaperId()));
             manifest.put("variantId", Long.toString(identity.variantId())); manifest.put("versionNo", identity.versionNo());
             manifest.put("resourceType", identity.resourceType()); manifest.put("signingKeyId", signingKeyId); manifest.put("files", entries);
             byte[] manifestBytes = mapper.writeValueAsBytes(manifest);
@@ -77,9 +90,10 @@ public final class SecurePackageCodec {
             RANDOM.nextBytes(key); RANDOM.nextBytes(nonce);
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(128, nonce));
-            cipher.updateAAD(identity.aad());
+            cipher.updateAAD(preview ? previewAad(identity) : identity.aad());
             byte[] ciphertext = cipher.doFinal(plaintext);
-            byte[] encrypted = ByteBuffer.allocate(MAGIC.length + nonce.length + ciphertext.length).put(MAGIC).put(nonce).put(ciphertext).array();
+            byte[] magic = preview ? "QJPV0001".getBytes(StandardCharsets.US_ASCII) : MAGIC;
+            byte[] encrypted = ByteBuffer.allocate(magic.length + nonce.length + ciphertext.length).put(magic).put(nonce).put(ciphertext).array();
             return new Encoded(encrypted, key, sha256(plaintext), sha256(encrypted), sha256(manifestBytes), signingKeyId);
         } catch (GeneralSecurityException | java.io.IOException exception) {
             throw new IllegalStateException("Package encoding failed", exception);

@@ -113,7 +113,7 @@ internal class AtomicPackageStore(val root: File) {
         } finally { temporary.delete() }
     }
     companion object {
-        private val holdNames = setOf("live","live-video","live-parallax","picker")
+        private val holdNames = setOf("live","live-video","live-parallax","picker","trial")
         private val idPattern = Regex("[1-9][0-9]{0,18}-(STATIC_IMAGE|VIDEO|LAYER_PARALLAX)-[1-9][0-9]{0,18}-[a-f0-9]{64}")
         private fun validId(id: String) = id.length <= 160 && id.matches(idPattern)
         private fun requireSlot(slot: String) { require(slot.matches(Regex("[1-9][0-9]{0,18}-(STATIC_IMAGE|VIDEO|LAYER_PARALLAX)"))) }

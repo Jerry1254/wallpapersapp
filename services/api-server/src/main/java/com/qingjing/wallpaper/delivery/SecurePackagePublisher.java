@@ -3,6 +3,7 @@ package com.qingjing.wallpaper.delivery;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qingjing.wallpaper.asset.application.*;
 import com.qingjing.wallpaper.delivery.infrastructure.PackageMediaInspector;
+import com.qingjing.wallpaper.delivery.infrastructure.PreviewMediaReducer;
 import com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec;
 import com.qingjing.wallpaper.shared.security.SecurityCrypto;
 import com.qingjing.wallpaper.shared.web.ApiException;
@@ -25,11 +26,12 @@ public class SecurePackagePublisher {
     private final PackageSigningKeys signing;
     private final SecurityCrypto crypto;
     private final ObjectMapper mapper;
+    private final PreviewMediaReducer previews;
     private final Semaphore slots = new Semaphore(1);
     public SecurePackagePublisher(JdbcTemplate jdbc, FileStorage storage, AssetContentValidator assetValidator,
-            PackageMediaInspector media, PackageSigningKeys signing, SecurityCrypto crypto, ObjectMapper mapper) {
+            PackageMediaInspector media, PackageSigningKeys signing, SecurityCrypto crypto, ObjectMapper mapper,PreviewMediaReducer previews) {
         this.jdbc=jdbc; this.storage=storage; this.assetValidator=assetValidator; this.media=media;
-        this.signing=signing; this.crypto=crypto; this.mapper=mapper;
+        this.signing=signing; this.crypto=crypto; this.mapper=mapper;this.previews=previews;
     }
     @Transactional
     public void build(long versionId) {
@@ -44,8 +46,9 @@ public class SecurePackagePublisher {
                 rs.getLong("wallpaper_id"),rs.getString("platform"),rs.getString("resource_type")),versionId);
         if (rows.isEmpty()) throw new ApiException(HttpStatus.NOT_FOUND,"RESOURCE_NOT_FOUND","Resource version not found");
         Version version = rows.get(0);
-        if (jdbc.queryForObject("SELECT COUNT(*) FROM secure_resource_package WHERE resource_version_id=?",Integer.class,versionId) == 1) return;
-        if (!version.status().equals("READY")) throw new ApiException(HttpStatus.CONFLICT,"STATE_CONFLICT","Only an unbuilt ready version may be packaged");
+        boolean fullExists=jdbc.queryForObject("SELECT COUNT(*) FROM secure_resource_package WHERE resource_version_id=?",Integer.class,versionId)==1;
+        if (fullExists && jdbc.queryForObject("SELECT COUNT(*) FROM preview_resource_package WHERE resource_version_id=?",Integer.class,versionId)==1) return;
+        if (!version.status().equals("READY") && !(fullExists && version.status().equals("PUBLISHED"))) throw new ApiException(HttpStatus.CONFLICT,"STATE_CONFLICT","Only a ready version or an already packaged published version may be prepared");
         if (!(version.platform().equals("ANDROID") || version.platform().equals("UNIVERSAL")) ||
                 !Set.of("STATIC_IMAGE","VIDEO","LAYER_PARALLAX").contains(version.type())) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,"DOMAIN_RULE_VIOLATION","The variant has no Android secure package format");
@@ -78,6 +81,7 @@ public class SecurePackagePublisher {
             payloads.add(new SecurePackageCodec.Payload(binding.role(),binding.ordinal(),binding.mime(),bytes));
         }
         if (version.type().equals("LAYER_PARALLAX")) validateParallax(parallax,images);
+        if (!fullExists) {
         SecurePackageCodec.Encoded encoded;
         try { encoded=new SecurePackageCodec(mapper).encode(new SecurePackageCodec.Identity(version.wallpaperId(),version.variantId(),version.number(),version.type()),payloads,signing.keyId(),signing.privateKey()); }
         catch (IllegalArgumentException exception) { throw invalid(); }
@@ -98,6 +102,27 @@ public class SecurePackagePublisher {
                     """,version.id(),stored.storageKey().value(),stored.sizeBytes(),stored.sizeBytes()-36,encoded.encryptedSha256(),encoded.plaintextSha256(),
                     encoded.manifestSha256(),encoded.signingKeyId(),crypto.encrypt("secure-package-key-v2:"+version.id(),encoded.contentKey()));
             jdbc.update("UPDATE resource_version SET manifest_sha256=?,lock_version=lock_version+1 WHERE id=?",encoded.manifestSha256(),version.id());
+        } finally { Arrays.fill(encoded.contentKey(),(byte)0); }
+        }
+        buildPreview(version,payloads,images);
+    }
+    private void buildPreview(Version version,List<SecurePackageCodec.Payload> source,Map<String,PackageMediaInspector.Media> dimensions) {
+        var payloads=previews.reduce(version.type(),source,dimensions);
+        var encoded=new SecurePackageCodec(mapper).encodePreview(new SecurePackageCodec.Identity(version.wallpaperId(),version.variantId(),version.number(),version.type()),
+                payloads,signing.keyId(),signing.privateKey());
+        try {
+            StagedObject staged=storage.stage(new ByteArrayInputStream(encoded.encrypted()),68157440);
+            StoredObject stored;
+            try { stored=storage.commit(staged,"qjpv"); } catch(RuntimeException error) { storage.discard(staged);throw error; }
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCompletion(int status) { if(status!=STATUS_COMMITTED) storage.delete(stored.storageKey()); }
+            });
+            jdbc.update("""
+                    INSERT INTO preview_resource_package
+                    (resource_version_id,storage_key,size_bytes,plaintext_size_bytes,encrypted_sha256,plaintext_sha256,manifest_sha256,signing_key_id,content_key_ciphertext)
+                    VALUES (?,?,?,?,?,?,?,?,?)
+                    """,version.id(),stored.storageKey().value(),stored.sizeBytes(),stored.sizeBytes()-36,encoded.encryptedSha256(),encoded.plaintextSha256(),
+                    encoded.manifestSha256(),encoded.signingKeyId(),crypto.encrypt("preview-package-key-v1:"+version.id(),encoded.contentKey()));
         } finally { Arrays.fill(encoded.contentKey(),(byte)0); }
     }
     private void validateParallax(byte[] bytes,Map<String,PackageMediaInspector.Media> images) {

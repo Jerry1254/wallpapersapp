@@ -7,12 +7,16 @@ import android.os.SystemClock
 import android.view.SurfaceHolder
 import android.view.WindowManager
 import com.qingjing.wallpaper_android.install.PackageRuntime
+import com.qingjing.wallpaper_android.install.AtomicPackageStore
+import com.qingjing.wallpaper_android.install.InstalledPackageVerifier
 import java.util.concurrent.atomic.AtomicInteger
 
 /** One thread, sensor, scene and lease per viewer/Engine. Hidden surfaces release all decoded resources. */
 internal class ParallaxSurfaceRenderer(private val context: Context,private val holder: SurfaceHolder,
     private val ready: (String,Boolean) -> Unit,private val failed: () -> Unit,private val changed: () -> Unit,
-    private val forceNoSensor: Boolean = false) : AutoCloseable {
+    private val forceNoSensor: Boolean = false,
+    private val source: () -> Pair<AtomicPackageStore,InstalledPackageVerifier> = { PackageRuntime.store(context) to PackageRuntime.verifier(context) },
+    private val released: () -> Unit = {}) : AutoCloseable {
     private val thread = HandlerThread("qingjing-parallax-render").apply { start() }
     private val handler = Handler(thread.looper)
     private val generation = AtomicInteger()
@@ -43,8 +47,8 @@ internal class ParallaxSurfaceRenderer(private val context: Context,private val 
             if (!valid(attempt)) return@post
             selectedId = id; loading = true
             try {
-                val store = PackageRuntime.store(context); lease = store.pin(id)
-                val installed = PackageRuntime.verifier(context).verify(store,id,"LAYER_PARALLAX")
+                val (store,verifier) = source(); lease = store.pin(id)
+                val installed = verifier.verify(store,id,"LAYER_PARALLAX")
                 scene = ParallaxScene.load(installed) { !valid(attempt) }
                 if (!valid(attempt)) { releaseResources(); return@post }
                 decodedBytes = scene!!.decodedBytes
@@ -104,6 +108,7 @@ internal class ParallaxSurfaceRenderer(private val context: Context,private val 
         handler.removeCallbacks(drawFrame); sensor?.stop(); sensor = null; sensorRunning = false
         scene?.close(); scene = null; lease?.close(); lease = null; decodedBytes = 0; rendered = false
         targetX = 0f; targetY = 0f; x = 0f; y = 0f; previousFrame = 0; frames = 0; motionObserved = false
+        released()
     }
     override fun close() {
         if (closed) return

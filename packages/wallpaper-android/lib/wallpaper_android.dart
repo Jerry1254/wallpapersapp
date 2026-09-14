@@ -200,6 +200,44 @@ class AndroidPackageInstaller implements PackageInstaller {
   }
 }
 
+/// Trial handles are opaque and never identify a formal installed package.
+class AndroidTrialPreview {
+  const AndroidTrialPreview();
+  static const _channel = MethodChannel('qingjing/wallpaper_android');
+  Future<String> prepare(SecurePackageDownload request) async {
+    final response = await _channel
+        .invokeMapMethod<String, dynamic>('installPreview', {
+          'requestId': request.requestId,
+          'wallpaperId': request.wallpaperId,
+          'resourceType': request.resourceType,
+          'url': request.url.toString(),
+          'descriptor': request.descriptor,
+        });
+    final id = response?['trialId'] as String?;
+    if (id == null ||
+        response?['resourceType'] != request.resourceType ||
+        !RegExp(r'^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$').hasMatch(id)) {
+      throw PlatformException(code: 'PACKAGE_INVALID', message: '试用资源暂时不可用');
+    }
+    return id;
+  }
+
+  Future<Map<String, dynamic>?> recover() =>
+      _channel.invokeMapMethod<String, dynamic>('recoverTrial');
+  Future<Map<String, dynamic>> open(String id, String type) async =>
+      await _channel.invokeMapMethod<String, dynamic>('openTrial', {
+        'trialId': id,
+        'resourceType': type,
+      }) ??
+      {'status': 'unknown', 'message': '试用结果不可确认'};
+  Future<void> cancel(String requestId) => _channel.invokeMethod<void>(
+    'cancelPreviewDownload',
+    {'requestId': requestId},
+  );
+  Future<void> discard(String id) =>
+      _channel.invokeMethod<void>('discardTrial', {'trialId': id});
+}
+
 class AndroidDeviceIdentity implements DeviceIdentity {
   const AndroidDeviceIdentity();
   static const _channel = MethodChannel('qingjing/wallpaper_android');

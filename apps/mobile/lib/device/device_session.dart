@@ -135,8 +135,7 @@ class DeviceSessionManager {
 
   Future<DeviceSession> _create() async {
     final installation = await identity.installation();
-    String? keyId = installation.credentialKeyId;
-    if (keyId == null) {
+    Future<String> register() async {
       final timestamp = instantString(DateTime.now());
       final nonce = requestUuid();
       final proof = await identity.signPayload(
@@ -168,14 +167,27 @@ class DeviceSessionManager {
           registration['credentialSecret'] != null) {
         throw const DeviceApiError(0, 'INVALID_PROVIDER_RESPONSE');
       }
-      keyId = registration['credentialKeyId'] as String;
+      final keyId = registration['credentialKeyId'] as String;
       await identity.rememberCredential(keyId);
+      return keyId;
     }
-    final challenge = await transport.request(
+
+    var keyId = installation.credentialKeyId ?? await register();
+    Future<Map<String, dynamic>> challengeFor(String id) => transport.request(
       '/device/session-challenges',
       method: 'POST',
-      body: jsonEncode({'credentialKeyId': keyId}),
+      body: jsonEncode({'credentialKeyId': id}),
     );
+    Map<String, dynamic> challenge;
+    try {
+      challenge = await challengeFor(keyId);
+    } on DeviceApiError catch (error) {
+      // An empty local API has no cached server identifier. Re-prove the same installation key;
+      // a revoked/disabled credential or an uncertain network response must never trigger this.
+      if (error.status != 404 || error.code != 'CREDENTIAL_NOT_FOUND') rethrow;
+      keyId = await register();
+      challenge = await challengeFor(keyId);
+    }
     if (challenge['algorithm'] != 'RSA_SHA256') {
       throw const DeviceApiError(0, 'UNSUPPORTED_SIGNATURE');
     }

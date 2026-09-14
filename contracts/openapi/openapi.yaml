@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 1.2.0
+  version: 1.3.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -291,7 +291,8 @@ paths:
       tags: [Device Identity]
       operationId: bindDeviceEncryptionKey
       summary: 以当前安装签名身份固定绑定独立解密公钥
-      description: Android RSA-2048 解密公钥；签署精确正文。同公钥重复绑定幂等，不允许替换已绑定公钥。保留原 credentialKeyId 和权益。
+      description: Android RSA-2048 解密公钥；签署精确正文。同公钥重复绑定幂等，不允许替换已绑定公钥。保留原
+        credentialKeyId 和权益。
       security:
         - deviceBearer: []
       parameters:
@@ -1365,8 +1366,8 @@ paths:
     post:
       tags: [Admin Catalog]
       operationId: buildAdminSecurePackage
-      summary: 为 READY Android 兼容资源版本制作不可变安全包
-      description: 校验媒体后生成 format 2 签名加密包。已有包重复调用不重建；无包的已发布版本拒绝制作，需创建下一版本。缺少资源签名或媒体工具配置时不可制作。
+      summary: 为 Android 兼容资源版本制作正式包与受限试用包
+      description: 校验媒体后为 READY 版本事务内制作 format 2 正式包和 format 3 APP_PREVIEW 受限包，失败回滚并清理本次对象。两包都存在时幂等返回；已有正式包的 PUBLISHED 版本允许补建受限包，正式包和正式 manifest 不变。已发布且无正式包的版本仍需创建下一版本。缺少资源签名或媒体工具配置时不可制作。
       security:
         - adminCookie: []
           adminCsrf: []
@@ -1749,6 +1750,90 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalError'
+  /device/wallpapers/{wallpaperId}/preview-tickets:
+    post:
+      tags:
+        - Device Entitlement
+      operationId: createPreviewTicket
+      summary: 为 Android App 签发独立受限效果试用描述
+      description: 需 Android 设备会话与持钥签名，无需权益，不扣兑换额度。仅交付降低规格且标记的试用素材；票据有效 90 秒仅用于下载，App
+        实际预览由单调时钟限制为 120 秒，后台时间继续计入。正式下载与试用票据、包格式和临时库相互隔离。
+      security:
+        - deviceBearer: []
+      parameters:
+        - $ref: "#/components/parameters/WallpaperId"
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/RequestTimestamp"
+        - $ref: "#/components/parameters/RequestNonce"
+        - $ref: "#/components/parameters/RequestSignature"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePreviewTicketRequest"
+      responses:
+        "201":
+          description: 独立试用描述已签发
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreviewDescriptor"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /preview/files:
+    get:
+      tags:
+        - Device Entitlement
+      operationId: downloadPreviewFile
+      summary: 使用独立试用票据读取受限预览包
+      description: 只接受 previewTicketBearer；正式 downloadTicketBearer
+        被拒绝。认证来自短时票据及活跃安装凭据，不产生权益。
+      security:
+        - previewTicketBearer: []
+      responses:
+        "200":
+          description: QJPV0001 / format 3、purpose=APP_PREVIEW 的加密受限素材
+          headers:
+            Digest:
+              description: "密文摘要，例如 sha-256=:base64:"
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          description: 票据已过期或已失效
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
 components:
   securitySchemes:
@@ -1777,6 +1862,11 @@ components:
       in: header
       name: X-Delivery-Ticket
       description: 只允许读取一次性交付 CSV 的短时票据，确认交付或过期后失效。
+    previewTicketBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-preview-ticket
+      description: 独立 90 秒预览票据，仅允许读取受限预览包；放在 Authorization header，禁止 URL 携带。
 
   headers:
     EntityTag:
@@ -2084,6 +2174,8 @@ components:
         - SECURE_PACKAGE_NOT_READY
         - SIGNED_REQUEST_INVALID
         - TIMESTAMP_INVALID
+        - PREVIEW_TICKET_INVALID
+        - PREVIEW_RESOURCE_NOT_READY
 
     WallpaperKind:
       type: string
@@ -2226,7 +2318,18 @@ components:
 
     PublicWallpaperSummary:
       type: object
-      required: [id, title, slug, kind, rootCategory, cover, featured, sortOrder, capabilities]
+      required:
+        [
+          id,
+          title,
+          slug,
+          kind,
+          rootCategory,
+          cover,
+          featured,
+          sortOrder,
+          capabilities
+        ]
       properties:
         id:
           $ref: '#/components/schemas/LongId'
@@ -2311,7 +2414,8 @@ components:
           minLength: 16
           maxLength: 8192
           writeOnly: true
-          description: Android 为 Base64URL 无填充 JSON(timestamp, nonce, proof)，签名载荷见 SEC-002；H5 为测试安装证据。服务端只保留身份 keyed hash，不持久化完整证明。
+          description: Android 为 Base64URL 无填充 JSON(timestamp, nonce, proof)，签名载荷见
+            SEC-002；H5 为测试安装证据。服务端只保留身份 keyed hash，不持久化完整证明。
 
     DeviceRegistrationResponse:
       type: object
@@ -2562,7 +2666,18 @@ components:
 
     SecurePackageMetadata:
       type: object
-      required: [formatVersion, sizeBytes, plaintextSizeBytes, encryptedSha256, plaintextSha256, signingKeyId, encryptionKeySha256, wrappedContentKey, keyAlgorithm]
+      required:
+        [
+          formatVersion,
+          sizeBytes,
+          plaintextSizeBytes,
+          encryptedSha256,
+          plaintextSha256,
+          signingKeyId,
+          encryptionKeySha256,
+          wrappedContentKey,
+          keyAlgorithm
+        ]
       properties:
         formatVersion:
           type: integer
@@ -2637,7 +2752,14 @@ components:
 
     AdminDashboard:
       type: object
-      required: [publishedWallpaperCount, activeDeviceCount, entitlementCount, redemptionCountToday, generatedAt]
+      required:
+        [
+          publishedWallpaperCount,
+          activeDeviceCount,
+          entitlementCount,
+          redemptionCountToday,
+          generatedAt
+        ]
       properties:
         publishedWallpaperCount:
           type: integer
@@ -2664,7 +2786,18 @@ components:
 
     AdminAsset:
       type: object
-      required: [id, originalFilename, mimeType, fileExtension, sizeBytes, sha256, validationStatus, createdAt, version]
+      required:
+        [
+          id,
+          originalFilename,
+          mimeType,
+          fileExtension,
+          sizeBytes,
+          sha256,
+          validationStatus,
+          createdAt,
+          version
+        ]
       properties:
         id:
           $ref: '#/components/schemas/LongId'
@@ -2717,7 +2850,19 @@ components:
 
     AdminCategory:
       type: object
-      required: [id, level, name, slug, sortOrder, wallpaperCount, children, createdAt, updatedAt, version]
+      required:
+        [
+          id,
+          level,
+          name,
+          slug,
+          sortOrder,
+          wallpaperCount,
+          children,
+          createdAt,
+          updatedAt,
+          version
+        ]
       properties:
         id:
           $ref: '#/components/schemas/LongId'
@@ -2802,7 +2947,16 @@ components:
 
     WallpaperWriteRequest:
       type: object
-      required: [title, slug, kind, rootCategoryId, coverAssetId, sortOrder, copyrightNote]
+      required:
+        [
+          title,
+          slug,
+          kind,
+          rootCategoryId,
+          coverAssetId,
+          sortOrder,
+          copyrightNote
+        ]
       properties:
         title:
           type: string
@@ -2841,7 +2995,22 @@ components:
 
     AdminWallpaperSummary:
       type: object
-      required: [id, title, slug, kind, rootCategory, cover, featured, sortOrder, capabilities, status, createdAt, updatedAt, version]
+      required:
+        [
+          id,
+          title,
+          slug,
+          kind,
+          rootCategory,
+          cover,
+          featured,
+          sortOrder,
+          capabilities,
+          status,
+          createdAt,
+          updatedAt,
+          version
+        ]
       properties:
         id:
           $ref: '#/components/schemas/LongId'
@@ -2940,7 +3109,15 @@ components:
 
     AdminWallpaperVariant:
       type: object
-      required: [id, platform, resourceType, capabilityRequirements, resourceVersions, version]
+      required:
+        [
+          id,
+          platform,
+          resourceType,
+          capabilityRequirements,
+          resourceVersions,
+          version
+        ]
       properties:
         id:
           $ref: '#/components/schemas/LongId'
@@ -3092,7 +3269,19 @@ components:
 
     AdminCodeBatchSummary:
       type: object
-      required: [id, batchNo, name, generatedCount, quotaPerCodeSnapshot, totalQuota, usedQuota, usagePercent, deliveryStatus, createdAt]
+      required:
+        [
+          id,
+          batchNo,
+          name,
+          generatedCount,
+          quotaPerCodeSnapshot,
+          totalQuota,
+          usedQuota,
+          usagePercent,
+          deliveryStatus,
+          createdAt
+        ]
       properties:
         id:
           $ref: '#/components/schemas/LongId'
@@ -3196,7 +3385,16 @@ components:
 
     AdminRedemptionCode:
       type: object
-      required: [id, maskedCode, codeSuffix, totalQuota, usedQuota, remainingQuota, status]
+      required:
+        [
+          id,
+          maskedCode,
+          codeSuffix,
+          totalQuota,
+          usedQuota,
+          remainingQuota,
+          status
+        ]
       properties:
         id:
           $ref: '#/components/schemas/LongId'
@@ -3236,7 +3434,17 @@ components:
 
     AdminRedemptionSummary:
       type: object
-      required: [id, redemptionRequestId, idempotencyKey, deviceId, wallpaper, result, quotaDelta, createdAt]
+      required:
+        [
+          id,
+          redemptionRequestId,
+          idempotencyKey,
+          deviceId,
+          wallpaper,
+          result,
+          quotaDelta,
+          createdAt
+        ]
       properties:
         id:
           $ref: '#/components/schemas/LongId'
@@ -3315,7 +3523,16 @@ components:
 
     AdminDeviceSummary:
       type: object
-      required: [id, platform, appInstallScope, status, entitlementCount, lastSeenAt, createdAt]
+      required:
+        [
+          id,
+          platform,
+          appInstallScope,
+          status,
+          entitlementCount,
+          lastSeenAt,
+          createdAt
+        ]
       properties:
         id:
           $ref: '#/components/schemas/LongId'
@@ -3404,3 +3621,113 @@ components:
             $ref: '#/components/schemas/AdminDeviceSummary'
         page:
           $ref: '#/components/schemas/PageMetadata'
+    CreatePreviewTicketRequest:
+      type: object
+      required:
+        - platform
+        - resourceType
+      properties:
+        platform:
+          type: string
+          enum:
+            - ANDROID
+        osVersion:
+          type: string
+          maxLength: 32
+        resourceType:
+          type: string
+          enum:
+            - STATIC_IMAGE
+            - VIDEO
+            - LAYER_PARALLAX
+    PreviewPackageMetadata:
+      type: object
+      required:
+        - formatVersion
+        - sizeBytes
+        - plaintextSizeBytes
+        - encryptedSha256
+        - plaintextSha256
+        - signingKeyId
+        - encryptionKeySha256
+        - wrappedContentKey
+        - keyAlgorithm
+      properties:
+        formatVersion:
+          type: integer
+          enum:
+            - 3
+        plaintextSizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 68157404
+        plaintextSha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        signingKeyId:
+          type: string
+          pattern: ^[a-z0-9-]{1,64}$
+        encryptionKeySha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 37
+          maximum: 68157440
+        encryptedSha256:
+          type: string
+          pattern: ^[a-f0-9]{64}$
+        wrappedContentKey:
+          type: string
+          minLength: 342
+          maxLength: 342
+          pattern: ^[A-Za-z0-9_-]{342}$
+          readOnly: true
+        keyAlgorithm:
+          type: string
+          enum:
+            - RSA-OAEP-SHA256-MGF1-SHA1
+    PreviewDescriptor:
+      type: object
+      required:
+        - deliveryMode
+        - purpose
+        - durationSeconds
+        - wallpaperId
+        - ticket
+        - downloadUrl
+        - expiresAt
+        - resourceVersion
+        - package
+      properties:
+        deliveryMode:
+          type: string
+          enum:
+            - APP_PREVIEW
+        purpose:
+          type: string
+          enum:
+            - APP_PREVIEW
+        durationSeconds:
+          type: integer
+          enum:
+            - 120
+        wallpaperId:
+          $ref: "#/components/schemas/LongId"
+        ticket:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{43}$
+          readOnly: true
+        downloadUrl:
+          type: string
+          enum:
+            - /api/v1/preview/files
+        expiresAt:
+          type: string
+          format: date-time
+        resourceVersion:
+          $ref: "#/components/schemas/DownloadResourceVersion"
+        package:
+          $ref: "#/components/schemas/PreviewPackageMetadata"

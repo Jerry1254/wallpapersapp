@@ -21,7 +21,7 @@ class SecurePackageVerifierTest {
     private data class Fixture(val e: PackageExpectation, val encrypted: ByteArray, val key: ByteArray)
     private fun fixture(type: String = "STATIC_IMAGE", version: Int = 1, manifestEdit: (String) -> String = { it },
                         extra: Pair<String,ByteArray>? = null, signatureKey: KeyPair = signer,
-                        zipEdit: (ByteArray) -> ByteArray = { it }): Fixture {
+                        zipEdit: (ByteArray) -> ByteArray = { it },purpose: PackagePurpose = PackagePurpose.FORMAL): Fixture {
         val payloads = when(type) {
             "STATIC_IMAGE" -> listOf(Triple("STATIC_IMAGE", "image/png", byteArrayOf(1,2,3)))
             "VIDEO" -> listOf(Triple("VIDEO", "video/mp4", byteArrayOf(4,5,6)))
@@ -30,7 +30,8 @@ class SecurePackageVerifierTest {
         }
         val paths = payloads.map { "payload/${it.first.lowercase()}-0.${when(it.second) { "image/png" -> "png"; "video/mp4" -> "mp4"; else -> "json" }}" }
         val files = payloads.mapIndexed { i,p -> """{"path":"${paths[i]}","role":"${p.first}","ordinal":0,"mimeType":"${p.second}","sizeBytes":${p.third.size},"sha256":"${SecurePackageVerifier.hash(p.third)}"}""" }.joinToString(",")
-        val manifest = manifestEdit("""{"formatVersion":2,"wallpaperId":"10","variantId":"20","versionNo":$version,"resourceType":"$type","signingKeyId":"test-root","files":[$files]}""").toByteArray()
+        val extraPurpose = if(purpose == PackagePurpose.APP_PREVIEW) "\"purpose\":\"APP_PREVIEW\"," else ""
+        val manifest = manifestEdit("""{"formatVersion":${purpose.format},${extraPurpose}"wallpaperId":"10","variantId":"20","versionNo":$version,"resourceType":"$type","signingKeyId":"test-root","files":[$files]}""").toByteArray()
         val signature = Signature.getInstance("SHA256withRSA").run { initSign(signatureKey.private); update(manifest); sign() }
         val output = ByteArrayOutputStream()
         ZipOutputStream(output).use { zip ->
@@ -41,19 +42,20 @@ class SecurePackageVerifierTest {
         val plaintext = zipEdit(output.toByteArray()); val key = ByteArray(32).also { SecureRandom().nextBytes(it) }
         val e = PackageExpectation("10","20",(30+version).toString(),version,type,plaintext.size+36L,plaintext.size.toLong(),"0".repeat(64),
             SecurePackageVerifier.hash(plaintext),SecurePackageVerifier.hash(manifest),"test-root")
-        val encrypted = encrypt(plaintext,key,e)
+        val encrypted = encrypt(plaintext,key,e,purpose)
         return Fixture(e.copy(encryptedHash=SecurePackageVerifier.hash(encrypted)),encrypted,key)
     }
-    private fun encrypt(plaintext: ByteArray,key: ByteArray,e: PackageExpectation): ByteArray {
+    private fun encrypt(plaintext: ByteArray,key: ByteArray,e: PackageExpectation,purpose: PackagePurpose): ByteArray {
         val nonce=ByteArray(12).also { SecureRandom().nextBytes(it) }
         val cipher=Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE,SecretKeySpec(key,"AES"),GCMParameterSpec(128,nonce)); cipher.updateAAD(e.aad())
-        return "QJWP0002".toByteArray()+nonce+cipher.doFinal(plaintext)
+        cipher.init(Cipher.ENCRYPT_MODE,SecretKeySpec(key,"AES"),GCMParameterSpec(128,nonce)); cipher.updateAAD(e.aad(purpose))
+        return purpose.magic.toByteArray()+nonce+cipher.doFinal(plaintext)
     }
-    private fun verify(f: Fixture, root: File): File {
+    private fun verify(f: Fixture, root: File,purpose: PackagePurpose = PackagePurpose.FORMAL): File {
         val encrypted=File(root,"input-${System.nanoTime()}"); encrypted.writeBytes(f.encrypted)
         val stage=File(root,"stage-${System.nanoTime()}").also { it.mkdir() }
-        verifier.verify(encrypted,stage,f.e,f.key,"test-root",signer.public)
+        SecurePackageVerifier(purpose) { _,file -> require(file.length() > 0);MediaInfo(512,512,true) }
+            .verify(encrypted,stage,f.e,f.key,"test-root",signer.public)
         assertFalse(File(stage,"package.zip").exists()); return stage
     }
     private fun reject(f: Fixture) = temporary { root ->
@@ -180,5 +182,30 @@ class SecurePackageVerifierTest {
         store.hold("live-video",id); store.hold("live",null); assertEquals(0L,store.clearUnused())
         store.hold("live-parallax",id); store.hold("live-video",null); assertEquals(0L,store.clearUnused())
         store.hold("live-parallax",null); assertTrue(store.clearUnused() > 0); assertFalse(store.directory(id).exists())
+    }
+    @Test fun reducedPreviewsVerifyButFormalInstallAndPersistedReadersRejectThem() = temporary { root ->
+        for(type in listOf("STATIC_IMAGE","VIDEO","LAYER_PARALLAX")) {
+            val f = fixture(type,purpose = PackagePurpose.APP_PREVIEW)
+            val source = verify(f,root,PackagePurpose.APP_PREVIEW)
+            try { verify(f,root);fail("Formal verifier accepted a preview") } catch(_: Exception) {}
+            try { verify(fixture(type),root,PackagePurpose.APP_PREVIEW);fail("Preview verifier accepted a formal package") } catch(_: Exception) {}
+            val store = AtomicPackageStore(File(root,"preview-$type"));val stage = store.staging();source.copyRecursively(stage,overwrite = true)
+            val id = store.commit(stage,f.e)
+            assertEquals(id,InstalledPackageVerifier("test-root",signer.public,PackagePurpose.APP_PREVIEW).verify(store,id,type).id)
+            try { InstalledPackageVerifier("test-root",signer.public).verify(store,id,type);fail("Formal playback accepted preview bytes") } catch(_: Exception) {}
+            store.hold("trial",id);val lease = store.pin(id);store.hold("trial",null)
+            assertEquals(0L,store.clearUnused());lease.close();assertTrue(store.clearUnused() > 0)
+            assertFalse(store.directory(id).exists())
+        }
+    }
+    @Test fun signedWrongPurposeAndOversizedPreviewsRemainInvalid() = temporary { root ->
+        val wrong = fixture(purpose = PackagePurpose.APP_PREVIEW,manifestEdit = { it.replace("APP_PREVIEW","SYSTEM_WALLPAPER") })
+        try { verify(wrong,root,PackagePurpose.APP_PREVIEW);fail("Wrong signed purpose was accepted") } catch(_: Exception) {}
+        val f = fixture(purpose = PackagePurpose.APP_PREVIEW)
+        val source = File(root,"encrypted").also { it.writeBytes(f.encrypted) };val stage = File(root,"stage").also { it.mkdir() }
+        try {
+            SecurePackageVerifier(PackagePurpose.APP_PREVIEW) { _,_ -> MediaInfo(1920,1080,true) }.verify(source,stage,f.e,f.key,"test-root",signer.public)
+            fail("An oversized preview was accepted")
+        } catch(_: Exception) {}
     }
 }

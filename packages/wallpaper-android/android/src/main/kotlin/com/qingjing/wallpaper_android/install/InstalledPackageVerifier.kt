@@ -10,7 +10,7 @@ internal data class InstalledPackage(val id: String, val type: String, val files
 }
 
 /** Recheck persisted bytes before using them. An installation pointer alone is not proof of integrity. */
-internal class InstalledPackageVerifier(private val keyId: String, private val key: PublicKey) {
+internal class InstalledPackageVerifier(private val keyId: String, private val key: PublicKey,private val purpose: PackagePurpose = PackagePurpose.FORMAL) {
     fun verify(store: AtomicPackageStore, id: String, type: String): InstalledPackage {
         val directory = store.directory(id)
         require(directory.isDirectory && directory.list()?.toSet() == setOf("manifest.json","manifest.sig","payload"))
@@ -26,7 +26,7 @@ internal class InstalledPackageVerifier(private val keyId: String, private val k
         val version = root["versionNo"] as? Long ?: error("Invalid version"); require(version in 1..Int.MAX_VALUE)
         val expected = PackageExpectation(parts[0],root["variantId"] as? String ?: error("Invalid variant"),parts[2],version.toInt(),type,
             37,1,"0".repeat(64),"0".repeat(64),parts[3],keyId)
-        val files = SecurePackageVerifier { _,_ -> error("Unused decoder") }.manifest(bytes,expected)
+        val files = SecurePackageVerifier(purpose) { _,_ -> error("Unused decoder") }.manifest(bytes,expected)
         val payload = File(directory,"payload")
         require(payload.isDirectory && !Files.isSymbolicLink(payload.toPath()))
         require(payload.list()?.toSet() == files.map { File(it.path).name }.toSet())

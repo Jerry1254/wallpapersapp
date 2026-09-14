@@ -2,7 +2,7 @@
 
 **状态：** 已确认
 
-**版本：** V1.2.0
+**版本：** V1.3.0
 
 **日期：** 2026-09-14
 
@@ -17,7 +17,7 @@ V1 使用同一份 OpenAPI 3.0.3 契约服务 H5、正式 App 和管理后台，
 | 边界 | 路径前缀 | 身份 | 负责内容 |
 |---|---|---|---|
 | 公开目录 | `/public` | 无 | 分类、列表、搜索、详情、分类图标和壁纸封面 |
-| 匿名设备 | `/device`、`/delivery` | 设备短期 Bearer 会话；敏感写入另带请求签名 | 设备注册、会话、兑换、权益和下载描述 |
+| 匿名设备 | `/device`、`/delivery`、`/preview` | 设备短期 Bearer 会话；敏感写入另带请求签名；文件使用独立短时票据 | 设备注册、会话、兑换、权益、正式下载和受限试用描述 |
 | 管理端 | `/admin` | HttpOnly Cookie；写操作另带 CSRF token | 管理登录、资源、分类、壁纸、版本、批次、事件和设备查询 |
 
 数据库实体不直接作为响应模型。公开模型、设备模型和管理模型独立裁剪，任何响应都不得包含 `storageKey`、绝对路径、兑换码摘要、设备证据摘要、密码摘要、私钥或明文内容密钥。
@@ -194,3 +194,9 @@ Android 下载票据返回 SECURE_PACKAGE，增加 variantId、formatVersion=2�
 下载 URL 固定为 /api/v1/delivery/files，90 秒 token 只放 Authorization，响应为流式 application/octet-stream，含长度、Digest 和 Cache-Control:no-store。请求必须匹配会话平台和已有权益，版本需已发布且有安全包；按 supportedResourceTypes 顺序选择，minimumOsVersion 按最多四段数字比较，未满足能力要求的变体不交付。失效票据或撤销后的读取返回 401 DOWNLOAD_TICKET_INVALID；读取限流 429。原先已开始的流不在传输途中反复查权益。
 
 1.0.1、1.1.0 历史快照保留；WP-A05 已显式冻结 1.2.0，旧快照不回写。端侧安全安装与真机验证继续由 A06 验收。
+
+## 1.3.0 受限试用交付
+
+新增 2 操作、3 Schema，当前合计 51 操作、77 Schema。POST /device/wallpapers/{wallpaperId}/preview-tickets 要求 Android 会话及 timestamp/nonce/精确正文签名，无需作品权益；请求平台 ANDROID、resourceType 三类及 osVersion。201 PreviewDescriptor 的 deliveryMode/purpose 固定 APP_PREVIEW、durationSeconds=120、package.formatVersion=3；清单摘要指向派生清单。GET /preview/files 只接受 previewTicketBearer，固定同源下载路径、90 秒票据、no-store/长度/Digest，与正式 /delivery/files 双向拒绝。无兼容受限包为 422 PREVIEW_RESOURCE_NOT_READY，失效票据为 401 PREVIEW_TICKET_INVALID，频繁操作为 429 RATE_LIMITED。
+
+正式 DownloadDescriptor 和 SecurePackageMetadata 保持原模式与 format 2，H5 占位字段不变。既有管理 secure-package 操作扩展为制作正式/受限包对，允许已有正式包的 PUBLISHED 版本补建派生包；正式字节、正式清单与权益不变。详细规格、用途签名、临时库和计时边界见 [SEC-004](../05-安全与合规/SEC-004-Android受限试用交付协议.md)。1.2.0 历史冻结输入单独保留；1.3.0 在契约、API 实现与格式/权限回归检查后显式冻结，端侧 120 秒与三类显示的真机验收继续属于 A09，不以接口冻结代替。

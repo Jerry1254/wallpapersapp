@@ -7,6 +7,8 @@
     <application>
         <activity android:name=".playback.NativeWallpaperActivity" android:exported="false"
             android:configChanges="orientation|screenSize" android:theme="@android:style/Theme.Material.NoActionBar" />
+        <activity android:name=".playback.NativeTrialActivity" android:exported="false"
+            android:configChanges="orientation|screenSize" android:theme="@android:style/Theme.Material.NoActionBar" />
         <service android:name=".playback.VideoWallpaperService" android:exported="true"
             android:permission="android.permission.BIND_WALLPAPER" android:label="@string/qj_video_wallpaper_name">
             <intent-filter><action android:name="android.service.wallpaper.WallpaperService" /></intent-filter>

@@ -81,6 +81,37 @@ class SecurePackageCodecTest {
         assertThatThrownBy(() -> codec.encode(new SecurePackageCodec.Identity(1,2,1,"LAYER_PARALLAX"),
                 List.of(payload("BACKGROUND","image/png")),"test",signing.getPrivate())).isInstanceOf(IllegalArgumentException.class);
     }
+    @Test void previewPurposeIsSignedAndCryptographicallySeparateFromPaidPackages() throws Exception {
+        var signing=key();
+        Map<String,List<SecurePackageCodec.Payload>> cases=Map.of(
+            "STATIC_IMAGE",List.of(payload("STATIC_IMAGE","image/png")),
+            "VIDEO",List.of(payload("VIDEO","video/mp4")),
+            "LAYER_PARALLAX",List.of(payload("BACKGROUND","image/png"),payload("FOREGROUND","image/png"),payload("PARALLAX_CONFIG","application/json")));
+        for(var item:cases.entrySet()) {
+            var identity=new SecurePackageCodec.Identity(11,22,3,item.getKey());
+            var preview=codec.encodePreview(identity,item.getValue(),"test-preview",signing.getPrivate());
+            assertThat(Arrays.copyOfRange(preview.encrypted(),0,8)).isEqualTo("QJPV0001".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+            byte[] plaintext=decryptAad(preview.encrypted(),preview.contentKey(),SecurePackageCodec.previewAad(identity));
+            assertThat(SecurePackageCodec.sha256(plaintext)).isEqualTo(preview.plaintextSha256());
+            Map<String,byte[]> files=new HashMap<>();
+            try(var zip=new ZipInputStream(new ByteArrayInputStream(plaintext))) {
+                for(var entry=zip.getNextEntry();entry!=null;entry=zip.getNextEntry()) files.put(entry.getName(),zip.readAllBytes());
+            }
+            byte[] manifest=files.get("manifest.json");var root=mapper.readTree(manifest);
+            assertThat(root.path("formatVersion").asInt()).isEqualTo(3);
+            assertThat(root.path("purpose").asText()).isEqualTo("APP_PREVIEW");
+            Signature verifier=Signature.getInstance("SHA256withRSA");verifier.initVerify(signing.getPublic());verifier.update(manifest);
+            assertThat(verifier.verify(files.get("manifest.sig"))).isTrue();
+            assertThatThrownBy(()->decryptAad(preview.encrypted(),preview.contentKey(),identity.aad())).isInstanceOf(AEADBadTagException.class);
+            var paid=codec.encode(identity,item.getValue(),"test-preview",signing.getPrivate());
+            assertThatThrownBy(()->decryptAad(paid.encrypted(),paid.contentKey(),SecurePackageCodec.previewAad(identity))).isInstanceOf(AEADBadTagException.class);
+        }
+    }
+    private static byte[] decryptAad(byte[] envelope,byte[] key,byte[] aad) throws Exception {
+        Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.DECRYPT_MODE,new SecretKeySpec(key,"AES"),new GCMParameterSpec(128,Arrays.copyOfRange(envelope,8,20)));
+        cipher.updateAAD(aad);return cipher.doFinal(Arrays.copyOfRange(envelope,20,envelope.length));
+    }
     private static byte[] decrypt(byte[] envelope, byte[] key, SecurePackageCodec.Identity identity) throws Exception {
         assertThat(Arrays.copyOfRange(envelope,0,8)).isEqualTo("QJWP0002".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");

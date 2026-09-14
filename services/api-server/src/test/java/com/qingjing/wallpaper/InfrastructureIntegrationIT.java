@@ -122,7 +122,7 @@ class InfrastructureIntegrationIT {
                 """,
                 String.class);
 
-        assertThat(successfulMigrations).isEqualTo(2);
+        assertThat(successfulMigrations).isEqualTo(3);
         assertThat(tables).containsExactlyInAnyOrder(
                 "admin_account",
                 "anonymous_device",
@@ -133,6 +133,7 @@ class InfrastructureIntegrationIT {
                 "device_credential",
                 "device_encryption_key",
                 "secure_resource_package",
+                "preview_resource_package",
                 "device_entitlement",
                 "download_event",
                 "redemption_code",
@@ -903,20 +904,37 @@ class InfrastructureIntegrationIT {
             }
             assertThat(jsonExchange(path,HttpMethod.POST,Map.of(),admin,null).getBody()).isEqualTo(built.getBody());
             assertThat(jdbc.queryForMap("SELECT * FROM secure_resource_package WHERE resource_version_id=?",versionId)).isEqualTo(stored);
+            var previewStored=jdbc.queryForMap("SELECT * FROM preview_resource_package WHERE resource_version_id=?",versionId);
+            assertThat(previewStored.get("format_version")).isEqualTo(3);
+            assertThat(previewStored.get("purpose")).isEqualTo("APP_PREVIEW");
+            assertThat(previewStored.get("encrypted_sha256")).isNotEqualTo(stored.get("encrypted_sha256"));
+            assertThat(jsonExchange(path,HttpMethod.POST,Map.of(),admin,null).getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(jdbc.queryForMap("SELECT * FROM preview_resource_package WHERE resource_version_id=?",versionId)).isEqualTo(previewStored);
             ResponseEntity<JsonNode> published=jsonExchange("/api/v1/admin/wallpapers/"+wallpaperId+"/publish",HttpMethod.POST,
                     Map.of("resourceVersionIds",List.of(Long.toString(versionId))),admin,"\"0\"");
             assertThat(published.getStatusCode()).isEqualTo(HttpStatus.OK);
             verifyTicketDelivery(admin,wallpaperId,versionId,type);
+            // Upgrade/backfill of an already published v2 resource must preserve the formal package byte for byte.
+            jdbc.update("DELETE FROM preview_resource_package WHERE resource_version_id=?",versionId);
+            packageStorage.delete(new com.qingjing.wallpaper.asset.application.StorageKey(previewStored.get("storage_key").toString()));
+            assertThat(jsonExchange(path,HttpMethod.POST,Map.of(),admin,null).getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(jdbc.queryForMap("SELECT * FROM secure_resource_package WHERE resource_version_id=?",versionId)).isEqualTo(stored);
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM preview_resource_package WHERE resource_version_id=?",Integer.class,versionId)).isEqualTo(1);
             long rollbackVersion=jsonExchange("/api/v1/admin/variants/"+variantId+"/resource-versions",HttpMethod.POST,
                     Map.of("versionNo",3,"bindings",bindings),admin,null).getBody().path("id").asLong();
             var orphanKey=new java.util.concurrent.atomic.AtomicReference<String>();
+            var previewOrphanKey=new java.util.concurrent.atomic.AtomicReference<String>();
             assertThatThrownBy(() -> new org.springframework.transaction.support.TransactionTemplate(transactionManager).execute(status -> {
                 packagePublisher.build(rollbackVersion);
                 orphanKey.set(jdbc.queryForObject("SELECT storage_key FROM secure_resource_package WHERE resource_version_id=?",String.class,rollbackVersion));
+                previewOrphanKey.set(jdbc.queryForObject("SELECT storage_key FROM preview_resource_package WHERE resource_version_id=?",String.class,rollbackVersion));
                 throw new IllegalStateException("rollback-fixture");
             })).isInstanceOf(IllegalStateException.class).hasMessage("rollback-fixture");
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM secure_resource_package WHERE resource_version_id=?",Integer.class,rollbackVersion)).isZero();
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM preview_resource_package WHERE resource_version_id=?",Integer.class,rollbackVersion)).isZero();
             assertThatThrownBy(() -> packageStorage.open(new com.qingjing.wallpaper.asset.application.StorageKey(orphanKey.get())))
+                    .isInstanceOf(com.qingjing.wallpaper.asset.application.FileStorageException.class);
+            assertThatThrownBy(() -> packageStorage.open(new com.qingjing.wallpaper.asset.application.StorageKey(previewOrphanKey.get())))
                     .isInstanceOf(com.qingjing.wallpaper.asset.application.FileStorageException.class);
             if (!type.equals("STATIC_IMAGE")) {
                 byte[] invalidBytes=type.equals("VIDEO") ? new byte[]{0,0,0,12,102,116,121,112,105,115,111,109} :
@@ -948,6 +966,7 @@ class InfrastructureIntegrationIT {
         String pem=new com.qingjing.wallpaper.device.AndroidCredentialProof(objectMapper).canonicalPem((java.security.interfaces.RSAPublicKey)encryption.getPublic());
         String bindPath="/api/v1/device/encryption-key";
         assertThat(http.exchange(bindPath,HttpMethod.PUT,androidSignedEntity(signing,token,"PUT",bindPath,objectMapper.writeValueAsString(Map.of("publicKeyPem",pem))),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        var previewHeaders=verifyUnownedPreview(signing,encryption,token,deviceId,wallpaperId,versionId,type);
         String ticketPath="/api/v1/device/wallpapers/"+wallpaperId+"/download-tickets";
         String body=objectMapper.writeValueAsString(Map.of("platform","ANDROID","osVersion","35","supportedResourceTypes",List.of(type)));
         assertThat(http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,body),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
@@ -972,6 +991,7 @@ class InfrastructureIntegrationIT {
         String redisKey="download-ticket-v2:"+securityCrypto.hmacHex("download-ticket-v2",ticket);
         assertThat(redis.getExpire(redisKey)).isBetween(1L,90L);
         HttpHeaders download=new HttpHeaders();download.setBearerAuth(ticket);
+        assertThat(http.exchange("/api/v1/preview/files",HttpMethod.GET,new HttpEntity<>(download),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         var bytes=http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(download),byte[].class);
         assertThat(bytes.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(bytes.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_OCTET_STREAM);
@@ -986,15 +1006,19 @@ class InfrastructureIntegrationIT {
         assertThat(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.sha256(decrypt.doFinal(java.util.Arrays.copyOfRange(bytes.getBody(),20,bytes.getBody().length)))).isEqualTo(metadata.path("plaintextSha256").asText());
         jdbc.update("UPDATE device_entitlement SET status='REVOKED',revoked_at=UTC_TIMESTAMP(6),revoke_reason='fixture' WHERE device_id=? AND wallpaper_id=?",deviceId,wallpaperId);
         assertThat(http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(download),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(http.exchange("/api/v1/preview/files",HttpMethod.GET,new HttpEntity<>(previewHeaders),byte[].class).getStatusCode()).isEqualTo(HttpStatus.OK);
         jdbc.update("UPDATE device_entitlement SET status='ACTIVE',revoked_at=NULL,revoke_reason=NULL WHERE device_id=? AND wallpaper_id=?",deviceId,wallpaperId);
         jdbc.update("UPDATE wallpaper SET status='OFFLINE' WHERE id=?",wallpaperId);
         assertThat(http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(download),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(http.exchange("/api/v1/preview/files",HttpMethod.GET,new HttpEntity<>(previewHeaders),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         jdbc.update("UPDATE wallpaper SET status='PUBLISHED' WHERE id=?",wallpaperId);
         jdbc.update("UPDATE device_credential SET status='REVOKED',revoked_at=UTC_TIMESTAMP(6) WHERE credential_key_id=?",credential);
         assertThat(http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(download),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(http.exchange("/api/v1/preview/files",HttpMethod.GET,new HttpEntity<>(previewHeaders),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         jdbc.update("UPDATE device_credential SET status='ACTIVE',revoked_at=NULL WHERE credential_key_id=?",credential);
         jdbc.update("UPDATE resource_version SET status='RETIRED',retired_at=UTC_TIMESTAMP(6) WHERE id=?",versionId);
         assertThat(http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(download),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(http.exchange("/api/v1/preview/files",HttpMethod.GET,new HttpEntity<>(previewHeaders),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         jdbc.update("UPDATE resource_version SET status='PUBLISHED',retired_at=NULL WHERE id=?",versionId);
         if (type.equals("STATIC_IMAGE")) {
             boolean limited=false;
@@ -1014,6 +1038,55 @@ class InfrastructureIntegrationIT {
         }
         redis.expire(redisKey,Duration.ZERO);
         assertThat(http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(download),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        String previewToken=previewHeaders.getFirst(HttpHeaders.AUTHORIZATION).substring(7);
+        redis.delete("preview-ticket-v1:"+securityCrypto.hmacHex("preview-ticket-v1",previewToken));
+        assertThat(http.exchange("/api/v1/preview/files",HttpMethod.GET,new HttpEntity<>(previewHeaders),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    private HttpHeaders verifyUnownedPreview(java.security.KeyPair signing,java.security.KeyPair encryption,String token,
+            long deviceId,long wallpaperId,long versionId,String type) throws Exception {
+        int entitlementCount=jdbc.queryForObject("SELECT COUNT(*) FROM device_entitlement WHERE device_id=?",Integer.class,deviceId);
+        int redemptionCount=jdbc.queryForObject("SELECT COUNT(*) FROM redemption_event WHERE device_id=?",Integer.class,deviceId);
+        String path="/api/v1/device/wallpapers/"+wallpaperId+"/preview-tickets";
+        String json=objectMapper.writeValueAsString(Map.of("platform","ANDROID","osVersion","35","resourceType",type));
+        HttpHeaders bearerOnly=new HttpHeaders();bearerOnly.setBearerAuth(token);bearerOnly.setContentType(MediaType.APPLICATION_JSON);
+        assertThat(http.exchange(path,HttpMethod.POST,new HttpEntity<>(json,bearerOnly),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        var signed=androidSignedEntity(signing,token,"POST",path,json);
+        var issued=http.exchange(path,HttpMethod.POST,signed,JsonNode.class);
+        assertThat(issued.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(http.exchange(path,HttpMethod.POST,signed,JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        var tampered=androidSignedEntity(signing,token,"POST",path,json);
+        assertThat(http.exchange(path,HttpMethod.POST,new HttpEntity<>(json+" ",tampered.getHeaders()),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        JsonNode descriptor=issued.getBody(),metadata=descriptor.path("package");
+        assertThat(descriptor.path("purpose").asText()).isEqualTo("APP_PREVIEW");
+        assertThat(descriptor.path("deliveryMode").asText()).isEqualTo("APP_PREVIEW");
+        assertThat(descriptor.path("durationSeconds").asInt()).isEqualTo(120);
+        assertThat(metadata.path("formatVersion").asInt()).isEqualTo(3);
+        assertThat(descriptor.path("resourceVersion").path("id").asLong()).isEqualTo(versionId);
+        assertThat(descriptor.toString()).doesNotContain("storage_key","content_key_ciphertext",".runtime","objects/");
+        String previewToken=descriptor.path("ticket").asText();
+        assertThat(redis.getExpire("preview-ticket-v1:"+securityCrypto.hmacHex("preview-ticket-v1",previewToken))).isBetween(1L,90L);
+        HttpHeaders preview=new HttpHeaders();preview.setBearerAuth(previewToken);
+        assertThat(http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(preview),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        var response=http.exchange("/api/v1/preview/files",HttpMethod.GET,new HttpEntity<>(preview),byte[].class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getHeaders().getCacheControl()).isEqualTo("no-store");
+        byte[] encrypted=response.getBody();
+        assertThat(new String(encrypted,0,8,StandardCharsets.US_ASCII)).isEqualTo("QJPV0001");
+        assertThat(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.sha256(encrypted)).isEqualTo(metadata.path("encryptedSha256").asText());
+        var unwrap=javax.crypto.Cipher.getInstance("RSA/ECB/OAEPPadding");
+        unwrap.init(javax.crypto.Cipher.DECRYPT_MODE,encryption.getPrivate(),new javax.crypto.spec.OAEPParameterSpec("SHA-256","MGF1",java.security.spec.MGF1ParameterSpec.SHA1,javax.crypto.spec.PSource.PSpecified.DEFAULT));
+        byte[] contentKey=unwrap.doFinal(Base64.getUrlDecoder().decode(metadata.path("wrappedContentKey").asText()));
+        try {
+            var identity=new com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.Identity(wallpaperId,descriptor.path("resourceVersion").path("variantId").asLong(),2,type);
+            var decrypt=javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
+            decrypt.init(javax.crypto.Cipher.DECRYPT_MODE,new javax.crypto.spec.SecretKeySpec(contentKey,"AES"),new javax.crypto.spec.GCMParameterSpec(128,java.util.Arrays.copyOfRange(encrypted,8,20)));
+            decrypt.updateAAD(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.previewAad(identity));
+            assertThat(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.sha256(decrypt.doFinal(java.util.Arrays.copyOfRange(encrypted,20,encrypted.length)))).isEqualTo(metadata.path("plaintextSha256").asText());
+        } finally { java.util.Arrays.fill(contentKey,(byte)0); }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM device_entitlement WHERE device_id=?",Integer.class,deviceId)).isEqualTo(entitlementCount).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM redemption_event WHERE device_id=?",Integer.class,deviceId)).isEqualTo(redemptionCount).isZero();
+        return preview;
     }
 
     private byte[] testVideo() throws Exception {

@@ -11,7 +11,7 @@ import java.security.spec.X509EncodedKeySpec
 internal object PackageRuntime {
     private var instance: AtomicPackageStore? = null
     @Synchronized fun store(context: Context): AtomicPackageStore = instance ?: AtomicPackageStore(File(context.filesDir,"wallpaper-packages-v2")).also { instance = it }
-    fun verifier(context: Context): InstalledPackageVerifier {
+    fun verifier(context: Context,purpose: PackagePurpose = PackagePurpose.FORMAL): InstalledPackageVerifier {
         fun resource(name: String): String {
             val id = context.resources.getIdentifier(name,"string",context.packageName)
             return if (id == 0) "" else context.getString(id)
@@ -20,6 +20,6 @@ internal object PackageRuntime {
         require(id.matches(Regex("[a-z0-9-]{1,64}")) && der.isNotEmpty())
         val key = KeyFactory.getInstance("RSA").generatePublic(X509EncodedKeySpec(Base64.decode(der,Base64.NO_WRAP))) as RSAPublicKey
         require(key.modulus.bitLength() == 2048 && key.publicExponent.toInt() == 65537)
-        return InstalledPackageVerifier(id,key)
+        return InstalledPackageVerifier(id,key,purpose)
     }
 }

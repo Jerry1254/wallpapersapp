@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.content.pm.ApplicationInfo
 import android.media.MediaCodecList
 import android.os.Build
+import com.qingjing.wallpaper_android.install.TrialRuntime
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.PluginRegistry
@@ -48,6 +49,17 @@ internal class WallpaperPlaybackBridge(private val context: Context) : PluginReg
         if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0 && call.argument<Boolean>("debugForceNoSensor") == true) intent.putExtra("debugForceNoSensor",true)
         try { pending = result; host.startActivityForResult(intent,702) }
         catch (_: Exception) { pending = null; result.error("PREVIEW_UNAVAILABLE","原生预览或设置暂时不可用",null) }
+    }
+    fun trial(call: MethodCall,result: MethodChannel.Result) {
+        if(pending != null) { result.error("PREVIEW_BUSY","已有预览或设置正在进行",null);return }
+        val host = activity ?: return result.error("PREVIEW_UNAVAILABLE","当前页面无法打开试用",null)
+        val id = call.argument<String>("trialId") ?: return result.error("TRIAL_EXPIRED","试用已结束",null)
+        val current = TrialRuntime.current(context,id) ?: return result.success(mapOf("status" to "completed","message" to "试用已结束"))
+        require(current.type == call.argument<String>("resourceType"))
+        try {
+            pending = result
+            host.startActivityForResult(Intent(host,NativeTrialActivity::class.java).putExtra("trialId",id),702)
+        } catch(_: Exception) { pending = null;result.error("PREVIEW_UNAVAILABLE","试用暂时无法打开，请重试",null) }
     }
     override fun onActivityResult(requestCode: Int,resultCode: Int,data: Intent?): Boolean {
         if (requestCode != 702) return false

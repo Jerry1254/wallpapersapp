@@ -13,6 +13,11 @@ import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
+/** The native entry point selects purpose; an untrusted descriptor cannot relax a formal verifier. */
+internal enum class PackagePurpose(val magic: String,val format: Long,val aadPrefix: String) {
+    FORMAL("QJWP0002",2,"QJ-PACKAGE-V2"),
+    APP_PREVIEW("QJPV0001",3,"QJ-PREVIEW-V1")
+}
 internal data class PackageExpectation(
     val wallpaperId: String, val variantId: String, val versionId: String,
     val versionNo: Int, val type: String, val size: Long, val plaintextSize: Long,
@@ -26,7 +31,7 @@ internal data class PackageExpectation(
         for (hash in listOf(encryptedHash, plaintextHash, manifestHash)) require(hash.matches(Regex("[a-f0-9]{64}")))
         require(signingKeyId.matches(Regex("[a-z0-9-]{1,64}")))
     }
-    fun aad() = "QJ-PACKAGE-V2\n$wallpaperId\n$variantId\n$versionNo\n$type".toByteArray(Charsets.UTF_8)
+    fun aad(purpose: PackagePurpose = PackagePurpose.FORMAL) = "${purpose.aadPrefix}\n$wallpaperId\n$variantId\n$versionNo\n$type".toByteArray(Charsets.UTF_8)
     val installedId get() = "$wallpaperId-$type-$versionId-$manifestHash"
     val slot get() = "$wallpaperId-$type"
 }
@@ -34,7 +39,7 @@ internal data class PackageFile(val path: String, val role: String, val ordinal:
 internal data class MediaInfo(val width: Int, val height: Int, val alpha: Boolean = false)
 
 /** Only writes inside a new private staging directory. Nothing is installed until every check passes. */
-internal class SecurePackageVerifier(private val media: (PackageFile, File) -> MediaInfo) {
+internal class SecurePackageVerifier(private val purpose: PackagePurpose = PackagePurpose.FORMAL,private val media: (PackageFile, File) -> MediaInfo) {
     fun verify(encrypted: File, staging: File, expected: PackageExpectation, key: ByteArray,
                trustKeyId: String, trustKey: PublicKey, cancelled: () -> Boolean = { false }) {
         require(expected.signingKeyId == trustKeyId && key.size == 32)
@@ -82,7 +87,11 @@ internal class SecurePackageVerifier(private val media: (PackageFile, File) -> M
                         require(count == file.size && hex(digest.digest()) == file.hash && crc.value == entry.crc)
                         output.fd.sync()
                     } }
-                    if (file.role != "PARALLAX_CONFIG") images["${file.role}:${file.ordinal}"] = media(file, target)
+                    if (file.role != "PARALLAX_CONFIG") {
+                        val info = media(file, target)
+                        if (purpose == PackagePurpose.APP_PREVIEW) require(info.width in 1..1280 && info.height in 1..1280)
+                        images["${file.role}:${file.ordinal}"] = info
+                    }
                 }
                 if (expected.type == "LAYER_PARALLAX") {
                     val config = files.single { it.role == "PARALLAX_CONFIG" }
@@ -96,11 +105,11 @@ internal class SecurePackageVerifier(private val media: (PackageFile, File) -> M
     }
     private fun decrypt(source: File, target: File, expected: PackageExpectation, key: ByteArray, cancelled: () -> Boolean) {
         source.inputStream().use { input ->
-            require(readBounded(input, 8).contentEquals("QJWP0002".toByteArray(Charsets.US_ASCII)))
+            require(readBounded(input, 8).contentEquals(purpose.magic.toByteArray(Charsets.US_ASCII)))
             val nonce = readBounded(input, 12); require(nonce.size == 12)
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce))
-            cipher.updateAAD(expected.aad())
+            cipher.updateAAD(expected.aad(purpose))
             FileOutputStream(target).use { output ->
                 val buffer = ByteArray(32768); var length = 0L
                 fun write(bytes: ByteArray?) { if (bytes != null) { length += bytes.size; require(length <= expected.plaintextSize); output.write(bytes) } }
@@ -110,8 +119,10 @@ internal class SecurePackageVerifier(private val media: (PackageFile, File) -> M
         }
     }
     internal fun manifest(bytes: ByteArray, e: PackageExpectation): List<PackageFile> {
-        val root = fields(StrictJson.parse(bytes), setOf("formatVersion", "wallpaperId", "variantId", "versionNo", "resourceType", "signingKeyId", "files"))
-        require(root["formatVersion"] == 2L && root["wallpaperId"] == e.wallpaperId && root["variantId"] == e.variantId &&
+        val names = setOf("formatVersion", "wallpaperId", "variantId", "versionNo", "resourceType", "signingKeyId", "files")
+        val root = fields(StrictJson.parse(bytes), if(purpose == PackagePurpose.APP_PREVIEW) names + "purpose" else names)
+        if(purpose == PackagePurpose.APP_PREVIEW) require(root["purpose"] == "APP_PREVIEW")
+        require(root["formatVersion"] == purpose.format && root["wallpaperId"] == e.wallpaperId && root["variantId"] == e.variantId &&
             root["versionNo"] == e.versionNo.toLong() && root["resourceType"] == e.type && root["signingKeyId"] == e.signingKeyId)
         val values = root["files"] as? List<*> ?: error("Invalid files"); require(values.size in 1..16)
         val extensions = mapOf("image/jpeg" to "jpg", "image/png" to "png", "image/webp" to "webp", "video/mp4" to "mp4", "application/json" to "json")

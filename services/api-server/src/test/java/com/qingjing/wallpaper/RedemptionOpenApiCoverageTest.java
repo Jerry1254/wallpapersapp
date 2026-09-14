@@ -3,6 +3,7 @@ package com.qingjing.wallpaper;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.qingjing.wallpaper.delivery.DeviceDownloadController;
+import com.qingjing.wallpaper.delivery.DevicePreviewController;
 import com.qingjing.wallpaper.device.DeviceIdentityController;
 import com.qingjing.wallpaper.redemption.AdminCodeBatchController;
 import com.qingjing.wallpaper.redemption.AdminRedemptionQueryController;
@@ -31,11 +32,12 @@ class RedemptionOpenApiCoverageTest {
                 DeviceIdentityController.class,
                 DeviceRedemptionController.class,
                 DeviceDownloadController.class,
+                DevicePreviewController.class,
                 AdminCodeBatchController.class,
                 AdminRedemptionQueryController.class));
 
         assertThat(controllerOperations).containsExactlyInAnyOrderElementsOf(contractOperations);
-        assertThat(contractOperations).hasSize(18);
+        assertThat(contractOperations).hasSize(20);
     }
 
     @SuppressWarnings("unchecked")
@@ -48,7 +50,7 @@ class RedemptionOpenApiCoverageTest {
         Map<String, Map<String, Object>> paths = (Map<String, Map<String, Object>>) document.get("paths");
         Set<String> operations = new HashSet<>();
         paths.forEach((path, item) -> {
-            boolean deviceOperation = path.startsWith("/device/") || path.equals("/delivery/files");
+            boolean deviceOperation = path.startsWith("/device/") || path.equals("/delivery/files") || path.equals("/preview/files");
             boolean adminOperation = path.startsWith("/admin/")
                     && ADMIN_ROOTS.contains(path.substring("/admin/".length()).split("/", 2)[0]);
             if (!deviceOperation && !adminOperation) {

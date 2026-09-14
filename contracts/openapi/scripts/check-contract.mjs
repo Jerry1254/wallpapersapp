@@ -16,6 +16,8 @@ const expectedOperations = {
   '/device/redemptions': ['post'],
   '/device/redemptions/{idempotencyKey}': ['get'],
   '/device/wallpapers/{wallpaperId}/download-tickets': ['post'],
+  '/device/wallpapers/{wallpaperId}/preview-tickets': ['post'],
+  '/preview/files': ['get'],
   '/admin/sessions': ['get', 'post', 'delete'],
   '/admin/assets': ['post'],
   '/admin/categories': ['get', 'post'],
@@ -81,7 +83,8 @@ for (const [path, method] of [
 const sensitiveDeviceOperations = [
   document.paths['/device/encryption-key'].put,
   document.paths['/device/redemptions'].post,
-  document.paths['/device/wallpapers/{wallpaperId}/download-tickets'].post
+  document.paths['/device/wallpapers/{wallpaperId}/download-tickets'].post,
+  document.paths['/device/wallpapers/{wallpaperId}/preview-tickets'].post
 ];
 for (const operation of sensitiveDeviceOperations) {
   const names = operation.parameters.map(parameterName);
@@ -122,6 +125,11 @@ assert.ok(
   document.components.schemas.DownloadDescriptor.properties.deliveryMode.enum.includes('SECURE_PACKAGE'),
   'download contract must retain the future App secure package mode'
 );
+assert.deepEqual(document.components.schemas.PreviewDescriptor.properties.purpose.enum, ['APP_PREVIEW']);
+assert.deepEqual(document.components.schemas.PreviewDescriptor.properties.durationSeconds.enum, [120]);
+assert.deepEqual(document.components.schemas.PreviewPackageMetadata.properties.formatVersion.enum, [3]);
+assert.deepEqual(document.components.schemas.SecurePackageMetadata.properties.formatVersion.enum, [2]);
+assert.deepEqual(document.paths['/preview/files'].get.security, [{ previewTicketBearer: [] }]);
 
 // Generated clients cannot decode an implementation error omitted by the enum.
 const knownErrors = new Set(document.components.schemas.ErrorCode.enum);

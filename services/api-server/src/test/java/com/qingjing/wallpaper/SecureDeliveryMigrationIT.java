@@ -30,8 +30,15 @@ class SecureDeliveryMigrationIT {
                 }
             }
             var migrated = Flyway.configure().dataSource(mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword())
-                    .locations("classpath:db/migration").load().migrate();
+                    .locations("classpath:db/migration").target("2").load().migrate();
             assertThat(migrated.migrationsExecuted).isEqualTo(1);
+            var previewMigration=Flyway.configure().dataSource(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword())
+                    .locations("classpath:db/migration").load().migrate();
+            assertThat(previewMigration.migrationsExecuted).isEqualTo(1);
+            try(var connection=DriverManager.getConnection(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword());
+                var query=connection.createStatement();var result=query.executeQuery("SELECT COUNT(*) FROM preview_resource_package")) {
+                assertThat(result.next()).isTrue();assertThat(result.getInt(1)).isZero();
+            }
             try (var connection = DriverManager.getConnection(mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword());
                  var query = connection.prepareStatement("""
                          SELECT d.public_id,c.credential_key_id,c.public_key_pem FROM device_credential c
