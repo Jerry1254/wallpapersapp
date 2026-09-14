@@ -63,9 +63,9 @@
   },
   "validation": {
     "a10Status": "IN_PROGRESS",
-    "candidateFreshInstall": "PENDING",
+    "candidateFreshInstall": "PASSED_USER_0",
     "signedUpgrade10011To10013": "PASSED",
-    "identityDataClearAndUninstall": "PENDING",
+    "identityDataClearAndUninstall": "PASSED_USER_0",
     "androidCi": "https://github.com/Jerry1254/wallpapersapp/actions/runs/34841301254",
     "apiCi": "https://github.com/Jerry1254/wallpapersapp/actions/runs/34839176057",
     "nativeTests": 30,
@@ -77,7 +77,10 @@
     "apiUnitTests": 35,
     "apiIntegrationTests": 9,
     "h5Tests": 19,
-    "adminTests": 13
+    "adminTests": 13,
+    "normalCacheInUseProtection": "PASSED",
+    "staticBaseline": "PASSED_5_PLUS_5_MINUTES",
+    "videoFixedPerformance": "PENDING"
   },
   "testedDeviceMatrix": [
     {

@@ -33,7 +33,7 @@ adb -s "$QJ_PHONE_SERIAL" install -r --user 0 "$QJ_INTERNAL_APK"
 adb -s "$QJ_PHONE_SERIAL" shell am start --user 0 -n com.qingjing.qingjing_wallpaper.internal/com.qingjing.qingjing_wallpaper.MainActivity
 ```
 
-同标识、同签名的覆盖升级保留 Keystore/资源/权益。既有 `.local` 安装独立保留，不清数据、不卸载。卸载或清数据会丢失该安装身份的密钥，旧权益留在后端，新的安装不能自动继承；候选新装/边界实际验收仍待补齐，不把覆盖安装成功记为新装成功。
+同标识、同签名的覆盖升级保留 Keystore/资源/权益。既有 `.local` 安装独立保留，不清数据、不卸载。卸载或清数据会丢失该安装身份的密钥，旧权益留在后端，新的安装不能自动继承；10013 已实际验证 user 0 清数据/无保留卸载/真正新装，三次安装凭据不同、新装权益为 0；既有 .local 后台权益保留。完整视频长时及最终阶段收口仍待。若 MIUI streamed 安装被拒绝，使用同一 APK 的 `adb install --no-streaming -r --user 0` 并在显示本包名称的正常提示中选择“继续安装”；不关闭系统安全检查。
 
 ## 红米正常设置流程
 
