@@ -27,9 +27,10 @@ import javax.crypto.Cipher
 import javax.crypto.spec.OAEPParameterSpec
 import javax.crypto.spec.PSource
 
-internal class AndroidPackageDelivery(private val context: Context,private val purpose: PackagePurpose = PackagePurpose.FORMAL, private val event: (Map<String, Any>) -> Unit) {
+internal class AndroidPackageDelivery(private val context: Context,private val purpose: PackagePurpose = PackagePurpose.FORMAL,
+    private val detailPreview: Boolean = false, private val event: (Map<String, Any>) -> Unit) {
     private val trial get() = purpose == PackagePurpose.APP_PREVIEW
-    private val store = if(trial) TrialRuntime.store(context) else PackageRuntime.store(context)
+    private val store = if(detailPreview) DetailPreviewRuntime.store(context) else if(trial) TrialRuntime.store(context) else PackageRuntime.store(context)
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private class Transfer(val id: String) {
@@ -92,7 +93,8 @@ internal class AndroidPackageDelivery(private val context: Context,private val p
                 cipher.init(Cipher.DECRYPT_MODE,keys.getKey(ENCRYPTION_ALIAS,null) as PrivateKey,
                     OAEPParameterSpec("SHA-256","MGF1",MGF1ParameterSpec.SHA1,PSource.PSpecified.DEFAULT))
                 key = cipher.doFinal(Base64.decode(wrapped,Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)); require(key.size == 32)
-                if(trial) TrialRuntime.prepare(context)
+                if(detailPreview) { require(trial); DetailPreviewRuntime.prepare(context) }
+                else if(trial) TrialRuntime.prepare(context)
                 if (store.root.usableSpace < expected.size * 3 + 16*1024*1024) throw NoSpace()
                 partial = store.partial(); staging = store.staging()
                 fun report(status: String, received: Long = 0) {
@@ -109,7 +111,8 @@ internal class AndroidPackageDelivery(private val context: Context,private val p
                 report("installing",expected.size)
                 val installed = store.commit(staging,expected)
                 report("completed",expected.size)
-                val response = if(trial) mapOf("trialId" to TrialRuntime.installed(context,installed,expected.type),"resourceType" to expected.type)
+                val response = if(detailPreview) mapOf("previewId" to installed,"resourceType" to expected.type)
+                    else if(trial) mapOf("trialId" to TrialRuntime.installed(context,installed,expected.type),"resourceType" to expected.type)
                     else mapOf("installedId" to installed,"wallpaperId" to expected.wallpaperId,"versionId" to expected.versionId,"versionNo" to expected.versionNo,"resourceType" to expected.type)
                 main.post { result.success(response) }
             } catch (error: Exception) {
@@ -132,7 +135,7 @@ internal class AndroidPackageDelivery(private val context: Context,private val p
             } finally {
                 key?.fill(0); transfer.connection?.disconnect()
                 try { partial?.let { AtomicPackageStore.remove(it) }; staging?.let { AtomicPackageStore.remove(it) } }
-                finally { active.compareAndSet(transfer,null); if(trial) TrialRuntime.cleanup(context) }
+                finally { active.compareAndSet(transfer,null); if(trial && !detailPreview) TrialRuntime.cleanup(context) }
             }
         }
     }

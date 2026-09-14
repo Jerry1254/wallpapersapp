@@ -34,6 +34,7 @@ internal class ParallaxSurfaceRenderer(private val context: Context,private val 
     private var sensor: ParallaxTiltSensor? = null
     private var lease: AutoCloseable? = null
     private var targetX = 0f; private var targetY = 0f; private var x = 0f; private var y = 0f
+    private var touchX: Float? = null; private var touchY: Float? = null
     private var previousFrame = 0L
     private var renderGeneration = -1
     private var lastPostTime = 0L
@@ -74,8 +75,8 @@ internal class ParallaxSurfaceRenderer(private val context: Context,private val 
             if (!valid(renderGeneration) || !holder.surface.isValid) return
             val current = scene ?: return
             val now = SystemClock.elapsedRealtime()
-            x = ParallaxMotion.smooth(x,targetX,current.configuration.smoothing,if (previousFrame == 0L) 33 else now-previousFrame)
-            y = ParallaxMotion.smooth(y,targetY,current.configuration.smoothing,if (previousFrame == 0L) 33 else now-previousFrame); previousFrame = now
+            x = ParallaxMotion.smooth(x,touchX ?: targetX,current.configuration.smoothing,if (previousFrame == 0L) 33 else now-previousFrame)
+            y = ParallaxMotion.smooth(y,touchY ?: targetY,current.configuration.smoothing,if (previousFrame == 0L) 33 else now-previousFrame); previousFrame = now
             var canvas: android.graphics.Canvas? = null
             var posted = false
             var drew = false
@@ -98,10 +99,17 @@ internal class ParallaxSurfaceRenderer(private val context: Context,private val 
             }
             if (!posted && valid(renderGeneration) && now-lastPostTime>3000) { error(renderGeneration); return }
             // Without a usable sensor the first frame is the complete static fallback; do not poll at 30 fps.
-            if (valid(renderGeneration) && (!rendered || sensorRunning)) handler.postDelayed(this,34)
+            if (valid(renderGeneration) && (!rendered || sensorRunning || touchX != null)) handler.postDelayed(this,34)
         }
     }
     fun redraw() { if (active && !closed) handler.post { handler.removeCallbacks(drawFrame); handler.post(drawFrame) } }
+    fun touch(x: Float?,y: Float?) {
+        if (closed) return
+        handler.post {
+            touchX = x?.coerceIn(-1f,1f); touchY = y?.coerceIn(-1f,1f)
+            if (active && !sensorRunning) { handler.removeCallbacks(drawFrame); handler.post(drawFrame) }
+        }
+    }
     fun stop() {
         active = false; generation.incrementAndGet()
         handler.post { releaseResources(); selectedId = null; loading = false; hasFailed = false; changed() }
@@ -110,6 +118,7 @@ internal class ParallaxSurfaceRenderer(private val context: Context,private val 
         handler.removeCallbacks(drawFrame); sensor?.stop(); sensor = null; sensorRunning = false
         scene?.close(); scene = null; lease?.close(); lease = null; decodedBytes = 0; rendered = false
         targetX = 0f; targetY = 0f; x = 0f; y = 0f; previousFrame = 0; frames = 0; motionObserved = false
+        touchX = null; touchY = null
         released()
     }
     override fun close() {

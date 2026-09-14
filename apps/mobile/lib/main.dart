@@ -5,6 +5,7 @@ import 'config/internal_tls.dart';
 import 'catalog/catalog.dart';
 import 'catalog/catalog_screen.dart';
 import 'detail/help_screen.dart';
+import 'detail/detail_preview.dart';
 import 'device/device_session.dart';
 import 'entitlements/redemption.dart';
 import 'entitlements/entitlements_screen.dart';
@@ -26,6 +27,7 @@ class QingjingApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
     title: '倾境壁纸',
     debugShowCheckedModeBanner: false,
+    navigatorObservers: [detailPreviewRouteObserver],
     theme: ThemeData(
       useMaterial3: true,
       scaffoldBackgroundColor: QingjingWallpaperTokens.colorBackground,
@@ -74,17 +76,8 @@ class _HomeShellState extends State<HomeShell> {
       try {
         const native = AndroidTrialPreview();
         final saved = await native.recover();
-        if (saved != null && mounted) {
-          final outcome = await native.open(
-            saved['trialId'] as String,
-            saved['resourceType'] as String,
-          );
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(outcome['message'] as String? ?? '试用已返回')),
-            );
-          }
-        }
+        // Trial entry is hidden for Android 1.0; silently clear old sessions.
+        if (saved != null) await native.discard(saved['trialId'] as String);
       } catch (_) {}
     });
   }

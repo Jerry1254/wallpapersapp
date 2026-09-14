@@ -200,6 +200,37 @@ class AndroidPackageInstaller implements PackageInstaller {
   }
 }
 
+/// Catalog previews use their own restricted store, never the system wallpaper store.
+class AndroidDetailPreview {
+  const AndroidDetailPreview();
+  static const _channel = MethodChannel('qingjing/wallpaper_android');
+  Future<String> prepare(SecurePackageDownload request) async {
+    final result = await _channel
+        .invokeMapMethod<String, dynamic>('installDetailPreview', {
+          'requestId': request.requestId,
+          'wallpaperId': request.wallpaperId,
+          'resourceType': request.resourceType,
+          'url': request.url.toString(),
+          'descriptor': request.descriptor,
+        });
+    final id = result?['previewId'] as String?;
+    if (id == null ||
+        id.length > 160 ||
+        !RegExp(
+          r'^[1-9][0-9]{0,18}-(VIDEO|LAYER_PARALLAX)-[1-9][0-9]{0,18}-[a-f0-9]{64}$',
+        ).hasMatch(id) ||
+        result?['resourceType'] != request.resourceType) {
+      throw PlatformException(code: 'PACKAGE_INVALID', message: '预览资源暂时不可用');
+    }
+    return id;
+  }
+
+  Future<void> cancel(String requestId) => _channel.invokeMethod<void>(
+    'cancelDetailPreview',
+    {'requestId': requestId},
+  );
+}
+
 /// Trial handles are opaque and never identify a formal installed package.
 class AndroidTrialPreview {
   const AndroidTrialPreview();

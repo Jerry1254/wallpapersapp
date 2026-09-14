@@ -149,7 +149,7 @@ class PreviewNative extends AndroidTrialPreview {
 
 void main() {
   for (final owned in [false, true]) {
-    testWidgets(owned ? '已获得详情提供正式预览，隐藏试用入口' : '未获得详情提供两分钟试用，隐藏正式下载入口', (
+    testWidgets(owned ? '已获得详情提供正式预览，隐藏试用入口' : '未获得详情隐藏试用及正式下载入口', (
       tester,
     ) async {
       final sessions = PreviewSessions()..owned = owned,
@@ -178,11 +178,12 @@ void main() {
       );
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
-        find.text(owned ? '全屏预览已安装资源' : '试用两分钟'),
+        find.text(owned ? '全屏预览已安装资源' : '兑换壁纸'),
         350,
       );
       await tester.pumpAndSettle();
-      expect(find.text('试用两分钟'), owned ? findsNothing : findsOneWidget);
+      expect(find.text('试用两分钟'), findsNothing);
+      expect(sessions.issuances, 0);
       expect(find.byType(DownloadPanel), owned ? findsOneWidget : findsNothing);
       await tester.pumpWidget(const SizedBox());
       trials.dispose();

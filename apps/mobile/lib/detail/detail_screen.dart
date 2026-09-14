@@ -7,6 +7,7 @@ import 'trial_manager.dart';
 import '../entitlements/redemption.dart';
 import '../entitlements/redemption_dialog.dart';
 import 'help_screen.dart';
+import 'detail_preview.dart';
 import '../downloads/download_manager.dart';
 import '../downloads/download_panel.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
@@ -49,11 +50,18 @@ class _DetailScreenState extends State<DetailScreen> {
             ));
   bool? owned;
   String? ownershipError;
+  final _scroll = ScrollController();
+  bool _previewActive = true;
   late WallpaperCapabilities capabilities = widget.capabilities;
   @override
   void initState() {
     super.initState();
     future = widget.repository.detail(widget.id);
+    _scroll.addListener(() {
+      final active =
+          _scroll.offset < (MediaQuery.sizeOf(context).width - 40) * 14 / 9;
+      if (active != _previewActive) setState(() => _previewActive = active);
+    });
     _capabilities();
     _ownership();
   }
@@ -76,6 +84,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
   @override
   void dispose() {
+    _scroll.dispose();
     if (widget.trials == null) trials?.dispose();
     super.dispose();
   }
@@ -143,28 +152,45 @@ class _DetailScreenState extends State<DetailScreen> {
             ? selected
             : effects.firstOrNull;
         return ListView(
+          controller: _scroll,
           padding: const EdgeInsets.all(20),
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(24),
-              child: AspectRatio(
-                aspectRatio: 9 / 14,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    CatalogImage(
-                      repository: widget.repository,
-                      path: wallpaper.cover,
-                    ),
-                    const Positioned(
-                      left: 12,
-                      bottom: 12,
-                      child: Chip(label: Text('作品封面 · 非原生效果预览')),
-                    ),
-                  ],
+            if (widget.downloads != null &&
+                capabilities.platform == ClientPlatform.android &&
+                (effect == WallpaperEffect.video ||
+                    effect == WallpaperEffect.parallax))
+              DetailPreview(
+                key: ValueKey('${wallpaper.id}-${effect!.name}'),
+                manager: widget.downloads!,
+                wallpaperId: wallpaper.id,
+                resourceType: AndroidWallpaperPlayback.resourceType(effect),
+                active: _previewActive,
+                cover: CatalogImage(
+                  repository: widget.repository,
+                  path: wallpaper.cover,
+                ),
+              )
+            else
+              ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: AspectRatio(
+                  aspectRatio: 9 / 14,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      CatalogImage(
+                        repository: widget.repository,
+                        path: wallpaper.cover,
+                      ),
+                      const Positioned(
+                        left: 12,
+                        bottom: 12,
+                        child: Chip(label: Text('作品封面 · 非原生效果预览')),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
             const SizedBox(height: 20),
             Text(
               wallpaper.title,
@@ -219,48 +245,6 @@ class _DetailScreenState extends State<DetailScreen> {
               Text(ownershipError ?? '正在确认此作品权益…'),
               if (ownershipError != null)
                 TextButton(onPressed: _ownership, child: const Text('重新确认权益')),
-            ],
-            if (trials != null &&
-                owned == false &&
-                effect != null &&
-                capabilities.previewEffects.contains(effect)) ...[
-              const SizedBox(height: 12),
-              const Text('可在 App 内试用两分钟。试用画面带标记，进入后台仍会计时。'),
-              ValueListenableBuilder<TrialState>(
-                valueListenable: trials!,
-                builder: (context, state, _) => Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (state.message != null) Text(state.message!),
-                    if (state.busy && state.status != 'previewing') ...[
-                      const Text('正在准备试用画面…'),
-                      LinearProgressIndicator(
-                        value: state.total > 0
-                            ? state.received / state.total
-                            : null,
-                      ),
-                      TextButton(
-                        onPressed: trials!.cancel,
-                        child: const Text('取消准备'),
-                      ),
-                    ],
-                    OutlinedButton(
-                      onPressed: state.busy
-                          ? null
-                          : () async {
-                              await trials!.start(
-                                wallpaper.id,
-                                AndroidWallpaperPlayback.resourceType(effect),
-                              );
-                              if (mounted && trials!.value.status == 'owned') {
-                                await _ownership();
-                              }
-                            },
-                      child: const Text('试用两分钟'),
-                    ),
-                  ],
-                ),
-              ),
             ],
             if (widget.downloads != null &&
                 effect != null &&
