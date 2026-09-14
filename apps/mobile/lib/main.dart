@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:qingjing_design_tokens/qingjing_design_tokens.dart';
+import 'design_system/qj_theme.dart';
+import 'design_system/qj_components.dart';
+import 'design_system/ui_spec_screen.dart';
 import 'config/app_config.dart';
 import 'config/internal_tls.dart';
 import 'catalog/catalog.dart';
@@ -28,18 +30,7 @@ class QingjingApp extends StatelessWidget {
     title: '倾境壁纸',
     debugShowCheckedModeBanner: false,
     navigatorObservers: [detailPreviewRouteObserver],
-    theme: ThemeData(
-      useMaterial3: true,
-      scaffoldBackgroundColor: QingjingWallpaperTokens.colorBackground,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: QingjingWallpaperTokens.colorAccent,
-        surface: QingjingWallpaperTokens.colorSurface,
-      ),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: QingjingWallpaperTokens.colorBackground,
-        foregroundColor: QingjingWallpaperTokens.colorInk,
-      ),
-    ),
+    theme: QjTheme.light,
     home: HomeShell(
       repository: repository ?? HttpCatalogRepository(config.apiBase),
       sessions: DeviceSessionManager(HttpDeviceTransport(config.apiBase)),
@@ -64,6 +55,7 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
+  bool uiVisited = false;
   late final redemptions = RedemptionCoordinator(
     SessionRedemptionApi(widget.sessions),
     AndroidPendingStore(),
@@ -91,7 +83,7 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: Text(index == 0 ? '倾境壁纸' : '我的'),
+      title: Text(['倾境壁纸', '我的', 'UI 规范'][index]),
       actions: [
         IconButton(
           tooltip: '客服',
@@ -109,37 +101,52 @@ class _HomeShellState extends State<HomeShell> {
       child: IndexedStack(
         index: index,
         children: [
-          CatalogScreen(
-            repository: widget.repository,
-            redemptions: redemptions,
-            downloads: downloads,
-            playback: const AndroidWallpaperPlayback(),
+          TickerMode(
+            enabled: index == 0,
+            child: CatalogScreen(
+              repository: widget.repository,
+              redemptions: redemptions,
+              downloads: downloads,
+              playback: const AndroidWallpaperPlayback(),
+            ),
           ),
-          EntitlementsScreen(
-            sessions: widget.sessions,
-            catalog: widget.repository,
-            redemptions: redemptions,
-            downloads: downloads,
-            playback: const AndroidWallpaperPlayback(),
+          TickerMode(
+            enabled: index == 1,
+            child: EntitlementsScreen(
+              sessions: widget.sessions,
+              catalog: widget.repository,
+              redemptions: redemptions,
+              downloads: downloads,
+              playback: const AndroidWallpaperPlayback(),
+            ),
+          ),
+          TickerMode(
+            enabled: index == 2,
+            child: uiVisited ? const UiSpecScreen() : const SizedBox.shrink(),
           ),
         ],
       ),
     ),
-    bottomNavigationBar: NavigationBar(
-      selectedIndex: index,
-      onDestinationSelected: (value) => setState(() => index = value),
-      destinations: const [
-        NavigationDestination(
-          icon: Icon(Icons.home_outlined),
-          selectedIcon: Icon(Icons.home),
-          label: '首页',
+    bottomNavigationBar: SafeArea(
+      minimum: const EdgeInsets.fromLTRB(T.space5, 0, T.space5, T.space5),
+      child: Center(
+        heightFactor: 1,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 390),
+          child: QjBottomNav(
+            selectedIndex: index,
+            onSelected: (value) => setState(() {
+              index = value;
+              if (value == 2) uiVisited = true;
+            }),
+            items: const [
+              QjNavItem('首页', 'house'),
+              QjNavItem('我的', 'images'),
+              QjNavItem('UI 规范', 'palette'),
+            ],
+          ),
         ),
-        NavigationDestination(
-          icon: Icon(Icons.person_outline),
-          selectedIcon: Icon(Icons.person),
-          label: '我的',
-        ),
-      ],
+      ),
     ),
   );
 }
