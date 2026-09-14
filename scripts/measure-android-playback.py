@@ -67,8 +67,18 @@ def main():
                 old = next(e for e in previous['engines'] if not e.get('preview') and e.get('visible'))
                 value['observedFramesPerSecond'] = (current['frames']-old['frames']) * 1000 / (value['elapsed']-previous['elapsed'])
         if args.effect == 'video' and phase in ['warmup', 'visible']:
-            if not any(not e.get('preview') and e.get('visible') and e.get('playing') for e in playback['engines']):
+            current = next((e for e in playback['engines'] if not e.get('preview') and e.get('visible') and e.get('playing')), None)
+            if current is None:
                 raise RuntimeError('Expected visible video playback was interrupted')
+            if current.get('decodeErrors', 0) or current.get('failed'):
+                raise RuntimeError('Visible video decoder reported an error')
+            previous = next((x for x in reversed(samples) if x['phase'] in ['warmup', 'visible']), None)
+            if previous and 'frames' in current:
+                old = next(e for e in previous['engines'] if not e.get('preview') and e.get('visible'))
+                if 'frames' in old and current['frames'] >= old['frames']:
+                    value['observedFramesPerSecond'] = (current['frames']-old['frames']) * 1000 / (value['elapsed']-previous['elapsed'])
+                if 'droppedFrames' in current and 'droppedFrames' in old:
+                    value['droppedFramesDelta'] = current['droppedFrames']-old['droppedFrames']
         if phase == 'hidden':
             if any(e.get('visible') or e.get('rendering') or e.get('playing') or
                    e.get('sensorRegistered') or e.get('decodedBytes', 0) for e in playback['engines']):

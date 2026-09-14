@@ -8,6 +8,14 @@ import java.io.File
 internal class VideoSurfacePlayer(private val ready: () -> Unit, private val failed: () -> Unit) {
     private var player: MediaPlayer? = null
     val playing: Boolean get() = try { player?.isPlaying == true } catch (_: Exception) { false }
+    fun frameMetrics(): Map<String,Int> = try {
+        val metrics = player?.metrics
+        if(metrics == null) emptyMap() else listOf(
+            "frames" to MediaPlayer.MetricsConstants.FRAMES,
+            "droppedFrames" to MediaPlayer.MetricsConstants.FRAMES_DROPPED,
+            "decodeErrors" to MediaPlayer.MetricsConstants.ERRORS,
+        ).filter { metrics.containsKey(it.second) }.associate { it.first to metrics.getInt(it.second) }
+    } catch (_: Exception) { emptyMap() }
     fun open(file: File, holder: SurfaceHolder) {
         close()
         try {

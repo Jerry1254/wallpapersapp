@@ -1,6 +1,6 @@
 # 倾境壁纸 Flutter 客户端
 
-正式入口；执行状态只在 PM-002。Android 优先，鸿蒙/iOS 的类型化接口显式不支持，未声称构建或效果通过。A01 已接入真实首页、分类、筛选、中文搜索及分页；A02 已加入真实详情、能力状态、教程与客服；身份/权益/下载在后续工作包实现，未实现操作不报成功。
+正式入口；执行状态只在 PM-002。Android 已实现真实目录/详情、Keystore 安装身份、兑换/权益、签名安全下载/原子安装/更新、三类原生预览/设置及独立两分钟试用；当前真机验收与未测范围见 A10 记录。鸿蒙/iOS 的类型化接口显式不支持，未声称构建或效果通过。
 
 ## 工具链与运行
 
@@ -24,6 +24,8 @@ internal flavor 使用独立 `.internal` 安装标识，供 A10 新装/卸载与
 本机 HTTPS 代理使用 `scripts/internal-api-https.py --certificate 公共证书路径 --private-key 私钥路径 --api-port 本地API端口`，仅监听 127.0.0.1:8443，随后创建 `adb reverse tcp:8443 tcp:8443`。私钥、Keystore、密码、dart-define 配置和 API 运行时目录不得提交。internal release 可经已授权 ADB 的 `dumpsys activity service` 读取动态服务的帧数/绘制/传感器/解码字节状态，输出不含票据、安装 ID、密钥或文件路径；prod 不开启此内测诊断。
 
 为此独立本地 API 配置 `qingjing.device.allowed-android-scopes` 同时包含 `.local` 和 `.internal` 的完整安装标识；默认 local profile 只允许 `.local`，不要修改其他环境以同步测试身份。内测测量脚本 `scripts/measure-android-playback.py` 读取自己的系统壁纸服务和 PSS/CPU/电量状态，按固定 5+30+10 分钟执行，临时调整屏幕超时并在退出时恢复；不采集桌面或个人通知截图。
+
+视频内测诊断仅提取当前自有 MediaPlayer 的 frames/droppedFrames/decodeErrors 整数计数，依据 API 26 的 [MediaPlayer MetricsConstants](https://developer.android.com/reference/android/media/MediaPlayer.MetricsConstants)。不导出整个媒体指标 Bundle；指标缺失时保留缺失状态，不将其写为零掉帧。生产环境不执行内测指标采集，播放生命周期保持一致。
 
 开发 applicationId 为 com.qingjing.qingjing_wallpaper.local，正式保留 com.qingjing.qingjing_wallpaper；尚未作商店账号注册确认。Android 最低 API 26 是工程基线，兼容性以真机矩阵为准。应用禁用自动备份，避免安装凭据恢复产生错误绑定。
 

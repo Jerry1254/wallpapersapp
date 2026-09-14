@@ -18,7 +18,7 @@ internal object PlaybackDiagnostics {
     fun dump(context: Context,writer: PrintWriter,states: List<Map<String,Any?>>) {
         if (!enabled(context)) return
         val safe = states.map { state ->
-            state.filterKeys { it in setOf("type","preview","visible","rendering","playing","sensorRegistered","decodedBytes","frames","failed") } +
+            state.filterKeys { it in setOf("type","preview","visible","rendering","playing","sensorRegistered","decodedBytes","frames","droppedFrames","decodeErrors","failed") } +
                 mapOf("resourceLoaded" to (state["installedId"] != null))
         }
         writer.println("QJ_INTERNAL_PLAYBACK "+JSONObject(mapOf("elapsed" to SystemClock.elapsedRealtime(),"engines" to safe)).toString())

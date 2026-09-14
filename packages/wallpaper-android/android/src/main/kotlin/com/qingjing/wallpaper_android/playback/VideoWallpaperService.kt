@@ -79,7 +79,8 @@ class VideoWallpaperService : WallpaperService() {
         }
         private fun snapshot() {
             if (destroyed) return
-            val value = mapOf("preview" to isPreview,"visible" to isVisible,"playing" to player.playing,"installedId" to loadedId,"failed" to (failedId != null))
+            val value = mapOf("preview" to isPreview,"visible" to isVisible,"playing" to player.playing,"installedId" to loadedId,"failed" to (failedId != null)) +
+                if(PlaybackDiagnostics.enabled(this@VideoWallpaperService)) player.frameMetrics() else emptyMap()
             if (state(hashCode(),value) && applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0)
                 Log.d("QJPlayback","elapsed=${SystemClock.elapsedRealtime()} engine=${hashCode()} $value")
         }
