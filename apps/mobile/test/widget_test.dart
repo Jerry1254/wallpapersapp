@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:qingjing_wallpaper/catalog/catalog.dart';
+import 'catalog_test.dart' show FakeCatalog;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qingjing_wallpaper/config/app_config.dart';
 import 'package:qingjing_wallpaper/main.dart';
@@ -6,8 +8,10 @@ import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
 
 void main() {
   testWidgets('首页和我的可切换且不虚构权益', (tester) async {
+    final repository = FakeCatalog();
     await tester.pumpWidget(
       QingjingApp(
+        repository: repository,
         config: AppConfig(
           environment: 'local',
           apiBase: Uri.parse('http://127.0.0.1:8080/api/v1'),
@@ -15,6 +19,8 @@ void main() {
         ),
       ),
     );
+    repository.pending.single.complete(WallpaperPage([], 1, 0));
+    await tester.pumpAndSettle();
     expect(find.text('让每一屏，都有心动'), findsOneWidget);
     await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();

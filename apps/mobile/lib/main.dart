@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:qingjing_design_tokens/qingjing_design_tokens.dart';
 import 'config/app_config.dart';
+import 'catalog/catalog.dart';
+import 'catalog/catalog_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -8,8 +10,9 @@ void main() {
 }
 
 class QingjingApp extends StatelessWidget {
-  const QingjingApp({super.key, required this.config});
+  const QingjingApp({super.key, required this.config, this.repository});
   final AppConfig config;
+  final CatalogRepository? repository;
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: '倾境壁纸',
@@ -26,12 +29,15 @@ class QingjingApp extends StatelessWidget {
         foregroundColor: QingjingWallpaperTokens.colorInk,
       ),
     ),
-    home: const HomeShell(),
+    home: HomeShell(
+      repository: repository ?? HttpCatalogRepository(config.apiBase),
+    ),
   );
 }
 
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key});
+  const HomeShell({super.key, required this.repository});
+  final CatalogRepository repository;
   @override
   State<HomeShell> createState() => _HomeShellState();
 }
@@ -42,27 +48,25 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(index == 0 ? '倾境壁纸' : '我的')),
     body: SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(QingjingWallpaperTokens.space5),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              index == 0 ? '让每一屏，都有心动' : '我的壁纸',
-              style: const TextStyle(
-                fontSize: QingjingWallpaperTokens.fontSizePageTitle,
-                fontWeight: FontWeight.w700,
-              ),
+      child: IndexedStack(
+        index: index,
+        children: [
+          CatalogScreen(repository: widget.repository),
+          const Padding(
+            padding: EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '我的壁纸',
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+                ),
+                SizedBox(height: 16),
+                Text('正式设备身份接入后，展示已获得的壁纸'),
+              ],
             ),
-            const SizedBox(height: QingjingWallpaperTokens.space4),
-            Text(
-              index == 0 ? '目录接入准备中' : '正式设备身份接入后，展示已获得的壁纸',
-              style: const TextStyle(
-                color: QingjingWallpaperTokens.colorMutedInk,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     ),
     bottomNavigationBar: NavigationBar(

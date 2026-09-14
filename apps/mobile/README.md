@@ -1,6 +1,6 @@
 # 倾境壁纸 Flutter 客户端
 
-正式入口；执行状态只在 PM-002。Android 优先，鸿蒙/iOS 的类型化接口显式不支持，未声称构建或效果通过。A00 只提供首页/我的基础壳，后续工作包接入真实业务。
+正式入口；执行状态只在 PM-002。Android 优先，鸿蒙/iOS 的类型化接口显式不支持，未声称构建或效果通过。A01 已接入真实首页、分类、筛选、中文搜索及分页；详情/身份/权益/下载在后续工作包实现，未实现操作不报成功。
 
 ## 工具链与运行
 
@@ -30,3 +30,5 @@ flutter build apk --release --flavor local
 - 未实现平台统一返回 unsupported。正式 Provider、安全包和原子安装完成前，不把封面或占位操作计为正式能力。
 
 不涉及数据库迁移。H5/API 1.0.1 的历史冻结字节保留；Android 架构增补见 ARC-002，身份与交付契约在所属工作包显式版本化。
+
+只读本地目录联调测试：`flutter test test/catalog_local_test.dart --dart-define=LOCAL_API=http://127.0.0.1:8080/api/v1`。普通 CI 不依赖本机夹具；不指定 LOCAL_API 时该用例明确跳过。
