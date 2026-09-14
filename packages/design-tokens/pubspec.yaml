@@ -1,0 +1,8 @@
+name: qingjing_design_tokens
+publish_to: none
+version: 1.0.0
+environment:
+  sdk: ">=3.10.0 <4.0.0"
+dependencies:
+  flutter:
+    sdk: flutter

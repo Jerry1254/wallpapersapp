@@ -1,11 +1,32 @@
-# 混合移动端
+# 倾境壁纸 Flutter 客户端
 
-Flutter 共享客户端正式工程目录。从首版开始保持 Flutter 业务层与 Android、iOS、HarmonyOS 平台适配层分离。
+正式入口；执行状态只在 PM-002。Android 优先，鸿蒙/iOS 的类型化接口显式不支持，未声称构建或效果通过。A00 只提供首页/我的基础壳，后续工作包接入真实业务。
 
-按 [PM-005 App 分平台实施开发计划](../../docs/10-项目管理/PM-005-App分平台实施开发计划.md) 依次实现 Android、HarmonyOS、iOS。安卓阶段保留后两端接口与显式能力占位，三端正式功能分别验收后统一首发。鸿蒙允许仅动态锁屏；当前下一工作包为 WP-A00，尚未开始实施。
+## 工具链与运行
 
-WP-P00 至 WP-P12 的数据/API/H5 阶段已完成。当前目录仅为工程入口，未创建 Flutter SDK 工程或正式功能。下一阶段按 [PM-003 App 开工门禁与接入清单](../../docs/10-项目管理/PM-003-App开工门禁与接入清单.md) 开工，契约使用 [OpenAPI 1.0.1](../../contracts/openapi/openapi.yaml) 和 [冻结快照](../../contracts/openapi/baseline-v1.json)。
+精确版本见 toolchain.json，应用依赖提交 pubspec.lock。本机 Flutter 位于非标准 channel，但完整 revision c6f67dede3d4aa1aa7a69dd56a3494a5cde6cc80 已与官方 3.38.10 标签读回核对一致。macOS 命令行建议 LC_ALL=en_US.UTF-8；Gradle 固定 UTF-8，避免中文工作树下子进程启动失败。构建与 CI 证据另行记录。
 
-先建立 Flutter 共享业务层、真实公开目录和平台接口，再配套实现 Android 安全凭据验证、加密下载与原子安装。当前 API 只支持 local/test H5 Provider 和下载占位，不可将 H5 secret/演示设置当作正式 Android 交付。正式下载、预览和系统设置退出条件在接入清单中逐项定义。
+```sh
+cd apps/mobile
+flutter pub get --enforce-lockfile
+flutter analyze
+flutter test
+adb reverse tcp:8080 tcp:8080
+flutter run --flavor local --dart-define=API_BASE_URL=http://127.0.0.1:8080/api/v1
+flutter build apk --debug --flavor local --dart-define=API_BASE_URL=http://127.0.0.1:8080/api/v1
+flutter build apk --release --flavor local
+```
 
-视觉源为 packages/design-tokens/qingjing-wallpaper.tokens.json；Dart 常量位于 packages/design-tokens/generated/qingjing_wallpaper_tokens.dart，通过 H5 Token 生成脚本维护，不手工修改生成物。API、本地环境与各工作包验收记录均在 PM-003 中关联。
+宿主机 API 由仓库 scripts/local-api.sh 启动；手机 loopback 依赖 adb reverse，不是电脑地址。只有 localDebug 开放明文；localRelease 验证优化编译，使用测试签名，联调需指定可信 HTTPS API。未指定地址时使用保留的 api.invalid 域名，避免意外访问真实服务。production flavor 为 prod，禁止明文，无生产签名配置，不是可提审包。
+
+开发 applicationId 为 com.qingjing.qingjing_wallpaper.local，正式保留 com.qingjing.qingjing_wallpaper；尚未作商店账号注册确认。Android 最低 API 26 是工程基线，兼容性以真机矩阵为准。应用禁用自动备份，避免安装凭据恢复产生错误绑定。
+
+## 分层与后续迁移
+
+- packages/design-tokens 以原生成文件导出 Flutter Token，未复制或修改冻结生成物。
+- packages/wallpaper-platform-interface 为纯 Dart 类型边界，分别提供身份、能力、预览、安装、设置和购买接口。
+- apps/mobile/lib/config 从实际 flavor 读取环境，页面不自行授予权益。
+- 后续 Kotlin 插件承接 PoC：TiltSensor.java → 姿态订阅；ParallaxScene.java → 图层/裁切；ParallaxPreviewView.java → 独立预览；ParallaxWallpaperService.java → 生命周期和系统效果；MainActivity.java → 仅迁移系统交互经验，不复用 PoC 页面。
+- 未实现平台统一返回 unsupported。正式 Provider、安全包和原子安装完成前，不把封面或占位操作计为正式能力。
+
+不涉及数据库迁移。H5/API 1.0.1 的历史冻结字节保留；Android 架构增补见 ARC-002，身份与交付契约在所属工作包显式版本化。

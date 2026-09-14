@@ -1,0 +1,1 @@
+../generated/qingjing_wallpaper_tokens.dart

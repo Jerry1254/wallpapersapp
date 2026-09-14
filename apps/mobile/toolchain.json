@@ -1,0 +1,13 @@
+{
+  "flutter": "3.38.10",
+  "flutterRevision": "c6f67dede3",
+  "dart": "3.10.9",
+  "jdk": "Temurin 17.0.19+10",
+  "gradle": "8.14",
+  "androidGradlePlugin": "8.11.1",
+  "kotlin": "2.2.20",
+  "compileSdk": 36,
+  "targetSdk": 36,
+  "minSdk": 26,
+  "ndk": "28.2.13676358"
+}

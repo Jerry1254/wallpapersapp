@@ -22,3 +22,15 @@ wallpaper-tools/output/
 infra/secrets/
 .runtime/
 uploads/
+
+# Mobile dependencies, signing material and distribution artifacts
+.dart_tool/
+.flutter-plugins-dependencies
+*.ipa
+*.hap
+*.app/
+*.p12
+*.p8
+*.mobileprovision
+**/key.properties
+**/.cxx/

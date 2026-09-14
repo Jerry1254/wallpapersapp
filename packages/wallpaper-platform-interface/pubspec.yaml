@@ -1,0 +1,5 @@
+name: wallpaper_platform_interface
+publish_to: none
+version: 1.0.0
+environment:
+  sdk: ">=3.10.0 <4.0.0"
