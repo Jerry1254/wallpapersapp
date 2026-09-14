@@ -165,10 +165,12 @@ class _DetailScreenState extends State<DetailScreen> {
                 ),
               ),
             ),
-            if (effect == WallpaperEffect.video &&
+            if ((effect == WallpaperEffect.video ||
+                    effect == WallpaperEffect.parallax) &&
                 capabilities.systemChoosesLiveTarget)
-              const Text('视频设置位置由手机系统选择；不保证每台手机都有锁屏或两者选项。两处使用倾境视频服务时共用同一视频。'),
-            if (effect == WallpaperEffect.video &&
+              const Text('动态壁纸设置位置由手机系统选择；桌面和锁屏选项按手机实际提供。两处使用同一倾境服务时共用资源。'),
+            if ((effect == WallpaperEffect.video ||
+                    effect == WallpaperEffect.parallax) &&
                 (capabilities.setupMessage?.isNotEmpty ?? false)) ...[
               Text(capabilities.setupMessage!),
               TextButton(

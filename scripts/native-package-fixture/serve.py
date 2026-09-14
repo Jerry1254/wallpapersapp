@@ -62,7 +62,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload = payload[:-1] + bytes([payload[-1] ^ 1])
                 descriptor['package']['encryptedSha256'] = hashlib.sha256(payload).hexdigest()
             if mode == 'wrong-version':
-                descriptor['resourceVersion']['versionNo'] = 2
+                descriptor['resourceVersion']['versionNo'] += 1
                 descriptor['resourceVersion']['id'] = str(int(descriptor['resourceVersion']['id']) + 1000)
             descriptor['package'].update(encryptionKeySha256=hashlib.sha256(der).hexdigest(),
                 wrappedContentKey=base64.urlsafe_b64encode(wrapped).decode().rstrip('='))

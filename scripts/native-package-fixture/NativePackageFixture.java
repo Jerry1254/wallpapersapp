@@ -26,19 +26,28 @@ public class NativePackageFixture {
             if(type.equals("STATIC_IMAGE")) payloads.add(new SecurePackageCodec.Payload("STATIC_IMAGE",0,"image/png",Files.readAllBytes(root.resolve("static.png"))));
             else if(type.equals("VIDEO")) payloads.add(new SecurePackageCodec.Payload("VIDEO",0,"video/mp4",Files.readAllBytes(root.resolve("video.mp4"))));
             else {
-                payloads.add(new SecurePackageCodec.Payload("BACKGROUND",0,"image/png",Files.readAllBytes(root.resolve("background.png"))));
-                payloads.add(new SecurePackageCodec.Payload("FOREGROUND",0,"image/png",Files.readAllBytes(root.resolve("foreground.png"))));
+                payloads.add(new SecurePackageCodec.Payload("BACKGROUND",0,"image/png",Files.readAllBytes(root.resolve("parallax-background.png"))));
+                payloads.add(new SecurePackageCodec.Payload("FOREGROUND",0,"image/png",Files.readAllBytes(root.resolve("parallax-foreground.png"))));
                 payloads.add(new SecurePackageCodec.Payload("PARALLAX_CONFIG",0,"application/json",Files.readAllBytes(root.resolve("parallax.json"))));
             }
             long variant=type.equals("STATIC_IMAGE")?202:type.equals("VIDEO")?203:204;
-            var encoded=codec.encode(new SecurePackageCodec.Identity(101,variant,1,type),payloads,"native-fixture-v2",signing);
+            // Re-running preparation must not republish different manifest bytes under one immutable version.
+            String source=Base64.getEncoder().encodeToString(publicKey.getEncoded())+payloads.stream()
+                .map(p->p.role()+":"+p.ordinal()+":"+p.mimeType()+":"+SecurePackageCodec.sha256(p.content())).reduce("",String::concat);
+            String sourceHash=SecurePackageCodec.sha256(source.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            Path sourceFile=root.resolve(type+".sources.sha256"), descriptorFile=root.resolve(type+".json");
+            if(Files.exists(sourceFile) && Files.readString(sourceFile).equals(sourceHash) && Files.exists(descriptorFile)
+                && Files.exists(root.resolve(type+".4dwp")) && Files.exists(root.resolve(type+".content-key"))) continue;
+            int versionNo=Files.exists(descriptorFile)?mapper.readTree(Files.readAllBytes(descriptorFile)).path("resourceVersion").path("versionNo").asInt()+1:1;
+            var encoded=codec.encode(new SecurePackageCodec.Identity(101,variant,versionNo,type),payloads,"native-fixture-v2",signing);
             Files.write(root.resolve(type+".4dwp"),encoded.encrypted());
             Path key=root.resolve(type+".content-key"); Files.write(key,encoded.contentKey());
             Files.setPosixFilePermissions(key,java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
-            var version=Map.of("id",Long.toString(variant+100),"variantId",Long.toString(variant),"versionNo",1,"platform","ANDROID","resourceType",type,"manifestSha256",encoded.manifestSha256());
+            var version=Map.of("id",Long.toString(variant+100+(versionNo-1)*1000L),"variantId",Long.toString(variant),"versionNo",versionNo,"platform","ANDROID","resourceType",type,"manifestSha256",encoded.manifestSha256());
             var metadata=Map.of("formatVersion",2,"sizeBytes",encoded.encrypted().length,"plaintextSizeBytes",encoded.encrypted().length-36,
                 "encryptedSha256",encoded.encryptedSha256(),"plaintextSha256",encoded.plaintextSha256(),"signingKeyId","native-fixture-v2","keyAlgorithm","RSA-OAEP-SHA256-MGF1-SHA1");
             Files.write(root.resolve(type+".json"),mapper.writeValueAsBytes(Map.of("deliveryMode","SECURE_PACKAGE","wallpaperId","101","downloadUrl","/api/v1/delivery/files","resourceVersion",version,"package",metadata)));
+            Files.writeString(sourceFile,sourceHash);
             Arrays.fill(encoded.contentKey(),(byte)0);
         }
     }

@@ -46,7 +46,7 @@ class VideoWallpaperService : WallpaperService() {
                 }
             }
         }
-        private fun selection(): Pair<String,String?>? = if (isPreview) LiveSelection.pending(this@VideoWallpaperService)
+        private fun selection(): Pair<String,String?>? = if (isPreview) LiveSelection.pending(this@VideoWallpaperService,"VIDEO")
             else LiveSelection.current(this@VideoWallpaperService)?.let { it to null }
         override fun onSurfaceCreated(holder: SurfaceHolder) { super.onSurfaceCreated(holder); surfaceReady = true; if (isVisible) load() }
         override fun onVisibilityChanged(visible: Boolean) {

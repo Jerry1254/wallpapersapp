@@ -82,18 +82,18 @@ internal class AtomicPackageStore(val root: File) {
         } }
     }
     @Synchronized fun hold(name: String, id: String?) {
-        require(name in setOf("live", "picker"))
+        require(name in holdNames)
         if (id == null) File(root,"hold-$name").delete()
         else { require(directory(id).isDirectory); pointer("hold-$name",id) }
     }
     @Synchronized fun held(name: String): String? {
-        require(name in setOf("live", "picker"))
+        require(name in holdNames)
         val file = File(root,"hold-$name")
         if (!file.isFile || file.length() > 160) return null
         return file.readText(Charsets.US_ASCII).takeIf { validId(it) && directory(it).isDirectory }
     }
     @Synchronized fun clearUnused(): Long {
-        val held = listOf("live","picker").mapNotNull { name ->
+        val held = holdNames.mapNotNull { name ->
             val file = File(root,"hold-$name")
             if (file.isFile && file.length() <= 160) file.readText(Charsets.US_ASCII).takeIf { validId(it) } else null
         }
@@ -113,6 +113,7 @@ internal class AtomicPackageStore(val root: File) {
         } finally { temporary.delete() }
     }
     companion object {
+        private val holdNames = setOf("live","live-video","live-parallax","picker")
         private val idPattern = Regex("[1-9][0-9]{0,18}-(STATIC_IMAGE|VIDEO|LAYER_PARALLAX)-[1-9][0-9]{0,18}-[a-f0-9]{64}")
         private fun validId(id: String) = id.length <= 160 && id.matches(idPattern)
         private fun requireSlot(slot: String) { require(slot.matches(Regex("[1-9][0-9]{0,18}-(STATIC_IMAGE|VIDEO|LAYER_PARALLAX)"))) }

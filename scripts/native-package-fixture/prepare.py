@@ -14,13 +14,28 @@ root.mkdir(parents=True, exist_ok=True)
 root.chmod(0o700)
 
 
-def png(name, alpha=False, noise=False):
+def png(name, alpha=False, noise=False, pattern=False):
     if (root / name).exists():
         return
     width = height = 512
     def chunk(kind, data):
         return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
-    if noise:
+    if pattern:
+        rows = []
+        for y in range(height):
+            row = bytearray(b'\0')
+            for x in range(width):
+                if alpha:
+                    circle = (x-256)**2+(y-256)**2<110**2
+                    cross = (abs(x-256)<7 and abs(y-256)<170) or (abs(y-256)<7 and abs(x-256)<170)
+                    pixel = bytes([245, 195, 65, 220 if circle or cross else 0])
+                else:
+                    grid = x % 64<3 or y % 64<3
+                    pixel = bytes([160 if grid else 25, 185 if grid else 70, 210 if grid else 110])
+                row.extend(pixel)
+            rows.append(row)
+        rows = b''.join(rows)
+    elif noise:
         rows = b''.join(b'\0' + os.urandom(width * 3) for _ in range(height))
     else:
         pixel = bytes([50, 100, 200, 100]) if alpha else bytes([30, 80, 150])
@@ -30,6 +45,7 @@ def png(name, alpha=False, noise=False):
 
 
 png('static.png', noise=True); png('background.png'); png('foreground.png', alpha=True)
+png('parallax-background.png', pattern=True); png('parallax-foreground.png', alpha=True, pattern=True)
 config = {'canvas': {'width': 512, 'height': 512}, 'sensor': {'maxAngle': 10, 'smoothing': .2, 'strength': 1},
           'layers': [{'role': role, 'ordinal': 0, 'depth': depth, 'scale': 1.1, 'opacity': 1, 'blendMode': 'normal'}
                      for role, depth in [('BACKGROUND', 0), ('FOREGROUND', 1)]]}

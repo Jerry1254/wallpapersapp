@@ -177,6 +177,8 @@ class SecurePackageVerifierTest {
         first.close(); first.close(); assertEquals(0L,store.clearUnused()); assertTrue(store.directory(id).isDirectory)
         second.close(); store.hold("picker",id); assertEquals(0L,store.clearUnused())
         store.hold("live",id); store.hold("picker",null); assertEquals(id,store.held("live")); assertEquals(0L,store.clearUnused())
-        store.hold("live",null); assertTrue(store.clearUnused() > 0); assertFalse(store.directory(id).exists())
+        store.hold("live-video",id); store.hold("live",null); assertEquals(0L,store.clearUnused())
+        store.hold("live-parallax",id); store.hold("live-video",null); assertEquals(0L,store.clearUnused())
+        store.hold("live-parallax",null); assertTrue(store.clearUnused() > 0); assertFalse(store.directory(id).exists())
     }
 }

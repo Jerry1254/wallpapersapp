@@ -12,12 +12,12 @@ internal object WallpaperResults {
         else WallpaperOutcome("unknown","系统设置结果不可确认，请到桌面或锁屏检查")
     }
     fun live(accepted: Boolean, ready: Boolean, home: Boolean, lock: Boolean, lockQueryable: Boolean): WallpaperOutcome = when {
-        !accepted -> WallpaperOutcome("cancelled","已退出系统设置，原有视频资源保留")
+        !accepted -> WallpaperOutcome("cancelled","已退出系统设置，原有壁纸资源保留")
         !ready -> WallpaperOutcome("unknown","系统设置结果不可确认，请重新打开设置并检查")
         !home && !lock -> WallpaperOutcome("unknown","系统已返回确认；设置位置不可读取，请到桌面或锁屏检查",!lockQueryable)
-        home && lock -> WallpaperOutcome("completed","系统已确认视频用于桌面和锁屏；两处共用同一视频",true)
-        lock -> WallpaperOutcome("completed","系统已确认视频用于锁屏",true)
-        lockQueryable -> WallpaperOutcome("completed","系统已确认视频用于桌面",true)
-        else -> WallpaperOutcome("completed","系统已确认视频用于桌面；此系统无法单独确认锁屏",true)
+        home && lock -> WallpaperOutcome("completed","系统已确认动态壁纸用于桌面和锁屏；两处共用同一资源",true)
+        lock -> WallpaperOutcome("completed","系统已确认动态壁纸用于锁屏",true)
+        lockQueryable -> WallpaperOutcome("completed","系统已确认动态壁纸用于桌面",true)
+        else -> WallpaperOutcome("completed","系统已确认动态壁纸用于桌面；此系统无法单独确认锁屏",true)
     }
 }

@@ -24,8 +24,8 @@ class WallpaperOutcomeTest {
         assertEquals(true,WallpaperResults.live(true,true,false,false,false).retainLiveContent)
     }
     @Test fun confirmedLiveResultDescribesActualLocationAndOlderOsLimit() {
-        assertEquals("系统已确认视频用于桌面和锁屏；两处共用同一视频",WallpaperResults.live(true,true,true,true,true).message)
-        assertEquals("系统已确认视频用于锁屏",WallpaperResults.live(true,true,false,true,true).message)
-        assertEquals("系统已确认视频用于桌面；此系统无法单独确认锁屏",WallpaperResults.live(true,true,true,false,false).message)
+        assertEquals("系统已确认动态壁纸用于桌面和锁屏；两处共用同一资源",WallpaperResults.live(true,true,true,true,true).message)
+        assertEquals("系统已确认动态壁纸用于锁屏",WallpaperResults.live(true,true,false,true,true).message)
+        assertEquals("系统已确认动态壁纸用于桌面；此系统无法单独确认锁屏",WallpaperResults.live(true,true,true,false,false).message)
     }
 }

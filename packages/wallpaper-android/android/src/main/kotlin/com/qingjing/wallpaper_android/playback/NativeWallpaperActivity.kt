@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.WallpaperManager
 import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
@@ -27,6 +28,7 @@ class NativeWallpaperActivity : Activity() {
     private var bitmap: Bitmap? = null
     private var content: InstalledPackage? = null
     private var surface: SurfaceView? = null
+    private var parallax: ParallaxSurfaceRenderer? = null
     private var resumed = false
     private var dead = false
     private var rendered = false
@@ -58,7 +60,7 @@ class NativeWallpaperActivity : Activity() {
         if (selectionToken != null) { message.text = "等待系统壁纸设置结果…"; close.text = "返回"; return }
         val id = intent.getStringExtra("installedId") ?: return finishWith(WallpaperOutcome("unknown","本地资源不可用，请先下载"))
         val type = intent.getStringExtra("resourceType") ?: return finishWith(WallpaperOutcome("unknown","资源类型不可用"))
-        if (type !in setOf("STATIC_IMAGE","VIDEO")) return finishWith(WallpaperOutcome("unsupported","4D 原生能力尚未接入"))
+        if (type !in setOf("STATIC_IMAGE","VIDEO","LAYER_PARALLAX")) return finishWith(WallpaperOutcome("unsupported","当前资源效果尚不支持"))
         worker.execute {
             var lease: AutoCloseable? = null
             try {
@@ -72,7 +74,7 @@ class NativeWallpaperActivity : Activity() {
                         if (intent.getStringExtra("mode") == "apply") {
                             close.isEnabled = false
                             if (type == "STATIC_IMAGE") applyStatic(verified) else openSystemPicker(id)
-                        } else if (type == "STATIC_IMAGE") showImage(verified,frame) else showVideo(frame)
+                        } else if (type == "STATIC_IMAGE") showImage(verified,frame) else showSurface(frame,type)
                     }
                 }
             } catch (_: Exception) { lease?.close(); runOnUiThread { finishWith(WallpaperOutcome("unknown","本地资源校验失败，请重新下载")) } }
@@ -101,18 +103,25 @@ class NativeWallpaperActivity : Activity() {
             catch (_: OutOfMemoryError) { decoded?.recycle(); runOnUiThread { finishWith(WallpaperOutcome("unknown","可用内存不足，请关闭其他应用后重试")) } }
         }
     }
-    private fun showVideo(frame: FrameLayout) {
+    private fun showSurface(frame: FrameLayout,type: String) {
         surface = SurfaceView(this).also { view ->
+            if (type == "LAYER_PARALLAX") {
+                val noSensor = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.getBooleanExtra("debugForceNoSensor",false)
+                parallax = ParallaxSurfaceRenderer(this,view.holder,
+                    ready = { _,hasSensor -> runOnUiThread { if (!dead) { rendered = true; message.text = if(hasSensor) "4D 预览 · 轻轻倾斜手机查看" else "4D 静态预览 · 当前无法使用姿态传感器" } } },
+                    failed = { runOnUiThread { finishWith(WallpaperOutcome("unknown","4D 资源无法预览，请检查内存或重新下载")) } },
+                    changed = {},forceNoSensor = noSensor)
+            }
             view.holder.addCallback(object : SurfaceHolder.Callback {
                 override fun surfaceCreated(holder: SurfaceHolder) { if (resumed) play() }
-                override fun surfaceChanged(holder: SurfaceHolder,format: Int,width: Int,height: Int) { }
-                override fun surfaceDestroyed(holder: SurfaceHolder) { player.close() }
+                override fun surfaceChanged(holder: SurfaceHolder,format: Int,width: Int,height: Int) { parallax?.redraw() }
+                override fun surfaceDestroyed(holder: SurfaceHolder) { player.close(); parallax?.stop() }
             }); frame.addView(view,FrameLayout.LayoutParams(-1,-1))
         }
     }
     private fun play() {
         val holder = surface?.holder ?: return
-        if (holder.surface.isValid) content?.let { player.open(it.content("VIDEO"),holder) }
+        if (holder.surface.isValid) content?.let { if (it.type == "VIDEO") player.open(it.content("VIDEO"),holder) else if(it.type == "LAYER_PARALLAX") parallax?.start(it.id) }
     }
     private fun applyStatic(verified: InstalledPackage) {
         settingStatic = true
@@ -146,10 +155,10 @@ class NativeWallpaperActivity : Activity() {
             val manager = WallpaperManager.getInstance(this)
             if (!manager.isWallpaperSupported || !manager.isSetWallpaperAllowed) return finishWith(WallpaperOutcome("unsupported","此系统暂不允许设置动态壁纸"))
             require(intent.getStringExtra("target") == "home") // This entry delegates location selection to the system picker.
-            val picker = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,ComponentName(this,VideoWallpaperService::class.java))
+            val picker = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,liveComponent())
             if (picker.resolveActivity(packageManager) == null) return finishWith(WallpaperOutcome("unsupported","此手机没有可用的动态壁纸设置入口"))
             selectionToken = LiveSelection.begin(this,id)
-            message.text = "位置由系统选择；桌面和锁屏使用此服务时共用同一视频"
+            message.text = "位置由系统选择；桌面和锁屏使用此服务时共用同一资源"
             startActivityForResult(picker,701)
         } catch (_: Exception) {
             selectionToken?.let { LiveSelection.finish(this,it,false) }; selectionToken = null
@@ -164,7 +173,7 @@ class NativeWallpaperActivity : Activity() {
         val accepted = resultCode == RESULT_OK
         val ready = LiveSelection.isReady(this,token)
         val outcome = try {
-            val manager = WallpaperManager.getInstance(this); val component = ComponentName(this,VideoWallpaperService::class.java)
+            val manager = WallpaperManager.getInstance(this); val component = liveComponent()
             val home = manager.wallpaperInfo?.component == component
             val lock = Build.VERSION.SDK_INT >= 34 && manager.getWallpaperInfo(WallpaperManager.FLAG_LOCK)?.component == component
             val result = WallpaperResults.live(accepted,ready,home,lock,Build.VERSION.SDK_INT >= 34)
@@ -176,8 +185,9 @@ class NativeWallpaperActivity : Activity() {
         selectionToken = null; finishWith(outcome)
     }
     override fun onSaveInstanceState(state: Bundle) { state.putString("selectionToken",selectionToken); super.onSaveInstanceState(state) }
+    private fun liveComponent() = ComponentName(this,if(intent.getStringExtra("resourceType") == "LAYER_PARALLAX") ParallaxWallpaperService::class.java else VideoWallpaperService::class.java)
     override fun onResume() { super.onResume(); resumed = true; play() }
-    override fun onPause() { resumed = false; player.close(); super.onPause() }
+    override fun onPause() { resumed = false; player.close(); parallax?.stop(); super.onPause() }
     @Deprecated("Android Activity callback")
     override fun onBackPressed() { exitPreview() }
     private fun exitPreview() {
@@ -190,7 +200,7 @@ class NativeWallpaperActivity : Activity() {
         setResult(RESULT_OK,Intent().putExtra("status",outcome.status).putExtra("message",outcome.message)); finish()
     }
     override fun onDestroy() {
-        dead = true; player.close(); bitmap?.recycle(); pin?.close(); worker.shutdown()
+        dead = true; player.close(); parallax?.close(); bitmap?.recycle(); pin?.close(); worker.shutdown()
         if (isFinishing) selectionToken?.let { LiveSelection.finish(this,it,false) }
         super.onDestroy()
     }

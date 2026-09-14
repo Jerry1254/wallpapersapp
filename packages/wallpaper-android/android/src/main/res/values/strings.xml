@@ -1,4 +1,6 @@
 <resources>
+    <string name="qj_parallax_wallpaper_name">倾境4D壁纸</string>
+    <string name="qj_parallax_wallpaper_description">已安全安装的分层壁纸随手机姿态移动，无可用传感器时静态显示；同一服务共用资源，设置位置由手机系统选择。</string>
     <string name="qj_video_wallpaper_name">倾境视频壁纸</string>
     <string name="qj_video_wallpaper_description">循环播放已安全安装的视频；桌面和锁屏使用同一服务时共用视频。设置位置由手机系统选择。</string>
 </resources>

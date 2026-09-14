@@ -29,7 +29,7 @@ class _NativeProbeState extends State<NativeProbe> {
   final installer = AndroidPackageInstaller();
   final playback = const AndroidWallpaperPlayback();
   final ids = <String, String>{};
-  String output = 'WP-A07 原生夹具测试，非正式业务下载';
+  String output = 'WP-A07/A08 原生夹具测试，非正式业务下载';
   bool busy = false;
 
   Future<void> action(String name, Future<Object?> Function() run) async {
@@ -142,14 +142,23 @@ class _NativeProbeState extends State<NativeProbe> {
       '静态两者': () => apply(WallpaperEffect.staticImage, WallpaperTarget.both),
       '视频系统设置': () => apply(WallpaperEffect.video, WallpaperTarget.home),
       '视频独立预览': () => preview(WallpaperEffect.video),
+      '4D 系统设置': () => apply(WallpaperEffect.parallax, WallpaperTarget.home),
+      '4D 独立预览': () => preview(WallpaperEffect.parallax),
+      '4D 无传感器预览': () async =>
+          channel.invokeMapMethod<String, dynamic>('previewPackage', {
+            'installedId': await id('LAYER_PARALLAX'),
+            'resourceType': 'LAYER_PARALLAX',
+            'debugForceNoSensor': true,
+          }),
       '查询播放状态': state,
       '清理未使用缓存': () async => {
         'removed': await installer.clearUnused(),
         'video': await installer.current('101', 'VIDEO'),
+        'parallax': await installer.current('101', 'LAYER_PARALLAX'),
       },
     };
     return Scaffold(
-      appBar: AppBar(title: const Text('WP-A07 真机原生测试')),
+      appBar: AppBar(title: const Text('WP-A07/A08 真机原生测试')),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),

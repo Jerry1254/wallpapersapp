@@ -12,5 +12,10 @@
             <intent-filter><action android:name="android.service.wallpaper.WallpaperService" /></intent-filter>
             <meta-data android:name="android.service.wallpaper" android:resource="@xml/qj_video_wallpaper" />
         </service>
+        <service android:name=".playback.ParallaxWallpaperService" android:exported="true"
+            android:permission="android.permission.BIND_WALLPAPER" android:label="@string/qj_parallax_wallpaper_name">
+            <intent-filter><action android:name="android.service.wallpaper.WallpaperService" /></intent-filter>
+            <meta-data android:name="android.service.wallpaper" android:resource="@xml/qj_parallax_wallpaper" />
+        </service>
     </application>
 </manifest>
