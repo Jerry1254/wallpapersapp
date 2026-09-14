@@ -2,7 +2,7 @@
 
 **状态：** 已确认
 
-**版本：** V1.3.0
+**版本：** V1.3.1
 
 **日期：** 2026-09-14
 
@@ -200,3 +200,11 @@ Android 下载票据返回 SECURE_PACKAGE，增加 variantId、formatVersion=2�
 新增 2 操作、3 Schema，当前合计 51 操作、77 Schema。POST /device/wallpapers/{wallpaperId}/preview-tickets 要求 Android 会话及 timestamp/nonce/精确正文签名，无需作品权益；请求平台 ANDROID、resourceType 三类及 osVersion。201 PreviewDescriptor 的 deliveryMode/purpose 固定 APP_PREVIEW、durationSeconds=120、package.formatVersion=3；清单摘要指向派生清单。GET /preview/files 只接受 previewTicketBearer，固定同源下载路径、90 秒票据、no-store/长度/Digest，与正式 /delivery/files 双向拒绝。无兼容受限包为 422 PREVIEW_RESOURCE_NOT_READY，失效票据为 401 PREVIEW_TICKET_INVALID，频繁操作为 429 RATE_LIMITED。
 
 正式 DownloadDescriptor 和 SecurePackageMetadata 保持原模式与 format 2，H5 占位字段不变。既有管理 secure-package 操作扩展为制作正式/受限包对，允许已有正式包的 PUBLISHED 版本补建派生包；正式字节、正式清单与权益不变。详细规格、用途签名、临时库和计时边界见 [SEC-004](../05-安全与合规/SEC-004-Android受限试用交付协议.md)。1.2.0 历史冻结输入单独保留；1.3.0 在契约、API 实现与格式/权限回归检查后显式冻结，端侧 120 秒与三类显示的真机验收继续属于 A09，不以接口冻结代替。
+
+## 1.3.1 下载错误响应与下架说明修正
+
+A10 的实际 HTTPS 下架测试发现：客户端使用 `Accept: application/octet-stream` 时，失效下载票据的既有 401 被错误响应的媒体协商转换为 500。统一错误处理显式设置 `Content-Type: application/json`，保留原状态、ErrorEnvelope 和 Retry-After；正常正式/试用资源仍为 octet-stream。缺少 Authorization 的正式/试用文件读取也按已冻结契约返回 401 及各自票据失效码，避免落入通用缺少 Header 的 400。没有更改票据授权条件、DTO、资源格式或数据库结构。
+
+下架响应中遗留的“默认仍可交付”说明与 A05 已冻结的实际授权规则不一致，现明确：已有 ACTIVE 权益及摘要保留，公开目录和新增兑换关闭，正式 App 不再创建新下载票据，旧正式/试用票据不能开始新的读取；已开始的流允许完成，已安装资源可继续使用。领域模型、安全协议和 Java 状态门禁保持原行为，H5 不增加正式交付能力。
+
+1.3.0 原快照逐字节归档为 baseline-v1.3.0.json；1.3.1 只修订 OpenAPI 版本/该说明和本文，重新审阅这两项摘要。DM/DB 仍为 1.3.0，V1/V2/V3 和其余冻结文件保持原字节。不通过修改历史快照或重写迁移掩盖变更；具体验收结果见 A10 记录。

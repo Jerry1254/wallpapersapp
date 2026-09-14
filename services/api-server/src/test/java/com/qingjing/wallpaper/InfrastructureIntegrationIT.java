@@ -991,6 +991,7 @@ class InfrastructureIntegrationIT {
         String redisKey="download-ticket-v2:"+securityCrypto.hmacHex("download-ticket-v2",ticket);
         assertThat(redis.getExpire(redisKey)).isBetween(1L,90L);
         HttpHeaders download=new HttpHeaders();download.setBearerAuth(ticket);
+        download.setAccept(List.of(MediaType.APPLICATION_OCTET_STREAM));
         assertThat(http.exchange("/api/v1/preview/files",HttpMethod.GET,new HttpEntity<>(download),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         var bytes=http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(download),byte[].class);
         assertThat(bytes.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -1067,6 +1068,7 @@ class InfrastructureIntegrationIT {
         String previewToken=descriptor.path("ticket").asText();
         assertThat(redis.getExpire("preview-ticket-v1:"+securityCrypto.hmacHex("preview-ticket-v1",previewToken))).isBetween(1L,90L);
         HttpHeaders preview=new HttpHeaders();preview.setBearerAuth(previewToken);
+        preview.setAccept(List.of(MediaType.APPLICATION_OCTET_STREAM));
         assertThat(http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(preview),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         var response=http.exchange("/api/v1/preview/files",HttpMethod.GET,new HttpEntity<>(preview),byte[].class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);

@@ -16,8 +16,8 @@ public class DevicePreviewController {
         return ResponseEntity.status(201).body(previews.create((DevicePrincipal)request.getAttribute(RequestAttributes.DEVICE_PRINCIPAL),Ids.parse(wallpaperId,"wallpaperId"),body));
     }
     @GetMapping("/api/v1/preview/files")
-    ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> read(@RequestHeader("Authorization") String authorization) {
-        if(!authorization.startsWith("Bearer ") || authorization.length()<=7) throw new ApiException(HttpStatus.UNAUTHORIZED,"PREVIEW_TICKET_INVALID","A preview grant is required");
+    ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> read(@RequestHeader(value="Authorization",required=false) String authorization) {
+        if(authorization==null || !authorization.startsWith("Bearer ") || authorization.length()<=7) throw new ApiException(HttpStatus.UNAUTHORIZED,"PREVIEW_TICKET_INVALID","A preview grant is required");
         var file=previews.read(authorization.substring(7));
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_OCTET_STREAM).contentLength(file.sizeBytes()).header("Cache-Control","no-store")
             .header("Digest","sha-256=:"+java.util.Base64.getEncoder().encodeToString(java.util.HexFormat.of().parseHex(file.sha256()))+":")

@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
@@ -28,7 +29,8 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
     ResponseEntity<ErrorEnvelope> handleApiException(ApiException exception, HttpServletRequest request) {
-        ResponseEntity.BodyBuilder builder = ResponseEntity.status(exception.status());
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(exception.status())
+                .contentType(MediaType.APPLICATION_JSON);
         if (exception.retryAfterSeconds() != null) {
             builder.header("Retry-After", Long.toString(exception.retryAfterSeconds()));
         }
@@ -156,7 +158,8 @@ public class ApiExceptionHandler {
             String message,
             List<ApiException.ErrorDetail> details,
             HttpServletRequest request) {
-        return ResponseEntity.status(status).body(envelope(code, message, details, request));
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON)
+                .body(envelope(code, message, details, request));
     }
 
     private ErrorEnvelope envelope(

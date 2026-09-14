@@ -41,8 +41,8 @@ public class DeviceDownloadController {
     }
 
     @GetMapping("/api/v1/delivery/files")
-    ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> read(@RequestHeader("Authorization") String authorization) {
-        if (!authorization.startsWith("Bearer ") || authorization.length() <= 7) {
+    ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> read(@RequestHeader(value = "Authorization", required = false) String authorization) {
+        if (authorization == null || !authorization.startsWith("Bearer ") || authorization.length() <= 7) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "DOWNLOAD_TICKET_INVALID", "A download ticket is required");
         }
         var file = tickets.readProtectedFile(authorization.substring(7));

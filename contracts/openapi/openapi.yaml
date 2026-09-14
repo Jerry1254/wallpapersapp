@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 1.3.0
+  version: 1.3.1
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -1146,7 +1146,7 @@ paths:
               $ref: '#/components/schemas/StateChangeReasonRequest'
       responses:
         '200':
-          description: 壁纸已下架；已有权益默认仍可交付
+          description: 壁纸已下架；已有权益保留，公开目录和新增兑换关闭，App 新下载及旧票据读取停止；已安装资源可继续使用。
           headers:
             ETag:
               $ref: '#/components/headers/EntityTag'
