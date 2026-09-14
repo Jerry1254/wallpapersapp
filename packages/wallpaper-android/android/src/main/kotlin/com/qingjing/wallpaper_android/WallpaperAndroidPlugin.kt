@@ -9,6 +9,8 @@ import android.util.Base64
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.EventChannel
+import com.qingjing.wallpaper_android.install.AndroidPackageDelivery
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.MessageDigest
@@ -19,6 +21,9 @@ import java.util.concurrent.Executors
 class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private lateinit var channel: MethodChannel
     private lateinit var context: Context
+    private lateinit var delivery: AndroidPackageDelivery
+    private lateinit var events: EventChannel
+    private var eventSink: EventChannel.EventSink? = null
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     companion object {
@@ -30,9 +35,16 @@ class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         context = binding.applicationContext
         channel = MethodChannel(binding.binaryMessenger, "qingjing/wallpaper_android")
         channel.setMethodCallHandler(this)
+        events = EventChannel(binding.binaryMessenger, "qingjing/wallpaper_downloads")
+        events.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, sink: EventChannel.EventSink) { eventSink = sink }
+            override fun onCancel(arguments: Any?) { eventSink = null }
+        })
+        delivery = AndroidPackageDelivery(context) { eventSink?.success(it) }
     }
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
+        events.setStreamHandler(null); eventSink = null; delivery.close()
         worker.shutdown()
     }
     private fun keyStore(): KeyStore = synchronized(keyLock) {
@@ -66,9 +78,19 @@ class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
     private fun url64(bytes: ByteArray) = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        if (call.method == "installPackage" || call.method == "cancelDownload") {
+            try {
+                if (call.method == "installPackage") delivery.start(call.arguments as Map<*, *>, result)
+                else { delivery.cancel(call.argument<String>("requestId") ?: throw IllegalArgumentException()); result.success(null) }
+            } catch (_: Exception) { result.error("PACKAGE_INVALID", "资源信息不可用，请重试", null) }
+            return
+        }
         worker.execute {
             try {
                 val response: Any? = when (call.method) {
+                    "deliveryInfo" -> delivery.info()
+                    "installedPackage" -> delivery.current(call.argument<String>("wallpaperId") ?: throw IllegalArgumentException(),call.argument<String>("resourceType") ?: throw IllegalArgumentException())
+                    "clearPackageCache" -> delivery.clearUnused()
                     "encryptionPublicKey" -> encryptionPublicKey()
                     "identity" -> {
                         val key = keyStore().getCertificate(ALIAS).publicKey.encoded

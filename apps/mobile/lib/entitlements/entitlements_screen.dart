@@ -5,6 +5,7 @@ import '../detail/detail_screen.dart';
 import '../detail/help_screen.dart';
 import '../device/device_session.dart';
 import 'redemption.dart';
+import '../downloads/download_manager.dart';
 
 class EntitlementsScreen extends StatefulWidget {
   const EntitlementsScreen({
@@ -12,10 +13,12 @@ class EntitlementsScreen extends StatefulWidget {
     required this.sessions,
     required this.catalog,
     required this.redemptions,
+    this.downloads,
   });
   final DeviceSessionManager sessions;
   final CatalogRepository catalog;
   final RedemptionCoordinator redemptions;
+  final DownloadManager? downloads;
   @override
   State<EntitlementsScreen> createState() => _EntitlementsScreenState();
 }
@@ -114,6 +117,25 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
           onPressed: busy ? null : confirm,
           child: const Text('确认上次兑换结果'),
         ),
+        if (widget.downloads != null)
+          TextButton(
+            onPressed: busy
+                ? null
+                : () async {
+                    try {
+                      final bytes = await widget.downloads!.clearUnused();
+                      if (mounted) {
+                        setState(
+                          () => message =
+                              '已清理 ${(bytes / 1024 / 1024).toStringAsFixed(1)} MB，正在使用的资源已保留',
+                        );
+                      }
+                    } catch (_) {
+                      if (mounted) setState(() => message = '下载期间暂不能清理，请稍后重试');
+                    }
+                  },
+            child: const Text('清理未使用的本地资源'),
+          ),
         if (loaded && items.isEmpty)
           const Padding(
             padding: EdgeInsets.all(20),
@@ -127,12 +149,16 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
               child: CatalogImage(repository: widget.catalog, path: item.cover),
             ),
             title: Text(item.title),
-            subtitle: const Text('已获得权益 · 本地资源尚未安装'),
+            subtitle: const Text('已获得权益 · 查看本地资源与下载'),
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute<void>(
-                builder: (_) =>
-                    DetailScreen(repository: widget.catalog, id: item.id),
+                builder: (_) => DetailScreen(
+                  repository: widget.catalog,
+                  id: item.id,
+                  downloads: widget.downloads,
+                  redemptions: widget.redemptions,
+                ),
               ),
             ),
           ),

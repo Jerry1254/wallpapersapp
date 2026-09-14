@@ -21,6 +21,7 @@ admin-web/dist/
 wallpaper-tools/output/
 infra/secrets/
 .runtime/
+__pycache__/
 uploads/
 
 # Mobile dependencies, signing material and distribution artifacts

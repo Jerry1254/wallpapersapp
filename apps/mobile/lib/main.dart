@@ -7,6 +7,7 @@ import 'detail/help_screen.dart';
 import 'device/device_session.dart';
 import 'entitlements/redemption.dart';
 import 'entitlements/entitlements_screen.dart';
+import 'downloads/download_manager.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,6 +37,7 @@ class QingjingApp extends StatelessWidget {
     home: HomeShell(
       repository: repository ?? HttpCatalogRepository(config.apiBase),
       sessions: DeviceSessionManager(HttpDeviceTransport(config.apiBase)),
+      apiBase: config.apiBase,
     ),
   );
 }
@@ -45,7 +47,9 @@ class HomeShell extends StatefulWidget {
     super.key,
     required this.repository,
     required this.sessions,
+    required this.apiBase,
   });
+  final Uri apiBase;
   final DeviceSessionManager sessions;
   final CatalogRepository repository;
   @override
@@ -58,6 +62,12 @@ class _HomeShellState extends State<HomeShell> {
     SessionRedemptionApi(widget.sessions),
     AndroidPendingStore(),
   );
+  late final downloads = DownloadManager(widget.sessions, widget.apiBase);
+  @override
+  void dispose() {
+    downloads.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -83,11 +93,13 @@ class _HomeShellState extends State<HomeShell> {
           CatalogScreen(
             repository: widget.repository,
             redemptions: redemptions,
+            downloads: downloads,
           ),
           EntitlementsScreen(
             sessions: widget.sessions,
             catalog: widget.repository,
             redemptions: redemptions,
+            downloads: downloads,
           ),
         ],
       ),

@@ -4,17 +4,20 @@ import 'catalog.dart';
 import '../entitlements/redemption.dart';
 import '../detail/detail_screen.dart';
 import 'catalog_image.dart';
+import '../downloads/download_manager.dart';
 
 class CatalogScreen extends StatefulWidget {
   const CatalogScreen({
     super.key,
     required this.repository,
     this.redemptions,
+    this.downloads,
     this.category,
     this.search,
   });
   final CatalogRepository repository;
   final RedemptionCoordinator? redemptions;
+  final DownloadManager? downloads;
   final Category? category;
   final String? search;
   @override
@@ -83,6 +86,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
           repository: widget.repository,
           search: term,
           redemptions: widget.redemptions,
+          downloads: widget.downloads,
         ),
       ),
     );
@@ -162,6 +166,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                                 MaterialPageRoute<void>(
                                   builder: (_) => CatalogScreen(
                                     redemptions: widget.redemptions,
+                                    downloads: widget.downloads,
                                     repository: widget.repository,
                                     category: category,
                                   ),
@@ -291,6 +296,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                         MaterialPageRoute<void>(
                           builder: (_) => DetailScreen(
                             redemptions: widget.redemptions,
+                            downloads: widget.downloads,
                             repository: widget.repository,
                             id: item.id,
                           ),

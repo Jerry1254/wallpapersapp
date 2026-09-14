@@ -6,6 +6,8 @@ import 'delivery.dart';
 import '../entitlements/redemption.dart';
 import '../entitlements/redemption_dialog.dart';
 import 'help_screen.dart';
+import '../downloads/download_manager.dart';
+import '../downloads/download_panel.dart';
 
 class DetailScreen extends StatefulWidget {
   const DetailScreen({
@@ -13,6 +15,7 @@ class DetailScreen extends StatefulWidget {
     required this.repository,
     required this.id,
     this.redemptions,
+    this.downloads,
     this.capabilities = const WallpaperCapabilities(
       platform: ClientPlatform.android,
     ),
@@ -20,6 +23,7 @@ class DetailScreen extends StatefulWidget {
   final CatalogRepository repository;
   final String id;
   final RedemptionCoordinator? redemptions;
+  final DownloadManager? downloads;
   final WallpaperCapabilities capabilities;
   @override
   State<DetailScreen> createState() => _DetailScreenState();
@@ -148,7 +152,20 @@ class _DetailScreenState extends State<DetailScreen> {
                 ),
               ),
             ),
-            const Text('当前原生预览、下载和系统设置尚未接入。资源类型匹配不代表手机支持设置；能力确认前不消耗兑换额度。'),
+            if (widget.downloads != null && effect != null) ...[
+              const SizedBox(height: 12),
+              DownloadPanel(
+                key: ValueKey('${wallpaper.id}-${effect.name}'),
+                manager: widget.downloads!,
+                wallpaperId: wallpaper.id,
+                resourceType: switch (effect) {
+                  WallpaperEffect.staticImage => 'STATIC_IMAGE',
+                  WallpaperEffect.video => 'VIDEO',
+                  WallpaperEffect.parallax => 'LAYER_PARALLAX',
+                },
+              ),
+            ],
+            const Text('原生预览和系统设置尚未接入。资源类型匹配不代表手机支持设置；能力确认前不消耗兑换额度。'),
             const SizedBox(height: 16),
             FilledButton(
               onPressed:

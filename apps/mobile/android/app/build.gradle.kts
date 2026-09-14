@@ -33,10 +33,14 @@ android {
             dimension = "environment"
             applicationIdSuffix = ".local"
             resValue("string", "app_name", "倾境壁纸·内测")
+            resValue("string", "qj_package_signing_key_id", System.getenv("QJ_LOCAL_PACKAGE_SIGNING_KEY_ID") ?: "")
+            resValue("string", "qj_package_signing_public_key", System.getenv("QJ_LOCAL_PACKAGE_PUBLIC_KEY_DER") ?: "")
         }
         create("prod") {
             dimension = "environment"
             resValue("string", "app_name", "倾境壁纸")
+            resValue("string", "qj_package_signing_key_id", System.getenv("QJ_PROD_PACKAGE_SIGNING_KEY_ID") ?: "")
+            resValue("string", "qj_package_signing_public_key", System.getenv("QJ_PROD_PACKAGE_PUBLIC_KEY_DER") ?: "")
         }
     }
 

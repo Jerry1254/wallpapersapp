@@ -22,6 +22,8 @@ jobs:
         working-directory: apps/mobile
       - run: flutter analyze && flutter test
         working-directory: apps/mobile
+      - run: ./gradlew :wallpaper_android:testDebugUnitTest :wallpaper_android:lintDebug
+        working-directory: apps/mobile/android
       - run: flutter build apk --debug --flavor local
         working-directory: apps/mobile
       - run: flutter build apk --release --flavor local
