@@ -13,6 +13,99 @@ class InstallationIdentity {
   final String? credentialKeyId;
 }
 
+class AndroidWallpaperPlayback implements Preview, WallpaperApply {
+  const AndroidWallpaperPlayback();
+  static const _channel = MethodChannel('qingjing/wallpaper_android');
+  static String resourceType(WallpaperEffect effect) => switch (effect) {
+    WallpaperEffect.staticImage => 'STATIC_IMAGE',
+    WallpaperEffect.video => 'VIDEO',
+    WallpaperEffect.parallax => 'LAYER_PARALLAX',
+  };
+  Future<WallpaperCapabilities> capabilities() async {
+    final data =
+        await _channel.invokeMapMethod<String, dynamic>(
+          'playbackCapabilities',
+        ) ??
+        {};
+    WallpaperEffect? effect(dynamic value) => switch (value) {
+      'STATIC_IMAGE' => WallpaperEffect.staticImage,
+      'VIDEO' => WallpaperEffect.video,
+      'LAYER_PARALLAX' => WallpaperEffect.parallax,
+      _ => null,
+    };
+    final targets = <WallpaperEffect, Set<WallpaperTarget>>{};
+    for (final entry in ((data['targets'] as Map?) ?? {}).entries) {
+      final item = effect(entry.key);
+      if (item == null) continue;
+      targets[item] = (entry.value as List)
+          .map(
+            (name) => switch (name) {
+              'home' => WallpaperTarget.home,
+              'lock' => WallpaperTarget.lock,
+              'both' => WallpaperTarget.both,
+              _ => null,
+            },
+          )
+          .whereType<WallpaperTarget>()
+          .toSet();
+    }
+    return WallpaperCapabilities(
+      platform: ClientPlatform.android,
+      osVersion: data['osVersion'] as String?,
+      systemChoosesLiveTarget: data['systemChoosesLiveTarget'] == true,
+      setupMessage: data['setupMessage'] as String?,
+      previewEffects: ((data['previewEffects'] as List?) ?? [])
+          .map(effect)
+          .whereType<WallpaperEffect>()
+          .toSet(),
+      targets: targets,
+    );
+  }
+
+  Future<PlatformResult<void>> _invoke(
+    String method,
+    Map<String, String> arguments,
+  ) async {
+    try {
+      final data = await _channel.invokeMapMethod<String, dynamic>(
+        method,
+        arguments,
+      );
+      final status = switch (data?['status']) {
+        'completed' => OperationStatus.completed,
+        'cancelled' => OperationStatus.cancelled,
+        'unsupported' => OperationStatus.unsupported,
+        _ => OperationStatus.unknown,
+      };
+      return PlatformResult(status, message: data?['message'] as String?);
+    } on PlatformException catch (e) {
+      return PlatformResult(
+        OperationStatus.unknown,
+        message: e.message ?? '原生预览或设置暂时不可用',
+      );
+    }
+  }
+
+  @override
+  Future<PlatformResult<void>> open(
+    String resourceId,
+    WallpaperEffect effect,
+  ) => _invoke('previewPackage', {
+    'installedId': resourceId,
+    'resourceType': resourceType(effect),
+  });
+  @override
+  Future<PlatformResult<void>> apply(
+    String installedId,
+    WallpaperEffect effect,
+    WallpaperTarget target,
+  ) => _invoke('applyWallpaper', {
+    'installedId': installedId,
+    'resourceType': resourceType(effect),
+    'target': target.name,
+  });
+}
+
 class SecurePackageDownload {
   const SecurePackageDownload({
     required this.requestId,

@@ -21,10 +21,16 @@ class WallpaperCapabilities {
     required this.platform,
     this.previewEffects = const {},
     this.targets = const {},
+    this.osVersion,
+    this.systemChoosesLiveTarget = false,
+    this.setupMessage,
   });
   final ClientPlatform platform;
   final Set<WallpaperEffect> previewEffects;
   final Map<WallpaperEffect, Set<WallpaperTarget>> targets;
+  final String? osVersion;
+  final bool systemChoosesLiveTarget;
+  final String? setupMessage;
   bool canApply(WallpaperEffect effect, WallpaperTarget target) =>
       targets[effect]?.contains(target) ?? false;
 }

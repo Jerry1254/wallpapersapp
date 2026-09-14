@@ -155,4 +155,28 @@ class SecurePackageVerifierTest {
         try { commit(); fail("Changed cache was reused") } catch (_: Exception) { }
         assertEquals(id,store.current(f.e.slot))
     }
+    @Test fun persistedPackagesRequireOriginalSignatureIdentityAndPayloadBeforeUse() = temporary { root ->
+        val store = AtomicPackageStore(File(root,"store")); val f = fixture()
+        val source = verify(f,root); val stage = store.staging(); source.copyRecursively(stage,overwrite=true)
+        val id = store.commit(stage,f.e); val reader = InstalledPackageVerifier("test-root",signer.public)
+        assertEquals(id,reader.verify(store,id,"STATIC_IMAGE").id)
+        fun rejects(block: () -> Unit) { try { block(); fail("Unchecked installed bytes were used") } catch (_: Exception) {} }
+        rejects { reader.verify(store,id,"VIDEO") }
+        rejects { InstalledPackageVerifier("other-root",signer.public).verify(store,id,"STATIC_IMAGE") }
+        val signature = File(store.directory(id),"manifest.sig"); val original = signature.readBytes()
+        signature.writeBytes(ByteArray(256)); rejects { reader.verify(store,id,"STATIC_IMAGE") }; signature.writeBytes(original)
+        val payload = File(store.directory(id),"payload/static_image-0.png")
+        payload.writeBytes(byteArrayOf(9,9,9)); rejects { reader.verify(store,id,"STATIC_IMAGE") }
+        payload.delete(); Files.createSymbolicLink(payload.toPath(),File(source,"payload/static_image-0.png").toPath())
+        rejects { reader.verify(store,id,"STATIC_IMAGE") }
+    }
+    @Test fun simultaneousPreviewLeasesAndPendingLiveSelectionSurviveCacheCleaning() = temporary { root ->
+        val store = AtomicPackageStore(File(root,"store")); val f = fixture()
+        val source = verify(f,root); val stage = store.staging(); source.copyRecursively(stage,overwrite=true)
+        val id = store.commit(stage,f.e); val first = store.pin(id); val second = store.pin(id)
+        first.close(); first.close(); assertEquals(0L,store.clearUnused()); assertTrue(store.directory(id).isDirectory)
+        second.close(); store.hold("picker",id); assertEquals(0L,store.clearUnused())
+        store.hold("live",id); store.hold("picker",null); assertEquals(id,store.held("live")); assertEquals(0L,store.clearUnused())
+        store.hold("live",null); assertTrue(store.clearUnused() > 0); assertFalse(store.directory(id).exists())
+    }
 }

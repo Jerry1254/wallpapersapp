@@ -28,7 +28,7 @@ import javax.crypto.spec.OAEPParameterSpec
 import javax.crypto.spec.PSource
 
 internal class AndroidPackageDelivery(private val context: Context, private val event: (Map<String, Any>) -> Unit) {
-    private val store = AtomicPackageStore(File(context.filesDir, "wallpaper-packages-v2"))
+    private val store = PackageRuntime.store(context)
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private class Transfer(val id: String) {

@@ -8,6 +8,7 @@ import 'device/device_session.dart';
 import 'entitlements/redemption.dart';
 import 'entitlements/entitlements_screen.dart';
 import 'downloads/download_manager.dart';
+import 'package:wallpaper_android/wallpaper_android.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -94,12 +95,14 @@ class _HomeShellState extends State<HomeShell> {
             repository: widget.repository,
             redemptions: redemptions,
             downloads: downloads,
+            playback: const AndroidWallpaperPlayback(),
           ),
           EntitlementsScreen(
             sessions: widget.sessions,
             catalog: widget.repository,
             redemptions: redemptions,
             downloads: downloads,
+            playback: const AndroidWallpaperPlayback(),
           ),
         ],
       ),

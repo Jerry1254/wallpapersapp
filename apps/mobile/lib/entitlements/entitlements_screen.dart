@@ -6,6 +6,7 @@ import '../detail/help_screen.dart';
 import '../device/device_session.dart';
 import 'redemption.dart';
 import '../downloads/download_manager.dart';
+import 'package:wallpaper_android/wallpaper_android.dart';
 
 class EntitlementsScreen extends StatefulWidget {
   const EntitlementsScreen({
@@ -14,11 +15,13 @@ class EntitlementsScreen extends StatefulWidget {
     required this.catalog,
     required this.redemptions,
     this.downloads,
+    this.playback,
   });
   final DeviceSessionManager sessions;
   final CatalogRepository catalog;
   final RedemptionCoordinator redemptions;
   final DownloadManager? downloads;
+  final AndroidWallpaperPlayback? playback;
   @override
   State<EntitlementsScreen> createState() => _EntitlementsScreenState();
 }
@@ -157,6 +160,7 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
                   repository: widget.catalog,
                   id: item.id,
                   downloads: widget.downloads,
+                  playback: widget.playback,
                   redemptions: widget.redemptions,
                 ),
               ),

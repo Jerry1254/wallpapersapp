@@ -11,6 +11,10 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.EventChannel
 import com.qingjing.wallpaper_android.install.AndroidPackageDelivery
+import com.qingjing.wallpaper_android.playback.WallpaperPlaybackBridge
+import com.qingjing.wallpaper_android.playback.LiveSelection
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.MessageDigest
@@ -18,11 +22,13 @@ import java.security.PrivateKey
 import java.security.Signature
 import java.util.concurrent.Executors
 
-class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
+class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware {
     private lateinit var channel: MethodChannel
     private lateinit var context: Context
     private lateinit var delivery: AndroidPackageDelivery
     private lateinit var events: EventChannel
+    private lateinit var playback: WallpaperPlaybackBridge
+    private var activityBinding: ActivityPluginBinding? = null
     private var eventSink: EventChannel.EventSink? = null
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -41,11 +47,12 @@ class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             override fun onCancel(arguments: Any?) { eventSink = null }
         })
         delivery = AndroidPackageDelivery(context) { eventSink?.success(it) }
+        playback = WallpaperPlaybackBridge(context)
     }
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
         events.setStreamHandler(null); eventSink = null; delivery.close()
-        worker.shutdown()
+        playback.close(); worker.shutdown()
     }
     private fun keyStore(): KeyStore = synchronized(keyLock) {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -78,6 +85,8 @@ class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
     private fun url64(bytes: ByteArray) = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        if (call.method == "previewPackage" || call.method == "applyWallpaper") { playback.launch(call,result); return }
+        if (call.method == "debugPlaybackState") { try { result.success(playback.debugState()) } catch (_: Exception) { result.error("UNAVAILABLE","调试状态不可用",null) }; return }
         if (call.method == "installPackage" || call.method == "cancelDownload") {
             try {
                 if (call.method == "installPackage") delivery.start(call.arguments as Map<*, *>, result)
@@ -89,8 +98,9 @@ class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             try {
                 val response: Any? = when (call.method) {
                     "deliveryInfo" -> delivery.info()
+                    "playbackCapabilities" -> playback.information()
                     "installedPackage" -> delivery.current(call.argument<String>("wallpaperId") ?: throw IllegalArgumentException(),call.argument<String>("resourceType") ?: throw IllegalArgumentException())
-                    "clearPackageCache" -> delivery.clearUnused()
+                    "clearPackageCache" -> { LiveSelection.pending(context); delivery.clearUnused() }
                     "encryptionPublicKey" -> encryptionPublicKey()
                     "identity" -> {
                         val key = keyStore().getCertificate(ALIAS).publicKey.encoded
@@ -142,4 +152,9 @@ class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             }
         }
     }
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) { activityBinding = binding; playback.activity = binding.activity; binding.addActivityResultListener(playback) }
+    override fun onDetachedFromActivityForConfigChanges() { detachActivity() }
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) { onAttachedToActivity(binding) }
+    override fun onDetachedFromActivity() { detachActivity(); playback.close() }
+    private fun detachActivity() { activityBinding?.removeActivityResultListener(playback); activityBinding = null; playback.activity = null }
 }

@@ -1,0 +1,4 @@
+<resources>
+    <string name="qj_video_wallpaper_name">倾境视频壁纸</string>
+    <string name="qj_video_wallpaper_description">循环播放已安全安装的视频；桌面和锁屏使用同一服务时共用视频。设置位置由手机系统选择。</string>
+</resources>

@@ -8,6 +8,7 @@ import '../entitlements/redemption_dialog.dart';
 import 'help_screen.dart';
 import '../downloads/download_manager.dart';
 import '../downloads/download_panel.dart';
+import 'package:wallpaper_android/wallpaper_android.dart';
 
 class DetailScreen extends StatefulWidget {
   const DetailScreen({
@@ -19,12 +20,14 @@ class DetailScreen extends StatefulWidget {
     this.capabilities = const WallpaperCapabilities(
       platform: ClientPlatform.android,
     ),
+    this.playback,
   });
   final CatalogRepository repository;
   final String id;
   final RedemptionCoordinator? redemptions;
   final DownloadManager? downloads;
   final WallpaperCapabilities capabilities;
+  final AndroidWallpaperPlayback? playback;
   @override
   State<DetailScreen> createState() => _DetailScreenState();
 }
@@ -32,10 +35,19 @@ class DetailScreen extends StatefulWidget {
 class _DetailScreenState extends State<DetailScreen> {
   late Future<Wallpaper> future;
   WallpaperEffect? selected;
+  late WallpaperCapabilities capabilities = widget.capabilities;
   @override
   void initState() {
     super.initState();
     future = widget.repository.detail(widget.id);
+    _capabilities();
+  }
+
+  Future<void> _capabilities() async {
+    try {
+      final data = await widget.playback?.capabilities();
+      if (mounted && data != null) setState(() => capabilities = data);
+    } catch (_) {}
   }
 
   @override
@@ -87,7 +99,8 @@ class _DetailScreenState extends State<DetailScreen> {
         final wallpaper = snapshot.requireData;
         final effects = deliveryEffects(
           wallpaper,
-          widget.capabilities.platform,
+          capabilities.platform,
+          osVersion: capabilities.osVersion,
         );
         final effect = effects.contains(selected)
             ? selected
@@ -146,12 +159,23 @@ class _DetailScreenState extends State<DetailScreen> {
                 contentPadding: EdgeInsets.zero,
                 title: Text(targetLabel(target)),
                 trailing: Text(
-                  effect != null && widget.capabilities.canApply(effect, target)
+                  effect != null && capabilities.canApply(effect, target)
                       ? '可用'
                       : '尚不可用',
                 ),
               ),
             ),
+            if (effect == WallpaperEffect.video &&
+                capabilities.systemChoosesLiveTarget)
+              const Text('视频设置位置由手机系统选择；不保证每台手机都有锁屏或两者选项。两处使用倾境视频服务时共用同一视频。'),
+            if (effect == WallpaperEffect.video &&
+                (capabilities.setupMessage?.isNotEmpty ?? false)) ...[
+              Text(capabilities.setupMessage!),
+              TextButton(
+                onPressed: _capabilities,
+                child: const Text('重新检测手机能力'),
+              ),
+            ],
             if (widget.downloads != null && effect != null) ...[
               const SizedBox(height: 12),
               DownloadPanel(
@@ -163,18 +187,20 @@ class _DetailScreenState extends State<DetailScreen> {
                   WallpaperEffect.video => 'VIDEO',
                   WallpaperEffect.parallax => 'LAYER_PARALLAX',
                 },
+                playback: widget.playback,
+                capabilities: capabilities,
               ),
             ],
-            const Text('原生预览和系统设置尚未接入。资源类型匹配不代表手机支持设置；能力确认前不消耗兑换额度。'),
+            if (effect == null || !capabilities.previewEffects.contains(effect))
+              const Text('此效果的原生预览或系统设置尚不可用；能力确认前不消耗兑换额度。'),
             const SizedBox(height: 16),
             FilledButton(
               onPressed:
                   widget.redemptions != null &&
                       effect != null &&
-                      widget.capabilities.previewEffects.contains(effect) &&
+                      capabilities.previewEffects.contains(effect) &&
                       WallpaperTarget.values.any(
-                        (target) =>
-                            widget.capabilities.canApply(effect, target),
+                        (target) => capabilities.canApply(effect, target),
                       )
                   ? () => showDialog<void>(
                       context: context,
@@ -184,7 +210,7 @@ class _DetailScreenState extends State<DetailScreen> {
                       ),
                     )
                   : null,
-              child: const Text('兑换壁纸（需原生能力就绪）'),
+              child: const Text('兑换壁纸'),
             ),
             if (wallpaper.copyright?.isNotEmpty ?? false) ...[
               const SizedBox(height: 20),

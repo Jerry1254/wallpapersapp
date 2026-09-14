@@ -109,7 +109,7 @@ internal class SecurePackageVerifier(private val media: (PackageFile, File) -> M
             }
         }
     }
-    private fun manifest(bytes: ByteArray, e: PackageExpectation): List<PackageFile> {
+    internal fun manifest(bytes: ByteArray, e: PackageExpectation): List<PackageFile> {
         val root = fields(StrictJson.parse(bytes), setOf("formatVersion", "wallpaperId", "variantId", "versionNo", "resourceType", "signingKeyId", "files"))
         require(root["formatVersion"] == 2L && root["wallpaperId"] == e.wallpaperId && root["variantId"] == e.variantId &&
             root["versionNo"] == e.versionNo.toLong() && root["resourceType"] == e.type && root["signingKeyId"] == e.signingKeyId)
