@@ -77,3 +77,7 @@
     app/build/outputs/apk/debug/app-debug.apk
 
 正式混合工程建立后，该验证代码将迁入 poc/android-java，并把可复用逻辑迁入 Flutter Android 插件。
+
+## 三平台 App 后续规划（2026-09-14）
+
+用户已要求 Android、iOS、HarmonyOS 一起首发，苹果接入内购，其他端保留兑换码。后续按 [PM-004 三平台 App 实施与版本管理规划](docs/10-项目管理/PM-004-三平台App实施与版本管理规划.md) 组织平台验证、工程复用、权益扩展和版本发布。上文及旧冻结文档中的 Android 首发范围属于此前阶段；本轮仅交付规划，尚未实现三端正式客户端或苹果支付。
