@@ -1,0 +1,105 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+class HelpScreen extends StatelessWidget {
+  const HelpScreen({super.key, this.customerService = false});
+  final bool customerService;
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text(customerService ? '微信客服' : '壁纸设计与设置教程')),
+    body: ListView(
+      padding: const EdgeInsets.all(20),
+      children: customerService
+          ? [
+              const Text(
+                '需要帮助？',
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 16),
+              const SelectableText('客服微信：qingjing_service'),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: () async {
+                  try {
+                    await Clipboard.setData(
+                      const ClipboardData(text: 'qingjing_service'),
+                    );
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(const SnackBar(content: Text('客服微信已复制')));
+                    }
+                  } catch (_) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('复制失败，请手动选择文字复制')),
+                      );
+                    }
+                  }
+                },
+                child: const Text('复制客服微信'),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                '联系客服时可说明手机型号、系统版本和问题步骤。正式设备支持编号将在身份接入后提供。请勿发送兑换码、密钥或会话凭据。',
+              ),
+              TextButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(builder: (_) => const HelpScreen()),
+                ),
+                child: const Text('查看教程'),
+              ),
+            ]
+          : [
+              _lesson(
+                '01 静态壁纸',
+                '准备适合竖屏显示的完整画面，推荐比例 1:2。主体避开顶部时间与底部手势区域，可使用 JPG、PNG 或 WebP。',
+              ),
+              _lesson(
+                '02 Android 4D 分层',
+                '至少准备背景和透明前景，背景四周补全移动安全区域，前景使用透明 PNG。倾斜效果与实际传感器能力有关。',
+              ),
+              _lesson('03 动态效果素材', '建议使用 6–12 秒、无声、首尾自然衔接的素材，避免快速闪烁或强烈位移。'),
+              _lesson(
+                '04 获得与设置',
+                '选择当前设备可用的作品，获得权益后下载并校验资源，再预览或进入系统设置。桌面、锁屏与两者的选项按系统实际提供；取消或无法查询结果时不会显示设置成功。',
+              ),
+              _lesson(
+                '05 试用边界',
+                '两分钟试用只在 App 内展示，不设置系统壁纸、不授予权益。当前原生能力尚未接入时不会以封面替代真实效果。',
+              ),
+              _lesson(
+                '06 提交素材与授权',
+                '按壁纸名称整理原图、分层和效果说明，注明平台并保留设计文件。只提交拥有使用权的素材，人物照片须有肖像授权，保留来源与授权记录。',
+              ),
+              TextButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const HelpScreen(customerService: true),
+                  ),
+                ),
+                child: const Text('联系客服'),
+              ),
+            ],
+    ),
+  );
+  Widget _lesson(String title, String content) => Card(
+    margin: const EdgeInsets.only(bottom: 16),
+    child: Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 12),
+          Text(content, style: const TextStyle(height: 1.6)),
+        ],
+      ),
+    ),
+  );
+}

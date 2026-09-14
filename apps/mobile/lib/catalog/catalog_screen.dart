@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:qingjing_design_tokens/qingjing_design_tokens.dart';
 import 'catalog.dart';
+import '../detail/detail_screen.dart';
+import 'catalog_image.dart';
 
 class CatalogScreen extends StatefulWidget {
   const CatalogScreen({
@@ -277,9 +279,15 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     borderRadius: BorderRadius.circular(22),
                     clipBehavior: Clip.antiAlias,
                     child: InkWell(
-                      onTap: () => ScaffoldMessenger.of(
+                      onTap: () => Navigator.push(
                         context,
-                      ).showSnackBar(const SnackBar(content: Text('详情功能正在接入'))),
+                        MaterialPageRoute<void>(
+                          builder: (_) => DetailScreen(
+                            repository: widget.repository,
+                            id: item.id,
+                          ),
+                        ),
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -356,32 +364,4 @@ class _CatalogScreenState extends State<CatalogScreen> {
       ],
     ),
   );
-}
-
-class CatalogImage extends StatelessWidget {
-  const CatalogImage({super.key, required this.repository, required this.path});
-  final CatalogRepository repository;
-  final String path;
-  @override
-  Widget build(BuildContext context) {
-    final fallback = Container(
-      color: QingjingWallpaperTokens.colorSurfaceStrong,
-      alignment: Alignment.center,
-      child: const Icon(
-        Icons.image_outlined,
-        color: QingjingWallpaperTokens.colorMutedInk,
-      ),
-    );
-    try {
-      return Image.network(
-        repository.media(path).toString(),
-        fit: BoxFit.cover,
-        errorBuilder: (_, error, stack) => fallback,
-        loadingBuilder: (_, child, progress) =>
-            progress == null ? child : fallback,
-      );
-    } catch (_) {
-      return fallback;
-    }
-  }
 }

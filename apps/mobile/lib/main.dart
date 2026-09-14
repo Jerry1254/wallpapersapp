@@ -3,6 +3,7 @@ import 'package:qingjing_design_tokens/qingjing_design_tokens.dart';
 import 'config/app_config.dart';
 import 'catalog/catalog.dart';
 import 'catalog/catalog_screen.dart';
+import 'detail/help_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -46,13 +47,27 @@ class _HomeShellState extends State<HomeShell> {
   int index = 0;
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(index == 0 ? '倾境壁纸' : '我的')),
+    appBar: AppBar(
+      title: Text(index == 0 ? '倾境壁纸' : '我的'),
+      actions: [
+        IconButton(
+          tooltip: '客服',
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => const HelpScreen(customerService: true),
+            ),
+          ),
+          icon: const Icon(Icons.support_agent),
+        ),
+      ],
+    ),
     body: SafeArea(
       child: IndexedStack(
         index: index,
         children: [
           CatalogScreen(repository: widget.repository),
-          const Padding(
+          Padding(
             padding: EdgeInsets.all(20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -62,7 +77,14 @@ class _HomeShellState extends State<HomeShell> {
                   style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
                 ),
                 SizedBox(height: 16),
-                Text('正式设备身份接入后，展示已获得的壁纸'),
+                const Text('正式设备身份接入后，展示已获得的壁纸'),
+                TextButton(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(builder: (_) => const HelpScreen()),
+                  ),
+                  child: const Text('壁纸教程'),
+                ),
               ],
             ),
           ),
