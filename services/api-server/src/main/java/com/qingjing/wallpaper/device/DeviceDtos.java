@@ -14,7 +14,7 @@ public final class DeviceDtos {
 
     public enum CredentialType { PLATFORM_PUBLIC_KEY, H5_TEST_SECRET }
 
-    public enum ChallengeAlgorithm { ED25519, ECDSA_P256_SHA256, HMAC_SHA256 }
+    public enum ChallengeAlgorithm { ED25519, ECDSA_P256_SHA256, RSA_SHA256, HMAC_SHA256 }
 
     public record DeviceRegistrationRequest(
             @NotNull DevicePlatform platform,

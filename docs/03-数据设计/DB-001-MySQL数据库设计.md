@@ -1,9 +1,9 @@
 # DB-001 MySQL 数据库设计
 
 **状态：** 已确认  
-**版本：** V1.0.1
+**版本：** V1.1.0
 
-**日期：** 2026-09-13
+**日期：** 2026-09-14
 **数据库：** MySQL 8.4 LTS  
 **关联领域：** [DM-001 统一领域模型](DM-001-统一领域模型.md)  
 **适用阶段：** WP-P02 至 WP-P12
@@ -221,7 +221,7 @@ erDiagram
 | `last_seen_at` | `DATETIME(6)` | 否 | 最近成功会话时间 |
 | `lock_version` | `BIGINT` | 否 | 凭据轮换和内部状态变更 |
 
-唯一约束 `(platform, app_install_scope, evidence_hash)` 用于同设备自动关联。H5 测试证据和正式 App 证据使用不同 `app_install_scope`，禁止把测试设备升级为生产设备。
+唯一约束 `(platform, app_install_scope, evidence_hash)` 用于同一已验证证据关联；Android 仅限同安装公钥，不是卸载后的物理设备自动关联。H5 测试证据和正式 App 证据使用不同 `app_install_scope`，禁止把测试设备升级为生产设备。
 
 ### 5.9 `device_credential`
 
@@ -510,3 +510,9 @@ WP-P04 将使用空库迁移和集成测试验证以下查询：
 - 空库迁移、重复启动、从 V1 升级到后续版本均通过。
 - Testcontainers 集成测试覆盖分类层级、单发布版本、权益唯一、兑换幂等和并发额度。
 - 生产迁移与应用启动解耦；迁移失败时不切换 API 流量。
+
+## 1.1.0 Android 安装身份增补
+
+WP-A03 按 [SEC-002](../05-安全与合规/SEC-002-Android安装身份协议.md) 使用 Keystore RSA 2048 安装公钥持钥证明，挑战新增 RSA_SHA256。注册证据为签名时间/nonce/proof，同密钥新证明恢复同一 ACTIVE credential，禁用/撤销拒绝；不证明物理设备唯一性或 APK 来源。清数据/卸载丢失密钥后无自动权益迁移。Android evidence_hash 为 HMAC(scope + 公钥 DER 指纹)，公钥写入已有 public_key_pem，secret_hash 为空。
+
+数据库结构无变化，Flyway V1 字节保持；不创建无必要 V2。H5 HMAC 流程兼容，消费者枚举兼容新增算法但 H5 仍拒绝非 HMAC。历史 1.0.1 快照保留，当前 1.1.0 审核快照记录本次字段语义与 DTO 变更，验收结果见 WP-A03。

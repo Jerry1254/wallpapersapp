@@ -8,6 +8,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties("qingjing.device")
 public class DeviceProperties {
 
+    private boolean androidEnabled;
+    private List<String> allowedAndroidScopes = new ArrayList<>();
+    public boolean isAndroidEnabled() { return androidEnabled; }
+    public void setAndroidEnabled(boolean value) { androidEnabled = value; }
+    public List<String> getAllowedAndroidScopes() { return List.copyOf(allowedAndroidScopes); }
+    public void setAllowedAndroidScopes(List<String> value) { allowedAndroidScopes = new ArrayList<>(value); }
+
     private boolean h5TestEnabled;
     private List<String> allowedH5Scopes = new ArrayList<>();
     private Duration challengeTtl = Duration.ofMinutes(2);

@@ -21,3 +21,5 @@ npm run baseline:check
 生成单文件 bundle 时执行 `npm run bundle`，产物写入已被 Git 忽略的 `dist/`。
 
 `npm test` 同时检查直接 Java ApiException 字面量错误码是否在 ErrorCode 中；它不证明动态错误或所有运行时响应均满足契约。正式平台设备验证与 SECURE_PACKAGE 当前未实现，App 接入顺序与前置条件见 [PM-003](../../docs/10-项目管理/PM-003-App开工门禁与接入清单.md)。
+
+WP-A03 当前兼容扩展为 1.1.0：Android 安装 RSA 持钥证明、RSA_SHA256 挑战算法与注册 401 响应；仍为 47 操作/72 Schema。当前 baseline-v1.json 包含原九文件和 SEC-002 共十项，六个原文件的计划变更已审阅；V1 SQL/Token 字节未改。baseline-v1.0.1.json 为原快照逐字节归档，可在 78cb4c0 历史树验证，不能用当前树假装旧快照通过。检查脚本不生成或重写摘要。

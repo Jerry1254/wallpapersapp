@@ -1059,6 +1059,75 @@ class InfrastructureIntegrationIT {
         return output.toByteArray();
     }
 
+    @Autowired
+    com.qingjing.wallpaper.device.DeviceIdentityService androidIdentity;
+
+    @Test
+    void androidInstallationProofSessionReplayAndRevocationUseRealInfrastructure() throws Exception {
+        java.security.KeyPairGenerator generator = java.security.KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        java.security.KeyPair key = generator.generateKeyPair();
+        Map<String, Object> registration = androidRegistration(key);
+        ResponseEntity<JsonNode> registered = http.postForEntity("/api/v1/device/registrations", registration, JsonNode.class);
+        assertThat(registered.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String keyId = registered.getBody().path("credentialKeyId").asText();
+        assertThat(registered.getBody().path("credentialType").asText()).isEqualTo("PLATFORM_PUBLIC_KEY");
+        assertThat(registered.getBody().path("credentialSecret").isNull() || registered.getBody().path("credentialSecret").isMissingNode()).isTrue();
+        ResponseEntity<JsonNode> replay = http.postForEntity("/api/v1/device/registrations", registration, JsonNode.class);
+        assertThat(replay.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(replay.getBody().path("error").path("code").asText()).isEqualTo("REQUEST_NONCE_REUSED");
+        ResponseEntity<JsonNode> restored = http.postForEntity("/api/v1/device/registrations", androidRegistration(key), JsonNode.class);
+        assertThat(restored.getBody().path("credentialKeyId").asText()).isEqualTo(keyId);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM device_credential WHERE credential_key_id=? AND secret_hash IS NULL", Integer.class, keyId)).isEqualTo(1);
+        ResponseEntity<JsonNode> challenge = http.postForEntity("/api/v1/device/session-challenges", Map.of("credentialKeyId", keyId), JsonNode.class);
+        assertThat(challenge.getBody().path("algorithm").asText()).isEqualTo("RSA_SHA256");
+        String timestamp = Instant.now().toString();
+        String challengeId = challenge.getBody().path("challengeId").asText();
+        String payload = "QJ-DEVICE-SESSION-V1\n" + keyId + "\n" + challengeId + "\n" + challenge.getBody().path("nonce").asText() + "\n" + timestamp;
+        Map<String, Object> sessionBody = Map.of("credentialKeyId",keyId,"challengeId",challengeId,"clientTimestamp",timestamp,"proof",androidSign(key,payload));
+        ResponseEntity<JsonNode> session = http.postForEntity("/api/v1/device/sessions", sessionBody, JsonNode.class);
+        assertThat(session.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(session.getBody().path("platform").asText()).isEqualTo("ANDROID");
+        assertThat(http.postForEntity("/api/v1/device/sessions", sessionBody, JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        String token = session.getBody().path("accessToken").asText();
+        var principal = androidIdentity.requireSession(token);
+        String nonce = UUID.randomUUID().toString();
+        byte[] body = "{}".getBytes(StandardCharsets.UTF_8);
+        String signedPayload = "QJ-SIGNED-REQUEST-V1\nPOST\n/api/v1/device/redemptions\n"+timestamp+"\n"+nonce+"\n"+java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(body));
+        String signature = androidSign(key,signedPayload);
+        assertThatThrownBy(() -> androidIdentity.verifySignedRequest(principal,"POST","/api/v1/device/redemptions",timestamp,nonce,"tampered".getBytes(StandardCharsets.UTF_8),signature))
+                .isInstanceOf(com.qingjing.wallpaper.shared.web.ApiException.class);
+        androidIdentity.verifySignedRequest(principal,"POST","/api/v1/device/redemptions",timestamp,nonce,body,signature);
+        assertThatThrownBy(() -> androidIdentity.verifySignedRequest(principal,"POST","/api/v1/device/redemptions",timestamp,nonce,body,signature))
+                .isInstanceOf(com.qingjing.wallpaper.shared.web.ApiException.class)
+                .extracting(e -> ((com.qingjing.wallpaper.shared.web.ApiException)e).code()).isEqualTo("REQUEST_NONCE_REUSED");
+        Long nonceTtl = redis.getExpire("device:signed-nonce:"+keyId+":"+nonce);
+        assertThat(nonceTtl).isGreaterThan(590L);
+        jdbc.update("UPDATE device_credential SET status='REVOKED',revoked_at=UTC_TIMESTAMP(6) WHERE credential_key_id=?", keyId);
+        assertThatThrownBy(() -> androidIdentity.requireSession(token)).isInstanceOf(com.qingjing.wallpaper.shared.web.ApiException.class);
+        ResponseEntity<JsonNode> revoked = http.postForEntity("/api/v1/device/registrations", androidRegistration(key), JsonNode.class);
+        assertThat(revoked.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(revoked.getBody().path("error").path("code").asText()).isEqualTo("CREDENTIAL_REVOKED");
+        ResponseEntity<JsonNode> newInstallation = http.postForEntity("/api/v1/device/registrations", androidRegistration(generator.generateKeyPair()), JsonNode.class);
+        assertThat(newInstallation.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(newInstallation.getBody().path("credentialKeyId").asText()).isNotEqualTo(keyId);
+    }
+
+    private Map<String, Object> androidRegistration(java.security.KeyPair key) throws Exception {
+        String scope="android-integration", timestamp=Instant.now().toString(), nonce=UUID.randomUUID().toString();
+        byte[] encoded=key.getPublic().getEncoded();
+        String fingerprint=java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(encoded));
+        String payload="QJ-ANDROID-REGISTER-V1\n"+scope+"\n"+fingerprint+"\n"+timestamp+"\n"+nonce;
+        String evidence=Base64.getUrlEncoder().withoutPadding().encodeToString(objectMapper.writeValueAsBytes(Map.of("timestamp",timestamp,"nonce",nonce,"proof",androidSign(key,payload))));
+        String pem="-----BEGIN PUBLIC KEY-----\n"+Base64.getMimeEncoder(64,new byte[]{10}).encodeToString(encoded)+"\n-----END PUBLIC KEY-----";
+        return Map.of("platform","ANDROID","appInstallScope",scope,"credentialType","PLATFORM_PUBLIC_KEY","publicKeyPem",pem,"evidenceToken",evidence);
+    }
+    private static String androidSign(java.security.KeyPair key, String payload) throws Exception {
+        java.security.Signature signer=java.security.Signature.getInstance("SHA256withRSA");
+        signer.initSign(key.getPrivate()); signer.update(payload.getBytes(StandardCharsets.UTF_8));
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(signer.sign());
+    }
+
     private record AdminTestSession(String cookie, String csrf) {
     }
 

@@ -4,6 +4,7 @@ import 'config/app_config.dart';
 import 'catalog/catalog.dart';
 import 'catalog/catalog_screen.dart';
 import 'detail/help_screen.dart';
+import 'device/device_session.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,12 +33,18 @@ class QingjingApp extends StatelessWidget {
     ),
     home: HomeShell(
       repository: repository ?? HttpCatalogRepository(config.apiBase),
+      sessions: DeviceSessionManager(HttpDeviceTransport(config.apiBase)),
     ),
   );
 }
 
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key, required this.repository});
+  const HomeShell({
+    super.key,
+    required this.repository,
+    required this.sessions,
+  });
+  final DeviceSessionManager sessions;
   final CatalogRepository repository;
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -45,6 +52,36 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
+  bool connecting = false;
+  String identityMessage = '连接设备身份后，读取已获得的壁纸';
+  Future<void> connectIdentity() async {
+    setState(() {
+      connecting = true;
+    });
+    try {
+      await widget.sessions.authenticated('/device/me/entitlements');
+      if (mounted) {
+        setState(() {
+          identityMessage = 'Android 安装身份已验证，权益服务连接正常';
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          identityMessage = error is DeviceApiError
+              ? error.message
+              : '安装凭据暂时不可用，请重试或联系客服';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          connecting = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -77,7 +114,11 @@ class _HomeShellState extends State<HomeShell> {
                   style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
                 ),
                 SizedBox(height: 16),
-                const Text('正式设备身份接入后，展示已获得的壁纸'),
+                Text(identityMessage),
+                FilledButton(
+                  onPressed: connecting ? null : connectIdentity,
+                  child: Text(connecting ? '正在验证…' : '连接设备身份'),
+                ),
                 TextButton(
                   onPressed: () => Navigator.push(
                     context,

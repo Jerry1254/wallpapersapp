@@ -32,3 +32,5 @@ flutter build apk --release --flavor local
 不涉及数据库迁移。H5/API 1.0.1 的历史冻结字节保留；Android 架构增补见 ARC-002，身份与交付契约在所属工作包显式版本化。
 
 只读本地目录联调测试：`flutter test test/catalog_local_test.dart --dart-define=LOCAL_API=http://127.0.0.1:8080/api/v1`。普通 CI 不依赖本机夹具；不指定 LOCAL_API 时该用例明确跳过。
+
+WP-A03 工作树 API 可用 `scripts/android-local-api.sh` 启动：显式设置 QJ_LOCAL_ENV_FILE 为已有本地 compose.env、QJ_STORAGE_ROOT 为同一本地存储。默认使用 8081，不停止现有 8080；APK 构建传入 http://127.0.0.1:8081/api/v1，并执行 adb reverse tcp:8081 tcp:8081。脚本固定 UTF-8，避免 macOS 中文目录被错误解析。不得指向生产环境。

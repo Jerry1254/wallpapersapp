@@ -35,6 +35,7 @@ public class DeviceIdentityService {
     private final SecurityCrypto crypto;
     private final RedisRateLimiter rateLimiter;
     private final DeviceProperties properties;
+    private final AndroidCredentialProof androidProof;
 
     public DeviceIdentityService(
             JdbcTemplate jdbc,
@@ -42,17 +43,19 @@ public class DeviceIdentityService {
             ObjectMapper objectMapper,
             SecurityCrypto crypto,
             RedisRateLimiter rateLimiter,
-            DeviceProperties properties) {
+            DeviceProperties properties, AndroidCredentialProof androidProof) {
         this.jdbc = jdbc;
         this.redis = redis;
         this.objectMapper = objectMapper;
         this.crypto = crypto;
         this.rateLimiter = rateLimiter;
         this.properties = properties;
+        this.androidProof = androidProof;
     }
 
     @Transactional
     public DeviceRegistrationResponse register(DeviceRegistrationRequest request, String remoteAddress) {
+        if (request.platform() == DevicePlatform.ANDROID) return registerAndroid(request, remoteAddress);
         validateRegistration(request);
         String scope = request.appInstallScope().strip();
         String evidenceHash = crypto.hmacHex("device-evidence-v1", request.evidenceToken());
@@ -107,15 +110,12 @@ public class DeviceIdentityService {
         requireUuid(credentialKeyId, "credentialKeyId");
         CredentialRow credential = requireCredential(credentialKeyId);
         rateLimiter.require("device-challenge", remoteAddress + "\n" + credentialKeyId, 20, Duration.ofMinutes(1));
-        if (credential.credentialType() != CredentialType.H5_TEST_SECRET) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "DEVICE_PROVIDER_UNAVAILABLE", "The credential provider is not available");
-        }
         String challengeId = UUID.randomUUID().toString();
         String nonce = crypto.randomToken(32);
         Instant expiresAt = Instant.now().plus(properties.getChallengeTtl());
         ChallengeData data = new ChallengeData(credentialKeyId, nonce, expiresAt);
         redis.opsForValue().set(CHALLENGE_PREFIX + challengeId, write(data), properties.getChallengeTtl());
-        return new DeviceSessionChallenge(challengeId, nonce, ChallengeAlgorithm.HMAC_SHA256, expiresAt);
+        return new DeviceSessionChallenge(challengeId, nonce, credential.credentialType() == CredentialType.PLATFORM_PUBLIC_KEY ? ChallengeAlgorithm.RSA_SHA256 : ChallengeAlgorithm.HMAC_SHA256, expiresAt);
     }
 
     @Transactional
@@ -135,23 +135,21 @@ public class DeviceIdentityService {
         if (!challenge.credentialKeyId().equals(request.credentialKeyId()) || challenge.expiresAt().isBefore(Instant.now())) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "CHALLENGE_INVALID", "The challenge is invalid or expired");
         }
-        if (credential.credentialType() != CredentialType.H5_TEST_SECRET) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "DEVICE_PROVIDER_UNAVAILABLE", "The credential provider is not available");
-        }
-        String secret = credentialSecret(request.credentialKeyId());
-        String expectedStoredHash = crypto.hmacHex("device-credential-record-v1", secret);
-        if (!crypto.constantTimeEquals(expectedStoredHash, credential.secretHash())) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "CREDENTIAL_INVALID", "The credential is invalid");
-        }
         String payload = "QJ-DEVICE-SESSION-V1\n"
                 + request.credentialKeyId() + "\n"
                 + request.challengeId() + "\n"
                 + challenge.nonce() + "\n"
                 + request.clientTimestamp();
-        String expectedProof = crypto.hmacBase64UrlWithKey(secret, payload);
-        if (!crypto.constantTimeEquals(expectedProof, request.proof())) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "PROOF_INVALID", "The device proof is invalid");
+        boolean valid;
+        if (credential.credentialType() == CredentialType.PLATFORM_PUBLIC_KEY) {
+            valid = credential.platform() == DevicePlatform.ANDROID
+                    && androidProof.verify(credential.publicKeyPem(), payload, request.proof());
+        } else {
+            String secret = credentialSecret(request.credentialKeyId());
+            valid = crypto.constantTimeEquals(crypto.hmacHex("device-credential-record-v1", secret), credential.secretHash())
+                    && crypto.constantTimeEquals(crypto.hmacBase64UrlWithKey(secret, payload), request.proof());
         }
+        if (!valid) throw new ApiException(HttpStatus.UNAUTHORIZED, "PROOF_INVALID", "The device proof is invalid");
 
         Instant expiresAt = Instant.now().plus(properties.getSessionTtl());
         String accessToken = crypto.randomToken(32);
@@ -180,6 +178,7 @@ public class DeviceIdentityService {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "SESSION_EXPIRED", "The device session has expired");
         }
         SessionData session = read(stored, SessionData.class);
+        requireProvider(session.credentialType(), session.platform());
         if (session.expiresAt().isBefore(Instant.now())) {
             redis.delete(sessionKey(accessToken));
             throw new ApiException(HttpStatus.UNAUTHORIZED, "SESSION_EXPIRED", "The device session has expired");
@@ -223,17 +222,19 @@ public class DeviceIdentityService {
                 + timestampValue + "\n"
                 + nonce + "\n"
                 + bodyHash;
-        if (session.credentialType() != CredentialType.H5_TEST_SECRET) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "DEVICE_PROVIDER_UNAVAILABLE", "The credential provider is not available");
+        boolean valid;
+        if (session.credentialType() == CredentialType.PLATFORM_PUBLIC_KEY) {
+            CredentialRow credential = requireCredential(session.credentialKeyId());
+            valid = credential.platform() == DevicePlatform.ANDROID
+                    && androidProof.verify(credential.publicKeyPem(), payload, suppliedSignature);
+        } else {
+            valid = crypto.constantTimeEquals(crypto.hmacBase64UrlWithKey(credentialSecret(session.credentialKeyId()), payload), suppliedSignature);
         }
-        String expected = crypto.hmacBase64UrlWithKey(credentialSecret(session.credentialKeyId()), payload);
-        if (!crypto.constantTimeEquals(expected, suppliedSignature)) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "REQUEST_SIGNATURE_INVALID", "The request signature is invalid");
-        }
+        if (!valid) throw new ApiException(HttpStatus.FORBIDDEN, "REQUEST_SIGNATURE_INVALID", "The request signature is invalid");
         Boolean accepted = redis.opsForValue().setIfAbsent(
                 "device:signed-nonce:" + session.credentialKeyId() + ":" + nonce,
                 "1",
-                properties.getNonceTtl());
+                replayTtl());
         if (!Boolean.TRUE.equals(accepted)) {
             throw new ApiException(HttpStatus.CONFLICT, "REQUEST_NONCE_REUSED", "The request nonce has already been used");
         }
@@ -245,6 +246,55 @@ public class DeviceIdentityService {
                 session.credentialKeyId(),
                 session.platform(),
                 session.credentialType());
+    }
+
+    private void requireProvider(CredentialType type, DevicePlatform platform) {
+        boolean allowed = type == CredentialType.PLATFORM_PUBLIC_KEY
+                ? platform == DevicePlatform.ANDROID && properties.isAndroidEnabled()
+                : platform == DevicePlatform.H5_TEST && properties.isH5TestEnabled();
+        if (!allowed) throw new ApiException(HttpStatus.FORBIDDEN, "DEVICE_PROVIDER_UNAVAILABLE", "The credential provider is not available");
+    }
+
+    private Duration replayTtl() {
+        Duration window = properties.getClockSkew().multipliedBy(2).plusSeconds(1);
+        return properties.getNonceTtl().compareTo(window) > 0 ? properties.getNonceTtl() : window;
+    }
+
+    private DeviceRegistrationResponse registerAndroid(DeviceRegistrationRequest request, String remoteAddress) {
+        String scope = request.appInstallScope().strip();
+        if (!properties.isAndroidEnabled() || request.credentialType() != CredentialType.PLATFORM_PUBLIC_KEY
+                || !properties.getAllowedAndroidScopes().contains(scope)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "DEVICE_PROVIDER_NOT_ALLOWED", "The Android provider is not enabled for this scope");
+        }
+        rateLimiter.require("android-registration", remoteAddress, 30, Duration.ofMinutes(1));
+        AndroidCredentialProof.Registration proof = androidProof.verifyRegistration(scope, request.publicKeyPem(),
+                request.evidenceToken(), Instant.now(), properties.getClockSkew());
+        Boolean accepted = redis.opsForValue().setIfAbsent("device:registration-nonce:" + proof.fingerprint() + ":" + proof.nonce(), "1", replayTtl());
+        if (!Boolean.TRUE.equals(accepted)) throw new ApiException(HttpStatus.CONFLICT, "REQUEST_NONCE_REUSED", "The registration nonce has already been used");
+        String evidenceHash = crypto.hmacHex("android-installation-v1", scope + "\n" + proof.fingerprint());
+        jdbc.update("""
+                INSERT INTO anonymous_device (public_id, platform, app_install_scope, evidence_hash, status, last_seen_at)
+                VALUES (?, 'ANDROID', ?, ?, 'ACTIVE', UTC_TIMESTAMP(6))
+                ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
+                """, UUID.randomUUID().toString(), scope, evidenceHash);
+        Long deviceId = jdbc.queryForObject("SELECT id FROM anonymous_device WHERE platform='ANDROID' AND app_install_scope=? AND evidence_hash=? FOR UPDATE", Long.class, scope, evidenceHash);
+        String status = jdbc.queryForObject("SELECT status FROM anonymous_device WHERE id=?", String.class, deviceId);
+        if (!"ACTIVE".equals(status)) throw new ApiException(HttpStatus.FORBIDDEN, "DEVICE_DISABLED", "The device is not active");
+        List<DeviceRegistrationResponse> previous = jdbc.query("""
+                SELECT credential_key_id, status, created_at FROM device_credential
+                WHERE device_id=? AND credential_type='PLATFORM_PUBLIC_KEY' ORDER BY id DESC LIMIT 1
+                """, (rs, row) -> {
+                    if (!"ACTIVE".equals(rs.getString("status"))) throw new ApiException(HttpStatus.UNAUTHORIZED, "CREDENTIAL_REVOKED", "The installation credential was revoked");
+                    return new DeviceRegistrationResponse(rs.getString("credential_key_id"), CredentialType.PLATFORM_PUBLIC_KEY, null, rs.getTimestamp("created_at").toInstant());
+                }, deviceId);
+        if (!previous.isEmpty()) return previous.get(0);
+        String keyId = UUID.randomUUID().toString();
+        jdbc.update("""
+                INSERT INTO device_credential (device_id, credential_key_id, credential_type, public_key_pem, secret_hash, status)
+                VALUES (?, ?, 'PLATFORM_PUBLIC_KEY', ?, NULL, 'ACTIVE')
+                """, deviceId, keyId, proof.publicKeyPem());
+        Instant createdAt = jdbc.queryForObject("SELECT created_at FROM device_credential WHERE credential_key_id=?", java.sql.Timestamp.class, keyId).toInstant();
+        return new DeviceRegistrationResponse(keyId, CredentialType.PLATFORM_PUBLIC_KEY, null, createdAt);
     }
 
     private void validateRegistration(DeviceRegistrationRequest request) {
@@ -261,7 +311,7 @@ public class DeviceIdentityService {
     private CredentialRow requireCredential(String credentialKeyId) {
         List<CredentialRow> rows = jdbc.query(
                 """
-                SELECT c.device_id, c.credential_type, c.secret_hash, d.platform
+                SELECT c.device_id, c.credential_type, c.secret_hash, c.public_key_pem, d.platform
                 FROM device_credential c
                 JOIN anonymous_device d ON d.id = c.device_id
                 WHERE c.credential_key_id = ? AND c.status = 'ACTIVE' AND d.status = 'ACTIVE'
@@ -270,12 +320,15 @@ public class DeviceIdentityService {
                         resultSet.getLong("device_id"),
                         CredentialType.valueOf(resultSet.getString("credential_type")),
                         resultSet.getString("secret_hash"),
+                        resultSet.getString("public_key_pem"),
                         DevicePlatform.valueOf(resultSet.getString("platform"))),
                 credentialKeyId);
         if (rows.isEmpty()) {
             throw new ApiException(HttpStatus.NOT_FOUND, "CREDENTIAL_NOT_FOUND", "The device credential was not found");
         }
-        return rows.get(0);
+        CredentialRow row = rows.get(0);
+        requireProvider(row.credentialType(), row.platform());
+        return row;
     }
 
     private void validateTimestamp(Instant timestamp) {
@@ -333,6 +386,7 @@ public class DeviceIdentityService {
             long deviceId,
             CredentialType credentialType,
             String secretHash,
+            String publicKeyPem,
             DevicePlatform platform) {
     }
 

@@ -28,6 +28,8 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
+  wallpaper_android:
+    path: ../../packages/wallpaper-android
   flutter:
     sdk: flutter
 
@@ -37,6 +39,7 @@ dependencies:
     path: ../../packages/wallpaper-platform-interface
   qingjing_design_tokens:
     path: ../../packages/design-tokens
+  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:

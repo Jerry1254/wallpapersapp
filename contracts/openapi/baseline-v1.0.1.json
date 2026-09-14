@@ -1,38 +1,36 @@
 {
-  "frozenOn": "2026-09-14",
-  "previousAcceptedCommit": "78cb4c0",
-  "contractVersion": "1.1.0",
-  "domainVersion": "1.1.0",
-  "databaseDesignVersion": "1.1.0",
-  "migrationVersions": [
-    "1"
-  ],
+  "frozenOn": "2026-09-13",
+  "previousAcceptedCommit": "67c21f9",
+  "contractVersion": "1.0.1",
+  "domainVersion": "1.0.1",
+  "databaseDesignVersion": "1.0.1",
+  "migrationVersions": ["1"],
   "operationCount": 47,
   "schemaCount": 72,
   "files": [
     {
       "path": "contracts/openapi/openapi.yaml",
-      "sha256": "938e63dce9fee224b98c509e23beb1fb36faa3e34730e50ccc6a0a59041e2601"
+      "sha256": "2a93f782c63b09ffb9734b6a9584c978a8fbe51c7f4569fddf35a59af0bd32f7"
     },
     {
       "path": "docs/03-数据设计/DM-001-统一领域模型.md",
-      "sha256": "2a9eb8f3669458e698078b08a5aee514de809f600b5def607916d38064b4d250"
+      "sha256": "f2c84d55c8565b7f40c271918c10a525e58d790add05003c1c3a442ae8d53e05"
     },
     {
       "path": "docs/03-数据设计/DB-001-MySQL数据库设计.md",
-      "sha256": "032b3c54c0e547ed511724f64c2df51884f722ad11ad45b155906945ac652df3"
+      "sha256": "0e6838dfb7ab6d4cadc6adc56b16a144dada178250f34513efe27b7194013a1c"
     },
     {
       "path": "docs/04-接口设计/API-001-OpenAPI-V1契约说明.md",
-      "sha256": "e2a5f4f1df464c6fa310690502e7cf7e65d19e7a64303cb2af926e7d28c18306"
+      "sha256": "0608dd3f9dbf1e367b6b550fa847497733e28b05834d0ea907300d4a6f2b6290"
     },
     {
       "path": "docs/02-系统架构/ARC-001-混合客户端与平台架构方案.md",
-      "sha256": "82fe51376000d3cdbd974a831fca2ae53beb1a51956b5ddbfae89fa78ea8860c"
+      "sha256": "b9b24941f0eea84d99692c779c8d3351e60f52f6f8667619f4c5ad5cf005089a"
     },
     {
       "path": "docs/05-安全与合规/SEC-001-资源保护与匿名设备方案.md",
-      "sha256": "130654958adbd5c2aa9cdb603f3580bf72da8baaef8c610e93d00a76348c59d6"
+      "sha256": "302a9557b9e60a930610f1f7a9d38498200375164bab4b13a0410c502b7297e3"
     },
     {
       "path": "services/api-server/src/main/resources/db/migration/V1__create_core_schema.sql",
@@ -45,10 +43,6 @@
     {
       "path": "packages/design-tokens/generated/qingjing_wallpaper_tokens.dart",
       "sha256": "7a12d556eba6c8ee1d5451d57792413084dea0b34690a697c3e7cb3be806ff47"
-    },
-    {
-      "path": "docs/05-安全与合规/SEC-002-Android安装身份协议.md",
-      "sha256": "00a2404d0b6486d77fe162260aa18d18b51e2eab4922d16643cc079b1b263cd3"
     }
   ]
 }

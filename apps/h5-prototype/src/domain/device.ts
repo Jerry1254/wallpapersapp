@@ -13,7 +13,7 @@ export interface DeviceSession {
 export interface DeviceChallenge {
   challengeId: string;
   nonce: string;
-  algorithm: 'HMAC_SHA256';
+  algorithm: 'HMAC_SHA256' | 'RSA_SHA256' | 'ECDSA_P256_SHA256' | 'ED25519';
   expiresAt: string;
 }
 export interface Entitlement {

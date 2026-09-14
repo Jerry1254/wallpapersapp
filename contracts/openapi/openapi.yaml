@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 1.0.1
+  version: 1.1.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -183,6 +183,8 @@ paths:
       description: |
         正式 App 提交平台公钥和设备证明；H5 联调只允许在启用测试 Provider 的环境提交 H5_TEST_SECRET。
         返回的 H5 测试 secret 只出现一次，服务端不保存其明文。
+        Android 1.1.0 使用 SEC-002 安装级 RSA 2048 持钥证明；同公钥新证明恢复原 ACTIVE 凭据，撤销后不可重建。
+        证明不等同硬件或 APK 来源认证，清数据/卸载后不自动恢复旧权益。
       parameters:
         - $ref: '#/components/parameters/RequestId'
       requestBody:
@@ -200,6 +202,8 @@ paths:
                 $ref: '#/components/schemas/DeviceRegistrationResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '409':
@@ -2234,7 +2238,7 @@ components:
           minLength: 16
           maxLength: 8192
           writeOnly: true
-          description: 平台证明或仅限测试环境的 H5 安装证据；服务端只保留 keyed hash。
+          description: Android 为 Base64URL 无填充 JSON(timestamp, nonce, proof)，签名载荷见 SEC-002；H5 为测试安装证据。服务端只保留身份 keyed hash，不持久化完整证明。
 
     DeviceRegistrationResponse:
       type: object
@@ -2269,7 +2273,7 @@ components:
           maxLength: 256
         algorithm:
           type: string
-          enum: [ED25519, ECDSA_P256_SHA256, HMAC_SHA256]
+          enum: [ED25519, ECDSA_P256_SHA256, RSA_SHA256, HMAC_SHA256]
         expiresAt:
           $ref: '#/components/schemas/Timestamp'
 
