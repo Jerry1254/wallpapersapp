@@ -222,7 +222,11 @@ class _DetailScreenState extends State<DetailScreen> {
                 contentPadding: EdgeInsets.zero,
                 title: Text(targetLabel(target)),
                 trailing: Text(
-                  effect != null && capabilities.canApply(effect, target)
+                  capabilities.systemChoosesLiveTarget &&
+                          (effect == WallpaperEffect.video ||
+                              effect == WallpaperEffect.parallax)
+                      ? '以系统选项为准'
+                      : effect != null && capabilities.canApply(effect, target)
                       ? '可用'
                       : '尚不可用',
                 ),

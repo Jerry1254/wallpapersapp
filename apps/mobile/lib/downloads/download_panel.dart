@@ -152,6 +152,9 @@ class _DownloadPanelState extends State<DownloadPanel> {
                     child: Text(
                       widget.resourceType == 'VIDEO'
                           ? '打开系统视频壁纸设置'
+                          : widget.resourceType == 'LAYER_PARALLAX' &&
+                                widget.capabilities.systemChoosesLiveTarget
+                          ? '打开系统4D壁纸设置'
                           : '设为${targetLabel(target)}',
                     ),
                   ),

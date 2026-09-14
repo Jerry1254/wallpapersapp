@@ -1,6 +1,8 @@
 # 倾境壁纸 Flutter 客户端
 
-正式入口；执行状态只在 PM-002。Android 已实现真实目录/详情、Keystore 安装身份、兑换/权益、签名安全下载/原子安装/更新、三类原生预览/设置及独立两分钟试用；当前真机验收与未测范围见 A10 记录。鸿蒙/iOS 的类型化接口显式不支持，未声称构建或效果通过。
+正式入口；执行状态统一见 PM-002。Android 1.0 本轮范围是 4D/MP4 真实详情交互、正式全屏预览、桌面与锁屏设置及 App 退出恢复；试用入口暂时隐藏。详情已有正式资源时直接使用，未下载时使用独立 APP_PREVIEW 安全包目录，不能设置系统壁纸或授予权益。华为/荣耀适配 2.0、苹果 3.0 尚未开始。
+
+版本 10014 真机 MP4 详情跨越源视频时长后继续播放且画面变化；4D 拖动黄圆位移约 37.5 像素，无试用入口。视频 App 进程实际终止后系统在约 2.6 秒重新绑定新 PID 并恢复播放。10015 仅将动态设置位置文案改为“以系统选项为准”、统一 4D 系统设置按钮，避免把系统提供的桌面和锁屏误报为尚不可用。最终覆盖安装及 4D 恢复确认见 A10。
 
 ## 工具链与运行
 
@@ -23,7 +25,7 @@ internal flavor 使用独立 `.internal` 安装标识，供 A10 新装/卸载与
 
 本机 HTTPS 代理使用 `scripts/internal-api-https.py --certificate 公共证书路径 --private-key 私钥路径 --api-port 本地API端口`，仅监听 127.0.0.1:8443，随后创建 `adb reverse tcp:8443 tcp:8443`。私钥、Keystore、密码、dart-define 配置和 API 运行时目录不得提交。internal release 可经已授权 ADB 的 `dumpsys activity service` 读取动态服务的帧数/绘制/传感器/解码字节状态，输出不含票据、安装 ID、密钥或文件路径；prod 不开启此内测诊断。
 
-为此独立本地 API 配置 `qingjing.device.allowed-android-scopes` 同时包含 `.local` 和 `.internal` 的完整安装标识；默认 local profile 只允许 `.local`，不要修改其他环境以同步测试身份。内测测量脚本 `scripts/measure-android-playback.py` 读取自己的系统壁纸服务和 PSS/CPU/电量状态，按固定 5+30+10 分钟执行，临时调整屏幕超时并在退出时恢复；不采集桌面或个人通知截图。
+为此独立本地 API 配置 `qingjing.device.allowed-android-scopes` 同时包含 `.local` 和 `.internal` 的完整安装标识；默认 local profile 只允许 `.local`，不要修改其他环境以同步测试身份。内测测量脚本 `scripts/measure-android-playback.py` 读取自己的系统壁纸服务和 PSS/CPU/电量状态，原固定 5+30+10 分钟测量为可选历史方案，用户已取消补测；运行时临时调整屏幕超时并在退出时恢复；不采集桌面或个人通知截图。
 
 视频内测诊断仅提取当前自有 MediaPlayer 的 frames/droppedFrames/decodeErrors 整数计数，依据 API 26 的 [MediaPlayer MetricsConstants](https://developer.android.com/reference/android/media/MediaPlayer.MetricsConstants)。不导出整个媒体指标 Bundle；指标缺失时保留缺失状态，不将其写为零掉帧。生产环境不执行内测指标采集，播放生命周期保持一致。
 
