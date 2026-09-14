@@ -1,23 +1,23 @@
 {
-  "status": "PREPARING",
+  "status": "COMPLETE_ANDROID_1_0_SCOPE_USER_EXPERIENCE_PENDING",
   "application": {
     "name": "倾境壁纸·候选内测",
     "package": "com.qingjing.qingjing_wallpaper.internal",
     "versionName": "1.0.0",
-    "versionCode": 10013,
+    "versionCode": 10015,
     "architecture": "arm64-v8a",
     "minSdk": 26,
     "compileSdk": 36,
     "targetSdk": 36,
     "debuggable": false,
-    "sourceCommit": "03538121eab835e2d1cc2296a65001298c983fbd",
-    "stageTag": null
+    "sourceCommit": "38be91019cea1624ead14a99e94859f23049ca57",
+    "stageTag": "android-internal-1.0.0-10015"
   },
   "artifact": {
-    "sha256": "11aa3c2f6906065d454e7540467a5e566aef3e13cc163f22864fe63bf8a9e5cf",
-    "bytes": 16915381,
+    "sha256": "95616520ac59e5af74ad8733d63c0ad6cc8ad016836a1c627195c36803f60ff5",
+    "bytes": 16997301,
     "signerCertificateSha256": "f46b13574dc73b8bba32d008d4967306edf6d06181b174569ba94b0b7709bfa8",
-    "deliveryPath": null
+    "deliveryPath": ".runtime/android-candidate/qingjing-android-internal-1.0.0-10015-arm64.apk"
   },
   "api": {
     "apiContractVersion": "1.3.1",
@@ -26,7 +26,6 @@
   },
   "resources": {
     "formalFormatVersion": 2,
-    "trialFormatVersion": 3,
     "testedPublishedSamples": [
       {
         "type": "STATIC_IMAGE",
@@ -43,7 +42,8 @@
         "versionNo": 2,
         "resourceVersionId": "5"
       }
-    ]
+    ],
+    "restrictedPreviewFormatVersion": 3
   },
   "localTls": {
     "host": "127.0.0.1",
@@ -62,16 +62,16 @@
     "flutterLockSha256": "003a6329e1bed3c434ccd6aa5464b733bc1969b6d14e62d5bfc3b1ef91ba3269"
   },
   "validation": {
-    "a10Status": "IN_PROGRESS",
-    "candidateFreshInstall": "PASSED_USER_0",
+    "a10Status": "COMPLETE_LATEST_USER_SCOPE",
+    "candidateFreshInstall": "BASELINE_10013_PASSED_USER_0",
     "signedUpgrade10011To10013": "PASSED",
     "identityDataClearAndUninstall": "PASSED_USER_0",
-    "androidCi": "https://github.com/Jerry1254/wallpapersapp/actions/runs/34841301254",
+    "androidCi": "https://github.com/Jerry1254/wallpapersapp/actions/runs/34849829935",
     "apiCi": "https://github.com/Jerry1254/wallpapersapp/actions/runs/34839176057",
     "nativeTests": 30,
     "nativeFailures": 0,
     "lintErrors": 0,
-    "lintWarnings": 25,
+    "lintWarnings": 26,
     "flutterTestsPassed": 38,
     "flutterExistingLocalIntegrationSkipped": 1,
     "apiUnitTests": 35,
@@ -80,7 +80,16 @@
     "adminTests": 13,
     "normalCacheInUseProtection": "PASSED",
     "staticBaseline": "PASSED_5_PLUS_5_MINUTES",
-    "videoFixedPerformance": "PENDING"
+    "videoFixedPerformance": "USER_CANCELED_COMPLETE_FALSE_465_6_SECONDS_VISIBLE_RECORDED",
+    "finalUpgrade10015": "PASSED_USER_0_SAME_SIGNER_RIGHTS_RETAINED",
+    "androidCiStatus": "SUCCESS",
+    "detail4dInteraction": "PASSED_REAL_SENSOR_AND_NATIVE_DRAG",
+    "detailMp4Loop": "PASSED_ACTUAL_FRAMES_AFTER_SOURCE_DURATION",
+    "trialEntryHidden": "PASSED",
+    "videoProcessRecovery": "PASSED_NEW_PID_AUTOMATIC_REBIND_2_64_SECONDS",
+    "parallaxProcessRecovery": "PASSED_NEW_PID_AUTOMATIC_REBIND_2_65_SECONDS",
+    "finalFlutterTargetedTests": 9,
+    "finalFlutterAnalyze": "PASSED"
   },
   "testedDeviceMatrix": [
     {
@@ -95,6 +104,11 @@
       "scope": "memory and storage exhaustion stress tests",
       "reason": "explicitly canceled by the user on 2026-09-14",
       "result": "NOT_EXECUTED_NOT_PASSED"
+    },
+    {
+      "scope": "extra fixed-duration measurements and additional device compatibility tests",
+      "reason": "latest user-defined 1.0 scope on 2026-09-14",
+      "result": "NOT_COMPLETED_NOT_PASSED_NOT_A_1_0_GATE"
     }
   ],
   "knownLimits": [
@@ -105,5 +119,10 @@
     "Charging conditions do not establish discharge power compliance"
   ],
   "publicRelease": false,
-  "harmonyHandoffStatus": "PENDING_A10_A11"
+  "harmonyHandoffStatus": "DEFERRED_TO_HUAWEI_HONOR_2_0_NOT_STARTED",
+  "userFinalExperience": "PENDING_USER",
+  "futureVersions": {
+    "huaweiHonor": "2.0 NOT_STARTED",
+    "apple": "3.0 NOT_STARTED"
+  }
 }
