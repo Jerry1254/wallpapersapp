@@ -35,12 +35,7 @@ public class SignedBodyFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        if (!request.getMethod().equals("POST")) {
-            return true;
-        }
-        String uri = request.getRequestURI();
-        return !uri.equals("/api/v1/device/redemptions")
-                && !(uri.startsWith("/api/v1/device/wallpapers/") && uri.endsWith("/download-tickets"));
+        return !SignedDeviceRoutes.requiresSignature(request.getMethod(), request.getRequestURI());
     }
 
     @Override

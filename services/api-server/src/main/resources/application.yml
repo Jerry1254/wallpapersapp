@@ -45,6 +45,11 @@ info:
     contract-version: 1.0.0
 
 qingjing:
+  delivery:
+    ffprobe: ${QJ_FFPROBE:ffprobe}
+    ffmpeg: ${QJ_FFMPEG:ffmpeg}
+    signing-key-id: ${QJ_PACKAGE_SIGNING_KEY_ID:}
+    signing-private-key: ${QJ_PACKAGE_SIGNING_PRIVATE_KEY:}
   api-base-path: /api/v1
   security:
     master-key: ${QJ_SECURITY_MASTER_KEY:}

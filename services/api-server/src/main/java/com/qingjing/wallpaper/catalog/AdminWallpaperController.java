@@ -38,7 +38,10 @@ public class AdminWallpaperController {
 
     private final AdminWallpaperService wallpapers;
 
-    public AdminWallpaperController(AdminWallpaperService wallpapers) {
+    private final com.qingjing.wallpaper.delivery.SecurePackagePublisher packages;
+
+    public AdminWallpaperController(AdminWallpaperService wallpapers, com.qingjing.wallpaper.delivery.SecurePackagePublisher packages) {
+        this.packages = packages;
         this.wallpapers = wallpapers;
     }
 
@@ -172,6 +175,13 @@ public class AdminWallpaperController {
                 request,
                 admin.id());
         return ResponseEntity.status(201).body(created);
+    }
+
+    @PostMapping("/resource-versions/{resourceVersionId}/secure-package")
+    AdminResourceVersion buildSecurePackage(@PathVariable String resourceVersionId) {
+        long id = Ids.parse(resourceVersionId, "resourceVersionId");
+        packages.build(id);
+        return wallpapers.getResourceVersion(id);
     }
 
     @GetMapping("/resource-versions/{resourceVersionId}")

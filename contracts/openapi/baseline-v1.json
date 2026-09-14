@@ -1,38 +1,39 @@
 {
   "frozenOn": "2026-09-14",
-  "previousAcceptedCommit": "78cb4c0",
-  "contractVersion": "1.1.0",
-  "domainVersion": "1.1.0",
-  "databaseDesignVersion": "1.1.0",
+  "previousAcceptedCommit": "3fb24ba276450e2ab9849edd906774a7a7f5700e",
+  "contractVersion": "1.2.0",
+  "domainVersion": "1.2.0",
+  "databaseDesignVersion": "1.2.0",
   "migrationVersions": [
-    "1"
+    "1",
+    "2"
   ],
-  "operationCount": 47,
-  "schemaCount": 72,
+  "operationCount": 49,
+  "schemaCount": 74,
   "files": [
     {
       "path": "contracts/openapi/openapi.yaml",
-      "sha256": "938e63dce9fee224b98c509e23beb1fb36faa3e34730e50ccc6a0a59041e2601"
+      "sha256": "79c287791a0b4d6b94fa18c431c550dd4f336272dac35a70380ed3d4c4830333"
     },
     {
       "path": "docs/03-数据设计/DM-001-统一领域模型.md",
-      "sha256": "2a9eb8f3669458e698078b08a5aee514de809f600b5def607916d38064b4d250"
+      "sha256": "2fbc81d3794e39d61147e29c9bc6e1eb15dae66b8ef7e432e660ae9cf7b8bb5c"
     },
     {
       "path": "docs/03-数据设计/DB-001-MySQL数据库设计.md",
-      "sha256": "032b3c54c0e547ed511724f64c2df51884f722ad11ad45b155906945ac652df3"
+      "sha256": "7fbdcad5bd40024a1faf6647a256b1fc2706ab9c7f39290510bbed73862ceb18"
     },
     {
       "path": "docs/04-接口设计/API-001-OpenAPI-V1契约说明.md",
-      "sha256": "e2a5f4f1df464c6fa310690502e7cf7e65d19e7a64303cb2af926e7d28c18306"
+      "sha256": "e7df4e8dfcf2323941b1d30155250e9cc60213e660f384a06470236a7b7ebde2"
     },
     {
       "path": "docs/02-系统架构/ARC-001-混合客户端与平台架构方案.md",
-      "sha256": "82fe51376000d3cdbd974a831fca2ae53beb1a51956b5ddbfae89fa78ea8860c"
+      "sha256": "7e6cec7d2dc03553236e7451e6512ca7b8401b25dd14f419e6887d7fae9e0595"
     },
     {
       "path": "docs/05-安全与合规/SEC-001-资源保护与匿名设备方案.md",
-      "sha256": "130654958adbd5c2aa9cdb603f3580bf72da8baaef8c610e93d00a76348c59d6"
+      "sha256": "b10158842894a4729e5787c490d35df795444235043de2facd5cab720ea270be"
     },
     {
       "path": "services/api-server/src/main/resources/db/migration/V1__create_core_schema.sql",
@@ -49,6 +50,22 @@
     {
       "path": "docs/05-安全与合规/SEC-002-Android安装身份协议.md",
       "sha256": "00a2404d0b6486d77fe162260aa18d18b51e2eab4922d16643cc079b1b263cd3"
+    },
+    {
+      "path": "services/api-server/src/main/resources/db/migration/V2__secure_package_delivery.sql",
+      "sha256": "a96c2fc4dcc9f2e1b4730ea2d000584ed56cda584953fb1b285f83b05090e732"
+    },
+    {
+      "path": "docs/05-安全与合规/SEC-003-Android安全资源交付协议.md",
+      "sha256": "610a5b3526b4a62bfd68805d0ffedf999ab458c7be7e74b40fa3865c261bc19c"
+    },
+    {
+      "path": "packages/wallpaper-format/manifest-v2.schema.json",
+      "sha256": "eef26314446d3f9cfa0f1bcf4e54896e6dbea1ce59679494bc7a3932b3517085"
+    },
+    {
+      "path": "packages/wallpaper-format/parallax-config-v2.schema.json",
+      "sha256": "5ae6620d2aced2cbb91d951be3bdc205ded4189fe1d21507f2edc070d9a55caf"
     }
   ]
 }

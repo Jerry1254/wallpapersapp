@@ -38,9 +38,7 @@ public class DeviceAuthInterceptor implements HandlerInterceptor {
         }
         SessionData session = identity.requireSession(authorization.substring(7));
         String uri = request.getRequestURI();
-        boolean sensitiveWrite = request.getMethod().equals("POST")
-                && (uri.equals("/api/v1/device/redemptions")
-                || (uri.startsWith("/api/v1/device/wallpapers/") && uri.endsWith("/download-tickets")));
+        boolean sensitiveWrite = SignedDeviceRoutes.requiresSignature(request.getMethod(), uri);
         rateLimiter.require(
                 sensitiveWrite ? "device-sensitive-write" : "device-read",
                 Long.toString(session.deviceId()),

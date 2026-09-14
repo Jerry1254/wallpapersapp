@@ -2,7 +2,7 @@
 
 **状态：** 已确认
 
-**版本：** V1.1.0
+**版本：** V1.2.0
 
 **日期：** 2026-09-14
 
@@ -184,3 +184,13 @@ npm test
 WP-A03 按 [SEC-002](../05-安全与合规/SEC-002-Android安装身份协议.md) 使用 Keystore RSA 2048 安装公钥持钥证明，挑战新增 RSA_SHA256。注册证据为签名时间/nonce/proof，同密钥新证明恢复同一 ACTIVE credential，禁用/撤销拒绝；不证明物理设备唯一性或 APK 来源。清数据/卸载丢失密钥后无自动权益迁移。Android evidence_hash 为 HMAC(scope + 公钥 DER 指纹)，公钥写入已有 public_key_pem，secret_hash 为空。
 
 数据库结构无变化，Flyway V1 字节保持；不创建无必要 V2。H5 HMAC 流程兼容，消费者枚举兼容新增算法但 H5 仍拒绝非 HMAC。历史 1.0.1 快照保留，当前 1.1.0 审核快照记录本次字段语义与 DTO 变更，验收结果见 WP-A03。
+
+## 1.2.0 安全资源交付
+
+机器契约新增 2 操作，合计 49 操作、74 Schema。`PUT /device/encryption-key` 使用原安装 RSA 签名正文，绑定独立解密公钥；同值 200，异值 409。`POST /admin/resource-versions/{id}/secure-package` 使用管理会话及 CSRF，制作 READY 版本的不可变包，返回 AdminResourceVersion 的真实 manifest 摘要。
+
+Android 下载票据返回 SECURE_PACKAGE，增加 variantId、formatVersion=2、plaintextSizeBytes、plaintextSha256、signingKeyId、encryptionKeySha256；keyAlgorithm 固定 RSA-OAEP-SHA256-MGF1-SHA1，wrappedContentKey 为 Base64URL。客户端必须使用已固定的服务端签名公钥，不能信任包内自带公钥。完整算法见 SEC-003。H5_TEST 仍返回 H5_PLACEHOLDER，安全包字段为 null。
+
+下载 URL 固定为 /api/v1/delivery/files，90 秒 token 只放 Authorization，响应为流式 application/octet-stream，含长度、Digest 和 Cache-Control:no-store。请求必须匹配会话平台和已有权益，版本需已发布且有安全包；按 supportedResourceTypes 顺序选择，minimumOsVersion 按最多四段数字比较，未满足能力要求的变体不交付。失效票据或撤销后的读取返回 401 DOWNLOAD_TICKET_INVALID；读取限流 429。原先已开始的流不在传输途中反复查权益。
+
+1.0.1、1.1.0 历史快照保留；WP-A05 已显式冻结 1.2.0，旧快照不回写。端侧安全安装与真机验证继续由 A06 验收。

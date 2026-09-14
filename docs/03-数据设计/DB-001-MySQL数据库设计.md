@@ -1,7 +1,7 @@
 # DB-001 MySQL 数据库设计
 
 **状态：** 已确认  
-**版本：** V1.1.0
+**版本：** V1.2.0
 
 **日期：** 2026-09-14
 **数据库：** MySQL 8.4 LTS  
@@ -516,3 +516,16 @@ WP-P04 将使用空库迁移和集成测试验证以下查询：
 WP-A03 按 [SEC-002](../05-安全与合规/SEC-002-Android安装身份协议.md) 使用 Keystore RSA 2048 安装公钥持钥证明，挑战新增 RSA_SHA256。注册证据为签名时间/nonce/proof，同密钥新证明恢复同一 ACTIVE credential，禁用/撤销拒绝；不证明物理设备唯一性或 APK 来源。清数据/卸载丢失密钥后无自动权益迁移。Android evidence_hash 为 HMAC(scope + 公钥 DER 指纹)，公钥写入已有 public_key_pem，secret_hash 为空。
 
 数据库结构无变化，Flyway V1 字节保持；不创建无必要 V2。H5 HMAC 流程兼容，消费者枚举兼容新增算法但 H5 仍拒绝非 HMAC。历史 1.0.1 快照保留，当前 1.1.0 审核快照记录本次字段语义与 DTO 变更，验收结果见 WP-A03。
+
+## 1.2.0 / Flyway V2 安全资源交付
+
+V1 原字节保留。V2__secure_package_delivery.sql 新增两表，总计 18 张业务表：
+
+| 表 | 主键与关联 | 持久化事实 |
+|---|---|---|
+| device_encryption_key | credential_id 同时为 PK/FK → device_credential.id | RSA 解密公钥 PEM、DER SHA-256、创建时间；同凭据只允许固定绑定，同值幂等，异值拒绝 |
+| secure_resource_package | resource_version_id 同时为 PK/FK → resource_version.id | format=2、私有 storage key、密文/明文长度与 SHA-256、manifest SHA-256、签名 key ID、加密内容密钥、创建时间 |
+
+包存储 key 唯一，不返回 API。内容密钥使用 SecurityCrypto 独立 purpose secure-package-key-v2:{resourceVersionId} 保护。总密文长度不超过 65 MiB，明文 ZIP 长度为密文长度减 36 字节包头/nonce/tag。包与资源版本的 FK 使用 RESTRICT，防止删除历史包引用。生成包与版本真实 manifest 摘要更新处于同一数据库事务，回滚清理本次 FileStorage 对象。
+
+已有安装和凭据从 V1 升级保留测试已通过；既有权益业务回归在 V2 结构下通过。票据不建业务表，Redis 仅保存设备/凭据/公钥摘要/版本/失效时间，token 本身不作为明文 Redis key。

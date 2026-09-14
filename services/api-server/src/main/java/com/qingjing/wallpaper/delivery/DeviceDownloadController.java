@@ -41,10 +41,14 @@ public class DeviceDownloadController {
     }
 
     @GetMapping("/api/v1/delivery/files")
-    ResponseEntity<byte[]> read(@RequestHeader("Authorization") String authorization) {
+    ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> read(@RequestHeader("Authorization") String authorization) {
         if (!authorization.startsWith("Bearer ") || authorization.length() <= 7) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "DOWNLOAD_TICKET_INVALID", "A download ticket is required");
         }
-        return ResponseEntity.ok(tickets.readProtectedFile(authorization.substring(7)));
+        var file = tickets.readProtectedFile(authorization.substring(7));
+        return ResponseEntity.ok().contentType(MediaType.APPLICATION_OCTET_STREAM).contentLength(file.sizeBytes())
+                .header("Cache-Control", "no-store")
+                .header("Digest", "sha-256=:" + java.util.Base64.getEncoder().encodeToString(java.util.HexFormat.of().parseHex(file.sha256())) + ":")
+                .body(output -> file.writer().write(output));
     }
 }

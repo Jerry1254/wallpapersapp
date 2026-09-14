@@ -130,6 +130,7 @@ describe('adminRepository.saveWallpaper', () => {
         }
         return json(version, 201);
       }
+      if (url.endsWith('/secure-package')) return json(version);
       if (url.endsWith('/publish')) return json({ ...wallpaper, status: 'PUBLISHED', variants: [{ ...variant, resourceVersions: [{ ...version, status: 'PUBLISHED' }] }] });
       return json(wallpaper);
     });
@@ -228,6 +229,7 @@ describe('adminRepository.saveWallpaper', () => {
       if (url.endsWith('/admin/wallpapers/30/variants')) return json(variantWithoutVersion, 201);
       if (url.endsWith('/admin/wallpapers/30') && !options.method) return json(detail('DRAFT', 1, [variantWithoutVersion]), 200, { ETag: '"1"' });
       if (url.endsWith('/admin/variants/40/resource-versions')) return json({ ...publishedVersion, status: 'READY', version: 0 }, 201);
+      if (url.endsWith('/admin/resource-versions/50/secure-package')) return json({ ...publishedVersion, status: 'READY' });
       if (url.endsWith('/admin/wallpapers/30/publish')) {
         return json(detail('PUBLISHED', 2, [{ ...variantWithoutVersion, resourceVersions: [publishedVersion] }]), 200, { ETag: '"2"' });
       }
@@ -256,15 +258,16 @@ describe('adminRepository.saveWallpaper', () => {
       'GET /admin/wallpapers/30',
       'POST /admin/assets',
       'POST /admin/variants/40/resource-versions',
+      'POST /admin/resource-versions/50/secure-package',
       'POST /admin/wallpapers/30/publish'
     ]);
     const variantRequest = requests[2].options.headers as Headers;
     expect(JSON.parse(String(requests[1].options.body)).featuredRank).toBe(2);
     expect(variantRequest.get('If-Match')).toBe('"0"');
     expect(variantRequest.get('Content-Type')).toBe('application/json');
-    const publishRequest = requests[6].options.headers as Headers;
+    const publishRequest = requests[7].options.headers as Headers;
     expect(publishRequest.get('If-Match')).toBe('"1"');
-    expect(JSON.parse(String(requests[6].options.body))).toEqual({ resourceVersionIds: ['50'] });
+    expect(JSON.parse(String(requests[7].options.body))).toEqual({ resourceVersionIds: ['50'] });
   });
 });
 
@@ -338,4 +341,19 @@ describe('adminRepository code delivery', () => {
     const confirmationHeaders = requests[2].options.headers as Headers;
     expect(confirmationHeaders.get('X-CSRF-Token')).toBe('csrf-token');
   });
+});
+
+it('安全包制作失败时不会继续发布 READY Android 兼容版本', async () => {
+  setCsrfToken('csrf-token');
+  const variant = { id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', resourceVersions: [
+    { id: '50', status: 'READY', versionNo: 1, bindings: [] }
+  ] };
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url.endsWith('/admin/wallpapers/30')) return json(detail('DRAFT', 0, [variant]));
+    if (url.endsWith('/secure-package')) return json({ error: { code: 'ASSET_VALIDATION_FAILED', message: 'invalid media' } }, 422);
+    throw new Error(`Unexpected publish after validation failure: ${url}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  await expect(adminRepository.publishWallpaper('30')).rejects.toMatchObject({ code: 'ASSET_VALIDATION_FAILED' });
+  expect(fetchMock.mock.calls.some(([url]) => url.endsWith('/publish'))).toBe(false);
 });

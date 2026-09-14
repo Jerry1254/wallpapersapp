@@ -23,6 +23,7 @@ class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private val main = Handler(Looper.getMainLooper())
     companion object {
         private const val ALIAS = "qingjing.installation.rsa.v1"
+        private const val ENCRYPTION_ALIAS = "qingjing.installation.decrypt.rsa.v1"
         private val keyLock = Any()
     }
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -42,16 +43,33 @@ class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 .setKeySize(2048).setDigests(KeyProperties.DIGEST_SHA256)
                 .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1).build())
             generator.generateKeyPair()
+            if (store.containsAlias(ENCRYPTION_ALIAS)) store.deleteEntry(ENCRYPTION_ALIAS)
             // A newly generated installation key must never reuse a stale credential identifier.
             context.getSharedPreferences("qingjing.identity", Context.MODE_PRIVATE).edit().clear().commit()
         }
         store
+    }
+    private fun encryptionPublicKey(): Map<String, String> = synchronized(keyLock) {
+        val store = keyStore()
+        if (!store.containsAlias(ENCRYPTION_ALIAS)) {
+            val generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_RSA, "AndroidKeyStore")
+            generator.initialize(KeyGenParameterSpec.Builder(ENCRYPTION_ALIAS, KeyProperties.PURPOSE_DECRYPT)
+                .setKeySize(2048).setDigests(KeyProperties.DIGEST_SHA256)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_RSA_OAEP).build())
+            generator.generateKeyPair()
+        }
+        val encoded = store.getCertificate(ENCRYPTION_ALIAS).publicKey.encoded
+        val pem = Base64.encodeToString(encoded, Base64.NO_WRAP).chunked(64).joinToString("\n")
+        mapOf("publicKeyPem" to "-----BEGIN PUBLIC KEY-----\n$pem\n-----END PUBLIC KEY-----",
+            "fingerprint" to MessageDigest.getInstance("SHA-256").digest(encoded).joinToString("") { "%02x".format(it) },
+            "keyAlgorithm" to "RSA-OAEP-SHA256-MGF1-SHA1")
     }
     private fun url64(bytes: ByteArray) = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         worker.execute {
             try {
                 val response: Any? = when (call.method) {
+                    "encryptionPublicKey" -> encryptionPublicKey()
                     "identity" -> {
                         val key = keyStore().getCertificate(ALIAS).publicKey.encoded
                         val encoded = Base64.encodeToString(key, Base64.NO_WRAP).chunked(64).joinToString("\n")

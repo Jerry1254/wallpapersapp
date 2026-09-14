@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 1.1.0
+  version: 1.2.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -279,6 +279,44 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /device/encryption-key:
+    put:
+      tags: [Device Identity]
+      operationId: bindDeviceEncryptionKey
+      summary: 以当前安装签名身份固定绑定独立解密公钥
+      description: Android RSA-2048 解密公钥；签署精确正文。同公钥重复绑定幂等，不允许替换已绑定公钥。保留原 credentialKeyId 和权益。
+      security:
+        - deviceBearer: []
+      parameters:
+        - $ref: '#/components/parameters/RequestTimestamp'
+        - $ref: '#/components/parameters/RequestNonce'
+        - $ref: '#/components/parameters/RequestSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BindEncryptionKeyRequest'
+      responses:
+        '200':
+          description: 已绑定公钥摘要
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EncryptionKeyBinding'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
         '429':
@@ -1320,6 +1358,41 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/resource-versions/{resourceVersionId}/secure-package:
+    post:
+      tags: [Admin Catalog]
+      operationId: buildAdminSecurePackage
+      summary: 为 READY Android 兼容资源版本制作不可变安全包
+      description: 校验媒体后生成 format 2 签名加密包。已有包重复调用不重建；无包的已发布版本拒绝制作，需创建下一版本。缺少资源签名或媒体工具配置时不可制作。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceVersionId'
+      responses:
+        '200':
+          description: 已制作版本与真实 manifest 摘要
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminResourceVersion'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -2397,6 +2470,7 @@ components:
           nullable: true
         supportedResourceTypes:
           type: array
+          maxItems: 8
           minItems: 1
           uniqueItems: true
           items:
@@ -2447,9 +2521,11 @@ components:
 
     DownloadResourceVersion:
       type: object
-      required: [id, versionNo, platform, resourceType, manifestSha256]
+      required: [id, variantId, versionNo, platform, resourceType, manifestSha256]
       properties:
         id:
+          $ref: '#/components/schemas/LongId'
+        variantId:
           $ref: '#/components/schemas/LongId'
         versionNo:
           type: integer
@@ -2462,25 +2538,66 @@ components:
           type: string
           pattern: '^[a-f0-9]{64}$'
 
+    BindEncryptionKeyRequest:
+      type: object
+      additionalProperties: false
+      required: [publicKeyPem]
+      properties:
+        publicKeyPem:
+          type: string
+          minLength: 400
+          maxLength: 8192
+          description: X.509 SubjectPublicKeyInfo PEM，RSA-2048，exponent=65537
+
+    EncryptionKeyBinding:
+      type: object
+      required: [publicKeySha256, keyAlgorithm]
+      properties:
+        publicKeySha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        keyAlgorithm:
+          type: string
+          enum: [RSA-OAEP-SHA256-MGF1-SHA1]
+
     SecurePackageMetadata:
       type: object
-      required: [sizeBytes, encryptedSha256, wrappedContentKey, keyAlgorithm]
+      required: [formatVersion, sizeBytes, plaintextSizeBytes, encryptedSha256, plaintextSha256, signingKeyId, encryptionKeySha256, wrappedContentKey, keyAlgorithm]
       properties:
-        sizeBytes:
+        formatVersion:
+          type: integer
+          enum: [2]
+        plaintextSizeBytes:
           type: integer
           format: int64
           minimum: 1
+          maximum: 68157404
+        plaintextSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        signingKeyId:
+          type: string
+          pattern: '^[a-z0-9-]{1,64}$'
+        encryptionKeySha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 37
+          maximum: 68157440
         encryptedSha256:
           type: string
           pattern: '^[a-f0-9]{64}$'
         wrappedContentKey:
           type: string
-          minLength: 16
-          maxLength: 8192
+          minLength: 342
+          maxLength: 342
+          pattern: '^[A-Za-z0-9_-]{342}$'
           readOnly: true
         keyAlgorithm:
           type: string
-          maxLength: 64
+          enum: [RSA-OAEP-SHA256-MGF1-SHA1]
 
     AdminLoginRequest:
       type: object

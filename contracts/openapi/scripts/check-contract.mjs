@@ -12,6 +12,7 @@ const expectedOperations = {
   '/device/session-challenges': ['post'],
   '/device/sessions': ['post'],
   '/device/me/entitlements': ['get'],
+  '/device/encryption-key': ['put'],
   '/device/redemptions': ['post'],
   '/device/redemptions/{idempotencyKey}': ['get'],
   '/device/wallpapers/{wallpaperId}/download-tickets': ['post'],
@@ -78,6 +79,7 @@ for (const [path, method] of [
 }
 
 const sensitiveDeviceOperations = [
+  document.paths['/device/encryption-key'].put,
   document.paths['/device/redemptions'].post,
   document.paths['/device/wallpapers/{wallpaperId}/download-tickets'].post
 ];

@@ -26,6 +26,19 @@ class AndroidDeviceIdentity implements DeviceIdentity {
     );
   }
 
+  Future<Map<String, String>> encryptionPublicKey() async {
+    final value = await _channel.invokeMapMethod<String, String>(
+      'encryptionPublicKey',
+    );
+    if (value == null ||
+        value['keyAlgorithm'] != 'RSA-OAEP-SHA256-MGF1-SHA1' ||
+        value['publicKeyPem'] == null ||
+        !RegExp(r'^[a-f0-9]{64}$').hasMatch(value['fingerprint'] ?? '')) {
+      throw StateError('Installation encryption key unavailable');
+    }
+    return value;
+  }
+
   Future<void> rememberCredential(String id) => _channel.invokeMethod<void>(
     'rememberCredential',
     {'credentialKeyId': id},

@@ -22,12 +22,13 @@ public final class DeliveryDtos {
     public record CreateDownloadTicketRequest(
             @NotNull DevicePlatform platform,
             @Size(max = 32) String osVersion,
-            @NotEmpty List<ResourceType> supportedResourceTypes,
+            @NotEmpty @Size(max = 8) List<@NotNull ResourceType> supportedResourceTypes,
             @Positive Integer installedVersionNo) {
     }
 
     public record DownloadResourceVersion(
             String id,
+            String variantId,
             int versionNo,
             DeliveryPlatform platform,
             ResourceType resourceType,
@@ -35,8 +36,13 @@ public final class DeliveryDtos {
     }
 
     public record SecurePackageMetadata(
+            int formatVersion,
             long sizeBytes,
+            long plaintextSizeBytes,
             String encryptedSha256,
+            String plaintextSha256,
+            String signingKeyId,
+            String encryptionKeySha256,
             String wrappedContentKey,
             String keyAlgorithm) {
     }

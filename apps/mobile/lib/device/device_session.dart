@@ -206,6 +206,32 @@ class DeviceSessionManager {
     return session;
   }
 
+  Future<String>? _encryptionBinding;
+
+  /// Called before secure downloads. Keeps identity unchanged and coalesces callers.
+  Future<String> ensureEncryptionKey() {
+    return _encryptionBinding ??= _bindEncryptionKey().whenComplete(() {
+      _encryptionBinding = null;
+    });
+  }
+
+  Future<String> _bindEncryptionKey() async {
+    // Establish the installation signing identity before generating its decrypt key.
+    await session();
+    final key = await identity.encryptionPublicKey();
+    final result = await authenticated(
+      '/device/encryption-key',
+      method: 'PUT',
+      body: jsonEncode({'publicKeyPem': key['publicKeyPem']}),
+      signed: true,
+    );
+    if (result['publicKeySha256'] != key['fingerprint'] ||
+        result['keyAlgorithm'] != key['keyAlgorithm']) {
+      throw const DeviceApiError(0, 'INVALID_ENCRYPTION_BINDING');
+    }
+    return key['fingerprint']!;
+  }
+
   Future<Map<String, dynamic>> authenticated(
     String path, {
     String method = 'GET',

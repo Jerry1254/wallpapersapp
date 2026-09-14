@@ -436,6 +436,11 @@ export const adminRepository = {
             method: 'POST', body: jsonBody({ versionNo, manifestSha256: null, bindings }), csrf: true
           })).data;
         }
+        if (publish && version.status === 'READY' &&
+            (variant.platform === 'ANDROID' || variant.platform === 'UNIVERSAL') &&
+            ['STATIC_IMAGE', 'VIDEO', 'LAYER_PARALLAX'].includes(variant.resourceType)) {
+          await apiRequest<ApiResourceVersion>(`/admin/resource-versions/${version.id}/secure-package`, { method: 'POST', csrf: true });
+        }
         selectedVersions.push(version.id);
       }
 
@@ -469,6 +474,13 @@ export const adminRepository = {
 
   async publishWallpaper(id: string) {
     const detail = await fetchWallpaper(id);
+    for (const variant of detail.variants) {
+      const version = eligibleVersion(variant);
+      if (version?.status === 'READY' && (variant.platform === 'ANDROID' || variant.platform === 'UNIVERSAL') &&
+          ['STATIC_IMAGE', 'VIDEO', 'LAYER_PARALLAX'].includes(variant.resourceType)) {
+        await apiRequest<ApiResourceVersion>(`/admin/resource-versions/${version.id}/secure-package`, { method: 'POST', csrf: true });
+      }
+    }
     const resourceVersionIds = detail.variants.map(eligibleVersion).filter(Boolean).map((item) => item!.id);
     if (!resourceVersionIds.length) throw new ApiError(422, 'RESOURCE_VERSION_NOT_READY', '这张壁纸还没有可发布的资源版本');
     const published = (await apiRequest<ApiWallpaperDetail>(`/admin/wallpapers/${id}/publish`, {

@@ -111,6 +111,7 @@ public class RedemptionService {
             Long compatible = jdbc.queryForObject("""
                     SELECT COUNT(*) FROM wallpaper_variant v
                     JOIN resource_version r ON r.variant_id = v.id AND r.status = 'PUBLISHED'
+                    JOIN secure_resource_package p ON p.resource_version_id = r.id
                     WHERE v.wallpaper_id = ? AND v.platform IN ('ANDROID', 'UNIVERSAL')
                       AND v.resource_type IN ('STATIC_IMAGE', 'VIDEO', 'LAYER_PARALLAX')
                     """, Long.class, wallpaperId);

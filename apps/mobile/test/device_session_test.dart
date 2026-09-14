@@ -68,7 +68,87 @@ class FakeTransport implements DeviceTransport {
   }
 }
 
+class EncryptionIdentity extends FakeIdentity {
+  @override
+  Future<Map<String, String>> encryptionPublicKey() async => {
+    'publicKeyPem': 'encryption-public-key',
+    'fingerprint': 'a' * 64,
+    'keyAlgorithm': 'RSA-OAEP-SHA256-MGF1-SHA1',
+  };
+}
+
+class BindingTransport extends FakeTransport {
+  int bindings = 0;
+  bool mismatch = false;
+  @override
+  Future<Map<String, dynamic>> request(
+    String path, {
+    String method = 'GET',
+    String? body,
+    Map<String, String> headers = const {},
+    Set<int> accepted = const {},
+  }) async {
+    if (path != '/device/encryption-key') {
+      return super.request(
+        path,
+        method: method,
+        body: body,
+        headers: headers,
+        accepted: accepted,
+      );
+    }
+    bindings++;
+    expect(method, 'PUT');
+    expect(jsonDecode(body!), {'publicKeyPem': 'encryption-public-key'});
+    expect(headers['X-Request-Signature'], 'signed');
+    await Future<void>.delayed(Duration.zero);
+    return {
+      'publicKeySha256': (mismatch ? 'b' : 'a') * 64,
+      'keyAlgorithm': 'RSA-OAEP-SHA256-MGF1-SHA1',
+    };
+  }
+}
+
 void main() {
+  test(
+    'encryption binding coalesces callers without replacing installation identity',
+    () async {
+      final identity = EncryptionIdentity(), transport = BindingTransport();
+      final manager = DeviceSessionManager(transport, identity: identity);
+      final results = await Future.wait([
+        manager.ensureEncryptionKey(),
+        manager.ensureEncryptionKey(),
+      ]);
+      expect(results, ['a' * 64, 'a' * 64]);
+      expect(transport.bindings, 1);
+      expect(transport.registrations, 1);
+      expect(identity.id, 'key');
+      expect(
+        identity.payloads.last,
+        contains('PUT\n/api/v1/device/encryption-key\n'),
+      );
+      await manager.ensureEncryptionKey();
+      expect(transport.bindings, 2);
+      expect(transport.registrations, 1);
+    },
+  );
+  test(
+    'wrong binding fingerprint fails and subsequent attempt can recover',
+    () async {
+      final transport = BindingTransport()..mismatch = true;
+      final manager = DeviceSessionManager(
+        transport,
+        identity: EncryptionIdentity(),
+      );
+      await expectLater(
+        manager.ensureEncryptionKey(),
+        throwsA(isA<DeviceApiError>()),
+      );
+      transport.mismatch = false;
+      expect(await manager.ensureEncryptionKey(), 'a' * 64);
+    },
+  );
+
   test('UTC 时间字符串与 Java Instant 分组格式一致', () {
     expect(
       instantString(DateTime.parse('2026-09-14T00:00:00.000Z')),

@@ -55,6 +55,12 @@ import org.springframework.util.MultiValueMap;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class InfrastructureIntegrationIT {
 
+    private static final java.security.KeyPair PACKAGE_SIGNER = resourceSigningKey();
+    private static java.security.KeyPair resourceSigningKey() {
+        try { var generator = java.security.KeyPairGenerator.getInstance("RSA"); generator.initialize(2048); return generator.generateKeyPair(); }
+        catch (Exception e) { throw new IllegalStateException(e); }
+    }
+
     private static final String MYSQL_PASSWORD = UUID.randomUUID().toString();
     private static final String REDIS_PASSWORD = UUID.randomUUID().toString();
 
@@ -74,6 +80,8 @@ class InfrastructureIntegrationIT {
 
     @DynamicPropertySource
     static void infrastructureProperties(DynamicPropertyRegistry registry) {
+        registry.add("qingjing.delivery.signing-key-id", () -> "integration-resource-1");
+        registry.add("qingjing.delivery.signing-private-key", () -> Base64.getEncoder().encodeToString(PACKAGE_SIGNER.getPrivate().getEncoded()));
         registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
         registry.add("spring.datasource.username", MYSQL::getUsername);
         registry.add("spring.datasource.password", MYSQL::getPassword);
@@ -101,7 +109,7 @@ class InfrastructureIntegrationIT {
     SecurityCrypto securityCrypto;
 
     @Test
-    void emptyDatabaseMigratesToTheSixteenDomainTables() {
+    void emptyDatabaseMigratesToDomainAndSecureDeliveryTables() {
         Integer successfulMigrations = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1", Integer.class);
         List<String> tables = jdbc.queryForList(
@@ -114,7 +122,7 @@ class InfrastructureIntegrationIT {
                 """,
                 String.class);
 
-        assertThat(successfulMigrations).isEqualTo(1);
+        assertThat(successfulMigrations).isEqualTo(2);
         assertThat(tables).containsExactlyInAnyOrder(
                 "admin_account",
                 "anonymous_device",
@@ -123,6 +131,8 @@ class InfrastructureIntegrationIT {
                 "category",
                 "code_batch",
                 "device_credential",
+                "device_encryption_key",
+                "secure_resource_package",
                 "device_entitlement",
                 "download_event",
                 "redemption_code",
@@ -841,6 +851,183 @@ class InfrastructureIntegrationIT {
                 hash);
     }
 
+    @Autowired com.qingjing.wallpaper.delivery.SecurePackagePublisher packagePublisher;
+    @Autowired com.qingjing.wallpaper.asset.application.FileStorage packageStorage;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
+
+    @Test
+    void realMediaSecurePackagesBuildIdempotentlyAndRollbackRemovesTheObject() throws Exception {
+        ensureAdmin(); var admin = login();
+        for (String type : List.of("STATIC_IMAGE", "VIDEO", "LAYER_PARALLAX")) {
+            long wallpaperId = createPublishedWallpaperFixture();
+            long variantId = jdbc.queryForObject("SELECT id FROM wallpaper_variant WHERE wallpaper_id=?", Long.class, wallpaperId);
+            jdbc.update("UPDATE wallpaper_variant SET platform=?,resource_type=? WHERE id=?", type.equals("STATIC_IMAGE") ? "UNIVERSAL" : "ANDROID",type,variantId);
+            jdbc.update("UPDATE wallpaper SET kind=? WHERE id=?", type.equals("VIDEO") ? "DYNAMIC" : type.equals("LAYER_PARALLAX") ? "PARALLAX_4D" : "STATIC",wallpaperId);
+            List<Map<String,Object>> bindings = new ArrayList<>();
+            List<String> roles = type.equals("LAYER_PARALLAX") ? List.of("BACKGROUND","FOREGROUND","PARALLAX_CONFIG") : List.of(type);
+            for (String role : roles) {
+                byte[] bytes;
+                String extension = "png";
+                if (role.equals("VIDEO")) { bytes = testVideo(); extension = "mp4"; }
+                else if (role.equals("PARALLAX_CONFIG")) {
+                    extension = "json";
+                    bytes = objectMapper.writeValueAsBytes(Map.of("canvas",Map.of("width",512,"height",512),
+                            "sensor",Map.of("maxAngle",10,"smoothing",0.2,"strength",1),"layers",List.of(
+                            Map.of("role","BACKGROUND","ordinal",0,"depth",0,"scale",1.1,"opacity",1,"blendMode","normal"),
+                            Map.of("role","FOREGROUND","ordinal",0,"depth",0.8,"scale",1.1,"opacity",1,"blendMode","normal"))));
+                } else if (role.equals("FOREGROUND")) {
+                    var output = new ByteArrayOutputStream(); ImageIO.write(new BufferedImage(512,512,BufferedImage.TYPE_INT_ARGB),"png",output); bytes=output.toByteArray();
+                } else bytes=png(512,512);
+                JsonNode asset=uploadAsset(admin,role,role.toLowerCase()+"."+extension,bytes);
+                bindings.add(Map.of("role",role,"ordinal",0,"assetId",asset.path("id").asText()));
+            }
+            ResponseEntity<JsonNode> created=jsonExchange("/api/v1/admin/variants/"+variantId+"/resource-versions",HttpMethod.POST,
+                    Map.of("versionNo",2,"bindings",bindings),admin,null);
+            assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+            long versionId=created.getBody().path("id").asLong();
+            String path="/api/v1/admin/resource-versions/"+versionId+"/secure-package";
+            assertThat(http.exchange(path,HttpMethod.POST,HttpEntity.EMPTY,JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+            ResponseEntity<JsonNode> built=jsonExchange(path,HttpMethod.POST,Map.of(),admin,null);
+            assertThat(built.getStatusCode()).isEqualTo(HttpStatus.OK);
+            Map<String,Object> stored=jdbc.queryForMap("SELECT * FROM secure_resource_package WHERE resource_version_id=?",versionId);
+            assertThat(stored.get("manifest_sha256")).isEqualTo(built.getBody().path("manifestSha256").asText());
+            byte[] key=securityCrypto.decrypt("secure-package-key-v2:"+versionId,stored.get("content_key_ciphertext").toString());
+            assertThat(key).hasSize(32);
+            try (var content=packageStorage.open(new com.qingjing.wallpaper.asset.application.StorageKey(stored.get("storage_key").toString()))) {
+                byte[] encrypted=content.inputStream().readAllBytes();
+                assertThat(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.sha256(encrypted)).isEqualTo(stored.get("encrypted_sha256"));
+                var cipher=javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
+                cipher.init(javax.crypto.Cipher.DECRYPT_MODE,new javax.crypto.spec.SecretKeySpec(key,"AES"),new javax.crypto.spec.GCMParameterSpec(128,java.util.Arrays.copyOfRange(encrypted,8,20)));
+                cipher.updateAAD(new com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.Identity(wallpaperId,variantId,2,type).aad());
+                assertThat(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.sha256(cipher.doFinal(java.util.Arrays.copyOfRange(encrypted,20,encrypted.length)))).isEqualTo(stored.get("plaintext_sha256"));
+            }
+            assertThat(jsonExchange(path,HttpMethod.POST,Map.of(),admin,null).getBody()).isEqualTo(built.getBody());
+            assertThat(jdbc.queryForMap("SELECT * FROM secure_resource_package WHERE resource_version_id=?",versionId)).isEqualTo(stored);
+            ResponseEntity<JsonNode> published=jsonExchange("/api/v1/admin/wallpapers/"+wallpaperId+"/publish",HttpMethod.POST,
+                    Map.of("resourceVersionIds",List.of(Long.toString(versionId))),admin,"\"0\"");
+            assertThat(published.getStatusCode()).isEqualTo(HttpStatus.OK);
+            verifyTicketDelivery(admin,wallpaperId,versionId,type);
+            long rollbackVersion=jsonExchange("/api/v1/admin/variants/"+variantId+"/resource-versions",HttpMethod.POST,
+                    Map.of("versionNo",3,"bindings",bindings),admin,null).getBody().path("id").asLong();
+            var orphanKey=new java.util.concurrent.atomic.AtomicReference<String>();
+            assertThatThrownBy(() -> new org.springframework.transaction.support.TransactionTemplate(transactionManager).execute(status -> {
+                packagePublisher.build(rollbackVersion);
+                orphanKey.set(jdbc.queryForObject("SELECT storage_key FROM secure_resource_package WHERE resource_version_id=?",String.class,rollbackVersion));
+                throw new IllegalStateException("rollback-fixture");
+            })).isInstanceOf(IllegalStateException.class).hasMessage("rollback-fixture");
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM secure_resource_package WHERE resource_version_id=?",Integer.class,rollbackVersion)).isZero();
+            assertThatThrownBy(() -> packageStorage.open(new com.qingjing.wallpaper.asset.application.StorageKey(orphanKey.get())))
+                    .isInstanceOf(com.qingjing.wallpaper.asset.application.FileStorageException.class);
+            if (!type.equals("STATIC_IMAGE")) {
+                byte[] invalidBytes=type.equals("VIDEO") ? new byte[]{0,0,0,12,102,116,121,112,105,115,111,109} :
+                        "{\"canvas\":{\"width\":512,\"height\":512},\"sensor\":{\"maxAngle\":10,\"smoothing\":0.2,\"strength\":1},\"layers\":[{\"file\":\"../escape.png\"}]}".getBytes(StandardCharsets.UTF_8);
+                String badRole=type.equals("VIDEO") ? "VIDEO" : "PARALLAX_CONFIG";
+                JsonNode badAsset=uploadAsset(admin,badRole,type.equals("VIDEO") ? "fake.mp4" : "bad.json",invalidBytes);
+                List<Map<String,Object>> invalidBindings=bindings.stream().map(binding -> binding.get("role").equals(badRole) ?
+                        Map.<String,Object>of("role",badRole,"ordinal",0,"assetId",badAsset.path("id").asText()) : binding).toList();
+                long badVersion=jsonExchange("/api/v1/admin/variants/"+variantId+"/resource-versions",HttpMethod.POST,
+                        Map.of("versionNo",4,"bindings",invalidBindings),admin,null).getBody().path("id").asLong();
+                ResponseEntity<JsonNode> refused=jsonExchange("/api/v1/admin/resource-versions/"+badVersion+"/secure-package",HttpMethod.POST,Map.of(),admin,null);
+                assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+                assertThat(refused.getBody().path("error").path("code").asText()).isEqualTo("ASSET_VALIDATION_FAILED");
+                assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM secure_resource_package WHERE resource_version_id=?",Integer.class,badVersion)).isZero();
+            }
+        }
+    }
+    private void verifyTicketDelivery(AdminTestSession admin,long wallpaperId,long versionId,String type) throws Exception {
+        var signing=resourceSigningKey(); var encryption=resourceSigningKey();
+        var registered=http.postForEntity("/api/v1/device/registrations",androidRegistration(signing),JsonNode.class);
+        assertThat(registered.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String credential=registered.getBody().path("credentialKeyId").asText();
+        JsonNode challenge=http.postForEntity("/api/v1/device/session-challenges",Map.of("credentialKeyId",credential),JsonNode.class).getBody();
+        String timestamp=Instant.now().toString();
+        String proof=androidSign(signing,"QJ-DEVICE-SESSION-V1\n"+credential+"\n"+challenge.path("challengeId").asText()+"\n"+challenge.path("nonce").asText()+"\n"+timestamp);
+        var session=http.postForEntity("/api/v1/device/sessions",Map.of("credentialKeyId",credential,"challengeId",challenge.path("challengeId").asText(),"clientTimestamp",timestamp,"proof",proof),JsonNode.class);
+        assertThat(session.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String token=session.getBody().path("accessToken").asText(); long deviceId=androidIdentity.requireSession(token).deviceId();
+        String pem=new com.qingjing.wallpaper.device.AndroidCredentialProof(objectMapper).canonicalPem((java.security.interfaces.RSAPublicKey)encryption.getPublic());
+        String bindPath="/api/v1/device/encryption-key";
+        assertThat(http.exchange(bindPath,HttpMethod.PUT,androidSignedEntity(signing,token,"PUT",bindPath,objectMapper.writeValueAsString(Map.of("publicKeyPem",pem))),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        String ticketPath="/api/v1/device/wallpapers/"+wallpaperId+"/download-tickets";
+        String body=objectMapper.writeValueAsString(Map.of("platform","ANDROID","osVersion","35","supportedResourceTypes",List.of(type)));
+        assertThat(http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,body),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        HttpHeaders batchHeaders=headers(admin,true,null);batchHeaders.setContentType(MediaType.APPLICATION_JSON);batchHeaders.set("Idempotency-Key",UUID.randomUUID().toString());
+        var batch=http.exchange("/api/v1/admin/code-batches",HttpMethod.POST,new HttpEntity<>(Map.of("name","secure-delivery-fixture","generatedCount",1,"quotaPerCode",1),batchHeaders),JsonNode.class).getBody();
+        HttpHeaders delivery=headers(admin,false,null);delivery.set("X-Delivery-Ticket",batch.path("deliveryTicket").asText());
+        byte[] csv=http.exchange("/api/v1/admin/code-batches/"+batch.path("batch").path("id").asText()+"/delivery",HttpMethod.GET,new HttpEntity<>(delivery),byte[].class).getBody();
+        String code=new String(csv,StandardCharsets.UTF_8).lines().skip(1).findFirst().orElseThrow().split(",")[1];
+        assertThat(androidRedemption(signing,token,UUID.randomUUID().toString(),Map.of("wallpaperId",Long.toString(wallpaperId),"code",code)).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String wrongPlatform=body.replace("ANDROID","IOS");
+        assertThat(http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,wrongPlatform),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        jdbc.update("UPDATE wallpaper_variant SET minimum_os_version='36' WHERE wallpaper_id=?",wallpaperId);
+        assertThat(http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,body),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        jdbc.update("UPDATE wallpaper_variant SET minimum_os_version=NULL WHERE wallpaper_id=?",wallpaperId);
+        var issued=http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,body),JsonNode.class);
+        assertThat(issued.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        JsonNode descriptor=issued.getBody(), metadata=descriptor.path("package"); String ticket=descriptor.path("ticket").asText();
+        assertThat(descriptor.path("deliveryMode").asText()).isEqualTo("SECURE_PACKAGE");
+        assertThat(descriptor.path("resourceVersion").path("id").asLong()).isEqualTo(versionId);
+        assertThat(descriptor.path("downloadUrl").asText()).isEqualTo("/api/v1/delivery/files");
+        assertThat(descriptor.toString()).doesNotContain("storage_key","content_key_ciphertext",".runtime","objects/");
+        String redisKey="download-ticket-v2:"+securityCrypto.hmacHex("download-ticket-v2",ticket);
+        assertThat(redis.getExpire(redisKey)).isBetween(1L,90L);
+        HttpHeaders download=new HttpHeaders();download.setBearerAuth(ticket);
+        var bytes=http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(download),byte[].class);
+        assertThat(bytes.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(bytes.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_OCTET_STREAM);
+        assertThat(bytes.getHeaders().getCacheControl()).isEqualTo("no-store");
+        assertThat(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.sha256(bytes.getBody())).isEqualTo(metadata.path("encryptedSha256").asText());
+        var unwrap=javax.crypto.Cipher.getInstance("RSA/ECB/OAEPPadding");
+        unwrap.init(javax.crypto.Cipher.DECRYPT_MODE,encryption.getPrivate(),new javax.crypto.spec.OAEPParameterSpec("SHA-256","MGF1",java.security.spec.MGF1ParameterSpec.SHA1,javax.crypto.spec.PSource.PSpecified.DEFAULT));
+        byte[] contentKey=unwrap.doFinal(Base64.getUrlDecoder().decode(metadata.path("wrappedContentKey").asText()));
+        var decrypt=javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
+        decrypt.init(javax.crypto.Cipher.DECRYPT_MODE,new javax.crypto.spec.SecretKeySpec(contentKey,"AES"),new javax.crypto.spec.GCMParameterSpec(128,java.util.Arrays.copyOfRange(bytes.getBody(),8,20)));
+        decrypt.updateAAD(new com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.Identity(wallpaperId,descriptor.path("resourceVersion").path("variantId").asLong(),2,type).aad());
+        assertThat(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.sha256(decrypt.doFinal(java.util.Arrays.copyOfRange(bytes.getBody(),20,bytes.getBody().length)))).isEqualTo(metadata.path("plaintextSha256").asText());
+        jdbc.update("UPDATE device_entitlement SET status='REVOKED',revoked_at=UTC_TIMESTAMP(6),revoke_reason='fixture' WHERE device_id=? AND wallpaper_id=?",deviceId,wallpaperId);
+        assertThat(http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(download),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        jdbc.update("UPDATE device_entitlement SET status='ACTIVE',revoked_at=NULL,revoke_reason=NULL WHERE device_id=? AND wallpaper_id=?",deviceId,wallpaperId);
+        jdbc.update("UPDATE wallpaper SET status='OFFLINE' WHERE id=?",wallpaperId);
+        assertThat(http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(download),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        jdbc.update("UPDATE wallpaper SET status='PUBLISHED' WHERE id=?",wallpaperId);
+        jdbc.update("UPDATE device_credential SET status='REVOKED',revoked_at=UTC_TIMESTAMP(6) WHERE credential_key_id=?",credential);
+        assertThat(http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(download),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        jdbc.update("UPDATE device_credential SET status='ACTIVE',revoked_at=NULL WHERE credential_key_id=?",credential);
+        jdbc.update("UPDATE resource_version SET status='RETIRED',retired_at=UTC_TIMESTAMP(6) WHERE id=?",versionId);
+        assertThat(http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(download),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        jdbc.update("UPDATE resource_version SET status='PUBLISHED',retired_at=NULL WHERE id=?",versionId);
+        if (type.equals("STATIC_IMAGE")) {
+            boolean limited=false;
+            for(int attempt=0;attempt<13;attempt++) {
+                var read=http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(download),byte[].class);
+                if(read.getStatusCode()==HttpStatus.TOO_MANY_REQUESTS) { limited=true; break; }
+                assertThat(read.getStatusCode()).isEqualTo(HttpStatus.OK);
+            }
+            assertThat(limited).isTrue();
+            boolean issuanceLimited=false;
+            for(int attempt=0;attempt<35;attempt++) {
+                var result=http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,body),JsonNode.class);
+                if(result.getStatusCode()==HttpStatus.TOO_MANY_REQUESTS) { issuanceLimited=true; break; }
+                assertThat(result.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+            }
+            assertThat(issuanceLimited).isTrue();
+        }
+        redis.expire(redisKey,Duration.ZERO);
+        assertThat(http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(download),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    private byte[] testVideo() throws Exception {
+        var output=java.nio.file.Files.createTempFile("qj-test-video-",".mp4");
+        try {
+            String executable=System.getenv().getOrDefault("QJ_FFMPEG","ffmpeg");
+            Process process=new ProcessBuilder(executable,"-v","error","-y","-f","lavfi","-i","testsrc2=size=64x64:rate=4","-t","1","-c:v","libx264","-pix_fmt","yuv420p","-threads","1",output.toString())
+                    .redirectError(ProcessBuilder.Redirect.DISCARD).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+            try { assertThat(process.waitFor(30,java.util.concurrent.TimeUnit.SECONDS)).isTrue(); assertThat(process.exitValue()).isZero(); }
+            finally { if(process.isAlive()) process.destroyForcibly(); }
+            return java.nio.file.Files.readAllBytes(output);
+        } finally { java.nio.file.Files.deleteIfExists(output); }
+    }
+
     private long createPublishedWallpaperFixture() {
         String token = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         Long adminId = jdbc.queryForObject("SELECT id FROM admin_account WHERE singleton_key = 1", Long.class);
@@ -1001,7 +1188,7 @@ class InfrastructureIntegrationIT {
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add("purpose", purpose);
         HttpHeaders fileHeaders = new HttpHeaders();
-        fileHeaders.setContentType(MediaType.IMAGE_PNG);
+        fileHeaders.setContentType(purpose.equals("VIDEO") ? MediaType.valueOf("video/mp4") : purpose.equals("PARALLAX_CONFIG") ? MediaType.APPLICATION_JSON : MediaType.IMAGE_PNG);
         fileHeaders.setContentDispositionFormData("file", filename);
         ByteArrayResource resource = new ByteArrayResource(bytes) {
             @Override
@@ -1062,6 +1249,9 @@ class InfrastructureIntegrationIT {
     @Autowired
     com.qingjing.wallpaper.device.DeviceIdentityService androidIdentity;
 
+    @Autowired
+    com.qingjing.wallpaper.delivery.InstallationEncryptionKeys encryptionKeys;
+
     @Test
     void androidInstallationProofSessionReplayAndRevocationUseRealInfrastructure() throws Exception {
         java.security.KeyPairGenerator generator = java.security.KeyPairGenerator.getInstance("RSA");
@@ -1091,6 +1281,34 @@ class InfrastructureIntegrationIT {
         assertThat(http.postForEntity("/api/v1/device/sessions", sessionBody, JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         String token = session.getBody().path("accessToken").asText();
         var principal = androidIdentity.requireSession(token);
+        var boundPrincipal = new com.qingjing.wallpaper.device.DevicePrincipal(principal.deviceId(), principal.credentialKeyId(), principal.platform(), principal.credentialType());
+        var encryptionPair = generator.generateKeyPair();
+        var keyParser = new com.qingjing.wallpaper.device.AndroidCredentialProof(objectMapper);
+        String encryptionPem = keyParser.canonicalPem((java.security.interfaces.RSAPublicKey) encryptionPair.getPublic());
+        String bindingPath = "/api/v1/device/encryption-key";
+        String bindingJson = objectMapper.writeValueAsString(Map.of("publicKeyPem", encryptionPem));
+        assertThat(http.exchange(bindingPath, HttpMethod.PUT, new HttpEntity<>(Map.of("publicKeyPem", encryptionPem)), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        HttpHeaders bearerOnly = new HttpHeaders(); bearerOnly.setBearerAuth(token); bearerOnly.setContentType(MediaType.APPLICATION_JSON);
+        assertThat(http.exchange(bindingPath, HttpMethod.PUT, new HttpEntity<>(bindingJson, bearerOnly), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        HttpEntity<String> signedBinding = androidSignedEntity(key, token, "PUT", bindingPath, bindingJson);
+        ResponseEntity<JsonNode> bound = http.exchange(bindingPath, HttpMethod.PUT, signedBinding, JsonNode.class);
+        assertThat(bound.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String encryptionFingerprint = bound.getBody().path("publicKeySha256").asText();
+        assertThat(bound.getBody().path("keyAlgorithm").asText()).isEqualTo("RSA-OAEP-SHA256-MGF1-SHA1");
+        assertThat(http.exchange(bindingPath, HttpMethod.PUT, signedBinding, JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        HttpEntity<String> tamperedBinding = androidSignedEntity(key, token, "PUT", bindingPath, bindingJson);
+        ResponseEntity<JsonNode> tamperedResponse = http.exchange(bindingPath, HttpMethod.PUT, new HttpEntity<>(bindingJson + " ", tamperedBinding.getHeaders()), JsonNode.class);
+        assertThat(tamperedResponse.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(tamperedResponse.getBody().path("error").path("code").asText()).isEqualTo("REQUEST_SIGNATURE_INVALID");
+        assertThat(http.exchange(bindingPath, HttpMethod.PUT, androidSignedEntity(key, token, "PUT", bindingPath, bindingJson), JsonNode.class).getBody()).isEqualTo(bound.getBody());
+        assertThat(encryptionKeys.bind(boundPrincipal, encryptionPem)).isEqualTo(encryptionFingerprint);
+        assertThat(encryptionKeys.require(boundPrincipal).getEncoded()).isEqualTo(encryptionPair.getPublic().getEncoded());
+        String replacementPem = keyParser.canonicalPem((java.security.interfaces.RSAPublicKey) generator.generateKeyPair().getPublic());
+        assertThatThrownBy(() -> encryptionKeys.bind(boundPrincipal, replacementPem))
+                .isInstanceOf(com.qingjing.wallpaper.shared.web.ApiException.class)
+                .extracting(e -> ((com.qingjing.wallpaper.shared.web.ApiException)e).code()).isEqualTo("STATE_CONFLICT");
+        assertThat(androidIdentity.requireSession(token).credentialKeyId()).isEqualTo(keyId);
+
         String nonce = UUID.randomUUID().toString();
         byte[] body = "{}".getBytes(StandardCharsets.UTF_8);
         String signedPayload = "QJ-SIGNED-REQUEST-V1\nPOST\n/api/v1/device/redemptions\n"+timestamp+"\n"+nonce+"\n"+java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(body));
@@ -1106,6 +1324,12 @@ class InfrastructureIntegrationIT {
         ensureAdmin();
         AdminTestSession admin = login();
         long wallpaperId = createPublishedWallpaperFixture();
+        JsonNode packageAsset=uploadAsset(admin,"STATIC_IMAGE","android-fixture.png",png(4,3));
+        long packageVariant=jdbc.queryForObject("SELECT id FROM wallpaper_variant WHERE wallpaper_id=?",Long.class,wallpaperId);
+        long packageVersion=jsonExchange("/api/v1/admin/variants/"+packageVariant+"/resource-versions",HttpMethod.POST,
+                Map.of("versionNo",2,"bindings",List.of(Map.of("assetId",packageAsset.path("id").asText(),"role","STATIC_IMAGE","ordinal",0))),admin,null).getBody().path("id").asLong();
+        assertThat(jsonExchange("/api/v1/admin/resource-versions/"+packageVersion+"/secure-package",HttpMethod.POST,Map.of(),admin,null).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(jsonExchange("/api/v1/admin/wallpapers/"+wallpaperId+"/publish",HttpMethod.POST,Map.of("resourceVersionIds",List.of(Long.toString(packageVersion))),admin,"\"0\"").getStatusCode()).isEqualTo(HttpStatus.OK);
         HttpHeaders batchHeaders = headers(admin, true, null);
         batchHeaders.setContentType(MediaType.APPLICATION_JSON);
         batchHeaders.set("Idempotency-Key", UUID.randomUUID().toString());
@@ -1130,6 +1354,10 @@ class InfrastructureIntegrationIT {
         assertThat(androidRedemption(key, token, UUID.randomUUID().toString(), redemption).getBody().path("result").asText()).isEqualTo("ALREADY_OWNED");
         assertThat(jdbc.queryForObject("SELECT used_quota FROM redemption_code WHERE batch_id = ?", Integer.class, Long.parseLong(batchId))).isEqualTo(1);
         assertThat(http.exchange("/api/v1/device/me/entitlements", HttpMethod.GET, new HttpEntity<>(auth), JsonNode.class).getBody().path("items")).hasSize(1);
+        long unpackaged = createPublishedWallpaperFixture();
+        ResponseEntity<JsonNode> noPackage=androidRedemption(key,token,UUID.randomUUID().toString(),orderedMap("wallpaperId",Long.toString(unpackaged),"code",code));
+        assertThat(noPackage.getBody().path("result").asText()).isEqualTo("WALLPAPER_UNAVAILABLE");
+        assertThat(noPackage.getBody().path("quotaDelta").asInt()).isZero();
         long unavailable = createPublishedWallpaperFixture();
         jdbc.update("UPDATE wallpaper_variant SET platform='IOS',resource_type='LIVE_PHOTO' WHERE wallpaper_id=?", unavailable);
         ResponseEntity<JsonNode> rejected = androidRedemption(key, token, UUID.randomUUID().toString(), orderedMap("wallpaperId", Long.toString(unavailable), "code", code));
@@ -1144,6 +1372,15 @@ class InfrastructureIntegrationIT {
         ResponseEntity<JsonNode> newInstallation = http.postForEntity("/api/v1/device/registrations", androidRegistration(generator.generateKeyPair()), JsonNode.class);
         assertThat(newInstallation.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(newInstallation.getBody().path("credentialKeyId").asText()).isNotEqualTo(keyId);
+    }
+
+    private HttpEntity<String> androidSignedEntity(java.security.KeyPair key, String token, String method, String path, String json) throws Exception {
+        String timestamp = Instant.now().toString(), nonce = UUID.randomUUID().toString();
+        String hash = java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.getBytes(StandardCharsets.UTF_8)));
+        HttpHeaders headers = new HttpHeaders(); headers.setBearerAuth(token); headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Request-Timestamp", timestamp); headers.set("X-Request-Nonce", nonce);
+        headers.set("X-Request-Signature", androidSign(key, "QJ-SIGNED-REQUEST-V1\n" + method + "\n" + path + "\n" + timestamp + "\n" + nonce + "\n" + hash));
+        return new HttpEntity<>(json, headers);
     }
 
     private ResponseEntity<JsonNode> androidRedemption(java.security.KeyPair key, String token, String requestKey, Map<String, Object> body) throws Exception {
