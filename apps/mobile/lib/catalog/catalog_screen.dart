@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:qingjing_design_tokens/qingjing_design_tokens.dart';
-import 'catalog.dart';
-import '../entitlements/redemption.dart';
-import '../detail/detail_screen.dart';
-import 'catalog_image.dart';
-import '../downloads/download_manager.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
+import '../design_system/qj_components.dart';
+import '../design_system/qj_theme.dart';
+import '../detail/detail_screen.dart';
+import '../detail/help_screen.dart';
+import '../downloads/download_manager.dart';
+import '../entitlements/redemption.dart';
+import 'catalog.dart';
+import 'catalog_image.dart';
 
 class CatalogScreen extends StatefulWidget {
   const CatalogScreen({
@@ -14,6 +16,7 @@ class CatalogScreen extends StatefulWidget {
     this.redemptions,
     this.downloads,
     this.playback,
+    this.onTab,
     this.category,
     this.search,
   });
@@ -21,6 +24,7 @@ class CatalogScreen extends StatefulWidget {
   final RedemptionCoordinator? redemptions;
   final DownloadManager? downloads;
   final AndroidWallpaperPlayback? playback;
+  final ValueChanged<int>? onTab;
   final Category? category;
   final String? search;
   @override
@@ -31,16 +35,17 @@ class _CatalogScreenState extends State<CatalogScreen> {
   late final CatalogController controller;
   final searchText = TextEditingController();
   List<Category> categories = [];
-  String? categoryError;
+  String? categoryError, childId;
   String view = '精选推荐';
-  String? childId;
   bool categoriesLoading = false;
+  bool get nested => widget.category != null || widget.search != null;
   @override
   void initState() {
     super.initState();
+    searchText.text = widget.search ?? '';
     controller = CatalogController(widget.repository)..addListener(_update);
     _reload();
-    if (widget.category == null && widget.search == null) _categories();
+    if (!nested) _categories();
   }
 
   void _update() {
@@ -70,8 +75,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
       categoryError = null;
     });
     try {
-      final result = await widget.repository.categories();
-      if (mounted) setState(() => categories = result);
+      final value = await widget.repository.categories();
+      if (mounted) setState(() => categories = value);
     } catch (_) {
       if (mounted) setState(() => categoryError = '分类暂时无法加载');
     } finally {
@@ -80,22 +85,48 @@ class _CatalogScreenState extends State<CatalogScreen> {
   }
 
   void _search() {
-    final term = searchText.text.trim();
-    if (term.isEmpty) return;
+    final value = searchText.text.trim();
+    if (value.isEmpty) return;
     Navigator.push(
       context,
       MaterialPageRoute<void>(
         builder: (_) => CatalogScreen(
           repository: widget.repository,
-          search: term,
+          search: value,
           redemptions: widget.redemptions,
           downloads: widget.downloads,
           playback: widget.playback,
+          onTab: widget.onTab,
         ),
       ),
     );
   }
 
+  void _detail(Wallpaper item) => Navigator.push(
+    context,
+    MaterialPageRoute<void>(
+      builder: (_) => DetailScreen(
+        repository: widget.repository,
+        id: item.id,
+        redemptions: widget.redemptions,
+        downloads: widget.downloads,
+        playback: widget.playback,
+      ),
+    ),
+  );
+  void _category(Category item) => Navigator.push(
+    context,
+    MaterialPageRoute<void>(
+      builder: (_) => CatalogScreen(
+        repository: widget.repository,
+        category: item,
+        redemptions: widget.redemptions,
+        downloads: widget.downloads,
+        playback: widget.playback,
+        onTab: widget.onTab,
+      ),
+    ),
+  );
   @override
   void dispose() {
     controller.removeListener(_update);
@@ -106,7 +137,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final nested = widget.category != null || widget.search != null;
     final content = RefreshIndicator(
       onRefresh: () async {
         await _reload();
@@ -116,242 +146,164 @@ class _CatalogScreenState extends State<CatalogScreen> {
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           SliverPadding(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.fromLTRB(T.space5, 0, T.space5, T.space6),
             sliver: SliverList.list(
               children: [
                 if (!nested) ...[
-                  const Text(
-                    '让每一屏，都有心动',
-                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: searchText,
-                    maxLength: 100,
-                    onSubmitted: (_) => _search(),
-                    textInputAction: TextInputAction.search,
-                    decoration: InputDecoration(
-                      hintText: '搜索喜欢的壁纸',
-                      counterText: '',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: IconButton(
-                        onPressed: _search,
-                        tooltip: '搜索',
-                        icon: const Icon(Icons.arrow_forward),
-                      ),
-                      filled: true,
-                      fillColor: Colors.white,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(30),
-                        borderSide: BorderSide.none,
+                  QjBrandHeader(
+                    onService: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => const HelpScreen(customerService: true),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    '壁纸分类',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                  const SizedBox(height: T.space5),
+                  QjSearchBar(controller: searchText, onSearch: _search),
+                ] else ...[
+                  QjPageHeader(
+                    title: widget.category?.name ?? '搜索壁纸',
+                    serviceAction: true,
+                    onAction: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => const HelpScreen(customerService: true),
+                      ),
+                    ),
                   ),
-                  if (categoriesLoading) const LinearProgressIndicator(),
+                  const SizedBox(height: T.space5),
+                  QjSearchBar(controller: searchText, onSearch: _search),
+                ],
+                if (!nested) ...[
+                  const SizedBox(height: T.space7),
+                  _heading('壁纸分类'),
+                  if (categoriesLoading)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: T.space5),
+                      child: LinearProgressIndicator(),
+                    ),
                   if (categoryError != null)
-                    _error(categoryError!, _categories),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: categories
-                        .map(
-                          (category) => SizedBox(
-                            width: 78,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(16),
-                              onTap: () => Navigator.push(
-                                context,
-                                MaterialPageRoute<void>(
-                                  builder: (_) => CatalogScreen(
-                                    redemptions: widget.redemptions,
-                                    downloads: widget.downloads,
-                                    playback: widget.playback,
-                                    repository: widget.repository,
-                                    category: category,
-                                  ),
-                                ),
-                              ),
-                              child: Column(
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(16),
-                                    child: SizedBox(
-                                      width: 56,
-                                      height: 56,
-                                      child: category.icon == null
-                                          ? const Icon(Icons.category_outlined)
-                                          : CatalogImage(
-                                              repository: widget.repository,
-                                              path: category.icon!,
-                                            ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    category.name,
-                                    maxLines: 2,
-                                    textAlign: TextAlign.center,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        )
-                        .toList(),
+                    _inlineError(categoryError!, _categories),
+                  if (!categoriesLoading && categoryError == null) ...[
+                    const SizedBox(height: T.space3),
+                    _categoriesRow(),
+                  ],
+                  const SizedBox(height: T.space7),
+                  _heading(
+                    view == '精选推荐' ? '精选壁纸' : view,
+                    action: categories.isEmpty
+                        ? null
+                        : () => _category(categories.first),
                   ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    '精选壁纸',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-                  ),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: ['精选推荐', '最近上新', '4D 景深', '静态壁纸']
-                          .map(
-                            (label) => Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: ChoiceChip(
-                                label: Text(label),
-                                selected: view == label,
-                                onSelected: (_) {
-                                  setState(() => view = label);
-                                  _reload();
-                                },
-                              ),
-                            ),
-                          )
-                          .toList(),
-                    ),
+                  const SizedBox(height: T.space3),
+                  _filters(['精选推荐', '最近上新', '4D 景深', '静态壁纸'], view, (value) {
+                    setState(() => view = value);
+                    _reload();
+                  }),
+                ],
+                if (widget.category != null) ...[
+                  const SizedBox(height: T.space6),
+                  _filters(
+                    ['全部', ...widget.category!.children.map((e) => e.name)],
+                    childId == null
+                        ? '全部'
+                        : widget.category!.children
+                              .firstWhere((e) => e.id == childId)
+                              .name,
+                    (value) {
+                      setState(
+                        () => childId = value == '全部'
+                            ? null
+                            : widget.category!.children
+                                  .firstWhere((e) => e.name == value)
+                                  .id,
+                      );
+                      _reload();
+                    },
                   ),
                 ],
-                if (widget.category != null)
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        ChoiceChip(
-                          label: const Text('全部'),
-                          selected: childId == null,
-                          onSelected: (_) {
-                            setState(() => childId = null);
-                            _reload();
-                          },
-                        ),
-                        ...widget.category!.children.map(
-                          (child) => Padding(
-                            padding: const EdgeInsets.only(left: 8),
-                            child: ChoiceChip(
-                              label: Text(child.name),
-                              selected: childId == child.id,
-                              onSelected: (_) {
-                                setState(() => childId = child.id);
-                                _reload();
-                              },
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                if (widget.search != null) ...[
+                  const SizedBox(height: T.space7),
+                  _heading(
+                    '“${widget.search}”',
+                    trailing: controller.loading
+                        ? null
+                        : '${controller.items.length} 张壁纸',
                   ),
-                if (controller.loading)
+                ],
+                if (controller.loading && controller.items.isEmpty)
                   const Padding(
-                    padding: EdgeInsets.all(16),
+                    padding: EdgeInsets.symmetric(vertical: 80),
                     child: Center(child: CircularProgressIndicator()),
                   ),
-                if (controller.error != null)
-                  _error(controller.error!, controller.retry),
+                if (controller.error != null && controller.items.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: T.space6),
+                    child: QjStatePanel(
+                      kind: QjStateKind.error,
+                      description: controller.error,
+                      onPressed: controller.retry,
+                    ),
+                  ),
                 if (!controller.loading &&
                     controller.error == null &&
                     controller.items.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 48),
-                    child: Center(child: Text('暂时没有符合条件的已发布壁纸')),
+                  Padding(
+                    padding: const EdgeInsets.only(top: T.space6),
+                    child: QjStatePanel(
+                      description: widget.search != null
+                          ? '没有找到相关壁纸，换个关键词试试'
+                          : widget.category != null
+                          ? '这个分类正在补充壁纸'
+                          : '暂时没有符合条件的已发布壁纸',
+                      actionLabel: nested ? '返回首页' : '刷新目录',
+                      onPressed: () =>
+                          nested ? Navigator.pop(context) : _reload(),
+                    ),
                   ),
+                if (controller.items.isNotEmpty)
+                  const SizedBox(height: T.space5),
               ],
             ),
           ),
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            sliver: SliverLayoutBuilder(
-              builder: (context, constraints) => SliverGrid.builder(
-                itemCount: controller.items.length,
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: constraints.crossAxisExtent >= 700 ? 3 : 2,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: 12,
-                  childAspectRatio: .58,
-                ),
-                itemBuilder: (context, index) {
-                  final item = controller.items[index];
-                  return Material(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(22),
-                    clipBehavior: Clip.antiAlias,
-                    child: InkWell(
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) => DetailScreen(
-                            redemptions: widget.redemptions,
-                            downloads: widget.downloads,
-                            playback: widget.playback,
-                            repository: widget.repository,
-                            id: item.id,
-                          ),
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: SizedBox(
-                              width: double.infinity,
-                              child: CatalogImage(
-                                repository: widget.repository,
-                                path: item.cover,
-                              ),
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
-                            child: Text(
-                              item.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                            child: Text(
-                              item.kindLabel,
-                              style: const TextStyle(
-                                color: QingjingWallpaperTokens.colorMutedInk,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+          if (controller.items.isNotEmpty)
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: T.space5),
+              sliver: SliverLayoutBuilder(
+                builder: (context, constraints) {
+                  final columns = constraints.crossAxisExtent >= 700 ? 3 : 2;
+                  final width =
+                      (constraints.crossAxisExtent - (columns - 1) * T.space3) /
+                      columns;
+                  final height = width * 4.15 / 3 + T.space3 + 28;
+                  return SliverGrid.builder(
+                    itemCount: controller.items.length,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: columns,
+                      mainAxisSpacing: T.space5,
+                      crossAxisSpacing: T.space3,
+                      childAspectRatio: width / height,
                     ),
+                    itemBuilder: (_, index) {
+                      final item = controller.items[index];
+                      return QjCatalogCard(
+                        repository: widget.repository,
+                        wallpaper: item,
+                        onPressed: () => _detail(item),
+                      );
+                    },
                   );
                 },
               ),
             ),
-          ),
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.fromLTRB(
+                T.space5,
+                T.space5,
+                T.space5,
+                T.space12,
+              ),
               child: controller.loadingMore
                   ? const Center(child: CircularProgressIndicator())
                   : controller.hasMore
@@ -359,7 +311,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
                       onPressed: controller.more,
                       child: const Text('加载更多'),
                     )
-                  : const SizedBox(height: 16),
+                  : controller.error != null && controller.items.isNotEmpty
+                  ? _inlineError(controller.error!, controller.retry)
+                  : const SizedBox.shrink(),
             ),
           ),
         ],
@@ -367,21 +321,154 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
     return nested
         ? Scaffold(
-            appBar: AppBar(
-              title: Text(widget.category?.name ?? '搜索：${widget.search}'),
+            body: SafeArea(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: T.sizeContentMax),
+                  child: content,
+                ),
+              ),
             ),
-            body: content,
+            bottomNavigationBar: SafeArea(
+              minimum: const EdgeInsets.fromLTRB(
+                T.space5,
+                0,
+                T.space5,
+                T.space5,
+              ),
+              child: Center(
+                heightFactor: 1,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 390),
+                  child: QjBottomNav(
+                    selectedIndex: 0,
+                    onSelected: (value) {
+                      Navigator.of(context).popUntil((route) => route.isFirst);
+                      WidgetsBinding.instance.addPostFrameCallback(
+                        (_) => widget.onTab?.call(value),
+                      );
+                    },
+                    items: const [
+                      QjNavItem('首页', 'house'),
+                      QjNavItem('我的', 'images'),
+                      QjNavItem('UI 规范', 'palette'),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           )
         : content;
   }
 
-  Widget _error(String message, VoidCallback retry) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 12),
-    child: Column(
+  Widget _heading(String title, {VoidCallback? action, String? trailing}) =>
+      Row(
+        children: [
+          Expanded(
+            child: Text(title, style: Theme.of(context).textTheme.titleLarge),
+          ),
+          if (action != null)
+            TextButton(onPressed: action, child: const Text('查看分类')),
+          if (trailing != null)
+            Text(trailing, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      );
+  Widget _filters(
+    List<String> labels,
+    String selected,
+    ValueChanged<String> onSelect,
+  ) => SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    child: Row(
+      children: labels
+          .map(
+            (label) => Padding(
+              padding: const EdgeInsets.only(right: T.space2),
+              child: QjFilterChip(
+                label: label,
+                selected: label == selected,
+                onPressed: () => onSelect(label),
+              ),
+            ),
+          )
+          .toList(),
+    ),
+  );
+  Widget _inlineError(String message, VoidCallback retry) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: T.space3),
+    child: Row(
       children: [
-        Text(message),
+        Expanded(
+          child: Text(message, style: Theme.of(context).textTheme.bodySmall),
+        ),
         TextButton(onPressed: retry, child: const Text('重试')),
       ],
     ),
+  );
+  Widget _categoriesRow() => LayoutBuilder(
+    builder: (context, constraints) {
+      const colors = [
+        (T.colorAccentSoft, T.colorAccentStrong),
+        (T.colorSuccessSoft, T.colorSuccess),
+        (T.colorBlushSoft, Color(0xFFA5524B)),
+        (T.colorSurfaceMuted, T.colorInkSoft),
+        (T.colorSurfaceMuted, T.colorInkSoft),
+      ];
+      const icons = ['sparkles', 'mountain', 'flower-2', 'flame', 'image'];
+      final width = (constraints.maxWidth - T.space2 * 4) / 5;
+      return Wrap(
+        spacing: T.space2,
+        runSpacing: T.space3,
+        children: List.generate(categories.length, (index) {
+          final item = categories[index];
+          final tone = colors[index % colors.length];
+          return SizedBox(
+            width: width,
+            child: InkWell(
+              onTap: () => _category(item),
+              borderRadius: BorderRadius.circular(19),
+              child: Column(
+                children: [
+                  Container(
+                    width: T.sizeCategoryIcon,
+                    height: T.sizeCategoryIcon,
+                    decoration: BoxDecoration(
+                      color: tone.$1,
+                      borderRadius: BorderRadius.circular(19),
+                    ),
+                    child: item.icon == null
+                        ? Center(
+                            child: QjIcon(
+                              icons[index % icons.length],
+                              color: tone.$2,
+                            ),
+                          )
+                        : ClipRRect(
+                            borderRadius: BorderRadius.circular(19),
+                            child: CatalogImage(
+                              repository: widget.repository,
+                              path: item.icon!,
+                            ),
+                          ),
+                  ),
+                  const SizedBox(height: T.space2),
+                  Text(
+                    item.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: QjTheme.type(
+                      12,
+                      FontWeight.w500,
+                      T.lineHeightCaption,
+                      T.colorMutedInk,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+      );
+    },
   );
 }

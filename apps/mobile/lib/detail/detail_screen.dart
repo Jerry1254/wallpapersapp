@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:wallpaper_android/wallpaper_android.dart';
 import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
 import '../catalog/catalog.dart';
 import '../catalog/catalog_image.dart';
-import 'delivery.dart';
-import 'trial_manager.dart';
-import '../entitlements/redemption.dart';
-import '../entitlements/redemption_dialog.dart';
-import 'help_screen.dart';
-import 'detail_preview.dart';
+import '../design_system/qj_components.dart';
+import '../design_system/qj_theme.dart';
 import '../downloads/download_manager.dart';
 import '../downloads/download_panel.dart';
-import 'package:wallpaper_android/wallpaper_android.dart';
+import '../entitlements/redemption.dart';
+import '../entitlements/redemption_dialog.dart';
+import 'delivery.dart';
+import 'detail_preview.dart';
+import 'help_screen.dart';
+import 'trial_manager.dart';
 
 class DetailScreen extends StatefulWidget {
   const DetailScreen({
@@ -38,7 +40,7 @@ class DetailScreen extends StatefulWidget {
 
 class _DetailScreenState extends State<DetailScreen> {
   late Future<Wallpaper> future;
-  WallpaperEffect? selected;
+  late WallpaperCapabilities capabilities = widget.capabilities;
   late final TrialManager? trials =
       widget.trials ??
       (widget.downloads == null
@@ -49,262 +51,318 @@ class _DetailScreenState extends State<DetailScreen> {
               widget.downloads!.installer,
             ));
   bool? owned;
-  String? ownershipError;
-  final _scroll = ScrollController();
-  bool _previewActive = true;
-  late WallpaperCapabilities capabilities = widget.capabilities;
+  String? ownershipError, installedId, _installedKey;
+  final scroll = ScrollController();
+  bool previewActive = true;
   @override
   void initState() {
     super.initState();
     future = widget.repository.detail(widget.id);
-    _scroll.addListener(() {
-      final active =
-          _scroll.offset < (MediaQuery.sizeOf(context).width - 40) * 14 / 9;
-      if (active != _previewActive) setState(() => _previewActive = active);
-    });
+    scroll.addListener(_scrolled);
     _capabilities();
     _ownership();
   }
 
+  void _scrolled() {
+    final active = scroll.offset < (MediaQuery.sizeOf(context).width - 40) * 2;
+    if (active != previewActive) setState(() => previewActive = active);
+  }
+
   Future<void> _ownership() async {
     if (trials == null) return;
-    if (mounted) {
-      setState(() {
-        owned = null;
-        ownershipError = null;
-      });
-    }
+    setState(() {
+      owned = null;
+      ownershipError = null;
+    });
     try {
-      final result = await trials!.isOwned(widget.id);
-      if (mounted) setState(() => owned = result);
+      final value = await trials!.isOwned(widget.id);
+      if (mounted) setState(() => owned = value);
     } catch (_) {
       if (mounted) setState(() => ownershipError = '权益暂时无法确认，请重试');
     }
   }
 
+  Future<void> _capabilities() async {
+    try {
+      final value = await widget.playback?.capabilities();
+      if (mounted && value != null) setState(() => capabilities = value);
+    } catch (_) {}
+  }
+
+  void _installed(WallpaperEffect effect) {
+    final key = '${widget.id}-${effect.name}';
+    if (_installedKey == key) return;
+    _installedKey = key;
+    widget.downloads
+        ?.current(widget.id, AndroidWallpaperPlayback.resourceType(effect))
+        .then((value) {
+          if (mounted && _installedKey == key) {
+            setState(() => installedId = value);
+          }
+        })
+        .catchError((_) {
+          return null;
+        });
+  }
+
+  Future<void> _openDownload(WallpaperEffect effect) async {
+    final manager = widget.downloads;
+    if (manager == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      constraints: const BoxConstraints(maxWidth: T.sizeContentMax),
+      builder: (sheetContext) => DownloadPanel(
+        manager: manager,
+        wallpaperId: widget.id,
+        resourceType: AndroidWallpaperPlayback.resourceType(effect),
+        autoStart: true,
+        onReady: (id) {
+          Navigator.pop(sheetContext);
+          setState(() => installedId = id);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _openTarget(effect, id);
+          });
+        },
+      ),
+    );
+  }
+
+  Future<void> _openTarget(WallpaperEffect effect, String id) async {
+    final playback = widget.playback;
+    if (playback == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      constraints: const BoxConstraints(maxWidth: T.sizeContentMax),
+      builder: (_) => WallpaperTargetSheet(
+        installedId: id,
+        effect: effect,
+        playback: playback,
+        capabilities: capabilities,
+      ),
+    );
+  }
+
+  Future<void> _action(WallpaperEffect effect) async {
+    if (owned == null && trials != null) {
+      await _ownership();
+      if (owned == null) return;
+      if (!mounted) return;
+    }
+    if (owned == false) {
+      final coordinator = widget.redemptions;
+      if (coordinator == null) return;
+      final granted = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        constraints: const BoxConstraints(maxWidth: T.sizeContentMax),
+        builder: (_) =>
+            RedemptionDialog(coordinator: coordinator, wallpaperId: widget.id),
+      );
+      if (granted != true) return;
+      await _ownership();
+      if (owned != true) return;
+      await _openDownload(effect);
+      return;
+    }
+    if (installedId != null) {
+      await _openTarget(effect, installedId!);
+    } else {
+      await _openDownload(effect);
+    }
+  }
+
   @override
   void dispose() {
-    _scroll.dispose();
+    scroll.dispose();
     if (widget.trials == null) trials?.dispose();
     super.dispose();
   }
 
-  Future<void> _capabilities() async {
-    try {
-      final data = await widget.playback?.capabilities();
-      if (mounted && data != null) setState(() => capabilities = data);
-    } catch (_) {}
-  }
-
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('壁纸详情'),
-      actions: [
-        IconButton(
-          tooltip: '客服',
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute<void>(
-              builder: (_) => const HelpScreen(customerService: true),
-            ),
-          ),
-          icon: const Icon(Icons.support_agent),
-        ),
-      ],
-    ),
-    body: FutureBuilder<Wallpaper>(
-      future: future,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    snapshot.error is ApiFailure
-                        ? (snapshot.error as ApiFailure).message
-                        : '详情加载失败，请重试',
-                  ),
-                  TextButton(
-                    onPressed: () => setState(() {
-                      future = widget.repository.detail(widget.id);
-                    }),
-                    child: const Text('重试'),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-        final wallpaper = snapshot.requireData;
-        final effects = deliveryEffects(
-          wallpaper,
-          capabilities.platform,
-          osVersion: capabilities.osVersion,
-        );
-        final effect = effects.contains(selected)
-            ? selected
-            : effects.firstOrNull;
-        return ListView(
-          controller: _scroll,
-          padding: const EdgeInsets.all(20),
-          children: [
-            if (widget.downloads != null &&
-                capabilities.platform == ClientPlatform.android &&
-                (effect == WallpaperEffect.video ||
-                    effect == WallpaperEffect.parallax))
-              DetailPreview(
-                key: ValueKey('${wallpaper.id}-${effect!.name}'),
-                manager: widget.downloads!,
-                wallpaperId: wallpaper.id,
-                resourceType: AndroidWallpaperPlayback.resourceType(effect),
-                active: _previewActive,
-                cover: CatalogImage(
-                  repository: widget.repository,
-                  path: wallpaper.cover,
-                ),
-              )
-            else
-              ClipRRect(
-                borderRadius: BorderRadius.circular(24),
-                child: AspectRatio(
-                  aspectRatio: 9 / 14,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      CatalogImage(
-                        repository: widget.repository,
-                        path: wallpaper.cover,
-                      ),
-                      const Positioned(
-                        left: 12,
-                        bottom: 12,
-                        child: Chip(label: Text('作品封面 · 非原生效果预览')),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            const SizedBox(height: 20),
-            Text(
-              wallpaper.title,
-              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            Text(wallpaper.kindLabel),
-            const SizedBox(height: 16),
-            if (effects.isEmpty) const Text('此作品暂无当前平台可交付的资源变体，不可兑换。'),
-            Wrap(
-              spacing: 8,
-              children: effects
-                  .map(
-                    (item) => ChoiceChip(
-                      label: Text(effectLabel(item)),
-                      selected: effect == item,
-                      onSelected: (_) => setState(() => selected = item),
+    body: SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: T.sizeContentMax),
+          child: FutureBuilder<Wallpaper>(
+            future: future,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return ListView(
+                  padding: const EdgeInsets.symmetric(horizontal: T.space5),
+                  children: [
+                    const QjPageHeader(title: '壁纸详情'),
+                    const SizedBox(height: T.space6),
+                    QjStatePanel(
+                      kind: QjStateKind.error,
+                      description: snapshot.error is ApiFailure
+                          ? (snapshot.error! as ApiFailure).message
+                          : '详情加载失败，请重试',
+                      onPressed: () {
+                        setState(() {
+                          future = widget.repository.detail(widget.id);
+                        });
+                      },
                     ),
-                  )
-                  .toList(),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              '系统设置位置',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            ...WallpaperTarget.values.map(
-              (target) => ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(targetLabel(target)),
-                trailing: Text(
-                  capabilities.systemChoosesLiveTarget &&
-                          (effect == WallpaperEffect.video ||
-                              effect == WallpaperEffect.parallax)
-                      ? '以系统选项为准'
-                      : effect != null && capabilities.canApply(effect, target)
-                      ? '可用'
-                      : '尚不可用',
+                  ],
+                );
+              }
+              final wallpaper = snapshot.requireData;
+              final effects = deliveryEffects(
+                wallpaper,
+                capabilities.platform,
+                osVersion: capabilities.osVersion,
+              );
+              final effect = effects.firstOrNull;
+              if (effect != null) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _installed(effect);
+                });
+              }
+              final usable =
+                  effect != null &&
+                  capabilities.previewEffects.contains(effect) &&
+                  WallpaperTarget.values.any(
+                    (target) => capabilities.canApply(effect, target),
+                  );
+              final label = !usable
+                  ? '当前设备不支持'
+                  : trials != null && owned == null
+                  ? '正在确认权益'
+                  : owned == true && installedId != null
+                  ? '设置壁纸'
+                  : '下载壁纸';
+              return ListView(
+                controller: scroll,
+                padding: const EdgeInsets.fromLTRB(
+                  T.space5,
+                  0,
+                  T.space5,
+                  T.space6,
                 ),
-              ),
-            ),
-            if ((effect == WallpaperEffect.video ||
-                    effect == WallpaperEffect.parallax) &&
-                capabilities.systemChoosesLiveTarget)
-              const Text('动态壁纸设置位置由手机系统选择；桌面和锁屏选项按手机实际提供。两处使用同一倾境服务时共用资源。'),
-            if ((effect == WallpaperEffect.video ||
-                    effect == WallpaperEffect.parallax) &&
-                (capabilities.setupMessage?.isNotEmpty ?? false)) ...[
-              Text(capabilities.setupMessage!),
-              TextButton(
-                onPressed: _capabilities,
-                child: const Text('重新检测手机能力'),
-              ),
-            ],
-            if (trials != null && owned == null) ...[
-              Text(ownershipError ?? '正在确认此作品权益…'),
-              if (ownershipError != null)
-                TextButton(onPressed: _ownership, child: const Text('重新确认权益')),
-            ],
-            if (widget.downloads != null &&
-                effect != null &&
-                (trials == null || owned == true)) ...[
-              const SizedBox(height: 12),
-              DownloadPanel(
-                key: ValueKey('${wallpaper.id}-${effect.name}'),
-                manager: widget.downloads!,
-                wallpaperId: wallpaper.id,
-                resourceType: switch (effect) {
-                  WallpaperEffect.staticImage => 'STATIC_IMAGE',
-                  WallpaperEffect.video => 'VIDEO',
-                  WallpaperEffect.parallax => 'LAYER_PARALLAX',
-                },
-                playback: widget.playback,
-                capabilities: capabilities,
-              ),
-            ],
-            if (effect == null || !capabilities.previewEffects.contains(effect))
-              const Text('此效果的原生预览或系统设置尚不可用；能力确认前不消耗兑换额度。'),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed:
-                  widget.redemptions != null &&
-                      effect != null &&
-                      capabilities.previewEffects.contains(effect) &&
-                      WallpaperTarget.values.any(
-                        (target) => capabilities.canApply(effect, target),
-                      )
-                  ? () async {
-                      await showDialog<void>(
-                        context: context,
-                        builder: (_) => RedemptionDialog(
-                          coordinator: widget.redemptions!,
-                          wallpaperId: wallpaper.id,
+                children: [
+                  QjPageHeader(
+                    title: wallpaper.title,
+                    actionLabel: '观看教程',
+                    onAction: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => const SettingTutorialScreen(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: T.space4),
+                  Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(T.radiusCard),
+                      boxShadow: const [T.shadowCard],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(T.radiusCard),
+                      child: AspectRatio(
+                        aspectRatio: 1 / 2,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            if (widget.downloads != null &&
+                                capabilities.platform ==
+                                    ClientPlatform.android &&
+                                (effect == WallpaperEffect.video ||
+                                    effect == WallpaperEffect.parallax))
+                              DetailPreview(
+                                key: ValueKey(
+                                  '${wallpaper.id}-${effect!.name}',
+                                ),
+                                manager: widget.downloads!,
+                                wallpaperId: wallpaper.id,
+                                resourceType:
+                                    AndroidWallpaperPlayback.resourceType(
+                                      effect,
+                                    ),
+                                active: previewActive,
+                                cover: CatalogImage(
+                                  repository: widget.repository,
+                                  path: wallpaper.cover,
+                                ),
+                              )
+                            else
+                              CatalogImage(
+                                repository: widget.repository,
+                                path: wallpaper.cover,
+                              ),
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              height: 132,
+                              child: IgnorePointer(
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Colors.transparent,
+                                        T.colorScrim.withValues(alpha: .38),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              left: T.space4,
+                              right: T.space4,
+                              bottom: T.space4,
+                              child: QjPrimaryAction(
+                                label: label,
+                                accent: true,
+                                loading: trials != null && owned == null,
+                                onPressed:
+                                    usable &&
+                                        (trials == null || owned != null) &&
+                                        ownershipError == null
+                                    ? () => _action(effect)
+                                    : null,
+                              ),
+                            ),
+                          ],
                         ),
-                      );
-                      if (mounted) await _ownership();
-                    }
-                  : null,
-              child: const Text('兑换壁纸'),
-            ),
-            if (wallpaper.copyright?.isNotEmpty ?? false) ...[
-              const SizedBox(height: 20),
-              Text('版权说明：${wallpaper.copyright}'),
-            ],
-            TextButton(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute<void>(builder: (_) => const HelpScreen()),
-              ),
-              child: const Text('查看壁纸设计与设置教程'),
-            ),
-          ],
-        );
-      },
+                      ),
+                    ),
+                  ),
+                  if (ownershipError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: T.space3),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              ownershipError!,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: _ownership,
+                            child: const Text('重新加载'),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
     ),
   );
 }

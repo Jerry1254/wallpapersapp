@@ -250,7 +250,7 @@ class _DetailPreviewState extends State<DetailPreview>
   Widget build(BuildContext context) => ClipRRect(
     borderRadius: BorderRadius.circular(24),
     child: AspectRatio(
-      aspectRatio: 9 / 14,
+      aspectRatio: 1 / 2,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -258,50 +258,41 @@ class _DetailPreviewState extends State<DetailPreview>
           if (installedId != null) _surface(),
           if (!ready && error == null)
             const Center(child: CircularProgressIndicator()),
-          Positioned(
-            left: 12,
-            right: 12,
-            bottom: 12,
-            child: Align(
-              alignment: Alignment.bottomLeft,
-              child: error == null
-                  ? Chip(
-                      label: Text(
-                        ready
-                            ? widget.resourceType == 'VIDEO'
-                                  ? 'MP4 预览 · 循环播放'
-                                  : '4D 交互 · 倾斜或拖动'
-                            : '正在准备真实预览…',
-                      ),
-                    )
-                  : Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(error!),
-                            TextButton(
-                              onPressed: () {
-                                _cancel();
-                                channel?.setMethodCallHandler(null);
-                                channel = null;
-                                setState(() {
-                                  installedId = null;
-                                  error = null;
-                                  ready = false;
-                                });
-                                unawaited(_prepare());
-                              },
-                              child: const Text('重新加载预览'),
-                            ),
-                          ],
+          if (error != null)
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 12,
+              child: Align(
+                alignment: Alignment.bottomLeft,
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(error!),
+                        TextButton(
+                          onPressed: () {
+                            _cancel();
+                            channel?.setMethodCallHandler(null);
+                            channel = null;
+                            setState(() {
+                              installedId = null;
+                              error = null;
+                              ready = false;
+                            });
+                            unawaited(_prepare());
+                          },
+                          child: const Text('重新加载预览'),
                         ),
-                      ),
+                      ],
                     ),
+                  ),
+                ),
+              ),
             ),
-          ),
         ],
       ),
     ),

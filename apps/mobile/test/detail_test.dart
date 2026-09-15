@@ -63,14 +63,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('内容不存在或已经下线'), findsOneWidget);
     repo.fail = false;
-    await tester.tap(find.text('重试'));
+    await tester.tap(find.text('重新加载'));
     await tester.pumpAndSettle();
     expect(repo.attempts, 2);
-    expect(find.text('作品封面 · 非原生效果预览'), findsOneWidget);
-    await tester.scrollUntilVisible(find.byType(FilledButton), 300);
-    await tester.pumpAndSettle();
+    expect(find.text('作品封面 · 非原生效果预览'), findsNothing);
+    expect(find.text('平台'), findsNothing);
+    expect(find.text('资源'), findsNothing);
     final button = tester.widget<FilledButton>(find.byType(FilledButton));
     expect(button.onPressed, isNull);
-    expect(find.text('尚不可用'), findsNWidgets(3));
+    expect(find.text('当前设备不支持'), findsOneWidget);
   });
 }

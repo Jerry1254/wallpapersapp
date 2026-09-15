@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'download_manager.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
 import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
-import '../detail/delivery.dart';
+import '../design_system/qj_components.dart';
+import '../design_system/qj_theme.dart';
+import 'download_manager.dart';
 
 class DownloadPanel extends StatefulWidget {
   const DownloadPanel({
@@ -14,71 +15,55 @@ class DownloadPanel extends StatefulWidget {
     this.capabilities = const WallpaperCapabilities(
       platform: ClientPlatform.android,
     ),
+    this.autoStart = false,
+    this.onReady,
   });
   final DownloadManager manager;
   final String wallpaperId, resourceType;
   final AndroidWallpaperPlayback? playback;
   final WallpaperCapabilities capabilities;
+  final bool autoStart;
+  final ValueChanged<String>? onReady;
   @override
   State<DownloadPanel> createState() => _DownloadPanelState();
 }
 
 class _DownloadPanelState extends State<DownloadPanel> {
   String? installed;
-  bool nativeBusy = false;
-  String? nativeMessage;
-  Future<void> _native({WallpaperTarget? target}) async {
-    final id = installed,
-        effect = effectForResource(widget.resourceType),
-        playback = widget.playback;
-    if (id == null || effect == null || playback == null || nativeBusy) return;
-    setState(() {
-      nativeBusy = true;
-      nativeMessage = null;
-    });
-    try {
-      final result = target == null
-          ? await playback.open(id, effect)
-          : await playback.apply(id, effect, target);
-      if (mounted) {
-        setState(
-          () => nativeMessage =
-              result.message ??
-              switch (result.status) {
-                OperationStatus.completed =>
-                  target == null ? '预览已结束' : '系统已确认设置完成',
-                OperationStatus.cancelled => '已取消',
-                OperationStatus.unsupported => '当前手机不支持此操作',
-                OperationStatus.unknown => '结果不可确认，请检查系统壁纸',
-              },
-        );
-      }
-    } catch (_) {
-      if (mounted) setState(() => nativeMessage = '原生操作暂时不可用，请重试');
-    } finally {
-      if (mounted) setState(() => nativeBusy = false);
-    }
-  }
-
+  bool checked = false;
   @override
   void initState() {
     super.initState();
-    _refresh();
     widget.manager.addListener(_changed);
+    _refresh();
   }
 
   Future<void> _refresh() async {
     try {
-      final id = await widget.manager.current(
+      final value = await widget.manager.current(
         widget.wallpaperId,
         widget.resourceType,
       );
-      if (mounted) setState(() => installed = id);
-    } catch (_) {}
+      if (!mounted) return;
+      setState(() {
+        installed = value;
+        checked = true;
+      });
+      if (value == null && widget.autoStart && !widget.manager.value.busy) {
+        widget.manager.download(widget.wallpaperId, widget.resourceType);
+      }
+    } catch (_) {
+      if (mounted) setState(() => checked = true);
+    }
   }
 
   void _changed() {
-    if (!widget.manager.value.busy) _refresh();
+    final state = widget.manager.value;
+    if (state.wallpaperId == widget.wallpaperId &&
+        state.resourceType == widget.resourceType &&
+        state.status == 'completed') {
+      setState(() => installed = state.installedId);
+    }
   }
 
   @override
@@ -94,76 +79,305 @@ class _DownloadPanelState extends State<DownloadPanel> {
       final own =
           state.wallpaperId == widget.wallpaperId &&
           state.resourceType == widget.resourceType;
-      final busy = state.busy && own;
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(installed == null ? '本地资源尚未安装' : '本地资源已安全安装'),
-          if (busy) ...[
-            const SizedBox(height: 8),
-            LinearProgressIndicator(
-              value: state.total > 0 ? state.received / state.total : null,
-            ),
-            Text(switch (state.status) {
-              'verifying' => '正在校验资源…',
-              'installing' => '正在安装资源…',
-              'preparing' => '正在验证权益…',
-              _ =>
-                '正在下载 ${(state.received / 1024 / 1024).toStringAsFixed(1)} MB',
-            }),
-            TextButton(
-              onPressed: state.status == 'installing'
-                  ? null
-                  : widget.manager.cancel,
-              child: const Text('取消下载'),
-            ),
-          ],
-          if (own && state.message != null) Text(state.message!),
-          FilledButton.tonal(
-            onPressed: state.busy || nativeBusy
-                ? null
-                : () => widget.manager.download(
-                    widget.wallpaperId,
-                    widget.resourceType,
-                  ),
-            child: Text(installed == null ? '下载资源（需已有权益）' : '重新下载或更新资源'),
-          ),
-          const Text('中断后重新申请票据并从头下载。更新失败保留原版。'),
-          if (widget.playback != null && installed != null) ...[
-            if (widget.capabilities.previewEffects.contains(
-              effectForResource(widget.resourceType),
-            ))
-              OutlinedButton(
-                onPressed: nativeBusy || state.busy ? null : () => _native(),
-                child: const Text('全屏预览已安装资源'),
+      final failed = own && ['failed', 'cancelled'].contains(state.status);
+      final success = installed != null || (own && state.status == 'completed');
+      final verifying =
+          own && ['verifying', 'installing'].contains(state.status);
+      final busy = own && state.busy;
+      final progress = state.total > 0
+          ? (state.received / state.total).clamp(0.0, 1.0)
+          : 0.0;
+      final title = !checked || busy
+          ? (verifying ? '正在校验资源' : '正在下载壁纸')
+          : success
+          ? '壁纸下载完成'
+          : failed
+          ? '下载失败'
+          : '正在下载壁纸';
+      final description = !checked || busy
+          ? (verifying ? '确认文件完整性与资源签名' : '下载进度 ${(progress * 100).round()}%')
+          : success
+          ? '资源已安全保存到当前设备'
+          : failed
+          ? (state.message ?? '网络中断，请重新尝试')
+          : '正在准备安全下载';
+      final icon = success
+          ? 'check'
+          : failed
+          ? 'circle-alert'
+          : verifying
+          ? 'shield-check'
+          : 'download';
+      final tone = success
+          ? (T.colorSuccessSoft, T.colorSuccess)
+          : failed
+          ? (T.colorDangerSoft, T.colorDanger)
+          : (T.colorAccentSoft, T.colorAccentStrong);
+      return QjSheet(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 58,
+              height: 58,
+              decoration: BoxDecoration(
+                color: tone.$1,
+                borderRadius: BorderRadius.circular(20),
               ),
-            ...WallpaperTarget.values
-                .where(
-                  (target) => widget.capabilities.canApply(
-                    effectForResource(widget.resourceType)!,
-                    target,
-                  ),
-                )
-                .map(
-                  (target) => FilledButton(
-                    onPressed: nativeBusy || state.busy
-                        ? null
-                        : () => _native(target: target),
-                    child: Text(
-                      widget.resourceType == 'VIDEO'
-                          ? '打开系统视频壁纸设置'
-                          : widget.resourceType == 'LAYER_PARALLAX' &&
-                                widget.capabilities.systemChoosesLiveTarget
-                          ? '打开系统4D壁纸设置'
-                          : '设为${targetLabel(target)}',
+              child: Center(child: QjIcon(icon, size: 28, color: tone.$2)),
+            ),
+            const SizedBox(height: T.space4),
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 7),
+            Text(
+              description,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: T.space5),
+            if (!success && !failed) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(T.radiusPill),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 8,
+                  color: T.colorAccent,
+                  backgroundColor: T.colorSurfaceStrong,
+                ),
+              ),
+              if (busy && state.status != 'installing')
+                TextButton(
+                  onPressed: widget.manager.cancel,
+                  child: const Text('取消下载'),
+                ),
+            ],
+            if (success)
+              QjPrimaryAction(
+                label: '设置壁纸',
+                accent: true,
+                onPressed: () =>
+                    widget.onReady?.call(installed ?? state.installedId!),
+              ),
+            if (failed)
+              QjPrimaryAction(
+                label: '重新尝试',
+                onPressed: () => widget.manager.download(
+                  widget.wallpaperId,
+                  widget.resourceType,
+                ),
+              ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class WallpaperTargetSheet extends StatefulWidget {
+  const WallpaperTargetSheet({
+    super.key,
+    required this.installedId,
+    required this.effect,
+    required this.playback,
+    required this.capabilities,
+  });
+  final String installedId;
+  final WallpaperEffect effect;
+  final AndroidWallpaperPlayback playback;
+  final WallpaperCapabilities capabilities;
+  @override
+  State<WallpaperTargetSheet> createState() => _WallpaperTargetSheetState();
+}
+
+class _WallpaperTargetSheetState extends State<WallpaperTargetSheet> {
+  WallpaperTarget? target;
+  bool busy = false, success = false;
+  String? failure;
+  List<(WallpaperTarget, String, String, String)> get options {
+    if (widget.capabilities.systemChoosesLiveTarget &&
+        widget.effect != WallpaperEffect.staticImage) {
+      return [(WallpaperTarget.home, '桌面和锁屏', '设置位置由手机系统选择', 'smartphone')];
+    }
+    return [
+          (WallpaperTarget.home, '桌面壁纸', '显示在手机桌面', 'panels-top-left'),
+          (WallpaperTarget.lock, '锁屏壁纸', '显示在锁屏界面', 'lock-keyhole'),
+          (WallpaperTarget.both, '桌面和锁屏', '两处使用同一张壁纸', 'smartphone'),
+        ]
+        .where((item) => widget.capabilities.canApply(widget.effect, item.$1))
+        .toList();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final values = options;
+    target = values.any((e) => e.$1 == WallpaperTarget.both)
+        ? WallpaperTarget.both
+        : values.firstOrNull?.$1;
+  }
+
+  Future<void> apply() async {
+    if (target == null || busy) return;
+    setState(() {
+      busy = true;
+      failure = null;
+    });
+    final result = await widget.playback.apply(
+      widget.installedId,
+      widget.effect,
+      target!,
+    );
+    if (!mounted) return;
+    setState(() {
+      busy = false;
+      if (result.status == OperationStatus.completed) {
+        success = true;
+      } else {
+        failure =
+            result.message ??
+            switch (result.status) {
+              OperationStatus.cancelled => '已取消',
+              OperationStatus.unsupported => '当前手机不支持此操作',
+              OperationStatus.unknown => '结果不可确认，请检查系统壁纸',
+              _ => '设置失败，请重试',
+            };
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => QjSheet(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          success ? '壁纸设置成功' : '设置到哪里',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          success ? '请返回桌面观看效果' : '选项由当前手机的系统能力决定',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: T.space4),
+        if (success)
+          Container(
+            constraints: const BoxConstraints(minHeight: 148),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: T.colorSuccessSoft,
+              borderRadius: BorderRadius.circular(T.radiusCard),
+            ),
+            child: const QjIcon('check', size: 52, color: T.colorSuccess),
+          )
+        else if (failure != null)
+          Container(
+            constraints: const BoxConstraints(minHeight: 148),
+            padding: const EdgeInsets.all(T.space4),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: T.colorDangerSoft,
+              borderRadius: BorderRadius.circular(T.radiusCard),
+            ),
+            child: Text(
+              failure!,
+              textAlign: TextAlign.center,
+              style: QjTheme.type(
+                13,
+                FontWeight.w500,
+                T.lineHeightBody,
+                T.colorDanger,
+              ),
+            ),
+          )
+        else
+          for (final item in options)
+            Padding(
+              padding: const EdgeInsets.only(bottom: T.space2),
+              child: Semantics(
+                button: true,
+                selected: target == item.$1,
+                child: InkWell(
+                  onTap: () => setState(() => target = item.$1),
+                  borderRadius: BorderRadius.circular(T.radiusControl),
+                  child: Container(
+                    constraints: const BoxConstraints(minHeight: 68),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: target == item.$1
+                          ? T.colorSurface
+                          : T.colorSurfaceMuted,
+                      border: Border.all(
+                        color: target == item.$1
+                            ? T.colorAccent
+                            : T.colorOutline,
+                      ),
+                      borderRadius: BorderRadius.circular(T.radiusControl),
+                      boxShadow: target == item.$1
+                          ? const [T.shadowSoft]
+                          : null,
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: T.colorSurfaceStrong,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Center(
+                            child: QjIcon(item.$4, color: T.colorInkSoft),
+                          ),
+                        ),
+                        const SizedBox(width: T.space3),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.$2,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              Text(
+                                item.$3,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (target == item.$1)
+                          const QjIcon(
+                            'check',
+                            size: 16,
+                            color: T.colorAccentStrong,
+                          ),
+                      ],
                     ),
                   ),
                 ),
-          ],
-          if (nativeBusy) const LinearProgressIndicator(),
-          if (nativeMessage != null) Text(nativeMessage!),
-        ],
-      );
-    },
+              ),
+            ),
+        const SizedBox(height: T.space5),
+        QjPrimaryAction(
+          label: success
+              ? '完成'
+              : failure != null
+              ? '重新尝试'
+              : '确认设置',
+          accent: success,
+          loading: busy,
+          onPressed: success
+              ? () => Navigator.pop(context)
+              : failure != null
+              ? () => setState(() => failure = null)
+              : apply,
+        ),
+      ],
+    ),
   );
 }

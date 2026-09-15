@@ -1,8 +1,11 @@
 package com.qingjing.wallpaper_android
 
+import android.content.ContentValues
 import android.content.Context
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.MediaStore
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -92,6 +95,32 @@ class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, A
             "keyAlgorithm" to "RSA-OAEP-SHA256-MGF1-SHA1")
     }
     private fun url64(bytes: ByteArray) = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+    private fun saveCustomerQr(bytes: ByteArray): String {
+        require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+        require(bytes.size in 8..1_000_000)
+        val signature = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
+        require(bytes.copyOfRange(0, signature.size).contentEquals(signature))
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, "倾境壁纸客服二维码-${System.currentTimeMillis()}.png")
+            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+            put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/倾境壁纸")
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+        val resolver = context.contentResolver
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: throw IllegalStateException()
+        try {
+            resolver.openOutputStream(uri, "w")?.use { it.write(bytes) }
+                ?: throw IllegalStateException()
+            values.clear()
+            values.put(MediaStore.Images.Media.IS_PENDING, 0)
+            check(resolver.update(uri, values, null, null) == 1)
+            return uri.toString()
+        } catch (error: Exception) {
+            resolver.delete(uri, null, null)
+            throw error
+        }
+    }
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         if(call.method == "installDetailPreview" || call.method == "cancelDetailPreview") {
             try {
@@ -125,6 +154,7 @@ class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, A
                     "discardTrial" -> { TrialRuntime.finish(context,call.argument<String>("trialId") ?: throw IllegalArgumentException());null }
                     "deliveryInfo" -> delivery.info()
                     "playbackCapabilities" -> playback.information()
+                    "saveCustomerQr" -> saveCustomerQr(call.argument<ByteArray>("bytes") ?: throw IllegalArgumentException())
                     "installedPackage" -> delivery.current(call.argument<String>("wallpaperId") ?: throw IllegalArgumentException(),call.argument<String>("resourceType") ?: throw IllegalArgumentException())
                     "clearPackageCache" -> { LiveSelection.pending(context); delivery.clearUnused() }
                     "encryptionPublicKey" -> encryptionPublicKey()
@@ -174,7 +204,11 @@ class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, A
                 main.post { result.success(response) }
             } catch (_: Exception) {
                 // Never return exception text: it can contain key aliases or request payloads.
-                main.post { result.error("IDENTITY_UNAVAILABLE", "安装凭据暂时不可用，请重试或联系客服", null) }
+                if (call.method == "saveCustomerQr") {
+                    main.post { result.error("SAVE_FAILED", "保存二维码失败，请重试", null) }
+                } else {
+                    main.post { result.error("IDENTITY_UNAVAILABLE", "安装凭据暂时不可用，请重试或联系客服", null) }
+                }
             }
         }
     }

@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:wallpaper_android/wallpaper_android.dart';
 import '../catalog/catalog.dart';
-import '../catalog/catalog_image.dart';
+import '../design_system/qj_components.dart';
+import '../design_system/qj_theme.dart';
 import '../detail/detail_screen.dart';
 import '../detail/help_screen.dart';
 import '../device/device_session.dart';
-import 'redemption.dart';
 import '../downloads/download_manager.dart';
-import 'package:wallpaper_android/wallpaper_android.dart';
+import '../support/customer_service.dart';
+import 'redemption.dart';
 
 class EntitlementsScreen extends StatefulWidget {
   const EntitlementsScreen({
@@ -16,21 +18,52 @@ class EntitlementsScreen extends StatefulWidget {
     required this.redemptions,
     this.downloads,
     this.playback,
+    this.active = true,
+    this.onHome,
   });
   final DeviceSessionManager sessions;
   final CatalogRepository catalog;
   final RedemptionCoordinator redemptions;
   final DownloadManager? downloads;
   final AndroidWallpaperPlayback? playback;
+  final bool active;
+  final VoidCallback? onHome;
   @override
   State<EntitlementsScreen> createState() => _EntitlementsScreenState();
 }
 
 class _EntitlementsScreenState extends State<EntitlementsScreen> {
   final List<Wallpaper> items = [];
-  bool busy = false, loaded = false;
+  bool busy = false, loaded = false, pending = false;
   int page = 0, totalPages = 0;
   String? message;
+  @override
+  void initState() {
+    super.initState();
+    if (widget.active) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        load();
+        _pending();
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(EntitlementsScreen old) {
+    super.didUpdateWidget(old);
+    if (widget.active && !old.active && !loaded) {
+      load();
+      _pending();
+    }
+  }
+
+  Future<void> _pending() async {
+    try {
+      final value = await widget.redemptions.store.read();
+      if (mounted) setState(() => pending = value != null);
+    } catch (_) {}
+  }
+
   Future<void> load({bool more = false}) async {
     if (busy) return;
     setState(() {
@@ -47,8 +80,7 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
             (e) => Wallpaper.fromJson(e['wallpaper'] as Map<String, dynamic>),
           )
           .toList();
-      final metadata = data['page'] as Map<String, dynamic>;
-      final pages = metadata['totalPages'] as int;
+      final pages = (data['page'] as Map<String, dynamic>)['totalPages'] as int;
       if (!mounted) return;
       setState(() {
         if (!more) items.clear();
@@ -85,99 +117,138 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
     setState(() {
       busy = false;
       message = result;
+      pending = false;
     });
+    await load();
   }
 
+  void detail(Wallpaper item) => Navigator.push(
+    context,
+    MaterialPageRoute<void>(
+      builder: (_) => DetailScreen(
+        repository: widget.catalog,
+        id: item.id,
+        downloads: widget.downloads,
+        playback: widget.playback,
+        redemptions: widget.redemptions,
+      ),
+    ),
+  );
   @override
   Widget build(BuildContext context) => RefreshIndicator(
     onRefresh: load,
     child: ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(T.space5, 0, T.space5, T.space12),
       physics: const AlwaysScrollableScrollPhysics(),
       children: [
-        const Text(
-          '我的壁纸',
-          style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 12),
-        const Text('权益属于当前安装身份。清除数据或卸载后无法自动恢复；已获得权益不代表资源已下载。'),
-        if (message != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Text(message!),
-          ),
-        FilledButton(
-          onPressed: busy ? null : load,
-          child: Text(
-            busy
-                ? '正在处理…'
-                : loaded
-                ? '刷新我的权益'
-                : '加载我的权益',
-          ),
-        ),
-        TextButton(
-          onPressed: busy ? null : confirm,
-          child: const Text('确认上次兑换结果'),
-        ),
-        if (widget.downloads != null)
-          TextButton(
-            onPressed: busy
-                ? null
-                : () async {
-                    try {
-                      final bytes = await widget.downloads!.clearUnused();
-                      if (mounted) {
-                        setState(
-                          () => message =
-                              '已清理 ${(bytes / 1024 / 1024).toStringAsFixed(1)} MB，正在使用的资源已保留',
-                        );
-                      }
-                    } catch (_) {
-                      if (mounted) setState(() => message = '下载期间暂不能清理，请稍后重试');
-                    }
-                  },
-            child: const Text('清理未使用的本地资源'),
-          ),
-        if (loaded && items.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(20),
-            child: Text('当前安装尚未获得壁纸权益'),
-          ),
-        ...items.map(
-          (item) => ListTile(
-            leading: SizedBox(
-              width: 44,
-              height: 60,
-              child: CatalogImage(repository: widget.catalog, path: item.cover),
-            ),
-            title: Text(item.title),
-            subtitle: const Text('已获得权益 · 查看本地资源与下载'),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(
-                builder: (_) => DetailScreen(
-                  repository: widget.catalog,
-                  id: item.id,
-                  downloads: widget.downloads,
-                  playback: widget.playback,
-                  redemptions: widget.redemptions,
-                ),
-              ),
+        QjBrandHeader(
+          title: '我的',
+          onService: () => Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => const HelpScreen(customerService: true),
             ),
           ),
         ),
-        if (page < totalPages)
-          TextButton(
-            onPressed: busy ? null : () => load(more: true),
-            child: const Text('加载更多权益'),
-          ),
-        TextButton(
+        const SizedBox(height: T.space4),
+        QjTutorialCard(
           onPressed: () => Navigator.push(
             context,
             MaterialPageRoute<void>(builder: (_) => const HelpScreen()),
           ),
-          child: const Text('壁纸教程'),
+        ),
+        const SizedBox(height: T.space7),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '已获得壁纸',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+            OutlinedButton(
+              onPressed: busy ? null : load,
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+              child: const Text('刷新权益'),
+            ),
+          ],
+        ),
+        const SizedBox(height: T.space2),
+        Text(
+          '权益属于当前安装身份。清除 App 数据后将创建新设备。',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        if (pending)
+          Padding(
+            padding: const EdgeInsets.only(top: T.space2),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '上次兑换尚未确认。',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                TextButton(
+                  onPressed: busy ? null : confirm,
+                  child: const Text('确认结果'),
+                ),
+              ],
+            ),
+          ),
+        if (busy && !loaded)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: T.space8),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        if (message != null && items.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: T.space4),
+            child: QjStatePanel(
+              kind: QjStateKind.error,
+              description: message,
+              onPressed: load,
+            ),
+          ),
+        if (loaded && items.isEmpty && message == null)
+          Padding(
+            padding: const EdgeInsets.only(top: T.space4),
+            child: QjStatePanel(
+              description: '兑换壁纸后会显示在这里',
+              onPressed: widget.onHome ?? () {},
+            ),
+          ),
+        if (items.isNotEmpty) ...[
+          const SizedBox(height: T.space4),
+          for (final item in items)
+            Padding(
+              padding: const EdgeInsets.only(bottom: T.space3),
+              child: QjOwnedRow(
+                repository: widget.catalog,
+                wallpaper: item,
+                onPressed: () => detail(item),
+              ),
+            ),
+        ],
+        if (message != null && items.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: T.space3),
+            child: Text(message!, style: Theme.of(context).textTheme.bodySmall),
+          ),
+        if (page < totalPages)
+          OutlinedButton(
+            onPressed: busy ? null : () => load(more: true),
+            child: const Text('加载更多'),
+          ),
+        const SizedBox(height: T.space7),
+        Text('微信客服', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: T.space4),
+        QjCustomerServiceCard(
+          onCopy: () => copyCustomerWechat(context),
+          onPreview: () => previewCustomerQr(context),
+          onSave: () => saveCustomerQr(context),
         ),
       ],
     ),

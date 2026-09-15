@@ -82,21 +82,23 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(['倾境壁纸', '我的', 'UI 规范'][index]),
-      actions: [
-        IconButton(
-          tooltip: '客服',
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute<void>(
-              builder: (_) => const HelpScreen(customerService: true),
-            ),
-          ),
-          icon: const Icon(Icons.support_agent),
-        ),
-      ],
-    ),
+    appBar: index == 2
+        ? AppBar(
+            title: const Text('UI 规范'),
+            actions: [
+              IconButton(
+                tooltip: '微信客服',
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const HelpScreen(customerService: true),
+                  ),
+                ),
+                icon: const QjIcon('headphones'),
+              ),
+            ],
+          )
+        : null,
     body: SafeArea(
       child: IndexedStack(
         index: index,
@@ -108,6 +110,10 @@ class _HomeShellState extends State<HomeShell> {
               redemptions: redemptions,
               downloads: downloads,
               playback: const AndroidWallpaperPlayback(),
+              onTab: (value) => setState(() {
+                index = value;
+                if (value == 2) uiVisited = true;
+              }),
             ),
           ),
           TickerMode(
@@ -118,6 +124,8 @@ class _HomeShellState extends State<HomeShell> {
               redemptions: redemptions,
               downloads: downloads,
               playback: const AndroidWallpaperPlayback(),
+              active: index == 1,
+              onHome: () => setState(() => index = 0),
             ),
           ),
           TickerMode(

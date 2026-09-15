@@ -177,14 +177,11 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(
-        find.text(owned ? '全屏预览已安装资源' : '兑换壁纸'),
-        350,
-      );
-      await tester.pumpAndSettle();
       expect(find.text('试用两分钟'), findsNothing);
+      expect(find.text('试用 2 分钟'), findsNothing);
+      expect(find.text(owned ? '设置壁纸' : '下载壁纸'), findsOneWidget);
       expect(sessions.issuances, 0);
-      expect(find.byType(DownloadPanel), owned ? findsOneWidget : findsNothing);
+      expect(find.byType(DownloadPanel), findsNothing);
       await tester.pumpWidget(const SizedBox());
       trials.dispose();
       downloads.dispose();

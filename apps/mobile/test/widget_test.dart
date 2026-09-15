@@ -21,17 +21,19 @@ void main() {
     );
     repository.pending.single.complete(WallpaperPage([], 1, 0));
     await tester.pumpAndSettle();
-    expect(find.text('让每一屏，都有心动'), findsOneWidget);
+    expect(find.text('倾境'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('让每一屏，都有心动'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('app-tab-1')));
-    await tester.pumpAndSettle();
-    expect(find.text('我的壁纸'), findsOneWidget);
+    await tester.pump();
+    expect(find.text('已获得壁纸'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('app-tab-2')));
     await tester.pumpAndSettle();
     expect(find.text('App UI 规范'), findsOneWidget);
     expect(find.text('视觉原则'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('app-tab-0')));
     await tester.pumpAndSettle();
-    expect(find.text('让每一屏，都有心动'), findsOneWidget);
+    expect(find.text('倾境'), findsOneWidget);
     expect(repository.pending, hasLength(1));
   });
   test('正式包和非调试包拒绝明文地址', () {

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'qj_theme.dart';
+import '../catalog/catalog.dart';
+import '../catalog/catalog_image.dart';
 
 class QjIcon extends StatelessWidget {
   const QjIcon(this.name, {super.key, this.size = 20, this.color});
@@ -301,12 +304,16 @@ class QjStatePanel extends StatelessWidget {
     super.key,
     this.kind = QjStateKind.empty,
     required this.onPressed,
+    this.title,
+    this.description,
+    this.actionLabel,
   });
   final QjStateKind kind;
   final VoidCallback onPressed;
+  final String? title, description, actionLabel;
   @override
   Widget build(BuildContext context) {
-    final (title, icon) = switch (kind) {
+    final (defaultTitle, icon) = switch (kind) {
       QjStateKind.empty => ('还没有壁纸', 'package-open'),
       QjStateKind.error => ('加载失败', 'circle-alert'),
       QjStateKind.offline => ('网络不可用', 'wifi-off'),
@@ -330,10 +337,14 @@ class QjStatePanel extends StatelessWidget {
               ),
             ),
             const SizedBox(height: T.space2),
-            Text(title, style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              title ?? defaultTitle,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: T.space2),
             Text(
-              '稍后再来看看',
+              description ?? '稍后再来看看',
+              textAlign: TextAlign.center,
               style: QjTheme.type(
                 13,
                 FontWeight.w400,
@@ -344,7 +355,9 @@ class QjStatePanel extends StatelessWidget {
             const SizedBox(height: T.space2),
             OutlinedButton(
               onPressed: onPressed,
-              child: Text(kind == QjStateKind.empty ? '返回首页' : '重新加载'),
+              child: Text(
+                actionLabel ?? (kind == QjStateKind.empty ? '返回首页' : '重新加载'),
+              ),
             ),
           ],
         ),
@@ -525,6 +538,502 @@ class QjSheet extends StatelessWidget {
           child,
         ],
       ),
+    ),
+  );
+}
+
+class QjBrandHeader extends StatelessWidget {
+  const QjBrandHeader({super.key, this.title = '倾境', required this.onService});
+  final String title;
+  final VoidCallback onService;
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: T.sizeTopBar,
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(title, style: Theme.of(context).textTheme.headlineMedium),
+        ),
+        IconButton(
+          tooltip: '微信客服',
+          onPressed: onService,
+          style: IconButton.styleFrom(
+            backgroundColor: T.colorNavigation,
+            foregroundColor: T.colorInverseInk,
+            minimumSize: const Size(44, 44),
+          ),
+          icon: const QjIcon('headphones', size: 21, color: T.colorInverseInk),
+        ),
+      ],
+    ),
+  );
+}
+
+class QjPageHeader extends StatelessWidget {
+  const QjPageHeader({
+    super.key,
+    required this.title,
+    this.actionLabel,
+    this.onAction,
+    this.serviceAction = false,
+  });
+  final String title;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+  final bool serviceAction;
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: T.sizeTopBar,
+    child: Row(
+      children: [
+        IconButton(
+          tooltip: '返回',
+          onPressed: () => Navigator.maybePop(context),
+          style: IconButton.styleFrom(
+            side: const BorderSide(color: T.colorOutline),
+            minimumSize: const Size(44, 44),
+          ),
+          icon: const QjIcon('chevron-left', size: 22),
+        ),
+        const SizedBox(width: T.space2),
+        Expanded(
+          child: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+          ),
+        ),
+        if (serviceAction)
+          IconButton(
+            tooltip: '微信客服',
+            onPressed: onAction,
+            style: IconButton.styleFrom(
+              backgroundColor: T.colorNavigation,
+              foregroundColor: T.colorInverseInk,
+              minimumSize: const Size(44, 44),
+            ),
+            icon: const QjIcon(
+              'headphones',
+              size: 20,
+              color: T.colorInverseInk,
+            ),
+          )
+        else if (actionLabel != null)
+          OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: T.colorAccentStrong,
+              backgroundColor: T.colorAccentSoft,
+              side: const BorderSide(color: T.colorAccent),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              textStyle: QjTheme.type(12, FontWeight.w700, T.lineHeightCaption),
+            ),
+            onPressed: onAction,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const QjIcon(
+                  'circle-play',
+                  size: 16,
+                  color: T.colorAccentStrong,
+                ),
+                const SizedBox(width: 5),
+                Text(actionLabel!),
+              ],
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
+class QjSearchBar extends StatelessWidget {
+  const QjSearchBar({
+    super.key,
+    required this.controller,
+    required this.onSearch,
+  });
+  final TextEditingController controller;
+  final VoidCallback onSearch;
+  @override
+  Widget build(BuildContext context) => Container(
+    constraints: const BoxConstraints(minHeight: 50),
+    decoration: BoxDecoration(
+      color: T.colorSurface,
+      border: Border.all(color: T.colorOutline),
+      borderRadius: BorderRadius.circular(18),
+      boxShadow: const [T.shadowSoft],
+    ),
+    padding: const EdgeInsets.fromLTRB(16, 5, 5, 5),
+    child: Row(
+      children: [
+        const QjIcon('search', size: 19, color: T.colorMutedInk),
+        const SizedBox(width: 10),
+        Expanded(
+          child: TextField(
+            controller: controller,
+            inputFormatters: [LengthLimitingTextInputFormatter(40)],
+            textInputAction: TextInputAction.search,
+            onSubmitted: (_) => onSearch(),
+            decoration: const InputDecoration.collapsed(hintText: '搜索壁纸名称'),
+          ),
+        ),
+        ValueListenableBuilder<TextEditingValue>(
+          valueListenable: controller,
+          builder: (context, value, _) => value.text.isEmpty
+              ? const SizedBox.shrink()
+              : IconButton(
+                  tooltip: '清空搜索',
+                  onPressed: controller.clear,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 38,
+                    height: 38,
+                  ),
+                  padding: EdgeInsets.zero,
+                  icon: const QjIcon('x', size: 17, color: T.colorMutedInk),
+                ),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: T.colorAccentStrong,
+            foregroundColor: T.colorInverseInk,
+            minimumSize: const Size(66, 40),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(T.radiusControl),
+            ),
+            textStyle: QjTheme.type(
+              14,
+              FontWeight.w700,
+              T.lineHeightSection,
+              T.colorInverseInk,
+            ),
+          ),
+          onPressed: onSearch,
+          child: const Text('搜索'),
+        ),
+      ],
+    ),
+  );
+}
+
+class QjCatalogCard extends StatelessWidget {
+  const QjCatalogCard({
+    super.key,
+    required this.repository,
+    required this.wallpaper,
+    required this.onPressed,
+  });
+  final CatalogRepository repository;
+  final Wallpaper wallpaper;
+  final VoidCallback onPressed;
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onPressed,
+    borderRadius: BorderRadius.circular(T.radiusMedia),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(T.radiusMedia),
+              boxShadow: const [T.shadowCard],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(T.radiusMedia),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  CatalogImage(repository: repository, path: wallpaper.cover),
+                  Positioned(
+                    left: 10,
+                    top: 10,
+                    child: QjTypeBadge(
+                      wallpaper.kindLabel,
+                      tone: QjBadgeTone.light,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: T.space3),
+        Text(
+          wallpaper.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+      ],
+    ),
+  );
+}
+
+class QjOwnedRow extends StatelessWidget {
+  const QjOwnedRow({
+    super.key,
+    required this.repository,
+    required this.wallpaper,
+    required this.onPressed,
+  });
+  final CatalogRepository repository;
+  final Wallpaper wallpaper;
+  final VoidCallback onPressed;
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onPressed,
+    borderRadius: BorderRadius.circular(T.radiusCard),
+    child: Container(
+      constraints: const BoxConstraints(minHeight: 118),
+      padding: const EdgeInsets.all(T.space3),
+      decoration: BoxDecoration(
+        color: T.colorSurface,
+        border: Border.all(color: T.colorOutline),
+        borderRadius: BorderRadius.circular(T.radiusCard),
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: SizedBox(
+              width: 76,
+              height: 96,
+              child: CatalogImage(
+                repository: repository,
+                path: wallpaper.cover,
+              ),
+            ),
+          ),
+          const SizedBox(width: T.space3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                QjTypeBadge(wallpaper.kindLabel, tone: QjBadgeTone.light),
+                const SizedBox(height: 5),
+                Text(
+                  wallpaper.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ],
+            ),
+          ),
+          const QjIcon('chevron-right'),
+        ],
+      ),
+    ),
+  );
+}
+
+class QjSettingTutorialCard extends StatelessWidget {
+  const QjSettingTutorialCard({super.key, required this.onPressed});
+  final VoidCallback onPressed;
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onPressed,
+    borderRadius: BorderRadius.circular(T.radiusCard),
+    child: Container(
+      constraints: const BoxConstraints(minHeight: 78),
+      padding: const EdgeInsets.symmetric(
+        horizontal: T.space4,
+        vertical: T.space3,
+      ),
+      decoration: BoxDecoration(
+        color: T.colorSurface,
+        border: Border.all(color: T.colorOutline),
+        borderRadius: BorderRadius.circular(T.radiusCard),
+        boxShadow: const [T.shadowSoft],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: T.colorAccentSoft,
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: const Center(
+              child: QjIcon(
+                'circle-play',
+                size: 23,
+                color: T.colorAccentStrong,
+              ),
+            ),
+          ),
+          const SizedBox(width: T.space3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('观看设置教程', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 4),
+                Text(
+                  '了解如何设置桌面和锁屏壁纸',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          const QjIcon('chevron-right'),
+        ],
+      ),
+    ),
+  );
+}
+
+class QjCustomerServiceCard extends StatelessWidget {
+  const QjCustomerServiceCard({
+    super.key,
+    required this.onCopy,
+    required this.onPreview,
+    required this.onSave,
+  });
+  final VoidCallback onCopy, onPreview, onSave;
+  @override
+  Widget build(BuildContext context) => QjSurface(
+    padding: const EdgeInsets.all(T.space5),
+    child: Column(
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: T.colorAccentSoft,
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: const Center(
+                child: QjIcon(
+                  'message-circle-more',
+                  size: 22,
+                  color: T.colorAccentStrong,
+                ),
+              ),
+            ),
+            const SizedBox(width: T.space3),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('微信客服', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    '添加客服获取兑换码或处理设备恢复',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: T.space5),
+        InkWell(
+          onTap: onPreview,
+          borderRadius: BorderRadius.circular(T.radiusMedia),
+          child: Container(
+            width: 164,
+            constraints: const BoxConstraints(minHeight: 184),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: T.colorSurfaceMuted,
+              border: Border.all(color: T.colorOutline),
+              borderRadius: BorderRadius.circular(T.radiusMedia),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset(
+                  'assets/ui-reference/customer-service-qr.png',
+                  width: 132,
+                  height: 132,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '点击查看二维码',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: T.space2),
+        OutlinedButton.icon(
+          onPressed: onSave,
+          icon: const QjIcon('download', size: 16),
+          label: const Text('保存二维码'),
+        ),
+        const SizedBox(height: T.space5),
+        Container(
+          constraints: const BoxConstraints(minHeight: 58),
+          padding: const EdgeInsets.symmetric(horizontal: T.space4),
+          decoration: BoxDecoration(
+            color: T.colorSurfaceMuted,
+            borderRadius: BorderRadius.circular(T.radiusControl),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      '微信号',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.labelSmall?.copyWith(color: T.colorMutedInk),
+                    ),
+                    Text(
+                      'qingjing_service',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(0, 38),
+                  padding: const EdgeInsets.symmetric(horizontal: 13),
+                ),
+                onPressed: onCopy,
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    QjIcon('copy', size: 15, color: Colors.white),
+                    SizedBox(width: 5),
+                    Text('复制'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: T.space3),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const QjIcon('clock-3', size: 16, color: T.colorMutedInk),
+            const SizedBox(width: 6),
+            Text(
+              '服务时间 09:00–21:00',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ],
     ),
   );
 }
