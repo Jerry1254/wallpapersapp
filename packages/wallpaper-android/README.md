@@ -16,7 +16,7 @@ clearUnused() 拒绝与下载同时运行，保留 active-home/active-lock、视
 
 VideoWallpaperService 的每个 Engine 和 App 预览各自创建播放器。视频静音循环且居中裁切；不可见或 Surface 销毁释放播放器；可见/进程重建时从持久提交指针复验重载。预览使用待选指针，已有桌面使用提交指针，取消不替换桌面内容。debugPlaybackState 仅调试包可调用，输出系统 ID、位置查询能力和 Engine 状态，不返回文件路径或密钥；QJPlayback 生命周期日志仅 debuggable 包输出状态变化。
 
-4D 的 ParallaxWallpaperService 和 App 预览各有独立渲染线程、姿态传感器、图片与资源租约。新 v2 配置使用每层签名 `offsetPercent`：正数跟随手机，负数反向，0 固定；从 0° 变化开始线性响应，到 `maxAngle` 达到满幅。图层顺序只决定遮挡，运动数值由 Web 模拟器导出；旧 `depth/strength` 包保留兼容。背景按位移自动预留显示边缘，不改写源图。正式 4D 图层以 ARGB_8888 按源尺寸解码，固定 `inSampleSize=1` 且禁用密度缩放，不进行静默降采样；加载前保留至少 16 MiB 可用堆余量，不足时失败。显示频率不超过 30 fps。不可见或 Surface 销毁后注销传感器并释放图片/租约，重新可见时从私有提交指针复验恢复。视频与 4D 提交指针分开保存，兼容旧版视频指针。性能和真机倾斜结论见 [WP-A08 记录](../../docs/06-测试与验收/WP-A08-4D原生迁移记录-2026-09-14.md)。
+4D 的 ParallaxWallpaperService 和 App 预览各有独立渲染线程、姿态传感器、图片与资源租约。当前只接受 v2 配置，使用每层签名 `offsetPercent`：正数跟随手机，负数反向，0 固定；从 0° 变化开始线性响应，到 `maxAngle` 达到满幅。图层顺序只决定遮挡，运动数值由 Web 模拟器导出；旧 `depth/strength` 配置会被拒绝。背景按位移自动预留显示边缘，不改写源图。正式 4D 图层以 ARGB_8888 按源尺寸解码，固定 `inSampleSize=1` 且禁用密度缩放，不进行静默降采样；加载前保留至少 16 MiB 可用堆余量，不足时失败。显示频率不超过 30 fps。不可见或 Surface 销毁后注销传感器并释放图片/租约，重新可见时从私有提交指针复验恢复。视频与 4D 提交指针分开保存，兼容旧版视频指针。性能和真机倾斜结论见 [WP-A08 记录](../../docs/06-测试与验收/WP-A08-4D原生迁移记录-2026-09-14.md)。
 
 构建 local/prod 时分别设置 QJ_LOCAL_PACKAGE_SIGNING_KEY_ID / QJ_LOCAL_PACKAGE_PUBLIC_KEY_DER 或 QJ_PROD_PACKAGE_SIGNING_KEY_ID / QJ_PROD_PACKAGE_PUBLIC_KEY_DER。公钥为 RSA-2048 SPKI DER 的标准 Base64，服务端 QJ_PACKAGE_SIGNING_KEY_ID 必须匹配，私钥只配置到 API。空信任根禁用安装；local 配置不会作为 production 的默认值。正式契约和尺寸/媒体限制见 [SEC-003](../../docs/05-安全与合规/SEC-003-Android安全资源交付协议.md)。
 

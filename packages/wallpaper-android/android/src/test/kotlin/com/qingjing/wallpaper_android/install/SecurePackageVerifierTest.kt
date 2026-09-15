@@ -22,14 +22,13 @@ class SecurePackageVerifierTest {
     private fun fixture(type: String = "STATIC_IMAGE", version: Int = 1, manifestEdit: (String) -> String = { it },
                         extra: Pair<String,ByteArray>? = null, signatureKey: KeyPair = signer,
                         zipEdit: (ByteArray) -> ByteArray = { it },purpose: PackagePurpose = PackagePurpose.FORMAL,
-                        parallaxAngle: Int = 10,parallaxOffsets: Boolean = false): Fixture {
+                        parallaxAngle: Int = 10): Fixture {
         val payloads = when(type) {
             "STATIC_IMAGE" -> listOf(Triple("STATIC_IMAGE", "image/png", byteArrayOf(1,2,3)))
             "VIDEO" -> listOf(Triple("VIDEO", "video/mp4", byteArrayOf(4,5,6)))
             else -> listOf(Triple("BACKGROUND", "image/png", byteArrayOf(1)), Triple("FOREGROUND", "image/png", byteArrayOf(2)),
-                Triple("PARALLAX_CONFIG", "application/json", (if(parallaxOffsets)
-                    """{"formatVersion":2,"canvas":{"width":512,"height":512},"motion":{"maxAngle":$parallaxAngle},"layers":[{"index":1,"offsetPercent":8,"scale":1.1,"opacity":1,"blendMode":"normal"},{"index":2,"offsetPercent":-3,"scale":1,"opacity":1,"blendMode":"normal"}]}"""
-                else """{"canvas":{"width":512,"height":512},"sensor":{"maxAngle":$parallaxAngle,"smoothing":0.2,"strength":1},"layers":[{"role":"BACKGROUND","ordinal":0,"depth":0,"scale":1.1,"opacity":1,"blendMode":"normal"},{"role":"FOREGROUND","ordinal":0,"depth":1,"scale":1.1,"opacity":1,"blendMode":"normal"}]}""").toByteArray()))
+                Triple("PARALLAX_CONFIG", "application/json",
+                    """{"formatVersion":2,"canvas":{"width":512,"height":512},"motion":{"maxAngle":$parallaxAngle},"layers":[{"index":1,"offsetPercent":8,"scale":1.1,"opacity":1,"blendMode":"normal"},{"index":2,"offsetPercent":-3,"scale":1,"opacity":1,"blendMode":"normal"}]}""".toByteArray()))
         }
         val paths = payloads.map { "payload/${it.first.lowercase()}-0.${when(it.second) { "image/png" -> "png"; "video/mp4" -> "mp4"; else -> "json" }}" }
         val files = payloads.mapIndexed { i,p -> """{"path":"${paths[i]}","role":"${p.first}","ordinal":0,"mimeType":"${p.second}","sizeBytes":${p.third.size},"sha256":"${SecurePackageVerifier.hash(p.third)}"}""" }.joinToString(",")
@@ -76,12 +75,9 @@ class SecurePackageVerifierTest {
             assertTrue(File(stage,"payload").isDirectory)
         }
     }
-    @Test fun legacyParallaxKeepsOriginalAngleRange() = temporary { root ->
-        assertTrue(verify(fixture("LAYER_PARALLAX",parallaxAngle=25),root).isDirectory)
-        reject(fixture("LAYER_PARALLAX",parallaxAngle=26))
-    }
-    @Test fun acceptsSignedOffsetConfiguration() = temporary { root ->
-        assertTrue(verify(fixture("LAYER_PARALLAX",parallaxAngle=75,parallaxOffsets=true),root).isDirectory)
+    @Test fun acceptsSignedOffsetConfigurationThroughSeventyFiveDegrees() = temporary { root ->
+        assertTrue(verify(fixture("LAYER_PARALLAX",parallaxAngle=75),root).isDirectory)
+        reject(fixture("LAYER_PARALLAX",parallaxAngle=76))
     }
     @Test fun rejectsCiphertextTamperingEvenIfTransportHashMatches() {
         val f=fixture(); val changed=f.encrypted.clone(); changed[changed.lastIndex]=(changed.last().toInt() xor 1).toByte()

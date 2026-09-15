@@ -1,7 +1,6 @@
 package com.qingjing.wallpaper_android.playback
 
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.abs
 import kotlin.math.pow
 
@@ -30,8 +29,8 @@ internal object ParallaxMotion {
      * phone, negative layers move in the opposite direction, and zero stays fixed.
      * The last opaque background receives enough overscan to cover its full travel.
      */
-    fun offsetPlacement(width: Int,height: Int,imageWidth: Int,imageHeight: Int,scale: Float,
-                        offsetPercent: Float,x: Float,y: Float,background: Boolean): Placement {
+    fun placement(width: Int,height: Int,imageWidth: Int,imageHeight: Int,scale: Float,
+                  offsetPercent: Float,x: Float,y: Float,background: Boolean): Placement {
         require(width>0 && height>0 && imageWidth>0 && imageHeight>0)
         require(scale in 1f..1.5f && offsetPercent.isFinite() && offsetPercent in -25f..25f)
         val fraction=offsetPercent/100f
@@ -46,16 +45,6 @@ internal object ParallaxMotion {
         return Placement(cover,-marginX+motionX,-marginY+motionY)
     }
 
-    fun placement(width: Int,height: Int,imageWidth: Int,imageHeight: Int,scale: Float,depth: Float,strength: Float,x: Float,y: Float): Placement {
-        require(width>0 && height>0 && imageWidth>0 && imageHeight>0)
-        require(scale in 1f..1.5f && depth in 0f..1f && strength in 0f..2f)
-        val cover = max(width.toFloat()/imageWidth,height.toFloat()/imageHeight)*max(1.18f,scale)
-        val marginX = max(0f,(imageWidth*cover-width)/2f)
-        val marginY = max(0f,(imageHeight*cover-height)/2f)
-        val motionX = -x.coerceIn(-1f,1f)*min(width*.09f*depth*strength,marginX)
-        val motionY = y.coerceIn(-1f,1f)*min(height*.05f*depth*strength,marginY)
-        return Placement(cover,-marginX+motionX,-marginY+motionY)
-    }
     /** Exact ARGB_8888 allocation required to preserve every source pixel in every layer. */
     fun fullResolutionBytes(width: Int,height: Int,layers: Int): Long {
         require(width in 512..4096 && height in 512..4096 && layers in 2..12)

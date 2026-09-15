@@ -11,7 +11,7 @@ import android.graphics.PorterDuffXfermode
 import com.qingjing.wallpaper_android.install.InstalledPackage
 import java.io.File
 
-/** PoC centered cover/depth rendering. Only verified private files; total scene allocation is bounded. */
+/** Signed-offset rendering from verified private files; total scene allocation is bounded. */
 internal class ParallaxScene private constructor(val configuration: ParallaxConfiguration,private val bitmaps: List<Bitmap>) : AutoCloseable {
     val decodedBytes get() = bitmaps.sumOf { it.allocationByteCount.toLong() }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -21,9 +21,8 @@ internal class ParallaxScene private constructor(val configuration: ParallaxConf
         canvas.drawColor(Color.BLACK)
         for ((index,layer) in configuration.layers.withIndex()) {
             val bitmap = bitmaps[index]
-            val p = layer.offsetPercent?.let {
-                ParallaxMotion.offsetPlacement(canvas.width,canvas.height,bitmap.width,bitmap.height,layer.scale,it,x,y,layer.role=="BACKGROUND")
-            } ?: ParallaxMotion.placement(canvas.width,canvas.height,bitmap.width,bitmap.height,layer.scale,layer.depth,configuration.strength,x,y)
+            val p = ParallaxMotion.placement(canvas.width,canvas.height,bitmap.width,bitmap.height,layer.scale,
+                layer.offsetPercent,x,y,layer.role=="BACKGROUND")
             matrix.reset(); matrix.setScale(p.scale,p.scale); matrix.postTranslate(p.left,p.top)
             paint.alpha = (255*layer.opacity).toInt(); paint.xfermode = modes[layer.blend]
             canvas.drawBitmap(bitmap,matrix,paint)

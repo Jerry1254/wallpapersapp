@@ -150,36 +150,7 @@ internal class SecurePackageVerifier(private val purpose: PackagePurpose = Packa
         return result
     }
     private fun parallax(bytes: ByteArray, images: Map<String, MediaInfo>) {
-        val value=StrictJson.parse(bytes)
-        val rootValue=value as? Map<*,*> ?: error("Invalid configuration")
-        if(rootValue.containsKey("formatVersion")) {
-            parallaxOffset(rootValue,images)
-            return
-        }
-        val root = fields(rootValue, setOf("canvas", "sensor", "layers"))
-        val canvas = fields(root["canvas"], setOf("width", "height"))
-        val width = canvas["width"] as? Long ?: error("Invalid canvas")
-        val height = canvas["height"] as? Long ?: error("Invalid canvas")
-        require(width in 512..4096 && height in 512..4096)
-        val sensor = fields(root["sensor"], setOf("maxAngle", "smoothing", "strength"))
-        range(sensor["maxAngle"], 5.0, 25.0); range(sensor["smoothing"], .05, .5); range(sensor["strength"], 0.0, 2.0)
-        val layers = root["layers"] as? List<*> ?: error("Invalid layers")
-        require(layers.size in 2..12 && layers.size == images.size)
-        val seen = mutableSetOf<String>(); var previous = -1.0
-        for (value in layers) {
-            val layer = fields(value, setOf("role", "ordinal", "depth", "scale", "opacity", "blendMode"))
-            val role = layer["role"] as? String ?: error("Invalid role")
-            val ordinal = layer["ordinal"] as? Long ?: error("Invalid ordinal")
-            require(role in setOf("BACKGROUND", "FOREGROUND") && ordinal in 0..15)
-            val image = images["$role:$ordinal"] ?: error("Missing layer")
-            require(seen.add("$role:$ordinal") && image.width.toLong() == width && image.height.toLong() == height && (role != "FOREGROUND" || image.alpha))
-            val depth = range(layer["depth"], 0.0, 1.0); require(depth >= previous); previous = depth
-            range(layer["scale"], 1.0, 1.5); range(layer["opacity"], 0.0, 1.0)
-            require(layer["blendMode"] in setOf("normal", "screen", "add"))
-        }
-    }
-    private fun parallaxOffset(value: Map<*,*>,images: Map<String,MediaInfo>) {
-        val root=fields(value,setOf("formatVersion","canvas","motion","layers"))
+        val root=fields(StrictJson.parse(bytes),setOf("formatVersion","canvas","motion","layers"))
         require(root["formatVersion"]==2L)
         val canvas=fields(root["canvas"],setOf("width","height"))
         val width=canvas["width"] as? Long ?: error("Invalid canvas")
