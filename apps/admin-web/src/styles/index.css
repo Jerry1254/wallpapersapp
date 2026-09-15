@@ -242,6 +242,11 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
 .resource-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .resource-grid__item > label { display: block; margin-bottom: 7px; color: #47433f; font-size: 13px; font-weight: 600; }
 .resource-grid__item.span-2 { grid-column: span 2; }
+.package-format-note { display: grid; gap: 7px; margin-top: 10px; padding: 12px 14px; border: 1px solid #eadfce; border-radius: 9px; color: #5d554c; background: #fffaf2; }
+.package-format-note strong { color: #27231f; font-size: 13px; }
+.package-format-note code { overflow-wrap: anywhere; color: #9a5c00; font-size: 12px; }
+.package-format-note small, .package-analysis { color: var(--admin-muted); font-size: 12px; line-height: 1.6; }
+.package-analysis { margin-top: 9px; color: #287245; }
 .field-error { margin: 6px 0 0; color: #e34d59; font-size: 12px; }
 .wallpaper-editor__preview { padding: 22px; background: #f7f7f6; }
 .preview-sticky { position: sticky; top: 18px; }

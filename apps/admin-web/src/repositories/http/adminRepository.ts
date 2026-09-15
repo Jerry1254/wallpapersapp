@@ -13,6 +13,7 @@ import type {
   Category,
   PageMetadata,
   Platform,
+  ParallaxPackageFile,
   PublishStatus,
   RedemptionCode,
   RedemptionCodeStatus,
@@ -90,6 +91,28 @@ interface ApiResourceVersion {
   versionNo: number;
   status: ResourceVersionStatus;
   bindings: ApiResourceBinding[];
+  sourcePackage?: ApiParallaxPackage | null;
+}
+
+interface ApiParallaxPackage {
+  id: string;
+  originalFilename: string;
+  mimeType: 'application/zip';
+  sizeBytes: number;
+  sha256: string;
+  validationStatus: 'READY';
+  cover: ApiAsset;
+  canvas: { width: number; height: number };
+  layers: Array<{
+    index: number;
+    originalFilename: string;
+    role: 'BACKGROUND' | 'FOREGROUND';
+    ordinal: number;
+    depth: number;
+    scale: number;
+    opacity: number;
+    blendMode: 'normal' | 'screen' | 'add';
+  }>;
 }
 
 interface ApiWallpaperVariant {
@@ -140,6 +163,7 @@ interface VariantSpec {
   platform: ApiPlatform;
   resourceType: ResourceType;
   bindings: { role: AssetRole; purpose: AssetPurpose; resource: ResourceFile | undefined }[];
+  parallaxPackage?: ParallaxPackageFile;
 }
 
 const kindToApi: Record<WallpaperKind, ApiWallpaperSummary['kind']> = {
@@ -176,6 +200,18 @@ const toResource = (asset: ApiAsset): ResourceFile => ({
   mime: asset.mimeType,
   url: apiResourceUrl(asset.previewUrl),
   assetId: asset.id
+});
+
+const toParallaxPackage = (value: ApiParallaxPackage): ParallaxPackageFile => ({
+  name: value.originalFilename,
+  size: value.sizeBytes,
+  mime: value.mimeType,
+  packageId: value.id,
+  coverAssetId: value.cover.id,
+  coverUrl: apiResourceUrl(value.cover.previewUrl),
+  layerCount: value.layers.length,
+  canvasWidth: value.canvas.width,
+  canvasHeight: value.canvas.height
 });
 
 const tutorialFromApi = (value: ApiWallpaperTutorial): WallpaperTutorial => ({
@@ -227,11 +263,9 @@ const resourcesFromApi = (value: ApiWallpaperDetail): WallpaperResources => {
   for (const variant of value.variants) {
     const version = preferredVersion(variant);
     if (!version) continue;
+    if (version.sourcePackage) resources.parallaxPackage = toParallaxPackage(version.sourcePackage);
     for (const binding of version.bindings) {
       const resource = toResource(binding.asset);
-      if (binding.role === 'BACKGROUND') resources.backgroundLayer = resource;
-      if (binding.role === 'FOREGROUND') resources.foregroundLayer = resource;
-      if (binding.role === 'PARALLAX_CONFIG') resources.depthConfig = resource;
       if (binding.role === 'VIDEO' && variant.platform === 'ANDROID') resources.androidVideo = resource;
       if (binding.role === 'LIVE_PHOTO_VIDEO') resources.iosMov = resource;
       if (binding.role === 'LIVE_PHOTO_IMAGE') resources.iosPhoto = resource;
@@ -279,11 +313,8 @@ const variantSpecs = (value: Wallpaper): VariantSpec[] => {
     return [{
       platform: 'ANDROID',
       resourceType: 'LAYER_PARALLAX',
-      bindings: [
-        { role: 'BACKGROUND', purpose: 'BACKGROUND', resource: value.resources.backgroundLayer },
-        { role: 'FOREGROUND', purpose: 'FOREGROUND', resource: value.resources.foregroundLayer },
-        { role: 'PARALLAX_CONFIG', purpose: 'PARALLAX_CONFIG', resource: value.resources.depthConfig }
-      ]
+      bindings: [],
+      parallaxPackage: value.resources.parallaxPackage
     }];
   }
   if (value.kind === 'static') {
@@ -322,6 +353,26 @@ const uploadAsset = async (resource: ResourceFile, purpose: AssetPurpose) => {
   resource.assetId = data.id;
   resource.url = apiResourceUrl(data.previewUrl);
   return data.id;
+};
+
+const prepareParallaxPackage = async (resource: ParallaxPackageFile) => {
+  if (resource.packageId && resource.coverAssetId) {
+    return { packageId: resource.packageId, coverAssetId: resource.coverAssetId };
+  }
+  if (!resource.nativeFile) throw new ApiError(422, 'PARALLAX_PACKAGE_REQUIRED', '缺少 4D 固定资源包');
+  const form = new FormData();
+  form.set('file', resource.nativeFile, resource.name);
+  const { data } = await apiRequest<ApiParallaxPackage>('/admin/parallax-packages', {
+    method: 'POST',
+    body: form,
+    csrf: true
+  });
+  if (data.validationStatus !== 'READY') {
+    throw new ApiError(422, 'PARALLAX_PACKAGE_INVALID', `${resource.name} 尚未通过解析校验`);
+  }
+  const parsed = toParallaxPackage(data);
+  Object.assign(resource, parsed, { nativeFile: resource.nativeFile });
+  return { packageId: data.id, coverAssetId: data.cover.id };
 };
 
 const fetchWallpaper = async (id: string) => (
@@ -426,12 +477,23 @@ export const adminRepository = {
   },
 
   async saveWallpaper(input: Wallpaper, publish: boolean) {
-    if (input.kind === 'four_d' && !input.resources.depthConfig) {
-      throw new ApiError(422, 'ASSET_NOT_READY', '请上传景深配置 JSON');
+    let coverAssetId: string;
+    if (input.kind === 'four_d') {
+      const sourcePackage = input.resources.parallaxPackage;
+      if (sourcePackage) {
+        coverAssetId = (await prepareParallaxPackage(sourcePackage)).coverAssetId;
+      } else if (input.id && input.resources.cover?.assetId && input.variants.some((variant) =>
+        variant.resourceType === 'LAYER_PARALLAX' && variant.resourceVersions.some((version) =>
+          ['READY', 'PUBLISHED'].includes(version.status)))) {
+        coverAssetId = input.resources.cover.assetId;
+      } else {
+        throw new ApiError(422, 'PARALLAX_PACKAGE_REQUIRED', '请上传 4D 固定资源包');
+      }
+    } else {
+      const cover = input.resources.cover;
+      if (!cover) throw new ApiError(422, 'ASSET_NOT_READY', '请上传列表封面');
+      coverAssetId = await uploadAsset(cover, 'WALLPAPER_COVER');
     }
-    const cover = input.resources.cover;
-    if (!cover) throw new ApiError(422, 'ASSET_NOT_READY', '请上传列表封面');
-    const coverAssetId = await uploadAsset(cover, 'WALLPAPER_COVER');
     const payload = jsonBody({
       title: input.title.trim(),
       slug: input.slug.trim(),
@@ -466,22 +528,38 @@ export const adminRepository = {
         }
         if (!variant) throw new ApiError(500, 'INTERNAL_ERROR', '资源变体创建后未返回');
 
-        const hasNewFiles = spec.bindings.some((item) => item.resource?.nativeFile);
         let version = eligibleVersion(variant);
+        const hasNewFiles = spec.parallaxPackage
+          ? version?.sourcePackage?.id !== spec.parallaxPackage.packageId
+          : spec.bindings.some((item) => item.resource?.nativeFile);
         if (!version || hasNewFiles) {
-          const bindings = [];
-          for (const binding of spec.bindings) {
-            if (!binding.resource) throw new ApiError(422, 'ASSET_NOT_READY', `缺少 ${binding.role} 资源`);
-            bindings.push({
-              assetId: await uploadAsset(binding.resource, binding.purpose),
-              role: binding.role,
-              ordinal: 0
-            });
-          }
           const versionNo = Math.max(0, ...variant.resourceVersions.map((item) => item.versionNo)) + 1;
-          version = (await apiRequest<ApiResourceVersion>(`/admin/variants/${variant.id}/resource-versions`, {
-            method: 'POST', body: jsonBody({ versionNo, manifestSha256: null, bindings }), csrf: true
-          })).data;
+          if (spec.resourceType === 'LAYER_PARALLAX' && !spec.parallaxPackage) {
+            throw new ApiError(422, 'PARALLAX_PACKAGE_REQUIRED', '请上传 4D 固定资源包');
+          }
+          if (spec.parallaxPackage) {
+            if (!spec.parallaxPackage.packageId) {
+              throw new ApiError(422, 'PARALLAX_PACKAGE_REQUIRED', '4D 固定资源包尚未完成服务端解析');
+            }
+            version = (await apiRequest<ApiResourceVersion>(`/admin/variants/${variant.id}/parallax-resource-versions`, {
+              method: 'POST',
+              body: jsonBody({ versionNo, sourcePackageId: spec.parallaxPackage.packageId }),
+              csrf: true
+            })).data;
+          } else {
+            const bindings = [];
+            for (const binding of spec.bindings) {
+              if (!binding.resource) throw new ApiError(422, 'ASSET_NOT_READY', `缺少 ${binding.role} 资源`);
+              bindings.push({
+                assetId: await uploadAsset(binding.resource, binding.purpose),
+                role: binding.role,
+                ordinal: 0
+              });
+            }
+            version = (await apiRequest<ApiResourceVersion>(`/admin/variants/${variant.id}/resource-versions`, {
+              method: 'POST', body: jsonBody({ versionNo, manifestSha256: null, bindings }), csrf: true
+            })).data;
+          }
         }
         if (publish && version.status === 'READY' &&
             (variant.platform === 'ANDROID' || variant.platform === 'UNIVERSAL') &&

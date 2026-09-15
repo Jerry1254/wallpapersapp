@@ -14,6 +14,15 @@ export interface ResourceFile {
   nativeFile?: File;
 }
 
+export interface ParallaxPackageFile extends ResourceFile {
+  packageId?: string;
+  coverAssetId?: string;
+  coverUrl?: string;
+  layerCount?: number;
+  canvasWidth?: number;
+  canvasHeight?: number;
+}
+
 export type WallpaperTutorialKey =
   | 'ANDROID_PARALLAX_4D'
   | 'ANDROID_DYNAMIC'
@@ -48,9 +57,7 @@ export interface Category {
 export interface WallpaperResources {
   cover?: ResourceFile;
   staticImage?: ResourceFile;
-  backgroundLayer?: ResourceFile;
-  foregroundLayer?: ResourceFile;
-  depthConfig?: ResourceFile;
+  parallaxPackage?: ParallaxPackageFile;
   androidVideo?: ResourceFile;
   iosMov?: ResourceFile;
   iosPhoto?: ResourceFile;

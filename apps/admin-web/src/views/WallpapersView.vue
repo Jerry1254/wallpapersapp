@@ -98,7 +98,9 @@ const remove = async (value: Wallpaper) => {
 };
 
 const requiredResources = (value: Wallpaper) => {
-  if (value.kind === 'four_d') return [value.resources.cover || value.coverUrl, value.resources.backgroundLayer, value.resources.foregroundLayer, value.resources.depthConfig];
+  if (value.kind === 'four_d') return [value.resources.parallaxPackage || (value.variants.some((variant) =>
+    variant.resourceType === 'LAYER_PARALLAX' && variant.resourceVersions.some((version) =>
+      ['READY', 'PUBLISHED'].includes(version.status))) ? '现有 4D 资源' : undefined)];
   if (value.kind === 'static') return [value.resources.cover || value.coverUrl, value.resources.staticImage];
   const result: (ResourceFile | string | undefined)[] = [value.resources.cover || value.coverUrl];
   if (value.platforms.includes('android')) result.push(value.resources.androidVideo);

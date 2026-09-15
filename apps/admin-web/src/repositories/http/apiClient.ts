@@ -147,6 +147,9 @@ const errorLabels: Record<string, string> = {
   ASSET_NOT_READY: '资源尚未就绪，请补齐资源并检查校验结果',
   RESOURCE_VERSION_NOT_READY: '尚无可发布的资源版本，请补齐资源并检查校验结果',
   ASSET_VALIDATION_FAILED: '资源校验失败，请检查文件内容、尺寸、透明通道或景深 JSON 配置',
+  PARALLAX_PACKAGE_REQUIRED: '请上传固定格式的 4D ZIP 资源包',
+  PARALLAX_PACKAGE_INVALID: '4D ZIP 解析失败，请检查固定目录、图层编号和 config.json',
+  PARALLAX_PACKAGE_IN_USE: '4D ZIP 已绑定资源版本，不能删除',
   PAYLOAD_TOO_LARGE: '文件超过上传大小限制，请选择更小的文件',
   UNSUPPORTED_MEDIA_TYPE: '文件格式不支持或与实际内容不符，请按上传说明选择文件',
   DOMAIN_RULE_VIOLATION: '内容不符合发布规则，请检查分类、平台和资源组合',
@@ -170,7 +173,7 @@ const errorLabels: Record<string, string> = {
 };
 const fieldLabels: Record<string, string> = {
   name: '名称', title: '壁纸名称', slug: 'Slug', parentId: '所属节点', rootCategoryId: '一级分类', childCategoryId: '二级分类',
-  sortOrder: '排序值', featuredRank: '精选排序', copyrightNote: '版权说明', videoAssetId: '教程视频', generatedCount: '生成数量', quotaPerCode: '每码设备数',
+  sortOrder: '排序值', featuredRank: '精选排序', copyrightNote: '版权说明', videoAssetId: '教程视频', sourcePackageId: '4D 固定资源包', generatedCount: '生成数量', quotaPerCode: '每码设备数',
   suffix: '末位码', wallpaperId: '壁纸 ID', deviceId: '设备 ID', codeSuffix: '兑换码末位', page: '页码', pageSize: '每页数量'
 };
 

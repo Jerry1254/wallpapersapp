@@ -111,17 +111,75 @@ describe('apiRequest', () => {
 });
 
 describe('adminRepository.saveWallpaper', () => {
-  it.each([
-    { kind: 'four_d' as const, apiKind: 'PARALLAX_4D', platform: 'ANDROID', type: 'LAYER_PARALLAX',
-      roles: ['BACKGROUND', 'FOREGROUND', 'PARALLAX_CONFIG'], keys: ['backgroundLayer', 'foregroundLayer', 'depthConfig'] },
-    { kind: 'dynamic' as const, apiKind: 'DYNAMIC', platform: 'IOS', type: 'LIVE_PHOTO',
-      roles: ['LIVE_PHOTO_IMAGE', 'LIVE_PHOTO_VIDEO'], keys: ['iosPhoto', 'iosMov'] }
-  ])('$kind 多角色版本按照角色分别使用 ordinal 0 发布', async (scenario) => {
+  it('4D 固定 ZIP 解析后使用包 ID 创建资源版本并发布', async () => {
     setCsrfToken('csrf-token');
-    const bindings = scenario.roles.map((role, index) => ({ id: String(60 + index), role, ordinal: 0, asset: asset(String(index + 2), 'resource') }));
+    const requests: { url: string; options: RequestInit }[] = [];
+    const sourcePackage = {
+      id: '90',
+      originalFilename: 'wallpaper-4d.zip',
+      mimeType: 'application/zip',
+      sizeBytes: 2048,
+      sha256: 'a'.repeat(64),
+      validationStatus: 'READY',
+      cover: { ...asset('1', 'cover.jpg'), mimeType: 'image/jpeg' },
+      canvas: { width: 1080, height: 2160 },
+      layers: [
+        { index: 1, originalFilename: 'layers/01.png', role: 'FOREGROUND', ordinal: 0, depth: 1, scale: 1.08, opacity: 1, blendMode: 'normal' },
+        { index: 2, originalFilename: 'layers/02.jpg', role: 'BACKGROUND', ordinal: 0, depth: 0, scale: 1, opacity: 1, blendMode: 'normal' }
+      ]
+    };
+    const readyVersion = { id: '50', versionNo: 1, status: 'READY', bindings: [], sourcePackage };
+    const variant = { id: '40', platform: 'ANDROID', resourceType: 'LAYER_PARALLAX', version: 0, resourceVersions: [] };
+    const wallpaper = { ...detail('DRAFT', 1, [variant], sourcePackage.cover), kind: 'PARALLAX_4D' };
+    const fetchMock = vi.fn(async (urlValue: string | URL | Request, options: RequestInit = {}) => {
+      const url = String(urlValue);
+      requests.push({ url, options });
+      if (url.endsWith('/admin/parallax-packages')) return json(sourcePackage, 201);
+      if (url.endsWith('/admin/wallpapers/30') && options.method === 'PATCH') return json(wallpaper);
+      if (url.endsWith('/admin/variants/40/parallax-resource-versions')) return json(readyVersion, 201);
+      if (url.endsWith('/admin/resource-versions/50/secure-package')) return json(readyVersion);
+      if (url.endsWith('/admin/wallpapers/30/publish')) {
+        return json({
+          ...wallpaper,
+          status: 'PUBLISHED',
+          version: 2,
+          variants: [{ ...variant, resourceVersions: [{ ...readyVersion, status: 'PUBLISHED' }] }]
+        });
+      }
+      throw new Error(`unexpected request: ${options.method || 'GET'} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const zip = new File(['zip'], 'wallpaper-4d.zip', { type: 'application/zip' });
+    const input: Wallpaper = {
+      id: '30', title: '4D 多层风景', slug: 'parallax-landscape', categoryId: '20', subcategoryId: '',
+      kind: 'four_d', platforms: ['android'], status: 'draft', sort: 1, featuredRank: null,
+      coverUrl: '', copyrightNote: '本地测试', updatedAt: '', version: 0, variants: [], resources: {
+        parallaxPackage: { name: zip.name, size: zip.size, mime: zip.type, nativeFile: zip }
+      }
+    };
+
+    expect((await adminRepository.saveWallpaper(input, true)).status).toBe('published');
+    expect(requests.map((item) => `${item.options.method || 'GET'} ${item.url.split('/api/v1')[1]}`)).toEqual([
+      'POST /admin/parallax-packages',
+      'PATCH /admin/wallpapers/30',
+      'POST /admin/variants/40/parallax-resource-versions',
+      'POST /admin/resource-versions/50/secure-package',
+      'POST /admin/wallpapers/30/publish'
+    ]);
+    const uploaded = (requests[0].options.body as FormData).get('file') as File;
+    expect(uploaded.name).toBe(zip.name);
+    expect(await uploaded.text()).toBe(await zip.text());
+    expect(JSON.parse(String(requests[1].options.body)).coverAssetId).toBe('1');
+    expect(JSON.parse(String(requests[2].options.body))).toEqual({ versionNo: 1, sourcePackageId: '90' });
+  });
+
+  it('iOS 动态壁纸的多角色版本分别使用 ordinal 0 发布', async () => {
+    setCsrfToken('csrf-token');
+    const roles = ['LIVE_PHOTO_IMAGE', 'LIVE_PHOTO_VIDEO'];
+    const bindings = roles.map((role, index) => ({ id: String(60 + index), role, ordinal: 0, asset: asset(String(index + 2), 'resource') }));
     const version = { id: '50', versionNo: 1, status: 'READY', bindings };
-    const variant = { id: '40', platform: scenario.platform, resourceType: scenario.type, version: 0, resourceVersions: [] };
-    const wallpaper = { ...detail('DRAFT', 0, [variant]), kind: scenario.apiKind };
+    const variant = { id: '40', platform: 'IOS', resourceType: 'LIVE_PHOTO', version: 0, resourceVersions: [] };
+    const wallpaper = { ...detail('DRAFT', 0, [variant]), kind: 'DYNAMIC' };
     const fetchMock = vi.fn(async (url: string, options: RequestInit = {}) => {
       if (url.endsWith('/resource-versions')) {
         const body = JSON.parse(String(options.body));
@@ -135,15 +193,39 @@ describe('adminRepository.saveWallpaper', () => {
       return json(wallpaper);
     });
     vi.stubGlobal('fetch', fetchMock);
-    const resources = Object.fromEntries(scenario.keys.map((key, index) => [key, { name: key, assetId: String(index + 2), size: 68, mime: 'image/png' }]));
+    const resources = Object.fromEntries(['iosPhoto', 'iosMov'].map((key, index) => [key, { name: key, assetId: String(index + 2), size: 68, mime: 'image/png' }]));
     const input: Wallpaper = { id: '30', title: '多角色发布', slug: 'multi-role', categoryId: '20', subcategoryId: '',
-      kind: scenario.kind, platforms: scenario.kind === 'four_d' ? ['android'] : ['ios'], status: 'draft', sort: 1, featuredRank: null,
+      kind: 'dynamic', platforms: ['ios'], status: 'draft', sort: 1, featuredRank: null,
       coverUrl: '', copyrightNote: '本地测试', updatedAt: '', version: 0, variants: [], resources: {
         ...resources, cover: { name: 'cover.png', assetId: '1', size: 68, mime: 'image/png' }
       } };
     expect((await adminRepository.saveWallpaper(input, true)).status).toBe('published');
     const created = fetchMock.mock.calls.find(([url]) => url.endsWith('/resource-versions'));
-    expect(JSON.parse(String(created?.[1]?.body)).bindings).toEqual(scenario.roles.map((role, index) => ({ role, ordinal: 0, assetId: String(index + 2) })));
+    expect(JSON.parse(String(created?.[1]?.body)).bindings).toEqual(roles.map((role, index) => ({ role, ordinal: 0, assetId: String(index + 2) })));
+  });
+  it.each([false, true])('4D 编辑保留现有素材，不重复上传或创建版本（含源包：%s）', async (withSource) => {
+    setCsrfToken('csrf-token');
+    const sourcePackage = withSource ? {
+      id: '90', originalFilename: 'wallpaper.zip', mimeType: 'application/zip', sizeBytes: 100,
+      sha256: 'a'.repeat(64), validationStatus: 'READY', cover: asset('1', 'cover.jpg'),
+      canvas: { width: 1080, height: 2160 }, layers: [{ index: 1 }, { index: 2 }]
+    } : null;
+    const variant = { id: '40', platform: 'ANDROID', resourceType: 'LAYER_PARALLAX', version: 0,
+      resourceVersions: [{ id: '50', versionNo: 1, status: 'PUBLISHED', sourcePackage, bindings: [] }] };
+    const saved = { ...detail('PUBLISHED', 2, [variant]), kind: 'PARALLAX_4D' };
+    const fetchMock = vi.fn(async (url: string, options: RequestInit = {}) => {
+      if (url.includes('/admin/wallpapers?')) return json({ items: [saved], page: { totalPages: 1 } });
+      if (url.endsWith('/admin/wallpapers/30')) return json(saved);
+      throw new Error(`Unexpected resource mutation: ${options.method} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const [input] = await adminRepository.wallpapers();
+    input.title = '修改名称';
+    await adminRepository.saveWallpaper(input, false);
+    const writes = fetchMock.mock.calls.filter(([, options]) => options?.method);
+    expect(writes).toHaveLength(1);
+    expect(writes[0][1]?.method).toBe('PATCH');
+    expect(JSON.parse(String(writes[0][1]?.body))).toMatchObject({ title: '修改名称', coverAssetId: '1' });
   });
   it('草稿创建后上传失败保留作品 ID 和最新版本，再次保存继续同一作品', async () => {
     setCsrfToken('csrf-token');

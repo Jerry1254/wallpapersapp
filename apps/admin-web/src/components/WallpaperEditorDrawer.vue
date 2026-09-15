@@ -53,13 +53,13 @@ const visible = computed({
 });
 const isEditing = computed(() => Boolean(props.wallpaper?.id));
 const resourceShapeLocked = computed(() => Boolean(props.wallpaper?.variants.some((item) => item.resourceVersions.length)));
-const coverPreviewSrc = computed(() => form.resources.cover?.url || form.coverUrl);
-const backgroundPreviewSrc = computed(() => form.resources.backgroundLayer?.url || coverPreviewSrc.value);
-const foregroundPreviewSrc = computed(() => form.resources.foregroundLayer?.url);
+const hasExistingParallax = computed(() => form.variants.some((variant) => variant.resourceType === 'LAYER_PARALLAX'
+  && variant.resourceVersions.some((version) => ['READY', 'PUBLISHED'].includes(version.status))));
+const coverPreviewSrc = computed(() => form.resources.parallaxPackage?.coverUrl || form.resources.cover?.url || form.coverUrl);
 const dynamicPreviewSrc = computed(() => form.resources.androidVideo?.url || form.resources.iosMov?.url);
 const staticPreviewSrc = computed(() => form.resources.staticImage?.url || coverPreviewSrc.value);
 const previewHasContent = computed(() => {
-  if (form.kind === 'four_d') return Boolean(backgroundPreviewSrc.value);
+  if (form.kind === 'four_d') return Boolean(coverPreviewSrc.value);
   if (form.kind === 'dynamic') return Boolean(dynamicPreviewSrc.value || coverPreviewSrc.value);
   return Boolean(staticPreviewSrc.value);
 });
@@ -105,13 +105,11 @@ const validate = () => {
   if (!form.title.trim()) next.title = '请输入壁纸名称';
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.slug)) next.slug = '请输入小写字母、数字和连字符组成的 Slug';
   if (!form.categoryId) next.categoryId = '请选择一级分类';
-  if (!form.resources.cover && !form.coverUrl) next.cover = '请上传列表封面';
+  if (form.kind !== 'four_d' && !form.resources.cover && !form.coverUrl) next.cover = '请上传列表封面';
   if (form.platforms.length === 0) next.platforms = '请至少选择一个平台';
 
   if (form.kind === 'four_d') {
-    if (!form.resources.backgroundLayer) next.backgroundLayer = '请上传背景层';
-    if (!form.resources.foregroundLayer) next.foregroundLayer = '请上传透明前景层';
-    if (!form.resources.depthConfig) next.depthConfig = '请上传景深配置 JSON';
+    if (!form.resources.parallaxPackage && !hasExistingParallax.value) next.parallaxPackage = '请上传固定格式的 4D ZIP 资源包';
   }
   if (form.kind === 'dynamic') {
     if (hasPlatform('android') && !form.resources.androidVideo) next.androidVideo = 'Android 需要 MP4 视频';
@@ -132,14 +130,11 @@ const save = (status: PublishStatus) => {
 };
 
 const resourceRows = computed(() => {
-  const rows: { label: string; ready: boolean }[] = [{ label: '列表封面', ready: Boolean(form.resources.cover || form.coverUrl) }];
+  const rows: { label: string; ready: boolean }[] = [];
   if (form.kind === 'four_d') {
-    rows.push(
-      { label: '背景层', ready: Boolean(form.resources.backgroundLayer) },
-      { label: '透明前景层', ready: Boolean(form.resources.foregroundLayer) },
-      { label: '景深配置', ready: Boolean(form.resources.depthConfig) }
-    );
+    rows.push({ label: '4D 资源', ready: Boolean(form.resources.parallaxPackage || hasExistingParallax.value) });
   } else if (form.kind === 'dynamic') {
+    rows.push({ label: '列表封面', ready: Boolean(form.resources.cover || form.coverUrl) });
     if (hasPlatform('android')) rows.push({ label: 'Android MP4', ready: Boolean(form.resources.androidVideo) });
     if (hasPlatform('ios')) rows.push(
       { label: 'iOS MOV', ready: Boolean(form.resources.iosMov) },
@@ -147,6 +142,7 @@ const resourceRows = computed(() => {
     );
     if (hasPlatform('harmony')) rows.push({ label: 'HarmonyOS 资源包', ready: Boolean(form.resources.harmonyPackage) });
   } else {
+    rows.push({ label: '列表封面', ready: Boolean(form.resources.cover || form.coverUrl) });
     rows.push({ label: '高清原图', ready: Boolean(form.resources.staticImage) });
   }
   return rows;
@@ -231,7 +227,7 @@ const resourceRows = computed(() => {
           <p v-if="errors.platforms" class="field-error">{{ errors.platforms }}</p>
         </section>
 
-        <section class="editor-section">
+        <section v-if="form.kind !== 'four_d'" class="editor-section">
           <div class="editor-section__heading">
             <h3>列表资源</h3>
             <p>封面只用于首页和列表展示；详情页直接使用下方的正式壁纸资源呈现效果，无需额外上传预览视频。</p>
@@ -247,22 +243,24 @@ const resourceRows = computed(() => {
         <section class="editor-section">
           <div class="editor-section__heading">
             <h3>{{ wallpaperKindLabels[form.kind] }}资源</h3>
-            <p v-if="form.kind === 'four_d'">背景层填满画面；前景层必须保留透明通道，客户端将根据陀螺仪产生视差。</p>
+            <p v-if="form.kind === 'four_d'">一次上传固定格式 ZIP，服务端自动解析封面、2～12 个图层和景深配置。</p>
             <p v-else-if="form.kind === 'dynamic'">每个平台的动态壁纸格式不同，请补齐已选平台的全部必填资源。</p>
             <p v-else>上传无文字水印的高清原图，客户端按屏幕比例安全裁切。</p>
           </div>
           <div v-if="form.kind === 'four_d'" class="resource-grid">
-            <div class="resource-grid__item">
-              <ResourceFileField :model-value="form.resources.backgroundLayer" label="背景层" hint="PNG / JPG / WebP，建议宽度 ≥ 1440px" accept="image/png,image/jpeg,image/webp" required @update:model-value="setResource('backgroundLayer', $event)" />
-              <p v-if="errors.backgroundLayer" class="field-error">{{ errors.backgroundLayer }}</p>
-            </div>
-            <div class="resource-grid__item">
-              <ResourceFileField :model-value="form.resources.foregroundLayer" label="透明前景层" hint="PNG / WebP，必须带透明通道" accept="image/png,image/webp" required @update:model-value="setResource('foregroundLayer', $event)" />
-              <p v-if="errors.foregroundLayer" class="field-error">{{ errors.foregroundLayer }}</p>
-            </div>
             <div class="resource-grid__item span-2">
-              <ResourceFileField :model-value="form.resources.depthConfig" label="景深配置" hint="JSON，资源版本必需的各层配置" accept="application/json,.json" required @update:model-value="setResource('depthConfig', $event)" />
-              <p v-if="errors.depthConfig" class="field-error">{{ errors.depthConfig }}</p>
+              <ResourceFileField :model-value="form.resources.parallaxPackage" label="4D 固定资源包" hint="ZIP，根目录固定包含 cover.jpg、config.json 和 layers/01…12 图层" accept="application/zip,.zip" required @update:model-value="setResource('parallaxPackage', $event)" />
+              <p v-if="errors.parallaxPackage" class="field-error">{{ errors.parallaxPackage }}</p>
+              <div class="package-format-note">
+                <strong>固定目录</strong>
+                <code>cover.jpg · config.json · layers/01.png … layers/NN.jpg（NN 为最后一层编号）</code>
+                <small>01 为最前景，数字越大越靠后，最后一层为背景；服务端保存时完成解压、校验和资源版本制作。</small>
+                <small v-if="hasExistingParallax">已有可用资源版本。不选择新 ZIP 时保留当前素材；替换时上传完整 ZIP。</small>
+              </div>
+              <div v-if="form.resources.parallaxPackage?.layerCount" class="package-analysis">
+                已解析 {{ form.resources.parallaxPackage.layerCount }} 层 ·
+                {{ form.resources.parallaxPackage.canvasWidth }} × {{ form.resources.parallaxPackage.canvasHeight }}
+              </div>
             </div>
           </div>
 
@@ -296,13 +294,10 @@ const resourceRows = computed(() => {
 
       <aside class="wallpaper-editor__preview">
           <div class="preview-sticky">
-          <h3>详情页效果预览</h3>
+          <h3>{{ form.kind === 'four_d' ? '列表封面预览' : '详情页效果预览' }}</h3>
           <div class="preview-phone">
             <div class="preview-phone__screen">
-              <template v-if="form.kind === 'four_d' && backgroundPreviewSrc">
-                <img class="preview-phone__layer preview-phone__layer--background" :src="backgroundPreviewSrc" alt="4D 背景层预览" />
-                <img v-if="foregroundPreviewSrc" class="preview-phone__layer preview-phone__layer--foreground" :src="foregroundPreviewSrc" alt="4D 前景层预览" />
-              </template>
+              <img v-if="form.kind === 'four_d' && coverPreviewSrc" :src="coverPreviewSrc" alt="4D 列表封面预览" />
               <video v-else-if="form.kind === 'dynamic' && dynamicPreviewSrc" :src="dynamicPreviewSrc" autoplay loop muted playsinline aria-label="动态壁纸资源预览"></video>
               <img v-else-if="form.kind === 'dynamic' && coverPreviewSrc" :src="coverPreviewSrc" alt="动态壁纸封面预览" />
               <img v-else-if="form.kind === 'static' && staticPreviewSrc" :src="staticPreviewSrc" alt="静态壁纸预览" />
