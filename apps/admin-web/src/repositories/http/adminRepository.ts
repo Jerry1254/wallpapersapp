@@ -25,13 +25,15 @@ import type {
   Wallpaper,
   WallpaperKind,
   WallpaperResources,
+  WallpaperTutorial,
+  WallpaperTutorialKey,
   WallpaperVariant
 } from '@/domain/admin';
 import { ApiError, apiDownload, apiRequest, apiResourceUrl } from '@/repositories/http/apiClient';
 
 type AssetPurpose = 'CATEGORY_ICON' | 'WALLPAPER_COVER' | 'BACKGROUND' | 'FOREGROUND'
   | 'PARALLAX_CONFIG' | 'VIDEO' | 'LIVE_PHOTO_IMAGE' | 'LIVE_PHOTO_VIDEO'
-  | 'STATIC_IMAGE' | 'THEME_PACKAGE';
+  | 'STATIC_IMAGE' | 'THEME_PACKAGE' | 'TUTORIAL_VIDEO';
 type AssetRole = 'BACKGROUND' | 'FOREGROUND' | 'PARALLAX_CONFIG' | 'VIDEO'
   | 'LIVE_PHOTO_IMAGE' | 'LIVE_PHOTO_VIDEO' | 'STATIC_IMAGE' | 'THEME_PACKAGE';
 
@@ -42,6 +44,18 @@ interface ApiAsset {
   sizeBytes: number;
   previewUrl?: string | null;
   validationStatus: string;
+}
+
+interface ApiWallpaperTutorial {
+  key: WallpaperTutorialKey;
+  title: string;
+  platform: ApiPlatform;
+  wallpaperKind: 'PARALLAX_4D' | 'DYNAMIC' | 'STATIC';
+  enabled: boolean;
+  sortOrder: number;
+  video: ApiAsset | null;
+  updatedAt?: string | null;
+  version: number;
 }
 
 interface ApiCategory {
@@ -162,6 +176,18 @@ const toResource = (asset: ApiAsset): ResourceFile => ({
   mime: asset.mimeType,
   url: apiResourceUrl(asset.previewUrl),
   assetId: asset.id
+});
+
+const tutorialFromApi = (value: ApiWallpaperTutorial): WallpaperTutorial => ({
+  key: value.key,
+  title: value.title,
+  platform: value.platform,
+  wallpaperKind: value.wallpaperKind,
+  enabled: value.enabled,
+  sortOrder: value.sortOrder,
+  video: value.video ? toResource(value.video) : undefined,
+  updatedAt: value.updatedAt ? formatDate(value.updatedAt) : null,
+  version: value.version
 });
 
 const categoryFromApi = (value: ApiCategory): Category => ({
@@ -351,6 +377,27 @@ export const adminRepository = {
   async categories() {
     const { data } = await apiRequest<ApiCategoryList>('/admin/categories');
     return flattenCategories(data.items);
+  },
+
+  async tutorials() {
+    const { data } = await apiRequest<{ items: ApiWallpaperTutorial[] }>('/admin/wallpaper-tutorials');
+    return data.items.map(tutorialFromApi).sort((left, right) => left.sortOrder - right.sortOrder);
+  },
+
+  async saveTutorial(input: WallpaperTutorial) {
+    if (!input.video) throw new ApiError(422, 'ASSET_NOT_READY', '请上传教程 MP4');
+    const videoAssetId = await uploadAsset(input.video, 'TUTORIAL_VIDEO');
+    const { data } = await apiRequest<ApiWallpaperTutorial>(`/admin/wallpaper-tutorials/${input.key}`, {
+      method: 'PUT',
+      headers: { 'If-Match': ifMatch(input.version) },
+      body: jsonBody({
+        videoAssetId,
+        enabled: input.enabled,
+        sortOrder: input.sortOrder
+      }),
+      csrf: true
+    });
+    return tutorialFromApi(data);
   },
 
   async saveCategory(input: Category) {

@@ -7,16 +7,21 @@ import static com.qingjing.wallpaper.asset.application.AssetValidationException.
 import static com.qingjing.wallpaper.asset.application.AssetValidationException.Code.INVALID_ARCHIVE;
 import static com.qingjing.wallpaper.asset.application.AssetValidationException.Code.INVALID_IMAGE;
 import static com.qingjing.wallpaper.asset.application.AssetValidationException.Code.INVALID_JSON;
+import static com.qingjing.wallpaper.asset.application.AssetValidationException.Code.INVALID_VIDEO;
 import static com.qingjing.wallpaper.asset.application.AssetValidationException.Code.TYPE_NOT_ALLOWED_FOR_PURPOSE;
 import static com.qingjing.wallpaper.asset.application.AssetValidationException.Code.UNSAFE_ARCHIVE_ENTRY;
 import static com.qingjing.wallpaper.asset.application.AssetValidationException.Code.UNSUPPORTED_FILE_TYPE;
+import static com.qingjing.wallpaper.asset.application.AssetValidationException.Code.VIDEO_DURATION_EXCEEDED;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.BufferedInputStream;
+import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -37,6 +42,7 @@ public final class AssetContentValidator {
     private static final long MAX_IMAGE_PIXELS = 40_000_000;
     private static final int MAX_ARCHIVE_ENTRIES = 1_024;
     private static final long MAX_ARCHIVE_EXPANDED_BYTES = 512L * 1024 * 1024;
+    private static final long MAX_TUTORIAL_DURATION_MS = 15L * 60 * 1_000;
 
     private final FileStorage fileStorage;
     private final ObjectMapper objectMapper;
@@ -67,7 +73,9 @@ public final class AssetContentValidator {
             case WEBP -> validateWebp(stagedObject);
             case JSON -> validateJson(stagedObject);
             case ZIP -> validateArchive(stagedObject);
-            case MP4, QUICKTIME -> new AssetMetadata(detectedType, null, null);
+            case MP4, QUICKTIME -> purpose == AssetPurpose.TUTORIAL_VIDEO
+                    ? validateTutorialVideo(stagedObject)
+                    : new AssetMetadata(detectedType, null, null, null);
         };
     }
 
@@ -127,7 +135,7 @@ public final class AssetContentValidator {
                 int height = reader.getHeight(0);
                 validateImageDimensions(width, height);
                 reader.read(0);
-                return new AssetMetadata(detectedType, width, height);
+                return new AssetMetadata(detectedType, width, height, null);
             } finally {
                 reader.dispose();
             }
@@ -148,7 +156,7 @@ public final class AssetContentValidator {
             if (root == null || !root.isObject()) {
                 throw new AssetValidationException(INVALID_JSON, "The configuration must be a JSON object");
             }
-            return new AssetMetadata(DetectedAssetType.JSON, null, null);
+            return new AssetMetadata(DetectedAssetType.JSON, null, null, null);
         } catch (AssetValidationException exception) {
             throw exception;
         } catch (FileStorageException exception) {
@@ -209,7 +217,151 @@ public final class AssetContentValidator {
             throw new AssetValidationException(INVALID_IMAGE, "The WebP image chunk is unsupported");
         }
         validateImageDimensions(width, height);
-        return new AssetMetadata(DetectedAssetType.WEBP, width, height);
+        return new AssetMetadata(DetectedAssetType.WEBP, width, height, null);
+    }
+
+    private AssetMetadata validateTutorialVideo(StagedObject stagedObject) {
+        boolean hasFtyp = false;
+        boolean hasMdat = false;
+        boolean hasTrack = false;
+        Long durationMs = null;
+
+        try (StoredContent storedContent = fileStorage.openStaged(stagedObject);
+                DataInputStream input = new DataInputStream(new BufferedInputStream(storedContent.inputStream()))) {
+            long remaining = stagedObject.sizeBytes();
+            while (remaining > 0) {
+                BoxHeader box = readBoxHeader(input, remaining);
+                if ("ftyp".equals(box.type())) {
+                    hasFtyp = true;
+                    skipExactly(input, box.payloadSize());
+                } else if ("moov".equals(box.type())) {
+                    MovieMetadata movie = readMovieMetadata(input, box.payloadSize());
+                    hasTrack = movie.hasTrack();
+                    durationMs = movie.durationMs();
+                } else {
+                    if ("mdat".equals(box.type())) {
+                        hasMdat = true;
+                    }
+                    skipExactly(input, box.payloadSize());
+                }
+                remaining -= box.size();
+            }
+        } catch (AssetValidationException exception) {
+            throw exception;
+        } catch (FileStorageException exception) {
+            throw exception;
+        } catch (IOException | RuntimeException exception) {
+            throw new AssetValidationException(INVALID_VIDEO, "The MP4 structure is invalid", exception);
+        }
+
+        if (!hasFtyp || !hasMdat || !hasTrack || durationMs == null || durationMs <= 0) {
+            throw new AssetValidationException(INVALID_VIDEO, "The MP4 must contain a movie track and duration metadata");
+        }
+        if (durationMs > MAX_TUTORIAL_DURATION_MS) {
+            throw new AssetValidationException(VIDEO_DURATION_EXCEEDED, "The tutorial video duration exceeds 15 minutes");
+        }
+        return new AssetMetadata(DetectedAssetType.MP4, null, null, durationMs);
+    }
+
+    private MovieMetadata readMovieMetadata(DataInputStream input, long payloadSize) throws IOException {
+        long remaining = payloadSize;
+        Long durationMs = null;
+        boolean hasTrack = false;
+        while (remaining > 0) {
+            BoxHeader child = readBoxHeader(input, remaining);
+            if ("mvhd".equals(child.type())) {
+                durationMs = readMovieHeader(input, child.payloadSize());
+            } else {
+                if ("trak".equals(child.type())) {
+                    hasTrack = true;
+                }
+                skipExactly(input, child.payloadSize());
+            }
+            remaining -= child.size();
+        }
+        return new MovieMetadata(durationMs, hasTrack);
+    }
+
+    private long readMovieHeader(DataInputStream input, long payloadSize) throws IOException {
+        if (payloadSize < 20) {
+            throw new AssetValidationException(INVALID_VIDEO, "The MP4 movie header is incomplete");
+        }
+        int version = input.readUnsignedByte();
+        input.skipNBytes(3);
+        long consumed = 4;
+        long timescale;
+        long duration;
+        if (version == 0) {
+            if (payloadSize < 20) {
+                throw new AssetValidationException(INVALID_VIDEO, "The MP4 movie header is incomplete");
+            }
+            input.skipNBytes(8);
+            timescale = Integer.toUnsignedLong(input.readInt());
+            duration = Integer.toUnsignedLong(input.readInt());
+            consumed += 16;
+        } else if (version == 1) {
+            if (payloadSize < 32) {
+                throw new AssetValidationException(INVALID_VIDEO, "The MP4 movie header is incomplete");
+            }
+            input.skipNBytes(16);
+            timescale = Integer.toUnsignedLong(input.readInt());
+            duration = input.readLong();
+            consumed += 28;
+            if (duration < 0) {
+                throw new AssetValidationException(INVALID_VIDEO, "The MP4 duration is unsupported");
+            }
+        } else {
+            throw new AssetValidationException(INVALID_VIDEO, "The MP4 movie header version is unsupported");
+        }
+        skipExactly(input, payloadSize - consumed);
+        if (timescale == 0) {
+            throw new AssetValidationException(INVALID_VIDEO, "The MP4 timescale is invalid");
+        }
+        return BigInteger.valueOf(duration)
+                .multiply(BigInteger.valueOf(1_000))
+                .divide(BigInteger.valueOf(timescale))
+                .longValueExact();
+    }
+
+    private BoxHeader readBoxHeader(DataInputStream input, long remaining) throws IOException {
+        if (remaining < 8) {
+            throw new AssetValidationException(INVALID_VIDEO, "The MP4 box header is incomplete");
+        }
+        long size = Integer.toUnsignedLong(input.readInt());
+        byte[] typeBytes = input.readNBytes(4);
+        if (typeBytes.length != 4) {
+            throw new EOFException("MP4 box type is incomplete");
+        }
+        long headerSize = 8;
+        if (size == 1) {
+            if (remaining < 16) {
+                throw new AssetValidationException(INVALID_VIDEO, "The extended MP4 box header is incomplete");
+            }
+            size = input.readLong();
+            headerSize = 16;
+        } else if (size == 0) {
+            size = remaining;
+        }
+        if (size < headerSize || size > remaining) {
+            throw new AssetValidationException(INVALID_VIDEO, "An MP4 box exceeds the file boundary");
+        }
+        return new BoxHeader(
+                size,
+                new String(typeBytes, java.nio.charset.StandardCharsets.US_ASCII),
+                size - headerSize);
+    }
+
+    private void skipExactly(InputStream input, long count) throws IOException {
+        if (count < 0) {
+            throw new AssetValidationException(INVALID_VIDEO, "The MP4 box size is invalid");
+        }
+        input.skipNBytes(count);
+    }
+
+    private record BoxHeader(long size, String type, long payloadSize) {
+    }
+
+    private record MovieMetadata(Long durationMs, boolean hasTrack) {
     }
 
     private AssetMetadata validateArchive(StagedObject stagedObject) {
@@ -241,7 +393,7 @@ public final class AssetContentValidator {
             if (entryCount == 0) {
                 throw new AssetValidationException(INVALID_ARCHIVE, "The archive contains no entries");
             }
-            return new AssetMetadata(DetectedAssetType.ZIP, null, null);
+            return new AssetMetadata(DetectedAssetType.ZIP, null, null, null);
         } catch (AssetValidationException exception) {
             throw exception;
         } catch (FileStorageException exception) {

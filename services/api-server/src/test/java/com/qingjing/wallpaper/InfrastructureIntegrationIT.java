@@ -122,7 +122,7 @@ class InfrastructureIntegrationIT {
                 """,
                 String.class);
 
-        assertThat(successfulMigrations).isEqualTo(3);
+        assertThat(successfulMigrations).isEqualTo(4);
         assertThat(tables).containsExactlyInAnyOrder(
                 "admin_account",
                 "anonymous_device",
@@ -142,6 +142,7 @@ class InfrastructureIntegrationIT {
                 "resource_binding",
                 "resource_version",
                 "wallpaper",
+                "wallpaper_setting_tutorial",
                 "wallpaper_variant");
     }
 
@@ -599,6 +600,123 @@ class InfrastructureIntegrationIT {
                         "SELECT COUNT(*) FROM asset WHERE storage_key LIKE '/%' OR storage_key LIKE '%..%'",
                         Long.class))
                 .isZero();
+    }
+
+    @Test
+    void wallpaperTutorialFlowUploadsConfiguresStreamsAndDisablesVideo() throws Exception {
+        ensureAdmin();
+        AdminTestSession session = login();
+
+        ResponseEntity<JsonNode> initial = getJson("/api/v1/admin/wallpaper-tutorials", session);
+        assertThat(initial.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(initial.getBody().path("items")).hasSize(5);
+        JsonNode androidDynamic = java.util.stream.StreamSupport
+                .stream(initial.getBody().path("items").spliterator(), false)
+                .filter(item -> item.path("key").asText().equals("ANDROID_DYNAMIC"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(androidDynamic.path("enabled").asBoolean()).isFalse();
+        assertThat(androidDynamic.path("video").isNull()).isTrue();
+        assertThat(androidDynamic.path("version").asLong()).isZero();
+
+        byte[] videoBytes = testVideo();
+        JsonNode video = uploadAsset(session, "TUTORIAL_VIDEO", "android-dynamic.mp4", videoBytes);
+        assertThat(video.path("mimeType").asText()).isEqualTo("video/mp4");
+        assertThat(video.path("durationMs").asLong()).isBetween(900L, 1_100L);
+        assertThat(jdbc.queryForObject(
+                "SELECT purpose FROM asset WHERE id = ?",
+                String.class,
+                video.path("id").asLong())).isEqualTo("TUTORIAL_VIDEO");
+
+        String adminPath = "/api/v1/admin/wallpaper-tutorials/ANDROID_DYNAMIC";
+        Map<String, Object> request = Map.of(
+                "videoAssetId", video.path("id").asText(),
+                "enabled", true,
+                "sortOrder", 12);
+        ResponseEntity<JsonNode> configured = jsonExchange(
+                adminPath,
+                HttpMethod.PUT,
+                request,
+                session,
+                "\"0\"");
+        assertThat(configured.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(configured.getHeaders().getETag()).isEqualTo("\"1\"");
+        assertThat(configured.getBody().path("title").asText()).isEqualTo("动态壁纸教程");
+        assertThat(configured.getBody().path("video").path("id").asText()).isEqualTo(video.path("id").asText());
+
+        ResponseEntity<JsonNode> stale = jsonExchange(adminPath, HttpMethod.PUT, request, session, "\"0\"");
+        assertThat(stale.getStatusCode()).isEqualTo(HttpStatus.PRECONDITION_FAILED);
+        assertThat(stale.getBody().path("error").path("code").asText()).isEqualTo("VERSION_CONFLICT");
+
+        JsonNode publicList = http.getForObject("/api/v1/public/wallpaper-tutorials", JsonNode.class);
+        assertThat(publicList.path("items")).hasSize(1);
+        String videoPath = publicList.path("items").get(0).path("video").path("contentUrl").asText();
+        assertThat(videoPath).isEqualTo("/api/v1/public/wallpaper-tutorials/ANDROID_DYNAMIC/video?v=1");
+
+        HttpHeaders rangeHeaders = new HttpHeaders();
+        rangeHeaders.set(HttpHeaders.RANGE, "bytes=4-15");
+        ResponseEntity<byte[]> range = http.exchange(
+                videoPath,
+                HttpMethod.GET,
+                new HttpEntity<>(rangeHeaders),
+                byte[].class);
+        assertThat(range.getStatusCode()).isEqualTo(HttpStatus.PARTIAL_CONTENT);
+        assertThat(range.getHeaders().getFirst(HttpHeaders.ACCEPT_RANGES)).isEqualTo("bytes");
+        assertThat(range.getHeaders().getFirst(HttpHeaders.CONTENT_RANGE))
+                .isEqualTo("bytes 4-15/" + videoBytes.length);
+        assertThat(range.getHeaders().getContentLength()).isEqualTo(12);
+        assertThat(range.getBody()).containsExactly(java.util.Arrays.copyOfRange(videoBytes, 4, 16));
+
+        ResponseEntity<Void> head = http.exchange(videoPath, HttpMethod.HEAD, HttpEntity.EMPTY, Void.class);
+        assertThat(head.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(head.getHeaders().getContentLength()).isEqualTo(videoBytes.length);
+        assertThat(head.getHeaders().getFirst(HttpHeaders.ACCEPT_RANGES)).isEqualTo("bytes");
+
+        ResponseEntity<Void> rangedHead = http.exchange(
+                videoPath, HttpMethod.HEAD, new HttpEntity<>(rangeHeaders), Void.class);
+        assertThat(rangedHead.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(rangedHead.getHeaders().getContentLength()).isEqualTo(videoBytes.length);
+
+        rangeHeaders.set(HttpHeaders.IF_RANGE, "\"outdated-content\"");
+        ResponseEntity<byte[]> changedRange = http.exchange(
+                videoPath, HttpMethod.GET, new HttpEntity<>(rangeHeaders), byte[].class);
+        assertThat(changedRange.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(changedRange.getBody()).containsExactly(videoBytes);
+        rangeHeaders.set(HttpHeaders.IF_RANGE, head.getHeaders().getETag());
+        assertThat(http.exchange(videoPath, HttpMethod.GET, new HttpEntity<>(rangeHeaders), byte[].class)
+                .getStatusCode()).isEqualTo(HttpStatus.PARTIAL_CONTENT);
+
+        rangeHeaders.remove(HttpHeaders.IF_RANGE);
+        rangeHeaders.set(HttpHeaders.RANGE, "bytes=" + videoBytes.length + "-");
+        ResponseEntity<JsonNode> invalidRange = http.exchange(
+                videoPath, HttpMethod.GET, new HttpEntity<>(rangeHeaders), JsonNode.class);
+        assertThat(invalidRange.getStatusCode()).isEqualTo(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE);
+        assertThat(invalidRange.getHeaders().getFirst(HttpHeaders.CONTENT_RANGE))
+                .isEqualTo("bytes */" + videoBytes.length);
+
+        ResponseEntity<byte[]> staleVersion = http.getForEntity(videoPath.replace("v=1", "v=0"), byte[].class);
+        assertThat(staleVersion.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(staleVersion.getHeaders().getCacheControl()).isEqualTo("no-cache");
+        assertThat(staleVersion.getBody()).containsExactly(videoBytes);
+
+        ResponseEntity<JsonNode> disabled = jsonExchange(
+                adminPath,
+                HttpMethod.PUT,
+                Map.of("videoAssetId", video.path("id").asText(), "enabled", false, "sortOrder", 12),
+                session,
+                "\"1\"");
+        assertThat(disabled.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(http.getForObject("/api/v1/public/wallpaper-tutorials", JsonNode.class).path("items")).isEmpty();
+        assertThat(http.getForEntity(videoPath, JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM audit_event
+                WHERE aggregate_type = 'WALLPAPER_TUTORIAL'
+                  AND aggregate_id = 'ANDROID_DYNAMIC'
+                  AND JSON_UNQUOTE(JSON_EXTRACT(change_summary, '$.newVideoAssetId')) = ?
+                """,
+                Long.class,
+                video.path("id").asText())).isGreaterThanOrEqualTo(2);
     }
 
     @Test
@@ -1263,7 +1381,7 @@ class InfrastructureIntegrationIT {
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add("purpose", purpose);
         HttpHeaders fileHeaders = new HttpHeaders();
-        fileHeaders.setContentType(purpose.equals("VIDEO") ? MediaType.valueOf("video/mp4") : purpose.equals("PARALLAX_CONFIG") ? MediaType.APPLICATION_JSON : MediaType.IMAGE_PNG);
+        fileHeaders.setContentType(purpose.contains("VIDEO") ? MediaType.valueOf("video/mp4") : purpose.equals("PARALLAX_CONFIG") ? MediaType.APPLICATION_JSON : MediaType.IMAGE_PNG);
         fileHeaders.setContentDispositionFormData("file", filename);
         ByteArrayResource resource = new ByteArrayResource(bytes) {
             @Override

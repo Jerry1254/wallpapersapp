@@ -10,7 +10,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SecureDeliveryMigrationIT {
     @Test void additiveMigrationPreservesAnExistingInstallation() throws Exception {
         try (var mysql = new MySQLContainer<>("mysql:8.4").withDatabaseName("upgrade_test")
-                .withUsername("upgrade_test").withPassword(UUID.randomUUID().toString())) {
+                .withUsername("upgrade_test").withPassword(UUID.randomUUID().toString())
+                .withStartupTimeout(java.time.Duration.ofMinutes(5)).withStartupTimeoutSeconds(300)) {
             mysql.start();
             Flyway.configure().dataSource(mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword())
                     .locations("classpath:db/migration").target("1").load().migrate();
@@ -34,10 +35,15 @@ class SecureDeliveryMigrationIT {
             assertThat(migrated.migrationsExecuted).isEqualTo(1);
             var previewMigration=Flyway.configure().dataSource(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword())
                     .locations("classpath:db/migration").load().migrate();
-            assertThat(previewMigration.migrationsExecuted).isEqualTo(1);
+            assertThat(previewMigration.migrationsExecuted).isEqualTo(2);
             try(var connection=DriverManager.getConnection(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword());
-                var query=connection.createStatement();var result=query.executeQuery("SELECT COUNT(*) FROM preview_resource_package")) {
-                assertThat(result.next()).isTrue();assertThat(result.getInt(1)).isZero();
+                var query=connection.createStatement()) {
+                try (var result=query.executeQuery("SELECT COUNT(*) FROM preview_resource_package")) {
+                    assertThat(result.next()).isTrue();assertThat(result.getInt(1)).isZero();
+                }
+                try (var result=query.executeQuery("SELECT COUNT(*) FROM wallpaper_setting_tutorial")) {
+                    assertThat(result.next()).isTrue();assertThat(result.getInt(1)).isEqualTo(5);
+                }
             }
             try (var connection = DriverManager.getConnection(mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword());
                  var query = connection.prepareStatement("""

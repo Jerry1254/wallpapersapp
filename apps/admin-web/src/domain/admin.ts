@@ -14,6 +14,25 @@ export interface ResourceFile {
   nativeFile?: File;
 }
 
+export type WallpaperTutorialKey =
+  | 'ANDROID_PARALLAX_4D'
+  | 'ANDROID_DYNAMIC'
+  | 'STATIC'
+  | 'HARMONYOS_DYNAMIC'
+  | 'IOS_DYNAMIC';
+
+export interface WallpaperTutorial {
+  key: WallpaperTutorialKey;
+  title: string;
+  platform: ApiPlatform;
+  wallpaperKind: 'PARALLAX_4D' | 'DYNAMIC' | 'STATIC';
+  enabled: boolean;
+  sortOrder: number;
+  video?: ResourceFile;
+  updatedAt?: string | null;
+  version: number;
+}
+
 export interface Category {
   id: string;
   name: string;

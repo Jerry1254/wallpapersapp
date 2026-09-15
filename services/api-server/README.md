@@ -2,7 +2,7 @@
 
 Java API 正式工程目录，承载内容目录、匿名设备、兑换、权益、受保护下载、设备恢复和后台管理接口。
 
-当前基线使用 Spring Boot 3.5、Java 17 字节码、Flyway、MySQL 8.4 和 Redis 7.4。代码按 `adminidentity`、`catalog`、`asset`、`device`、`redemption`、`entitlement`、`delivery`、`audit` 和 `shared` 包保持模块化单体边界。
+当前基线使用 Spring Boot 3.5、Java 17 字节码、Flyway、MySQL 8.4 和 Redis 7.4。代码按 `adminidentity`、`catalog`、`asset`、`device`、`redemption`、`entitlement`、`delivery`、`tutorial`、`audit` 和 `shared` 包保持模块化单体边界。
 
 ## 本地启动
 
@@ -42,13 +42,13 @@ Java API 正式工程目录，承载内容目录、匿名设备、兑换、权�
 
 ## 管理身份与内容 API
 
-管理接口位于 `/api/v1/admin`。登录响应设置 `QJ_ADMIN_SESSION` HttpOnly、SameSite Cookie 并返回会话绑定的 CSRF token；除 GET/HEAD 外的管理请求必须同时带 Cookie 和 `X-CSRF-Token`。资源、分类、壁纸、变体、资源版本和发布接口均按 OpenAPI V1 返回字符串形式 Long ID。
+管理接口位于 `/api/v1/admin`。登录响应设置 `QJ_ADMIN_SESSION` HttpOnly、SameSite Cookie 并返回会话绑定的 CSRF token；除 GET/HEAD 外的管理请求必须同时带 Cookie 和 `X-CSRF-Token`。资源、分类、壁纸、变体、资源版本、发布和五类固定设置教程接口均按 OpenAPI V1 返回字符串形式 Long ID。
 
 分类、壁纸与变体修改使用响应中的强 ETag。客户端把该值原样放入下一次写请求的 `If-Match`；版本落后时返回 412 `VERSION_CONFLICT`，不会覆盖并发修改。资源版本创建后不可修改，重新发布通过创建新版本并在发布事务中退役旧版本完成。
 
 ## 公开目录 API
 
-/api/v1/public 提供已发布分类树、壁纸筛选/搜索/分页、详情和受控图标/封面读取。草稿、下线和归档内容不进入公开目录；正式资源文件不能仅凭 assetId 公开读取。H5 开发服务器在 5175 端口代理同源 API，详见 API-004。
+`/api/v1/public` 提供已发布分类树、壁纸筛选/搜索/分页、详情、受控图标/封面读取，以及已启用设置教程列表与支持 Range/HEAD 的公开视频流。草稿、下线、归档内容和停用教程不进入公开目录；正式资源文件不能仅凭 assetId 公开读取。
 
 ## 构建与测试
 
@@ -57,7 +57,9 @@ Java API 正式工程目录，承载内容目录、匿名设备、兑换、权�
 ./mvnw verify
 ~~~
 
-`test` 执行快速模块结构测试；`verify` 额外使用 Testcontainers 启动 MySQL 8.4 和 Redis 7.4，验证空库迁移、16 张业务表、关键唯一约束、Redis 读写和 readiness。Maven Wrapper 会在 macOS 上自动读取当前 Docker context，以兼容 Colima 和 Docker Desktop。
+完整媒体回归需要可执行的 FFmpeg 与 ffprobe。若未安装到 PATH，显式设置 `QJ_FFMPEG`、`QJ_FFPROBE` 为本机工具绝对路径，并使用 UTF-8 locale；本机已有工具位于仓库被忽略的 `.runtime/media-tools/`。缺少工具时外部媒体快速测试会跳过，涉及真实 MP4 的集成测试不能计为通过。
+
+`test` 执行快速模块结构测试；`verify` 额外使用 Testcontainers 启动 MySQL 8.4 和 Redis 7.4，验证空库迁移、20 张业务表、关键唯一约束、Redis 读写和 readiness。Maven Wrapper 会在 macOS 上自动读取当前 Docker context，以兼容 Colima 和 Docker Desktop。
 
 从仓库根目录执行完整本地重启验收：
 
@@ -74,7 +76,7 @@ Java API 正式工程目录，承载内容目录、匿名设备、兑换、权�
 当前校验包括：
 
 - JPEG、PNG 解码和像素边界；WebP RIFF、块边界和像素边界。
-- MP4、QuickTime 的 `ftyp` 容器识别。
+- 普通 MP4、QuickTime 的 `ftyp` 容器识别；教程 MP4 额外校验 `moov`、`mvhd`、`trak`、`mdat` 结构并读取不超过 15 分钟的时长。
 - JSON 对象完整解析，禁止尾随第二个根值。
 - ZIP 条目数量、展开总量、重复名称和绝对路径、`..`、反斜杠等逃逸名称检查。
 - 客户端声明 MIME 与服务端探测类型一致性；`application/octet-stream` 只作为未知声明，不代替服务端探测。
@@ -83,7 +85,7 @@ Java API 正式工程目录，承载内容目录、匿名设备、兑换、权�
 
 ## 配置边界
 
-App 开工契约已冻结为 OpenAPI 1.0.1，见 [PM-003](../../docs/10-项目管理/PM-003-App开工门禁与接入清单.md)。当前设备 Provider 仅支持 local/test H5_TEST，正式平台公钥证明与 SECURE_PACKAGE 交付仍需后续实现；受保护文件读取稳定拒绝，不签发永久资源地址。不存在的 wallpaperId 兑换返回 404 WALLPAPER_NOT_FOUND、事务回滚，已存在但下线作品仍返回 422 最终兑换结果。
+当前契约版本为 OpenAPI 1.4.0；历史开工冻结规则见 [PM-003](../../docs/10-项目管理/PM-003-App开工门禁与接入清单.md)。Android 正式设备身份与安全资源包交付已经接入；HarmonyOS 与 iOS Provider 仍按各自工作包实现。不存在的 wallpaperId 兑换返回 404 `WALLPAPER_NOT_FOUND` 并回滚事务，已存在但下线作品仍返回 422 最终兑换结果。
 
 - `local` profile 默认连接本地 Compose，并允许应用启动时执行 Flyway。
 - `test` profile 只连接 Testcontainers 创建的独立数据服务。

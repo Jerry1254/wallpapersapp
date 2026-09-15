@@ -10,6 +10,8 @@ public final class AssetValidationException extends RuntimeException {
         INVALID_IMAGE,
         IMAGE_DIMENSIONS_EXCEEDED,
         INVALID_JSON,
+        INVALID_VIDEO,
+        VIDEO_DURATION_EXCEEDED,
         INVALID_ARCHIVE,
         UNSAFE_ARCHIVE_ENTRY,
         ARCHIVE_LIMIT_EXCEEDED

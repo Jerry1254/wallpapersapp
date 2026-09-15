@@ -8,6 +8,8 @@ const expectedOperations = {
   '/public/categories': ['get'],
   '/public/wallpapers': ['get'],
   '/public/wallpapers/{wallpaperId}': ['get'],
+  '/public/wallpaper-tutorials': ['get'],
+  '/public/wallpaper-tutorials/{tutorialKey}/video': ['get', 'head'],
   '/device/registrations': ['post'],
   '/device/session-challenges': ['post'],
   '/device/sessions': ['post'],
@@ -20,6 +22,8 @@ const expectedOperations = {
   '/preview/files': ['get'],
   '/admin/sessions': ['get', 'post', 'delete'],
   '/admin/assets': ['post'],
+  '/admin/wallpaper-tutorials': ['get'],
+  '/admin/wallpaper-tutorials/{tutorialKey}': ['put'],
   '/admin/categories': ['get', 'post'],
   '/admin/wallpapers': ['get', 'post'],
   '/admin/code-batches': ['get', 'post'],
@@ -36,7 +40,7 @@ for (const [path, methods] of Object.entries(expectedOperations)) {
 
 const operations = [];
 for (const [path, pathItem] of Object.entries(document.paths)) {
-  for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
+  for (const method of ['get', 'head', 'post', 'put', 'patch', 'delete']) {
     if (pathItem[method]) operations.push({ path, method, operation: pathItem[method] });
   }
 }
@@ -74,7 +78,8 @@ for (const [path, method] of [
   ['/admin/wallpapers/{wallpaperId}/offline', 'post'],
   ['/admin/wallpapers/{wallpaperId}/archive', 'post'],
   ['/admin/variants/{variantId}', 'patch'],
-  ['/admin/variants/{variantId}', 'delete']
+  ['/admin/variants/{variantId}', 'delete'],
+  ['/admin/wallpaper-tutorials/{tutorialKey}', 'put']
 ]) {
   const names = document.paths[path][method].parameters.map(parameterName);
   assert.ok(names.includes('IfMatch'), `${method.toUpperCase()} ${path} must require If-Match`);

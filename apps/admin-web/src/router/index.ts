@@ -13,6 +13,7 @@ const router = createRouter({
         { path: 'dashboard', name: 'dashboard', component: () => import('@/views/DashboardView.vue'), meta: { title: '工作台' } },
         { path: 'categories', name: 'categories', component: () => import('@/views/CategoriesView.vue'), meta: { title: '分类管理' } },
         { path: 'wallpapers', name: 'wallpapers', component: () => import('@/views/WallpapersView.vue'), meta: { title: '壁纸管理' } },
+        { path: 'tutorials', name: 'tutorials', component: () => import('@/views/TutorialsView.vue'), meta: { title: '设置教程' } },
         { path: 'codes', name: 'codes', component: () => import('@/views/CodesView.vue'), meta: { title: '兑换码' } },
         { path: 'redemptions', name: 'redemptions', component: () => import('@/views/RedemptionsView.vue'), meta: { title: '兑换记录' } },
         { path: 'devices', name: 'devices', component: () => import('@/views/DevicesView.vue'), meta: { title: '设备权益' } }

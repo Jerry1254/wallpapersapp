@@ -8,5 +8,6 @@ public record ValidatedAsset(
         long sizeBytes,
         String sha256,
         Integer widthPixels,
-        Integer heightPixels) {
+        Integer heightPixels,
+        Long durationMs) {
 }

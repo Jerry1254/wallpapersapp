@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 1.3.1
+  version: 1.4.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -17,6 +17,8 @@ security: []
 tags:
   - name: Public Catalog
     description: 无需设备会话的公开目录与封面读取
+  - name: Public Tutorial
+    description: 无需设备会话的壁纸设置教程与视频流
   - name: Device Identity
     description: 匿名设备注册、挑战和短期会话
   - name: Device Entitlement
@@ -27,6 +29,8 @@ tags:
     description: 受控文件上传与元数据查询
   - name: Admin Catalog
     description: 分类、壁纸、平台变体与资源版本
+  - name: Admin Tutorial
+    description: 五个固定壁纸设置教程槽位的视频、启停与排序
   - name: Admin Redemption
     description: 兑换码批次、兑换事件、设备与权益查询
 
@@ -170,6 +174,120 @@ paths:
               schema:
                 type: string
                 format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /public/wallpaper-tutorials:
+    get:
+      tags: [Public Tutorial]
+      operationId: listPublicWallpaperTutorials
+      summary: 查询已启用的壁纸设置教程
+      description: 仅返回已启用且视频资产已就绪的固定教程槽位，按 sortOrder 排序。
+      responses:
+        '200':
+          description: 可用教程列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PublicWallpaperTutorial'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /public/wallpaper-tutorials/{tutorialKey}/video:
+    get:
+      tags: [Public Tutorial]
+      operationId: streamPublicWallpaperTutorialVideo
+      summary: 读取教程 MP4 视频流
+      description: 支持单段 bytes Range；请求与响应字节边界必须精确。v 用于版本化缓存地址；仅当前版本可长缓存，缺失或旧版本返回当前内容并要求缓存重新验证。
+      parameters:
+        - $ref: '#/components/parameters/TutorialKey'
+        - name: v
+          in: query
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: Range
+          in: header
+          description: 单段 bytes 范围，例如 bytes=0-1023。
+          schema:
+            type: string
+        - name: If-Range
+          in: header
+          description: 仅匹配当前强 ETag 时返回分段；不匹配时返回完整内容。
+          schema: { type: string }
+      responses:
+        '200':
+          description: 完整 MP4 内容
+          headers:
+            Accept-Ranges:
+              schema: { type: string, enum: [bytes] }
+            Content-Length:
+              schema: { type: integer, format: int64 }
+            ETag:
+              schema: { type: string }
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        '206':
+          description: 指定字节范围的 MP4 内容
+          headers:
+            Accept-Ranges:
+              schema: { type: string, enum: [bytes] }
+            Content-Length:
+              schema: { type: integer, format: int64 }
+            Content-Range:
+              schema: { type: string }
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '416':
+          description: Range 无法满足
+          headers:
+            Content-Range:
+              schema: { type: string }
+              description: 当前资源长度，例如 bytes */1024。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    head:
+      tags: [Public Tutorial]
+      operationId: inspectPublicWallpaperTutorialVideo
+      summary: 查询教程 MP4 的字节与缓存元数据
+      description: HEAD 忽略 Range 并返回完整内容长度，不返回响应体。
+      parameters:
+        - $ref: '#/components/parameters/TutorialKey'
+        - name: v
+          in: query
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+      responses:
+        '200':
+          description: 完整内容元数据
+          headers:
+            Accept-Ranges:
+              schema: { type: string, enum: [bytes] }
+            Content-Length:
+              schema: { type: integer, format: int64 }
+            ETag:
+              schema: { type: string }
         '404':
           $ref: '#/components/responses/NotFound'
         '500':
@@ -742,6 +860,84 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/wallpaper-tutorials:
+    get:
+      tags: [Admin Tutorial]
+      operationId: listAdminWallpaperTutorials
+      summary: 查询五个固定教程槽位
+      description: 未配置视频的槽位仍返回，video 为 null、enabled 为 false。
+      security:
+        - adminCookie: []
+      responses:
+        '200':
+          description: 固定教程配置
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    minItems: 5
+                    maxItems: 5
+                    items:
+                      $ref: '#/components/schemas/AdminWallpaperTutorial'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/wallpaper-tutorials/{tutorialKey}:
+    put:
+      tags: [Admin Tutorial]
+      operationId: updateAdminWallpaperTutorial
+      summary: 替换教程视频、启停或调整排序
+      description: 标题、平台和壁纸类型由固定槽位决定，不允许管理端修改。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/TutorialKey'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WallpaperTutorialWriteRequest'
+      responses:
+        '200':
+          description: 教程配置已更新
+          headers:
+            ETag:
+              $ref: '#/components/headers/EntityTag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminWallpaperTutorial'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '415':
+          description: 所选资产不是 TUTORIAL_VIDEO 用途的 MP4
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -1909,6 +2105,12 @@ components:
       required: true
       schema:
         $ref: '#/components/schemas/LongId'
+    TutorialKey:
+      name: tutorialKey
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/WallpaperTutorialKey'
     VariantId:
       name: variantId
       in: path
@@ -2176,10 +2378,18 @@ components:
         - TIMESTAMP_INVALID
         - PREVIEW_TICKET_INVALID
         - PREVIEW_RESOURCE_NOT_READY
+        - TUTORIAL_NOT_FOUND
+        - TUTORIAL_ASSET_IN_USE
+        - TUTORIAL_VIDEO_REQUIRED
+        - RANGE_NOT_SATISFIABLE
 
     WallpaperKind:
       type: string
       enum: [PARALLAX_4D, DYNAMIC, STATIC]
+
+    WallpaperTutorialKey:
+      type: string
+      enum: [ANDROID_PARALLAX_4D, ANDROID_DYNAMIC, STATIC, HARMONYOS_DYNAMIC, IOS_DYNAMIC]
 
     WallpaperStatus:
       type: string
@@ -2205,6 +2415,7 @@ components:
         - FOREGROUND
         - PARALLAX_CONFIG
         - VIDEO
+        - TUTORIAL_VIDEO
         - LIVE_PHOTO_IMAGE
         - LIVE_PHOTO_VIDEO
         - STATIC_IMAGE
@@ -2847,6 +3058,129 @@ components:
           type: integer
           format: int64
           minimum: 0
+
+    AdminTutorialVideo:
+      type: object
+      required: [id, originalFilename, mimeType, sizeBytes, durationMs, validationStatus, previewUrl]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        originalFilename:
+          type: string
+          maxLength: 255
+        mimeType:
+          type: string
+          enum: [video/mp4]
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 209715200
+        durationMs:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 900000
+        validationStatus:
+          $ref: '#/components/schemas/AssetValidationStatus'
+        previewUrl:
+          type: string
+          format: uri-reference
+
+    AdminWallpaperTutorial:
+      type: object
+      required: [key, title, platform, wallpaperKind, enabled, sortOrder, video, updatedAt, version]
+      properties:
+        key:
+          $ref: '#/components/schemas/WallpaperTutorialKey'
+        title:
+          type: string
+          maxLength: 40
+        platform:
+          $ref: '#/components/schemas/DeliveryPlatform'
+        wallpaperKind:
+          $ref: '#/components/schemas/WallpaperKind'
+        enabled:
+          type: boolean
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 9999
+        video:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/AdminTutorialVideo'
+          nullable: true
+        updatedAt:
+          type: string
+          allOf:
+            - $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+
+    WallpaperTutorialWriteRequest:
+      type: object
+      additionalProperties: false
+      required: [videoAssetId, enabled, sortOrder]
+      properties:
+        videoAssetId:
+          $ref: '#/components/schemas/LongId'
+        enabled:
+          type: boolean
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 9999
+
+    PublicTutorialVideo:
+      type: object
+      required: [contentUrl, mimeType, sizeBytes, durationMs]
+      properties:
+        contentUrl:
+          type: string
+          format: uri-reference
+        mimeType:
+          type: string
+          enum: [video/mp4]
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 209715200
+        durationMs:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 900000
+
+    PublicWallpaperTutorial:
+      type: object
+      required: [key, title, platform, wallpaperKind, sortOrder, video, updatedAt, version]
+      properties:
+        key:
+          $ref: '#/components/schemas/WallpaperTutorialKey'
+        title:
+          type: string
+          maxLength: 40
+        platform:
+          $ref: '#/components/schemas/DeliveryPlatform'
+        wallpaperKind:
+          $ref: '#/components/schemas/WallpaperKind'
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 9999
+        video:
+          $ref: '#/components/schemas/PublicTutorialVideo'
+        updatedAt:
+          $ref: '#/components/schemas/Timestamp'
+        version:
+          type: integer
+          format: int64
+          minimum: 1
 
     AdminCategory:
       type: object

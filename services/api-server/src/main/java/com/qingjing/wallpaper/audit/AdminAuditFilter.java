@@ -62,7 +62,10 @@ public class AdminAuditFilter extends OncePerRequestFilter {
         String relative = request.getRequestURI().substring("/api/v1/admin/".length());
         String[] segments = relative.split("/");
         String root = segments.length == 0 ? "system" : segments[0];
-        String id = segments.length > 1 && segments[1].matches("[0-9]+") ? segments[1] : "new";
+        String id = segments.length > 1
+                && (segments[1].matches("[0-9]+") || root.equals("wallpaper-tutorials"))
+                        ? segments[1]
+                        : "new";
         String suffix = segments.length > 2 ? "_" + segments[2].replace('-', '_') : "";
         return new AuditTarget(
                 (request.getMethod() + "_" + root + suffix).toUpperCase(),
@@ -78,6 +81,7 @@ public class AdminAuditFilter extends OncePerRequestFilter {
             case "wallpapers" -> "WALLPAPER";
             case "variants" -> "WALLPAPER_VARIANT";
             case "resource-versions" -> "RESOURCE_VERSION";
+            case "wallpaper-tutorials" -> "WALLPAPER_TUTORIAL";
             case "code-batches" -> "CODE_BATCH";
             case "devices" -> "ANONYMOUS_DEVICE";
             case "redemptions" -> "REDEMPTION_CODE";

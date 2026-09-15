@@ -9,6 +9,7 @@ public enum AssetPurpose {
     FOREGROUND(50L * 1024 * 1024, Set.of(DetectedAssetType.PNG, DetectedAssetType.WEBP)),
     PARALLAX_CONFIG(2L * 1024 * 1024, Set.of(DetectedAssetType.JSON)),
     VIDEO(200L * 1024 * 1024, Set.of(DetectedAssetType.MP4, DetectedAssetType.QUICKTIME)),
+    TUTORIAL_VIDEO(200L * 1024 * 1024, Set.of(DetectedAssetType.MP4)),
     LIVE_PHOTO_IMAGE(50L * 1024 * 1024, Set.of(DetectedAssetType.JPEG)),
     LIVE_PHOTO_VIDEO(200L * 1024 * 1024, Set.of(DetectedAssetType.MP4, DetectedAssetType.QUICKTIME)),
     STATIC_IMAGE(50L * 1024 * 1024, Set.of(DetectedAssetType.JPEG, DetectedAssetType.PNG, DetectedAssetType.WEBP)),

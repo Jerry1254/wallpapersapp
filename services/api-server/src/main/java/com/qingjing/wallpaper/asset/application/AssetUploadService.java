@@ -37,7 +37,8 @@ public final class AssetUploadService {
                     storedObject.sizeBytes(),
                     storedObject.sha256(),
                     metadata.widthPixels(),
-                    metadata.heightPixels());
+                    metadata.heightPixels(),
+                    metadata.durationMs());
         } catch (RuntimeException exception) {
             uploadFailure = exception;
             throw exception;

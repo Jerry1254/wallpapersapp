@@ -7,6 +7,7 @@ import com.qingjing.wallpaper.adminidentity.AdminSessionController;
 import com.qingjing.wallpaper.asset.AdminAssetController;
 import com.qingjing.wallpaper.catalog.AdminCategoryController;
 import com.qingjing.wallpaper.catalog.AdminWallpaperController;
+import com.qingjing.wallpaper.tutorial.AdminWallpaperTutorialController;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -23,7 +24,8 @@ import org.yaml.snakeyaml.Yaml;
 class AdminOpenApiCoverageTest {
 
     private static final Set<String> CONTENT_ROOTS = Set.of(
-            "sessions", "dashboard", "assets", "categories", "wallpapers", "variants", "resource-versions");
+            "sessions", "dashboard", "assets", "categories", "wallpapers", "variants", "resource-versions",
+            "wallpaper-tutorials");
 
     @Test
     void everyFrozenAdminIdentityAndContentOperationHasAControllerMapping() throws IOException {
@@ -33,7 +35,8 @@ class AdminOpenApiCoverageTest {
                 AdminDashboardController.class,
                 AdminAssetController.class,
                 AdminCategoryController.class,
-                AdminWallpaperController.class));
+                AdminWallpaperController.class,
+                AdminWallpaperTutorialController.class));
 
         assertThat(controllerOperations).containsExactlyInAnyOrderElementsOf(contractOperations);
     }
@@ -57,7 +60,7 @@ class AdminOpenApiCoverageTest {
                 return;
             }
             item.keySet().stream()
-                    .filter(method -> Set.of("get", "post", "patch", "delete").contains(method))
+                    .filter(method -> Set.of("get", "post", "put", "patch", "delete").contains(method))
                     .forEach(method -> operations.add(method.toUpperCase() + " /api/v1" + path));
         });
         return operations;

@@ -7,7 +7,7 @@
 - `openapi.yaml`：V1 唯一机器契约。
 - `scripts/check-contract.mjs`：项目边界与敏感字段专项检查。
 - `package.json` / `package-lock.json`：固定契约校验工具版本。
-- `baseline-v1.json`：当前 App 契约冻结快照；历史版本逐字节归档在 baseline-v1.0.1.json、baseline-v1.1.0.json、baseline-v1.2.0.json、baseline-v1.3.0.json。
+- `baseline-v1.json`：当前 App 契约冻结快照；历史版本逐字节归档在 baseline-v1.0.1.json、baseline-v1.1.0.json、baseline-v1.2.0.json、baseline-v1.3.0.json、baseline-v1.3.1.json。
 - `scripts/check-baseline.mjs`：只读核对快照 SHA-256、版本和数量；字段变更须同步语义、实现、测试并显式更新版本/快照。
 
 ## 验证
@@ -27,3 +27,5 @@ WP-A03 当前兼容扩展为 1.1.0：Android 安装 RSA 持钥证明、RSA_SHA25
 后续版本记录：A05 1.2.0 增加安全交付与 V2，49 操作/74 Schema/14 冻结文件，其字节快照归档在 baseline-v1.2.0.json，对应接受输入可在 95a168e 历史树核验。A09 1.3.0 增加独立试用票据/流、三个 Schema、V3 和 SEC-004；当前为 51 操作/77 Schema，正式 format 2 与 H5 行为保留。当前树通过新冻结不代表旧冻结通过；升级检查包括 V1/V2 原字节保持、MySQL 事实保留和票据/包用途隔离。端侧真机验收状态以 A09 记录为准。
 
 A10 1.3.1 修正二进制客户端的 JSON 错误响应及下架响应说明，与 A05 的既有授权规则对齐；操作、Schema、DTO 和资源格式不变。1.3.0 原快照可在 83b3cae 历史树核验，当前冻结只更新明确审阅的 OpenAPI/API-001 两项，DM/DB 及迁移字节保持 1.3.0。
+
+WP-UI04 1.4.0 增加五个固定设置教程槽位、`TUTORIAL_VIDEO` 上传用途、管理查询/更新、公开列表和 Range/HEAD MP4 视频流，当前为 56 操作/83 Schema。V4 只增加 asset purpose 和教程配置表；V1/V2/V3 与 1.3.1 快照保留。

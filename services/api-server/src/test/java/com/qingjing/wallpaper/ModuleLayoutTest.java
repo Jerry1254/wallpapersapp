@@ -18,7 +18,8 @@ class ModuleLayoutTest {
             "delivery",
             "entitlement",
             "redemption",
-            "shared");
+            "shared",
+            "tutorial");
 
     @Test
     void modulePackagesRemainExplicit() {

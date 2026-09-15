@@ -114,7 +114,8 @@ public class ApiExceptionHandler {
             AssetValidationException exception,
             HttpServletRequest request) {
         boolean unsupported = exception.code() == AssetValidationException.Code.UNSUPPORTED_FILE_TYPE
-                || exception.code() == AssetValidationException.Code.DECLARED_TYPE_MISMATCH;
+                || exception.code() == AssetValidationException.Code.DECLARED_TYPE_MISMATCH
+                || exception.code() == AssetValidationException.Code.INVALID_VIDEO;
         HttpStatus status = unsupported ? HttpStatus.UNSUPPORTED_MEDIA_TYPE : HttpStatus.UNPROCESSABLE_ENTITY;
         return response(
                 status,

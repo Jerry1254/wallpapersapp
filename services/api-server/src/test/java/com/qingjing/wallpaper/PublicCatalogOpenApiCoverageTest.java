@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.qingjing.wallpaper.asset.PublicAssetController;
 import com.qingjing.wallpaper.catalog.PublicCatalogController;
+import com.qingjing.wallpaper.tutorial.PublicWallpaperTutorialController;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -24,10 +25,11 @@ class PublicCatalogOpenApiCoverageTest {
         Set<String> contractOperations = contractOperations();
         Set<String> controllerOperations = controllerOperations(List.of(
                 PublicCatalogController.class,
-                PublicAssetController.class));
+                PublicAssetController.class,
+                PublicWallpaperTutorialController.class));
 
         assertThat(controllerOperations).containsExactlyInAnyOrderElementsOf(contractOperations);
-        assertThat(contractOperations).hasSize(4);
+        assertThat(contractOperations).hasSize(7);
     }
 
     @SuppressWarnings("unchecked")
@@ -44,7 +46,7 @@ class PublicCatalogOpenApiCoverageTest {
                 return;
             }
             item.keySet().stream()
-                    .filter(method -> Set.of("get", "post", "patch", "delete").contains(method))
+                    .filter(method -> Set.of("get", "head", "post", "patch", "delete").contains(method))
                     .forEach(method -> operations.add(method.toUpperCase() + " /api/v1" + path));
         });
         return operations;

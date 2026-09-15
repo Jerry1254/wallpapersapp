@@ -1,7 +1,7 @@
 # DB-001 MySQL 数据库设计
 
 **状态：** 已确认  
-**版本：** V1.3.0
+**版本：** V1.4.0
 
 **日期：** 2026-09-14
 **数据库：** MySQL 8.4 LTS  
@@ -51,6 +51,7 @@ erDiagram
     wallpaper_variant ||--o{ resource_version : versions
     resource_version ||--|{ resource_binding : contains
     asset ||--o{ resource_binding : supplies
+    asset ||--o{ wallpaper_setting_tutorial : tutorial_video
 
     anonymous_device ||--o{ device_credential : authenticates_with
     code_batch ||--|{ redemption_code : generates
@@ -79,6 +80,7 @@ erDiagram
 | `wallpaper_variant` | catalog | 聚合明细 | 随未发布作品草稿删除；发布后保留 |
 | `resource_version` | asset/catalog | 不可变版本 | 退役，不删除已发布版本 |
 | `resource_binding` | asset/catalog | 版本明细 | 仅随未发布版本删除 |
+| `wallpaper_setting_tutorial` | tutorial | 固定配置 | 不删除；通过停用或替换视频变更 |
 | `anonymous_device` | device | 安全主数据 | 不删除，可内部禁用 |
 | `device_credential` | device | 安全凭据 | 撤销，不删除 |
 | `code_batch` | redemption | 业务事实 | 不删除 |
@@ -115,6 +117,7 @@ erDiagram
 | `original_filename` | `VARCHAR(255)` | 否 | 仅展示，读取时不能拼接路径 |
 | `mime_type` | `VARCHAR(100)` | 否 | 服务端探测结果，不只相信上传声明 |
 | `file_extension` | `VARCHAR(16)` | 否 | 规范化小写后缀 |
+| `purpose` | `VARCHAR(32)` | 是 | V4 新增；新上传记录受控用途，历史资产可为空 |
 | `size_bytes` | `BIGINT` | 否 | `>= 0` |
 | `sha256` | `CHAR(64)` | 否 | 小写十六进制摘要 |
 | `width_px` / `height_px` | `INT` | 是 | 图片或视频尺寸，均须 `> 0` |
@@ -327,7 +330,20 @@ erDiagram
 
 短时票据正文只在 Redis，Redis 丢失最多导致重新签发，不影响设备权益。
 
-### 5.16 `audit_event`
+### 5.16 `wallpaper_setting_tutorial`
+
+| 字段 | 类型 | 空值 | 约束/说明 |
+|---|---|---|---|
+| `tutorial_key` | `VARCHAR(40)` | 否 | PK，只允许五个预置 key |
+| `video_asset_id` | `BIGINT` | 是 | FK 到 `asset`，删除受 `RESTRICT` 保护 |
+| `enabled` | `BOOLEAN` | 否 | 启用时 `video_asset_id` 必须非空 |
+| `sort_order` | `INT` | 否 | `0..9999`，公开列表主排序 |
+| `lock_version` | `BIGINT` | 否 | 乐观锁，每次更新加 1 |
+| `created_at` / `updated_at` | `DATETIME(6)` | 否 | UTC 时间 |
+
+标题、平台和壁纸类型不入表，由服务端的固定 key 映射生成。V4 预置五行，初始均为停用、版本 0。
+
+### 5.17 `audit_event`
 
 | 字段 | 类型 | 空值 | 约束/说明 |
 |---|---|---|---|
@@ -360,6 +376,7 @@ erDiagram
 | 平台变体不重复 | UNIQUE(wallpaper_id, platform, resource_type) | 校验 kind 与组合规则 |
 | 单变体最多一个发布版本 | 生成列唯一索引 | 退役旧版并发布新版的单事务 |
 | 资源路径不可穿越 | storage_key 唯一、数据库不存绝对路径 | FileStorage 规范化、根目录边界检查 |
+| 教程槽位固定且启用时有视频 | key CHECK，enabled/video 条件 CHECK | 只绑定 READY 的 TUTORIAL_VIDEO MP4，If-Match 防覆盖 |
 
 ## 7. 索引设计
 
@@ -385,6 +402,7 @@ erDiagram
 | `download_event(entitlement_id, created_at, id)` | 权益下载审计 |
 | `audit_event(actor_admin_id, created_at, id)` | 管理员操作审计 |
 | `audit_event(aggregate_type, aggregate_id, created_at, id)` | 对象变更历史 |
+| `wallpaper_setting_tutorial(enabled, sort_order, tutorial_key)` | 公开教程按启用状态和排序读取 |
 
 公开列表采用稳定的 `(sort_order, id)` 或 `(featured_rank, sort_order, id)` 游标；管理端低频列表可使用有最大页数保护的 offset 分页。查询计划和慢日志在真实数据出现后复核。
 
@@ -469,6 +487,7 @@ Flyway 迁移在 WP-P04 创建，空库按照以下依赖顺序建表：
 14. `redemption_event`
 15. `download_event`
 16. `audit_event`
+17. `wallpaper_setting_tutorial`
 
 迁移只建结构，不写默认密码、兑换码和业务演示数据。开发数据由仅在 local profile 可运行的幂等 seed 命令创建；测试环境使用独立 fixture；生产不启用 seed。
 
@@ -535,3 +554,9 @@ V1 原字节保留。V2__secure_package_delivery.sql 新增两表，总计 18 �
 V1/V2 原字节保留，V3__app_preview_delivery.sql 新增 preview_resource_package，总计 19 张业务表。resource_version_id 为 PK/FK → resource_version.id，ON DELETE RESTRICT；storage_key 唯一，format_version=3 与 purpose=APP_PREVIEW 由 CHECK 固定。保存受限包自己的密文/明文长度与 SHA-256、manifest SHA-256、signing_key_id、加密 content_key_ciphertext 和创建时间；长度约束与正式包相同，文件字节独立存储。内容密钥保护域为 preview-package-key-v1:{resourceVersionId}，与正式包不同。
 
 没有新增试用权益、额度或设备计时表。独立 Redis preview-ticket-v1 票据 90 秒失效，Android 120 秒单调时钟只限制本地交互。READY 成对制作使用同一数据库事务并回滚清理本次两个文件；PUBLISHED 补建只新增派生事实，不覆盖正式包。V1→V2→V3 升级测试保留既有安装/凭据，真实媒体集成测试覆盖成对幂等、回滚删除、历史包补建和授权隔离。
+
+## 1.4.0 / Flyway V4 壁纸设置教程
+
+V1/V2/V3 原字节保留。`V4__wallpaper_setting_tutorial.sql` 给 `asset` 增加可空 `purpose` 受控用途，新增 `wallpaper_setting_tutorial` 并预置五个固定 key，总计 20 张业务表。迁移同时把 `WALLPAPER_TUTORIAL` 加入审计聚合类型，不修改历史资产引用或文件字节。
+
+空库和 V1→V2→V3→V4 升级都由 MySQL 8.4 集成测试验证；升级后原安装凭据保留，五个教程槽位为停用且版本 0。

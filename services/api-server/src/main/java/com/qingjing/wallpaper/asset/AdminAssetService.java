@@ -45,25 +45,31 @@ public class AdminAssetService {
                 PreparedStatement statement = connection.prepareStatement(
                         """
                         INSERT INTO asset
-                            (storage_key, original_filename, mime_type, file_extension, size_bytes,
-                             sha256, width_px, height_px, validation_status, created_by_admin_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'READY', ?)
+                            (storage_key, original_filename, mime_type, file_extension, purpose, size_bytes,
+                             sha256, width_px, height_px, duration_ms, validation_status, created_by_admin_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'READY', ?)
                         """,
                         Statement.RETURN_GENERATED_KEYS);
                 statement.setString(1, asset.storageKey().value());
                 statement.setString(2, asset.originalFilename());
                 statement.setString(3, asset.mimeType());
                 statement.setString(4, asset.fileExtension());
-                statement.setLong(5, asset.sizeBytes());
-                statement.setString(6, asset.sha256());
+                statement.setString(5, purpose.name());
+                statement.setLong(6, asset.sizeBytes());
+                statement.setString(7, asset.sha256());
                 if (asset.widthPixels() == null) {
-                    statement.setNull(7, java.sql.Types.INTEGER);
                     statement.setNull(8, java.sql.Types.INTEGER);
+                    statement.setNull(9, java.sql.Types.INTEGER);
                 } else {
-                    statement.setInt(7, asset.widthPixels());
-                    statement.setInt(8, asset.heightPixels());
+                    statement.setInt(8, asset.widthPixels());
+                    statement.setInt(9, asset.heightPixels());
                 }
-                statement.setLong(9, adminId);
+                if (asset.durationMs() == null) {
+                    statement.setNull(10, java.sql.Types.BIGINT);
+                } else {
+                    statement.setLong(10, asset.durationMs());
+                }
+                statement.setLong(11, adminId);
                 return statement;
             }, keyHolder);
             Number key = keyHolder.getKey();

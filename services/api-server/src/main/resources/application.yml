@@ -42,7 +42,7 @@ management:
 info:
   app:
     name: ${spring.application.name}
-    contract-version: 1.0.0
+    contract-version: 1.4.0
 
 qingjing:
   delivery:

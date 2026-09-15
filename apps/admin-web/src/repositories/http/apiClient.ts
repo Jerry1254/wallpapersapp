@@ -154,6 +154,9 @@ const errorLabels: Record<string, string> = {
   STATE_CONFLICT: '当前状态无法执行此操作，请刷新并检查内容状态',
   WALLPAPER_NOT_FOUND: '壁纸已不存在，请刷新列表', CATEGORY_NOT_FOUND: '分类已不存在，请刷新列表',
   ASSET_NOT_FOUND: '资源已不存在，请重新上传', RESOURCE_NOT_FOUND: '资源版本已不存在，请刷新',
+  TUTORIAL_NOT_FOUND: '教程配置不存在，请刷新',
+  TUTORIAL_VIDEO_REQUIRED: '启用教程前请上传 MP4 视频',
+  TUTORIAL_ASSET_IN_USE: '教程视频仍在使用，暂时不能清理',
   DEVICE_NOT_FOUND: '设备已不存在，请刷新列表', REDEMPTION_NOT_FOUND: '兑换记录已不存在，请刷新列表',
   CODE_BATCH_NOT_FOUND: '兑换码批次已不存在，请刷新列表',
   DELIVERY_EXPIRED: '明文交付已确认或过期，无法再次下载；只能查看掩码和额度',
@@ -167,7 +170,7 @@ const errorLabels: Record<string, string> = {
 };
 const fieldLabels: Record<string, string> = {
   name: '名称', title: '壁纸名称', slug: 'Slug', parentId: '所属节点', rootCategoryId: '一级分类', childCategoryId: '二级分类',
-  sortOrder: '排序值', featuredRank: '精选排序', copyrightNote: '版权说明', generatedCount: '生成数量', quotaPerCode: '每码设备数',
+  sortOrder: '排序值', featuredRank: '精选排序', copyrightNote: '版权说明', videoAssetId: '教程视频', generatedCount: '生成数量', quotaPerCode: '每码设备数',
   suffix: '末位码', wallpaperId: '壁纸 ID', deviceId: '设备 ID', codeSuffix: '兑换码末位', page: '页码', pageSize: '每页数量'
 };
 
