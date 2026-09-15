@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 1.4.0
+  version: 1.5.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -811,6 +811,114 @@ paths:
           $ref: '#/components/responses/UnprocessableEntity'
         '429':
           $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/parallax-packages:
+    post:
+      tags: [Admin Asset]
+      operationId: importAdminParallaxPackage
+      summary: 导入固定格式 4D ZIP 源包
+      description: 同步校验根目录 cover.jpg、config.json、连续编号的 2～12 层图片，转换为内部配置。ZIP 最大 100 MiB、解压总量 85 MiB、64 条目、图层与内部配置 64 MiB。相同 SHA-256 的可用源包复用；不返回原始 ZIP 地址。详见 API-007。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: 新源包及派生资产已校验并原子保存
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminParallaxSourcePackage'
+        '200':
+          description: 复用相同 SHA-256 的可用源包
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminParallaxSourcePackage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          description: ZIP、单文件、条目解压总量或内部资源负载超限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '415':
+          description: ZIP 或图片真实类型不支持或与后缀不一致
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/variants/{variantId}/parallax-resource-versions:
+    post:
+      tags: [Admin Catalog]
+      operationId: createAdminParallaxResourceVersion
+      summary: 用已导入源包创建 Android 4D 资源版本
+      description: 仅可编辑 Android LAYER_PARALLAX 变体。事务保存版本、绑定和源包关联；相同变体、版本号和源包重试返回既有版本，版本号被其他源包占用返回 409。旧版资源的 sourcePackage 显式为 null。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/VariantId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateParallaxResourceVersionRequest'
+      responses:
+        '201':
+          description: 新 READY 版本
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminResourceVersion'
+        '200':
+          description: 相同请求对应的既有版本
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminResourceVersion'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -2382,6 +2490,9 @@ components:
         - TUTORIAL_ASSET_IN_USE
         - TUTORIAL_VIDEO_REQUIRED
         - RANGE_NOT_SATISFIABLE
+        - PARALLAX_PACKAGE_REQUIRED
+        - PARALLAX_PACKAGE_INVALID
+        - PARALLAX_PACKAGE_IN_USE
 
     WallpaperKind:
       type: string
@@ -3515,7 +3626,7 @@ components:
 
     AdminResourceVersion:
       type: object
-      required: [id, versionNo, status, bindings, createdAt, version]
+      required: [id, versionNo, status, bindings, sourcePackage, createdAt, version]
       properties:
         id:
           $ref: '#/components/schemas/LongId'
@@ -3545,6 +3656,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AdminResourceBinding'
+        sourcePackage:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/AdminParallaxSourcePackage'
+          nullable: true
+          description: ZIP 导入来源；旧版手工创建资源显式返回 null。
         publishedAt:
           type: string
           allOf:
@@ -3561,6 +3678,96 @@ components:
           type: integer
           format: int64
           minimum: 0
+
+    AdminParallaxSourcePackage:
+      type: object
+      required: [id, originalFilename, mimeType, sizeBytes, sha256, validationStatus, cover, canvas, layers]
+      properties:
+        id:
+          $ref: '#/components/schemas/LongId'
+        originalFilename:
+          type: string
+          maxLength: 255
+        mimeType:
+          type: string
+          enum: [application/zip]
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 104857600
+        sha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        validationStatus:
+          type: string
+          enum: [READY]
+        cover:
+          $ref: '#/components/schemas/AdminAsset'
+        canvas:
+          type: object
+          required: [width, height]
+          properties:
+            width:
+              type: integer
+              minimum: 512
+              maximum: 4096
+            height:
+              type: integer
+              minimum: 512
+              maximum: 4096
+        layers:
+          type: array
+          minItems: 2
+          maxItems: 12
+          description: 源包 01 到 N 的前到后顺序；内部配置转换成 N 到 01 的绘制顺序。
+          items:
+            $ref: '#/components/schemas/AdminParallaxSourceLayer'
+
+    AdminParallaxSourceLayer:
+      type: object
+      required: [index, originalFilename, role, ordinal, depth, scale, opacity, blendMode]
+      properties:
+        index:
+          type: integer
+          minimum: 1
+          maximum: 12
+        originalFilename:
+          type: string
+          pattern: '^layers/(0[1-9]|1[0-2])\.(png|jpg|webp)$'
+        role:
+          type: string
+          enum: [FOREGROUND, BACKGROUND]
+        ordinal:
+          type: integer
+          minimum: 0
+          maximum: 10
+        depth:
+          type: number
+          minimum: 0
+          maximum: 1
+        scale:
+          type: number
+          minimum: 1
+          maximum: 1.5
+        opacity:
+          type: number
+          minimum: 0
+          maximum: 1
+        blendMode:
+          type: string
+          enum: [normal, screen, add]
+
+    CreateParallaxResourceVersionRequest:
+      type: object
+      additionalProperties: false
+      required: [versionNo, sourcePackageId]
+      properties:
+        versionNo:
+          type: integer
+          minimum: 1
+        sourcePackageId:
+          $ref: '#/components/schemas/LongId'
 
     AdminResourceBinding:
       type: object

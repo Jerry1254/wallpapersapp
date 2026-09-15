@@ -2,7 +2,7 @@
 
 **状态：** 已确认
 
-**版本：** V1.4.0
+**版本：** V1.5.0
 
 **日期：** 2026-09-15
 
@@ -11,6 +11,8 @@
 **语义基线：** DM-001、DB-001、ARC-001、SEC-001
 
 ## 1. 契约结论
+
+当前 V1.5.0 共 58 个操作、86 个 Schema。新增 `POST /admin/parallax-packages` 和 `POST /admin/variants/{variantId}/parallax-resource-versions`；所有管理资源版本返回 `sourcePackage`（旧版显式 null）。固定 ZIP 格式、同步校验、幂等和错误细节见 [API-007](API-007-4D固定资源包导入接口.md)。公开目录、设备交付和 Android 包格式沿用既有契约。
 
 V1 使用同一份 OpenAPI 3.0.3 契约服务 H5、正式 App 和管理后台，但按调用方分成三个边界：
 

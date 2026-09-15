@@ -1,34 +1,33 @@
 {
   "frozenOn": "2026-09-15",
-  "previousAcceptedCommit": "40421191599730e31070fefef7ba709d82635b31",
-  "contractVersion": "1.5.0",
-  "domainVersion": "1.5.0",
-  "databaseDesignVersion": "1.5.0",
+  "previousAcceptedCommit": "b907fb1a7f541410307aaa6fc332f6ee31bb3530",
+  "contractVersion": "1.4.0",
+  "domainVersion": "1.4.0",
+  "databaseDesignVersion": "1.4.0",
   "migrationVersions": [
     "1",
     "2",
     "3",
-    "4",
-    "5"
+    "4"
   ],
-  "operationCount": 58,
-  "schemaCount": 86,
+  "operationCount": 56,
+  "schemaCount": 83,
   "files": [
     {
       "path": "contracts/openapi/openapi.yaml",
-      "sha256": "f052ed6abd414590c1b194e2339f54fe97d4f378dc4bf1f8d4364c1aa9795a92"
+      "sha256": "7e4f2f558aa9af44c9b4bd1f3d9cafe0b1feb23f6df287c3d8aa78428c7ef137"
     },
     {
       "path": "docs/03-数据设计/DM-001-统一领域模型.md",
-      "sha256": "6565ce58dad4a8fd687c461468a873ceac0791e86a0500e25791e983ce0b4502"
+      "sha256": "c7039efe958a353baf25c4e993da631f4321828c871cd80ecd08ead2fa41a937"
     },
     {
       "path": "docs/03-数据设计/DB-001-MySQL数据库设计.md",
-      "sha256": "ce4b7ab1706fcbf7217a9b79ccbb5b410b90ce3a6fa6ee391ea1438eca704d7b"
+      "sha256": "877c07be29ee0b081dc1edffccc4165707e8c40d1e378fb849ce157cd44a7a51"
     },
     {
       "path": "docs/04-接口设计/API-001-OpenAPI-V1契约说明.md",
-      "sha256": "29329fdd258053d2659c8eaa72d3844bbed12a21ba656215c93250a94590f32c"
+      "sha256": "e5d90e4b6d3ff69f486e8166f9af2306fd41c6f52abf2b8590bdfc0ff3fd5170"
     },
     {
       "path": "docs/02-系统架构/ARC-001-混合客户端与平台架构方案.md",
@@ -89,18 +88,6 @@
     {
       "path": "docs/04-接口设计/API-006-壁纸设置教程接口.md",
       "sha256": "e659d7f5bd2c3451028305bfe5aa53df10ccffbf3ac1bc2e63e82c634fdf97af"
-    },
-    {
-      "path": "services/api-server/src/main/resources/db/migration/V5__parallax_source_packages.sql",
-      "sha256": "c73bdf4b534b3061143bb3328c71849d205e865f0783f843c8dbdd3ee37e6754"
-    },
-    {
-      "path": "docs/04-接口设计/API-007-4D固定资源包导入接口.md",
-      "sha256": "a496cf6c7dcbd3a9f07f7cb07b4fd82990c0cce5ad6ba3d5b058ac57a71bd096"
-    },
-    {
-      "path": "packages/wallpaper-format/parallax-source-v1.schema.json",
-      "sha256": "2ae2d0982ba23c1217295afc712374205533e45a26bab6147a9163d40daa8c9b"
     }
   ]
 }

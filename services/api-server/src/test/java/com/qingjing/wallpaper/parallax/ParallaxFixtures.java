@@ -1,0 +1,42 @@
+package com.qingjing.wallpaper.parallax;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.util.*;
+import java.util.zip.*;
+import javax.imageio.ImageIO;
+
+public final class ParallaxFixtures {
+    private ParallaxFixtures() {}
+    public static Map<String, byte[]> files(int count) throws Exception {
+        Map<String,byte[]> files=new LinkedHashMap<>();
+        files.put("cover.jpg",image("jpg",false,512));
+        List<Map<String,Object>> layers=new ArrayList<>();
+        for(int i=1;i<=count;i++) {
+            files.put(String.format(Locale.ROOT,"layers/%02d.png",i),image("png",i<count,512));
+            layers.add(Map.of("index",i,"depth",(count-i)/(double)(count-1),"scale",1.1,"opacity",1,"blendMode","normal"));
+        }
+        files.put("config.json",new ObjectMapper().writeValueAsBytes(Map.of("formatVersion",1,"canvas",Map.of("width",512,"height",512),
+                "sensor",Map.of("maxAngle",10,"smoothing",0.2,"strength",1),"layers",layers)));
+        return files;
+    }
+    public static byte[] image(String format,boolean alpha,int size) throws Exception {
+        var image=new BufferedImage(size,size,alpha?BufferedImage.TYPE_INT_ARGB:BufferedImage.TYPE_INT_RGB);
+        var graphics=image.createGraphics();graphics.setColor(java.awt.Color.ORANGE);graphics.fillOval(80,80,180,180);graphics.dispose();
+        try(var out=new ByteArrayOutputStream()){ImageIO.write(image,format,out);return out.toByteArray();}
+        finally{image.flush();}
+    }
+    public static byte[] zip(Map<String,byte[]> files) throws Exception {return zip(files,false);}
+    public static byte[] zip(Map<String,byte[]> files,boolean stored) throws Exception {
+        var out=new ByteArrayOutputStream();
+        try(var zip=new ZipOutputStream(out)) {
+            for(var file:files.entrySet()) {
+                var entry=new ZipEntry(file.getKey());entry.setTime(315532800000L);
+                if(stored){var crc=new CRC32();crc.update(file.getValue());entry.setMethod(ZipEntry.STORED);entry.setSize(file.getValue().length);entry.setCrc(crc.getValue());}
+                zip.putNextEntry(entry);zip.write(file.getValue());zip.closeEntry();
+            }
+        }
+        return out.toByteArray();
+    }
+}

@@ -549,6 +549,19 @@ public class AdminWallpaperService {
         Map<AssetRole, Long> counts = resolved.stream()
                 .collect(java.util.stream.Collectors.groupingBy(ResolvedBinding::role, java.util.stream.Collectors.counting()));
         for (AssetRole role : required) {
+            if (resourceType == ResourceType.LAYER_PARALLAX && role == AssetRole.FOREGROUND) {
+                long count = counts.getOrDefault(role, 0L);
+                if (count < 1 || count > 11) {
+                    throw domainViolation("Parallax requires between one and eleven foreground bindings");
+                }
+                for (int ordinal = 0; ordinal < count; ordinal++) {
+                    int expectedOrdinal = ordinal;
+                    if (resolved.stream().noneMatch(binding -> binding.role() == role && binding.ordinal() == expectedOrdinal)) {
+                        throw domainViolation("Parallax foreground ordinals must be continuous starting at zero");
+                    }
+                }
+                continue;
+            }
             if (counts.getOrDefault(role, 0L) != 1
                     || resolved.stream().noneMatch(binding -> binding.role() == role && binding.ordinal() == 0)) {
                 throw domainViolation("The resource version does not contain exactly one ordinal-zero " + role + " binding");

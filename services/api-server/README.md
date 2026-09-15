@@ -2,7 +2,7 @@
 
 Java API 正式工程目录，承载内容目录、匿名设备、兑换、权益、受保护下载、设备恢复和后台管理接口。
 
-当前基线使用 Spring Boot 3.5、Java 17 字节码、Flyway、MySQL 8.4 和 Redis 7.4。代码按 `adminidentity`、`catalog`、`asset`、`device`、`redemption`、`entitlement`、`delivery`、`tutorial`、`audit` 和 `shared` 包保持模块化单体边界。
+当前基线使用 Spring Boot 3.5、Java 17 字节码、Flyway、MySQL 8.4 和 Redis 7.4。代码按 `adminidentity`、`catalog`、`asset`、`parallax`、`device`、`redemption`、`entitlement`、`delivery`、`tutorial`、`audit` 和 `shared` 包保持模块化单体边界。
 
 ## 本地启动
 
@@ -59,7 +59,13 @@ Java API 正式工程目录，承载内容目录、匿名设备、兑换、权�
 
 完整媒体回归需要可执行的 FFmpeg 与 ffprobe。若未安装到 PATH，显式设置 `QJ_FFMPEG`、`QJ_FFPROBE` 为本机工具绝对路径，并使用 UTF-8 locale；本机已有工具位于仓库被忽略的 `.runtime/media-tools/`。缺少工具时外部媒体快速测试会跳过，涉及真实 MP4 的集成测试不能计为通过。
 
-`test` 执行快速模块结构测试；`verify` 额外使用 Testcontainers 启动 MySQL 8.4 和 Redis 7.4，验证空库迁移、20 张业务表、关键唯一约束、Redis 读写和 readiness。Maven Wrapper 会在 macOS 上自动读取当前 Docker context，以兼容 Colima 和 Docker Desktop。
+`test` 执行快速模块和媒体校验测试；`verify` 额外使用 Testcontainers 启动 MySQL 8.4 和 Redis 7.4，验证空库/升级迁移、23 张业务及清理任务表、关键唯一约束、ZIP 导入/版本/发布/回滚、Redis 和 readiness。Maven Wrapper 会在 macOS 上自动读取当前 Docker context，以兼容 Colima 和 Docker Desktop。媒体测试需要 `QJ_FFMPEG`、`QJ_FFPROBE` 指向可用解码器。
+
+### 固定 4D ZIP
+
+`POST /api/v1/admin/parallax-packages` 同步导入，`POST /api/v1/admin/variants/{id}/parallax-resource-versions` 创建关联版本。参见 [制作说明](../../packages/wallpaper-format/4D源包制作说明.md) 和 API-007。失败后的存储清理任务每分钟重试一次，仅处理失败导入对象；不自动回收成功但未引用的源包。
+
+本地草稿上传无需签名私钥；发布制作正式/预览包需要在忽略的 `.runtime/local-api/compose.env` 设置独立的 `QJ_PACKAGE_SIGNING_KEY_ID` 和 `QJ_PACKAGE_SIGNING_PRIVATE_KEY`（RSA 2048 PKCS8 DER 的 Base64）。本地 Compose 已透传这两项，默认空；不得复用生产密钥，也不要将私钥写入 Git。手机只有配置匹配的验签公钥才能安装该环境制作的资源包。
 
 从仓库根目录执行完整本地重启验收：
 
@@ -85,7 +91,7 @@ Java API 正式工程目录，承载内容目录、匿名设备、兑换、权�
 
 ## 配置边界
 
-当前契约版本为 OpenAPI 1.4.0；历史开工冻结规则见 [PM-003](../../docs/10-项目管理/PM-003-App开工门禁与接入清单.md)。Android 正式设备身份与安全资源包交付已经接入；HarmonyOS 与 iOS Provider 仍按各自工作包实现。不存在的 wallpaperId 兑换返回 404 `WALLPAPER_NOT_FOUND` 并回滚事务，已存在但下线作品仍返回 422 最终兑换结果。
+当前契约版本为 OpenAPI 1.5.0；历史开工冻结规则见 [PM-003](../../docs/10-项目管理/PM-003-App开工门禁与接入清单.md)。Android 正式设备身份与安全资源包交付已经接入；HarmonyOS 与 iOS Provider 仍按各自工作包实现。不存在的 wallpaperId 兑换返回 404 `WALLPAPER_NOT_FOUND` 并回滚事务，已存在但下线作品仍返回 422 最终兑换结果。
 
 - `local` profile 默认连接本地 Compose，并允许应用启动时执行 Flyway。
 - `test` profile 只连接 Testcontainers 创建的独立数据服务。

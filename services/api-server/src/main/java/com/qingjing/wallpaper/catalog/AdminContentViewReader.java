@@ -32,11 +32,14 @@ public class AdminContentViewReader {
     private final JdbcTemplate jdbc;
     private final AdminAssetService assets;
     private final ObjectMapper objectMapper;
+    private final com.qingjing.wallpaper.parallax.ParallaxPackageReader sourcePackages;
 
-    public AdminContentViewReader(JdbcTemplate jdbc, AdminAssetService assets, ObjectMapper objectMapper) {
+    public AdminContentViewReader(JdbcTemplate jdbc, AdminAssetService assets, ObjectMapper objectMapper,
+            com.qingjing.wallpaper.parallax.ParallaxPackageReader sourcePackages) {
         this.jdbc = jdbc;
         this.assets = assets;
         this.objectMapper = objectMapper;
+        this.sourcePackages = sourcePackages;
     }
 
     public AdminWallpaperDetail wallpaper(long wallpaperId) {
@@ -231,6 +234,7 @@ public class AdminContentViewReader {
                 row.manifestSha256(),
                 List.of(),
                 bindings,
+                sourcePackages.forVersion(row.id()),
                 instant(row.publishedAt()),
                 instant(row.retiredAt()),
                 row.createdAt().toInstant(),

@@ -69,6 +69,7 @@ class InfrastructureIntegrationIT {
             .withDatabaseName("wallpaper_app")
             .withUsername("wallpaper_test")
             .withPassword(MYSQL_PASSWORD)
+            .withCommand("--log-bin-trust-function-creators=1")
             .withStartupTimeout(Duration.ofMinutes(5))
             .withStartupTimeoutSeconds(300);
 
@@ -122,7 +123,7 @@ class InfrastructureIntegrationIT {
                 """,
                 String.class);
 
-        assertThat(successfulMigrations).isEqualTo(4);
+        assertThat(successfulMigrations).isEqualTo(5);
         assertThat(tables).containsExactlyInAnyOrder(
                 "admin_account",
                 "anonymous_device",
@@ -134,6 +135,9 @@ class InfrastructureIntegrationIT {
                 "device_encryption_key",
                 "secure_resource_package",
                 "preview_resource_package",
+                "parallax_source_package",
+                "parallax_source_layer",
+                "parallax_storage_cleanup",
                 "device_entitlement",
                 "download_event",
                 "redemption_code",
@@ -971,8 +975,111 @@ class InfrastructureIntegrationIT {
     }
 
     @Autowired com.qingjing.wallpaper.delivery.SecurePackagePublisher packagePublisher;
-    @Autowired com.qingjing.wallpaper.asset.application.FileStorage packageStorage;
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    com.qingjing.wallpaper.asset.application.FileStorage packageStorage;
     @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
+    @Autowired com.qingjing.wallpaper.parallax.ParallaxStorageCleanup parallaxCleanup;
+
+    @Test
+    void fixedParallaxZipImportsReusesPublishesAndPreservesEarlierVersions() throws Exception {
+        ensureAdmin();var admin=login();
+        var unauthorizedHeaders=new HttpHeaders();unauthorizedHeaders.setContentType(MediaType.MULTIPART_FORM_DATA);
+        var unauthorized=http.exchange("/api/v1/admin/parallax-packages",HttpMethod.POST,new HttpEntity<>(new LinkedMultiValueMap<>(),unauthorizedHeaders),JsonNode.class);
+        assertThat(unauthorized.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        var emptyHeaders=headers(admin,true,null);emptyHeaders.setContentType(MediaType.MULTIPART_FORM_DATA);
+        var missing=http.exchange("/api/v1/admin/parallax-packages",HttpMethod.POST,new HttpEntity<>(new LinkedMultiValueMap<>(),emptyHeaders),JsonNode.class);
+        assertThat(missing.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(missing.getBody().path("error").path("code").asText()).isEqualTo("PARALLAX_PACKAGE_REQUIRED");
+        long wallpaper=createPublishedWallpaperFixture();
+        long variant=jdbc.queryForObject("SELECT id FROM wallpaper_variant WHERE wallpaper_id=?",Long.class,wallpaper);
+        jdbc.update("UPDATE wallpaper_variant SET platform='ANDROID',resource_type='LAYER_PARALLAX' WHERE id=?",variant);
+        jdbc.update("UPDATE wallpaper SET kind='PARALLAX_4D',status='DRAFT' WHERE id=?",wallpaper);
+        long legacy=jdbc.queryForObject("SELECT id FROM resource_version WHERE variant_id=?",Long.class,variant);
+        var legacyRead=getJson("/api/v1/admin/resource-versions/"+legacy,admin).getBody();
+        assertThat(legacyRead.has("sourcePackage")).isTrue();assertThat(legacyRead.path("sourcePackage").isNull()).isTrue();
+        String earlierSource=null;long earlierVersion=0;int versionNo=2;
+        for(int count:List.of(2,3,12)) {
+            byte[] zip=com.qingjing.wallpaper.parallax.ParallaxFixtures.zip(com.qingjing.wallpaper.parallax.ParallaxFixtures.files(count));
+            assertThat(importParallax(admin,zip,false).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+            var first=importParallax(admin,zip,true);
+            assertThat(first.getStatusCode()).as(first.getBody().toString()).isEqualTo(HttpStatus.CREATED);
+            var source=first.getBody();String sourceId=source.path("id").asText();
+            assertThat(source.path("layers").size()).isEqualTo(count);
+            assertThat(source.path("validationStatus").asText()).isEqualTo("READY");
+            assertThat(source.has("storageKey")).isFalse();assertThat(source.has("url")).isFalse();
+            var again=importParallax(admin,zip,true);assertThat(again.getStatusCode()).isEqualTo(HttpStatus.OK);assertThat(again.getBody()).isEqualTo(source);
+            var body=Map.of("versionNo",versionNo,"sourcePackageId",sourceId);
+            String path="/api/v1/admin/variants/"+variant+"/parallax-resource-versions";
+            var version=jsonExchange(path,HttpMethod.POST,body,admin,null);
+            assertThat(version.getStatusCode()).as(version.getBody().toString()).isEqualTo(HttpStatus.CREATED);
+            long id=version.getBody().path("id").asLong();
+            assertThat(version.getBody().path("bindings").size()).isEqualTo(count+1);
+            assertThat(version.getBody().path("sourcePackage")).isEqualTo(source);
+            assertThat(jsonExchange(path,HttpMethod.POST,body,admin,null).getStatusCode()).isEqualTo(HttpStatus.OK);
+            if(earlierSource!=null)assertThat(jsonExchange(path,HttpMethod.POST,Map.of("versionNo",versionNo,"sourcePackageId",earlierSource),admin,null).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            var built=jsonExchange("/api/v1/admin/resource-versions/"+id+"/secure-package",HttpMethod.POST,Map.of(),admin,null);
+            assertThat(built.getStatusCode()).as(built.getBody().toString()).isEqualTo(HttpStatus.OK);
+            assertThat(built.getBody().path("sourcePackage")).isEqualTo(source);
+            jdbc.update("UPDATE wallpaper SET cover_asset_id=? WHERE id=?",source.path("cover").path("id").asLong(),wallpaper);
+            var detail=getJson("/api/v1/admin/wallpapers/"+wallpaper,admin);
+            var published=jsonExchange("/api/v1/admin/wallpapers/"+wallpaper+"/publish",HttpMethod.POST,Map.of("resourceVersionIds",List.of(Long.toString(id))),admin,detail.getHeaders().getETag());
+            assertThat(published.getStatusCode()).as(published.getBody().toString()).isEqualTo(HttpStatus.OK);
+            assertThat(getJson("/api/v1/admin/resource-versions/"+id,admin).getBody().path("sourcePackage")).isEqualTo(source);
+            if(earlierSource!=null) {
+                var older=getJson("/api/v1/admin/resource-versions/"+earlierVersion,admin).getBody();
+                assertThat(older.path("sourcePackage").path("id").asText()).isEqualTo(earlierSource);
+                assertThat(older.path("status").asText()).isEqualTo("RETIRED");
+            }
+            earlierSource=sourceId;earlierVersion=id;versionNo++;
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event WHERE action='CREATE_PARALLAX_VERSION' AND aggregate_id=?",Integer.class,Long.toString(earlierVersion))).isEqualTo(1);
+        jdbc.update("UPDATE wallpaper SET status='ARCHIVED',archived_at=UTC_TIMESTAMP(6) WHERE id=?",wallpaper);
+        assertThat(jsonExchange("/api/v1/admin/variants/"+variant+"/parallax-resource-versions",HttpMethod.POST,
+                Map.of("versionNo",5,"sourcePackageId",earlierSource),admin,null).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void parallaxConcurrentDedupAndFailedImportCleanupAreAtomic() throws Exception {
+        ensureAdmin();var admin=login();
+        var files=com.qingjing.wallpaper.parallax.ParallaxFixtures.files(3);files.put("__MACOSX/concurrent",UUID.randomUUID().toString().getBytes(StandardCharsets.UTF_8));
+        byte[] zip=com.qingjing.wallpaper.parallax.ParallaxFixtures.zip(files);
+        var pool=Executors.newFixedThreadPool(2);
+        try {
+            var start=new java.util.concurrent.CountDownLatch(1);
+            var a=pool.submit(()->{start.await();return importParallax(admin,zip,true);});
+            var b=pool.submit(()->{start.await();return importParallax(admin,zip,true);});start.countDown();
+            var first=a.get();var second=b.get();
+            assertThat(List.of(first.getStatusCode().value(),second.getStatusCode().value())).containsExactlyInAnyOrder(200,201);
+            assertThat(first.getBody()).isEqualTo(second.getBody());
+        }finally{pool.shutdownNow();}
+        long sourceCount=jdbc.queryForObject("SELECT COUNT(*) FROM parallax_source_package",Long.class);
+        long assetCount=jdbc.queryForObject("SELECT COUNT(*) FROM asset",Long.class);
+        List<com.qingjing.wallpaper.asset.application.StoredObject> created=new ArrayList<>();
+        org.mockito.Mockito.doAnswer(invocation->{var object=(com.qingjing.wallpaper.asset.application.StoredObject)invocation.callRealMethod();created.add(object);return object;})
+                .when(packageStorage).commit(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString());
+        org.mockito.Mockito.doThrow(new IllegalStateException("simulated rollback deletion failure"))
+                .when(packageStorage).delete(org.mockito.ArgumentMatchers.any());
+        jdbc.execute("CREATE TRIGGER reject_parallax_audit BEFORE INSERT ON audit_event FOR EACH ROW BEGIN IF NEW.action='IMPORT_PARALLAX_SOURCE' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='injected audit failure'; END IF; END");
+        try {
+            files.put("__MACOSX/rollback",new byte[]{1});
+            var failed=importParallax(admin,com.qingjing.wallpaper.parallax.ParallaxFixtures.zip(files),true);
+            assertThat(failed.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM parallax_source_package",Long.class)).isEqualTo(sourceCount);
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM asset",Long.class)).isEqualTo(assetCount);
+            assertThat(created).hasSize(6);
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM parallax_storage_cleanup",Long.class)).isEqualTo(6);
+        }finally{jdbc.execute("DROP TRIGGER reject_parallax_audit");org.mockito.Mockito.reset(packageStorage);}
+        assertThat(parallaxCleanup.retryPending()).isEqualTo(6);
+        for(var object:created)assertThatThrownBy(()->packageStorage.open(object.storageKey())).isInstanceOf(com.qingjing.wallpaper.asset.application.FileStorageException.class);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM parallax_storage_cleanup",Long.class)).isZero();
+    }
+
+    private ResponseEntity<JsonNode> importParallax(AdminTestSession session,byte[] zip,boolean csrf) {
+        MultiValueMap<String,Object> body=new LinkedMultiValueMap<>();
+        body.add("file",new ByteArrayResource(zip){@Override public String getFilename(){return "example.zip";}});
+        var headers=headers(session,csrf,null);headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        return http.exchange("/api/v1/admin/parallax-packages",HttpMethod.POST,new HttpEntity<>(body,headers),JsonNode.class);
+    }
 
     @Test
     void realMediaSecurePackagesBuildIdempotentlyAndRollbackRemovesTheObject() throws Exception {

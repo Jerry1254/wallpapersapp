@@ -251,6 +251,10 @@ const resourceRows = computed(() => {
             <div class="resource-grid__item span-2">
               <ResourceFileField :model-value="form.resources.parallaxPackage" label="4D 固定资源包" hint="ZIP，根目录固定包含 cover.jpg、config.json 和 layers/01…12 图层" accept="application/zip,.zip" required @update:model-value="setResource('parallaxPackage', $event)" />
               <p v-if="errors.parallaxPackage" class="field-error">{{ errors.parallaxPackage }}</p>
+              <p class="resource-help">
+                <a href="/templates/parallax-3-layers.zip" download>下载三层示例 ZIP</a>
+                · <a href="/templates/parallax-3-layers-config.json" download="config.json">下载配置模板</a>
+              </p>
               <div class="package-format-note">
                 <strong>固定目录</strong>
                 <code>cover.jpg · config.json · layers/01.png … layers/NN.jpg（NN 为最后一层编号）</code>

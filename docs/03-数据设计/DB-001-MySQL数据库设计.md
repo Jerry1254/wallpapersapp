@@ -1,9 +1,9 @@
 # DB-001 MySQL 数据库设计
 
 **状态：** 已确认  
-**版本：** V1.4.0
+**版本：** V1.5.0
 
-**日期：** 2026-09-14
+**日期：** 2026-09-15
 **数据库：** MySQL 8.4 LTS  
 **关联领域：** [DM-001 统一领域模型](DM-001-统一领域模型.md)  
 **适用阶段：** WP-P02 至 WP-P12
@@ -25,6 +25,19 @@
 - 已发布资源和事件表只追加，不允许原地覆盖。
 
 ## 2. 物理模型纠偏
+
+### V1.5 固定 4D 源包增量
+
+Flyway `V5__parallax_source_packages.sql` 新增三表，当前共 23 张业务/运维表：
+
+| 表/字段 | 约束与用途 |
+|---|---|
+| `parallax_source_package` | 原 ZIP 私有存储键、SHA-256 唯一、文件名/大小、画布、创建人；封面及内部 config 引用 Asset；VALIDATING 只存在于导入事务内 |
+| `parallax_source_layer` | 源包与图层编号联合主键；源包/role/ordinal 唯一；保存资产和 depth/scale/opacity/blendMode |
+| `resource_version.source_package_id` | 可空外键，保存来源；旧版本不回填；被引用源包禁止删除 |
+| `parallax_storage_cleanup` | 本次失败导入中删除失败的对象/暂存令牌，独立事务登记；每分钟最多重试 100 项，引用仍存在的对象不删除 |
+
+业务事务包含源包、派生 Asset、图层和成功审计；文件仍通过 FileStorage Port 管理。SHA 唯一约束在写派生资产前取得，重复导入不会产生第二组资产。源包到资源版本的关联与 bindings 同事务提交。V1～V4 保持字节不变。当前不启用 24 小时孤立源包回收，不提供删除源包端点。
 
 管理表单仍让管理员联动选择一级和二级分类，但 `wallpaper` 表只保存 `category_id`，含义为“最深选中的分类节点”：
 

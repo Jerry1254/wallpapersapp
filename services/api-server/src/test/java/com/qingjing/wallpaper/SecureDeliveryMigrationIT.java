@@ -35,7 +35,7 @@ class SecureDeliveryMigrationIT {
             assertThat(migrated.migrationsExecuted).isEqualTo(1);
             var previewMigration=Flyway.configure().dataSource(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword())
                     .locations("classpath:db/migration").load().migrate();
-            assertThat(previewMigration.migrationsExecuted).isEqualTo(2);
+            assertThat(previewMigration.migrationsExecuted).isEqualTo(3);
             try(var connection=DriverManager.getConnection(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword());
                 var query=connection.createStatement()) {
                 try (var result=query.executeQuery("SELECT COUNT(*) FROM preview_resource_package")) {

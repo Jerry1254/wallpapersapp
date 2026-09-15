@@ -1,0 +1,109 @@
+package com.qingjing.wallpaper.parallax;
+
+import static org.assertj.core.api.Assertions.*;
+import static com.qingjing.wallpaper.parallax.ParallaxFixtures.*;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.qingjing.wallpaper.parallax.infrastructure.ParallaxImageInspector;
+import com.qingjing.wallpaper.shared.web.ApiException;
+import java.nio.*;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+
+class ParallaxPackageParserTest {
+    private final ObjectMapper mapper=new ObjectMapper();
+    private final ParallaxPackageParser parser=new ParallaxPackageParser(mapper,new ParallaxImageInspector(System.getenv().getOrDefault("QJ_FFMPEG","ffmpeg")));
+
+    @ParameterizedTest @ValueSource(ints={2,3,12})
+    void convertsSourceOrderToAndroidDrawingOrder(int count) throws Exception {
+        var result=parser.parse(zip(files(count)));
+        assertThat(result.layers()).hasSize(count);
+        var internal=mapper.readTree(result.internalConfig());
+        assertThat(internal.has("formatVersion")).isFalse();
+        assertThat(internal.path("layers").get(0).path("role").asText()).isEqualTo("BACKGROUND");
+        for(int i=1;i<count;i++) {
+            var layer=internal.path("layers").get(i);
+            assertThat(layer.path("role").asText()).isEqualTo("FOREGROUND");
+            assertThat(layer.path("ordinal").asInt()).isEqualTo(count-i-1);
+            assertThat(layer.path("depth").asDouble()).isGreaterThanOrEqualTo(internal.path("layers").get(i-1).path("depth").asDouble());
+        }
+    }
+    @Test void permitsStoredZipAndMacMetadata() throws Exception {
+        var files=files(2);files.put("layers/",new byte[0]);files.put("__MACOSX/._cover.jpg",new byte[]{1});files.put("layers/.DS_Store",new byte[]{2});
+        assertThat(parser.parse(zip(files,true)).layers()).hasSize(2);
+    }
+    @Test void shippedExamplesMatchTheSourceContract() throws Exception {
+        for(int count:List.of(2,3,12)) {
+            var path=java.nio.file.Path.of("../../apps/admin-web/public/templates/parallax-"+count+"-layers.zip");
+            var parsed=parser.parse(java.nio.file.Files.readAllBytes(path));
+            assertThat(parsed.layers()).hasSize(count);assertThat(parsed.height()).isEqualTo(1024);
+        }
+    }
+    @Test void decodesStaticAlphaAndOpaqueWebp() throws Exception {
+        var directory=java.nio.file.Files.createTempDirectory("qj-webp-test-");
+        try {
+            var files=files(2);
+            for(int i=1;i<=2;i++) {
+                var input=directory.resolve("input.png");var output=directory.resolve("output.webp");
+                java.nio.file.Files.write(input,files.remove("layers/0"+i+".png"));
+                var process=new ProcessBuilder(System.getenv().getOrDefault("QJ_FFMPEG","ffmpeg"),"-v","error","-y","-i",input.toString(),"-c:v","libwebp","-lossless","1","-threads","1",output.toString()).redirectError(ProcessBuilder.Redirect.DISCARD).start();
+                try{assertThat(process.waitFor(25,java.util.concurrent.TimeUnit.SECONDS)).isTrue();assertThat(process.exitValue()).isZero();}
+                finally{if(process.isAlive())process.destroyForcibly();}
+                files.put("layers/0"+i+".webp",java.nio.file.Files.readAllBytes(output));
+            }
+            assertThat(parser.parse(zip(files)).layers()).hasSize(2);
+        }finally{try(var paths=java.nio.file.Files.walk(directory)){for(var path:paths.sorted(Comparator.reverseOrder()).toList())java.nio.file.Files.delete(path);}}
+    }
+    @ParameterizedTest @ValueSource(strings={"../evil","/evil","layers\\01.png","wrapper/cover.jpg","layers/01.zip","Cover.jpg","layers//01.png","layers/./01.png"})
+    void rejectsUnexpectedOrUnsafePaths(String name) throws Exception {
+        var files=files(2);files.put(name,new byte[]{0});reject(files);
+    }
+    @Test void rejectsMissingGapsDuplicateNumbersAndLayerCount() throws Exception {
+        for(int count:List.of(1,13)) reject(files(count));
+        var files=files(2);files.remove("cover.jpg");reject(files);
+        files=files(3);files.remove("layers/02.png");reject(files);
+        files=files(2);files.put("layers/01.webp",files.get("layers/01.png"));reject(files);
+    }
+    @Test void rejectsWrongCanvasAlphaAndBackground() throws Exception {
+        var files=files(2);files.put("layers/01.png",image("png",true,513));reject(files);
+        files=files(2);files.put("layers/01.png",image("png",false,512));reject(files);
+        files=files(2);files.put("layers/02.png",image("png",true,512));reject(files);
+        files=files(2);files.put("cover.jpg",image("png",false,512));reject(files);
+    }
+    @Test void rejectsUnknownDuplicateTrailingAndOutOfRangeJson() throws Exception {
+        String config=new String(files(2).get("config.json"),StandardCharsets.UTF_8);
+        for(String bad:List.of("\ufeff"+config,config+"{}",config.replace("\"formatVersion\":1","\"formatVersion\":1,\"formatVersion\":1"),
+                config.replace("\"formatVersion\":1","\"formatVersion\":1,\"extra\":0"),config.replace("\"width\":512","\"width\":511"),
+                config.replace("\"smoothing\":0.2","\"smoothing\":0.01"),config.replace("\"scale\":1.1","\"scale\":2"),
+                config.replace("\"depth\":0.0","\"depth\":0.1"),config.replace("\"index\":2","\"index\":1"))) {
+            var files=files(2);files.put("config.json",bad.getBytes(StandardCharsets.UTF_8));reject(files);
+        }
+    }
+    @Test void rejectsEntryAndExpandedBudgets() throws Exception {
+        var files=files(2);files.put("config.json",new byte[65537]);reject(files);
+        files=files(2);for(int i=0;i<65;i++)files.put("__MACOSX/"+i,new byte[0]);reject(files);
+        files=files(2);files.put("__MACOSX/large",new byte[86*1024*1024]);reject(files);
+    }
+    @Test void rejectsSymlinkEncryptedCrcMismatchAndTruncation() throws Exception {
+        byte[] good=zip(files(2),true);
+        int central=-1;var b=ByteBuffer.wrap(good).order(ByteOrder.LITTLE_ENDIAN);
+        for(int i=0;i<good.length-4;i++)if(b.getInt(i)==0x02014b50){central=i;break;}
+        byte[] link=good.clone();ByteBuffer.wrap(link).order(ByteOrder.LITTLE_ENDIAN).putInt(central+38,0120777<<16);reject(link);
+        byte[] encrypted=good.clone();encrypted[6]|=1;encrypted[central+8]|=1;reject(encrypted);
+        byte[] corrupt=good.clone();corrupt[70]^=1;reject(corrupt);
+        reject(Arrays.copyOf(good,good.length-10));
+    }
+    @Test void rejectsPngAnimationAndBadCrc() throws Exception {
+        var files=files(2);byte[] png=files.get("layers/01.png").clone();png[45]^=1;files.put("layers/01.png",png);reject(files);
+        files=files(2);png=files.get("layers/01.png");
+        var chunk=ByteBuffer.allocate(20);chunk.putInt(8).put("acTL".getBytes(StandardCharsets.US_ASCII)).putInt(2).putInt(0);
+        var crc=new java.util.zip.CRC32();crc.update(chunk.array(),4,12);chunk.putInt((int)crc.getValue());
+        var out=new java.io.ByteArrayOutputStream();out.write(png,0,33);out.write(chunk.array());out.write(png,33,png.length-33);
+        files.put("layers/01.png",out.toByteArray());reject(files);
+    }
+    private void reject(Map<String,byte[]> files) throws Exception {reject(zip(files));}
+    private void reject(byte[] bytes) {assertThatThrownBy(()->parser.parse(bytes)).isInstanceOf(ApiException.class);}
+}

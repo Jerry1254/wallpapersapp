@@ -4,6 +4,8 @@
 
 ## 文件
 
+当前兼容扩展为 **1.5.0，58 操作 / 86 Schema**：固定 4D ZIP 导入、来源关联版本与显式 `sourcePackage`。源包制作说明见 [4D 源包制作说明](../../packages/wallpaper-format/4D源包制作说明.md)。1.4.0 快照逐字节归档于 `baseline-v1.4.0.json`。
+
 - `openapi.yaml`：V1 唯一机器契约。
 - `scripts/check-contract.mjs`：项目边界与敏感字段专项检查。
 - `package.json` / `package-lock.json`：固定契约校验工具版本。

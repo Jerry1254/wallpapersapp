@@ -22,6 +22,8 @@ const expectedOperations = {
   '/preview/files': ['get'],
   '/admin/sessions': ['get', 'post', 'delete'],
   '/admin/assets': ['post'],
+  '/admin/parallax-packages': ['post'],
+  '/admin/variants/{variantId}/parallax-resource-versions': ['post'],
   '/admin/wallpaper-tutorials': ['get'],
   '/admin/wallpaper-tutorials/{tutorialKey}': ['put'],
   '/admin/categories': ['get', 'post'],

@@ -1,0 +1,9 @@
+{
+  "formatVersion": 1,
+  "canvas": { "width": 512, "height": 1024 },
+  "sensor": { "maxAngle": 10, "smoothing": 0.2, "strength": 1 },
+  "layers": [
+    { "index": 1, "depth": 1.000000, "scale": 1.1, "opacity": 1, "blendMode": "normal" },
+    { "index": 2, "depth": 0.000000, "scale": 1.1, "opacity": 1, "blendMode": "normal" }
+  ]
+}

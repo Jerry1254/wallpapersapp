@@ -1,0 +1,19 @@
+{
+  "formatVersion": 1,
+  "canvas": { "width": 512, "height": 1024 },
+  "sensor": { "maxAngle": 10, "smoothing": 0.2, "strength": 1 },
+  "layers": [
+    { "index": 1, "depth": 1.000000, "scale": 1.1, "opacity": 1, "blendMode": "normal" },
+    { "index": 2, "depth": 0.909091, "scale": 1.1, "opacity": 1, "blendMode": "normal" },
+    { "index": 3, "depth": 0.818182, "scale": 1.1, "opacity": 1, "blendMode": "normal" },
+    { "index": 4, "depth": 0.727273, "scale": 1.1, "opacity": 1, "blendMode": "normal" },
+    { "index": 5, "depth": 0.636364, "scale": 1.1, "opacity": 1, "blendMode": "normal" },
+    { "index": 6, "depth": 0.545455, "scale": 1.1, "opacity": 1, "blendMode": "normal" },
+    { "index": 7, "depth": 0.454545, "scale": 1.1, "opacity": 1, "blendMode": "normal" },
+    { "index": 8, "depth": 0.363636, "scale": 1.1, "opacity": 1, "blendMode": "normal" },
+    { "index": 9, "depth": 0.272727, "scale": 1.1, "opacity": 1, "blendMode": "normal" },
+    { "index": 10, "depth": 0.181818, "scale": 1.1, "opacity": 1, "blendMode": "normal" },
+    { "index": 11, "depth": 0.090909, "scale": 1.1, "opacity": 1, "blendMode": "normal" },
+    { "index": 12, "depth": 0.000000, "scale": 1.1, "opacity": 1, "blendMode": "normal" }
+  ]
+}

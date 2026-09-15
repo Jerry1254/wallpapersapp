@@ -157,6 +157,8 @@ public final class AdminContentDtos {
             String manifestSha256,
             List<ValidationError> validationErrors,
             List<AdminResourceBinding> bindings,
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS)
+            com.qingjing.wallpaper.parallax.ParallaxPackageDtos.SourcePackage sourcePackage,
             Instant publishedAt,
             Instant retiredAt,
             Instant createdAt,
