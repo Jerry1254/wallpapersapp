@@ -150,7 +150,13 @@ internal class SecurePackageVerifier(private val purpose: PackagePurpose = Packa
         return result
     }
     private fun parallax(bytes: ByteArray, images: Map<String, MediaInfo>) {
-        val root = fields(StrictJson.parse(bytes), setOf("canvas", "sensor", "layers"))
+        val value=StrictJson.parse(bytes)
+        val rootValue=value as? Map<*,*> ?: error("Invalid configuration")
+        if(rootValue.containsKey("formatVersion")) {
+            parallaxOffset(rootValue,images)
+            return
+        }
+        val root = fields(rootValue, setOf("canvas", "sensor", "layers"))
         val canvas = fields(root["canvas"], setOf("width", "height"))
         val width = canvas["width"] as? Long ?: error("Invalid canvas")
         val height = canvas["height"] as? Long ?: error("Invalid canvas")
@@ -170,6 +176,30 @@ internal class SecurePackageVerifier(private val purpose: PackagePurpose = Packa
             val depth = range(layer["depth"], 0.0, 1.0); require(depth >= previous); previous = depth
             range(layer["scale"], 1.0, 1.5); range(layer["opacity"], 0.0, 1.0)
             require(layer["blendMode"] in setOf("normal", "screen", "add"))
+        }
+    }
+    private fun parallaxOffset(value: Map<*,*>,images: Map<String,MediaInfo>) {
+        val root=fields(value,setOf("formatVersion","canvas","motion","layers"))
+        require(root["formatVersion"]==2L)
+        val canvas=fields(root["canvas"],setOf("width","height"))
+        val width=canvas["width"] as? Long ?: error("Invalid canvas")
+        val height=canvas["height"] as? Long ?: error("Invalid canvas")
+        require(width in 512..4096 && height in 512..4096)
+        val motion=fields(root["motion"],setOf("maxAngle"))
+        range(motion["maxAngle"],1.0,75.0)
+        val layers=root["layers"] as? List<*> ?: error("Invalid layers")
+        require(layers.size in 2..12 && layers.size==images.size)
+        for((position,value) in layers.withIndex()) {
+            val layer=fields(value,setOf("index","offsetPercent","scale","opacity","blendMode"))
+            require(layer["index"]==(position+1).toLong())
+            val background=position==layers.lastIndex
+            val role=if(background) "BACKGROUND" else "FOREGROUND"
+            val ordinal=if(background) 0 else position
+            val image=images["$role:$ordinal"] ?: error("Missing layer")
+            require(image.width.toLong()==width && image.height.toLong()==height && (background || image.alpha))
+            range(layer["offsetPercent"],-25.0,25.0)
+            range(layer["scale"],1.0,1.5);range(layer["opacity"],0.0,1.0)
+            require(layer["blendMode"] in setOf("normal","screen","add"))
         }
     }
     private fun range(value: Any?, min: Double, max: Double): Double {

@@ -19,6 +19,11 @@ class ParallaxMotionTest {
         val r = ParallaxMotion.tilt(angle,0f,0f,0f,10f,3); assertEquals(0f,r.first,0f); assertEquals(-1f,r.second,0f)
         assertEquals(1f,ParallaxMotion.tilt(1f,0f,0f,0f,5f,0).first,0f)
     }
+    @Test fun respondsFromZeroAndSupportsSeventyFiveDegreeFullScale() {
+        val tiny = ParallaxMotion.tilt(Math.toRadians(.1).toFloat(),0f,0f,0f,75f,0).first
+        assertTrue(tiny > 0f)
+        assertEquals(1f,ParallaxMotion.tilt(Math.toRadians(75.0).toFloat(),0f,0f,0f,75f,0).first,.00001f)
+    }
     @Test fun extremeMotionNeverExposesUncoveredEdges() {
         for ((w,h) in listOf(1080 to 2400,2400 to 1080,512 to 512))
             for ((iw,ih) in listOf(512 to 512,1080 to 2400,4096 to 512))
@@ -27,6 +32,22 @@ class ParallaxMotionTest {
                     assertTrue(p.left<=.001f && p.top<=.001f)
                     assertTrue(p.left+iw*p.scale>=w-.001f && p.top+ih*p.scale>=h-.001f)
                 }
+    }
+    @Test fun signedOffsetsMoveLayersInOppositeDirections() {
+        val foreground=ParallaxMotion.offsetPlacement(1000,2000,1000,2000,1f,8f,1f,1f,false)
+        val background=ParallaxMotion.offsetPlacement(1000,2000,1000,2000,1f,-3f,1f,1f,true)
+        assertTrue(foreground.left<0f)
+        assertTrue(foreground.top>0f)
+        assertTrue(background.left>-30.001f)
+        assertTrue(background.top<-60f)
+    }
+    @Test fun backgroundOverscanCoversMaximumSignedTravel() {
+        for(percent in listOf(-25f,-3f,0f,8f,25f)) for(x in listOf(-1f,1f)) for(y in listOf(-1f,1f)) {
+            val p=ParallaxMotion.offsetPlacement(1080,2400,1080,2400,1f,percent,x,y,true)
+            assertTrue(p.left<=.001f && p.top<=.001f)
+            assertTrue(p.left+1080*p.scale>=1080-.001f)
+            assertTrue(p.top+2400*p.scale>=2400-.001f)
+        }
     }
     @Test fun zeroStrengthAndDepthStayCentered() {
         val a = ParallaxMotion.placement(1080,2400,1080,2400,1.1f,1f,0f,1f,1f)
@@ -40,12 +61,9 @@ class ParallaxMotionTest {
             assertTrue(ParallaxMotion.smooth(0f,1f,smoothing,10000) in 0f..1f)
         }
     }
-    @Test fun decodeBudgetIncludesEveryLayer() {
-        val budget = 48L*1024*1024
-        val sample = ParallaxMotion.sample(4096,4096,12,budget)
-        assertEquals(4,sample)
-        assertTrue((4096/sample).toLong()*(4096/sample)*12*4<=budget)
-        assertEquals(1,ParallaxMotion.sample(1080,2400,2,budget))
-        assertThrows(IllegalArgumentException::class.java) { ParallaxMotion.sample(4096,4096,12,-1) }
+    @Test fun fullResolutionAllocationIncludesEverySourcePixel() {
+        assertEquals(80L*1024*1024,ParallaxMotion.fullResolutionBytes(2048,2048,5))
+        assertEquals(768L*1024*1024,ParallaxMotion.fullResolutionBytes(4096,4096,12))
+        assertThrows(IllegalArgumentException::class.java) { ParallaxMotion.fullResolutionBytes(4096,4096,1) }
     }
 }

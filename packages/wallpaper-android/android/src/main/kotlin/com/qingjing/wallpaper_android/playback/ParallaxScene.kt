@@ -21,7 +21,9 @@ internal class ParallaxScene private constructor(val configuration: ParallaxConf
         canvas.drawColor(Color.BLACK)
         for ((index,layer) in configuration.layers.withIndex()) {
             val bitmap = bitmaps[index]
-            val p = ParallaxMotion.placement(canvas.width,canvas.height,bitmap.width,bitmap.height,layer.scale,layer.depth,configuration.strength,x,y)
+            val p = layer.offsetPercent?.let {
+                ParallaxMotion.offsetPlacement(canvas.width,canvas.height,bitmap.width,bitmap.height,layer.scale,it,x,y,layer.role=="BACKGROUND")
+            } ?: ParallaxMotion.placement(canvas.width,canvas.height,bitmap.width,bitmap.height,layer.scale,layer.depth,configuration.strength,x,y)
             matrix.reset(); matrix.setScale(p.scale,p.scale); matrix.postTranslate(p.left,p.top)
             paint.alpha = (255*layer.opacity).toInt(); paint.xfermode = modes[layer.blend]
             canvas.drawBitmap(bitmap,matrix,paint)
@@ -36,8 +38,8 @@ internal class ParallaxScene private constructor(val configuration: ParallaxConf
             require(installed.files.filter { it.role != "PARALLAX_CONFIG" }.map { it.role to it.ordinal }.toSet() == config.layers.map { it.role to it.ordinal }.toSet())
             val runtime = Runtime.getRuntime()
             val spare = runtime.maxMemory()-(runtime.totalMemory()-runtime.freeMemory())
-            val budget = minOf(48L*1024*1024,spare-16L*1024*1024)
-            val sample = ParallaxMotion.sample(config.width,config.height,config.layers.size,budget)
+            val required = ParallaxMotion.fullResolutionBytes(config.width,config.height,config.layers.size)
+            require(spare-required >= 16L*1024*1024)
             val images = mutableListOf<Bitmap>()
             try {
                 for (layer in config.layers) {
@@ -47,10 +49,15 @@ internal class ParallaxScene private constructor(val configuration: ParallaxConf
                     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                     BitmapFactory.decodeFile(file.absolutePath,bounds)
                     require(bounds.outWidth == config.width && bounds.outHeight == config.height)
-                    val bitmap = BitmapFactory.decodeFile(file.absolutePath,BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.ARGB_8888 }) ?: error("Undecodable layer")
+                    val bitmap = BitmapFactory.decodeFile(file.absolutePath,BitmapFactory.Options().apply {
+                        inSampleSize = 1
+                        inScaled = false
+                        inPreferredConfig = Bitmap.Config.ARGB_8888
+                    }) ?: error("Undecodable layer")
                     images.add(bitmap)
+                    require(bitmap.width == config.width && bitmap.height == config.height)
                     require(layer.role != "FOREGROUND" || bitmap.hasAlpha())
-                    require(images.sumOf { it.allocationByteCount.toLong() }<=budget)
+                    require(images.sumOf { it.allocationByteCount.toLong() }<=required)
                 }
                 check(!cancelled()); return ParallaxScene(config,images)
             } catch (error: Exception) { images.forEach { it.recycle() }; throw error }

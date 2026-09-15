@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qingjing.local/schemas/parallax-source-v2.schema.json",
+  "title": "4D 签名位移源配置（Web 模拟器与 Android 共用）",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["formatVersion", "canvas", "motion", "layers"],
+  "properties": {
+    "formatVersion": { "const": 2 },
+    "canvas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 512, "maximum": 4096 },
+        "height": { "type": "integer", "minimum": 512, "maximum": 4096 }
+      }
+    },
+    "motion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxAngle"],
+      "properties": {
+        "maxAngle": { "type": "number", "minimum": 1, "maximum": 75 }
+      }
+    },
+    "layers": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 12,
+      "description": "按 01 最前景到 NN 最背景排列；index 从 1 连续递增。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index", "offsetPercent", "scale", "opacity", "blendMode"],
+        "properties": {
+          "index": { "type": "integer", "minimum": 1, "maximum": 12 },
+          "offsetPercent": {
+            "type": "number",
+            "minimum": -25,
+            "maximum": 25,
+            "description": "正数跟随手机，负数反向，0 保持不动；数值为对应屏幕轴长的百分比。"
+          },
+          "scale": { "type": "number", "minimum": 1, "maximum": 1.5 },
+          "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+          "blendMode": { "enum": ["normal", "screen", "add"] }
+        }
+      }
+    }
+  }
+}
