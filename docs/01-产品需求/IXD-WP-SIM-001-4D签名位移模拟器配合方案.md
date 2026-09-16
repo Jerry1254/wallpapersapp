@@ -4,7 +4,9 @@
 
 **对接对象：** Web 4D 模拟器、Android 壁纸播放端
 
-**参考文件：** `/Users/kele/Downloads/Parallax-Studio (3).html`
+**项目文件：** [`wallpaper-tools/parallax-studio/index.html`](../../wallpaper-tools/parallax-studio/index.html)
+
+**实施状态：** Web 模拟器 v2 已于 2026-09-16 纳入项目维护；API 透传改造另行实施。
 
 ## 1. 确认后的核心模型
 
