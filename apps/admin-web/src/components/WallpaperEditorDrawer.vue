@@ -243,7 +243,7 @@ const resourceRows = computed(() => {
         <section class="editor-section">
           <div class="editor-section__heading">
             <h3>{{ wallpaperKindLabels[form.kind] }}资源</h3>
-            <p v-if="form.kind === 'four_d'">一次上传固定格式 ZIP，服务端自动解析封面、2～12 个图层和景深配置。</p>
+            <p v-if="form.kind === 'four_d'">上传 Web 模拟器导出的完整 ZIP；动画参数请返回模拟器调整后重新导出。</p>
             <p v-else-if="form.kind === 'dynamic'">每个平台的动态壁纸格式不同，请补齐已选平台的全部必填资源。</p>
             <p v-else>上传无文字水印的高清原图，客户端按屏幕比例安全裁切。</p>
           </div>
@@ -262,8 +262,11 @@ const resourceRows = computed(() => {
                 <small v-if="hasExistingParallax">已有可用资源版本。不选择新 ZIP 时保留当前素材；替换时上传完整 ZIP。</small>
               </div>
               <div v-if="form.resources.parallaxPackage?.layerCount" class="package-analysis">
-                已解析 {{ form.resources.parallaxPackage.layerCount }} 层 ·
-                {{ form.resources.parallaxPackage.canvasWidth }} × {{ form.resources.parallaxPackage.canvasHeight }}
+                配置 v{{ form.resources.parallaxPackage.configFormatVersion }} ·
+                {{ form.resources.parallaxPackage.layerCount }} 层 ·
+                {{ form.resources.parallaxPackage.canvasWidth }} × {{ form.resources.parallaxPackage.canvasHeight }} ·
+                {{ Math.ceil(form.resources.parallaxPackage.size / 1024) }} KB
+                <span v-if="form.resources.parallaxPackage.sha256" class="package-analysis__sha">SHA-256 {{ form.resources.parallaxPackage.sha256 }}</span>
               </div>
             </div>
           </div>

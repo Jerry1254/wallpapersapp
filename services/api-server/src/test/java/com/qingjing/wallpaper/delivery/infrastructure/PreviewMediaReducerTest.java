@@ -36,7 +36,7 @@ class PreviewMediaReducerTest {
     @Test void allParallaxLayersShareReducedCanvasAndRetainTransparencyAndSensorConfiguration() throws Exception {
         byte[] background=png(768,1536,false),foreground=png(768,1536,true);
         byte[] config="""
-            {"canvas":{"width":768,"height":1536},"sensor":{"maxAngle":10,"smoothing":0.2,"strength":1},"layers":[{"role":"BACKGROUND","ordinal":0,"depth":0,"scale":1.1,"opacity":1,"blendMode":"normal"},{"role":"FOREGROUND","ordinal":0,"depth":1,"scale":1.1,"opacity":1,"blendMode":"normal"}]}""".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            {"formatVersion":2,"canvas":{"width":768,"height":1536},"motion":{"maxAngle":75},"layers":[{"index":1,"offsetPercent":8,"direction":"follow","scale":1.18,"opacity":1,"blendMode":"normal"},{"index":2,"offsetPercent":3,"direction":"reverse","scale":1,"opacity":1,"blendMode":"normal"}]}""".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         var sources=List.of(new SecurePackageCodec.Payload("BACKGROUND",0,"image/png",background),new SecurePackageCodec.Payload("FOREGROUND",0,"image/png",foreground),new SecurePackageCodec.Payload("PARALLAX_CONFIG",0,"application/json",config));
         var result=reducer.reduce("LAYER_PARALLAX",sources,Map.of("BACKGROUND:0",new PackageMediaInspector.Media(768,1536,false),"FOREGROUND:0",new PackageMediaInspector.Media(768,1536,true)));
         assertThat(result).hasSize(3);

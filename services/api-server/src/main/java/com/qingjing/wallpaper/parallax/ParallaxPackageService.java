@@ -54,19 +54,19 @@ public class ParallaxPackageService {
                 Result<SourcePackage> result=transaction.execute(status -> {
                     // SHA unique key serializes concurrent imports before any assets are inserted.
                     jdbc.update("""
-                            INSERT INTO parallax_source_package(sha256,original_filename,size_bytes,storage_key,canvas_width,canvas_height,status,created_by_admin_id)
-                            VALUES(?,?,?,?,?,?,'VALIDATING',?)
-                            """,archive.sha256(),safeFilename(filename),archive.sizeBytes(),archive.storageKey().value(),parsed.width(),parsed.height(),adminId);
+                            INSERT INTO parallax_source_package(sha256,original_filename,size_bytes,storage_key,canvas_width,canvas_height,format_version,status,created_by_admin_id)
+                            VALUES(?,?,?,?,?,?,?,'VALIDATING',?)
+                            """,archive.sha256(),safeFilename(filename),archive.sizeBytes(),archive.storageKey().value(),parsed.width(),parsed.height(),parsed.formatVersion(),adminId);
                     long id=jdbc.queryForObject("SELECT LAST_INSERT_ID()",Long.class);
                     long cover=asset(parsed.cover().name(),parsed.cover().bytes(),parsed.cover().image().mime(),"WALLPAPER_COVER",parsed.cover().image().width(),parsed.cover().image().height(),adminId,created);
-                    long config=asset("config.json",parsed.internalConfig(),"application/json","PARALLAX_CONFIG",null,null,adminId,created);
+                    long config=asset("config.json",parsed.configBytes(),"application/json","PARALLAX_CONFIG",null,null,adminId,created);
                     for(int i=0;i<parsed.layers().size();i++) {
                         var layer=parsed.layers().get(i);var image=parsed.images().get(i);
                         long asset=asset(image.name(),image.bytes(),image.image().mime(),layer.role(),parsed.width(),parsed.height(),adminId,created);
                         jdbc.update("""
-                                INSERT INTO parallax_source_layer(source_package_id,layer_index,asset_id,original_filename,role,ordinal,depth,scale,opacity,blend_mode)
-                                VALUES(?,?,?,?,?,?,?,?,?,?)
-                                """,id,layer.index(),asset,layer.originalFilename(),layer.role(),layer.ordinal(),layer.depth(),layer.scale(),layer.opacity(),layer.blendMode());
+                                INSERT INTO parallax_source_layer(source_package_id,layer_index,asset_id,original_filename,role,ordinal)
+                                VALUES(?,?,?,?,?,?)
+                                """,id,layer.index(),asset,layer.originalFilename(),layer.role(),layer.ordinal());
                     }
                     jdbc.update("UPDATE parallax_source_package SET cover_asset_id=?,config_asset_id=?,status='READY' WHERE id=?",cover,config,id);
                     audit(adminId,requestId,"IMPORT_PARALLAX_SOURCE",Long.toString(id),Map.of("sourcePackageId",Long.toString(id),"layerCount",parsed.layers().size()));

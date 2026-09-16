@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 1.5.0
+  version: 1.6.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -819,7 +819,7 @@ paths:
       tags: [Admin Asset]
       operationId: importAdminParallaxPackage
       summary: 导入固定格式 4D ZIP 源包
-      description: 同步校验根目录 cover.jpg、config.json、连续编号的 2～12 层图片，转换为内部配置。ZIP 最大 100 MiB、解压总量 85 MiB、64 条目、图层与内部配置 64 MiB。相同 SHA-256 的可用源包复用；不返回原始 ZIP 地址。详见 API-007。
+      description: 同步校验根目录 cover.jpg、config.json、连续编号的 2～12 层图片，并原样保存 v2 配置。ZIP 最大 100 MiB、解压总量 85 MiB、64 条目、图层与配置 64 MiB。相同 SHA-256 的可用源包复用；不返回原始 ZIP 地址。详见 API-007/API-008。
       security:
         - adminCookie: []
           adminCsrf: []
@@ -3681,7 +3681,7 @@ components:
 
     AdminParallaxSourcePackage:
       type: object
-      required: [id, originalFilename, mimeType, sizeBytes, sha256, validationStatus, cover, canvas, layers]
+      required: [id, originalFilename, mimeType, sizeBytes, sha256, validationStatus, cover, configFormatVersion, canvas, layers]
       properties:
         id:
           $ref: '#/components/schemas/LongId'
@@ -3704,6 +3704,10 @@ components:
           enum: [READY]
         cover:
           $ref: '#/components/schemas/AdminAsset'
+        configFormatVersion:
+          type: integer
+          enum: [2]
+          description: 模拟器原始 config.json 的格式版本；当前正式发布仅允许 v2。
         canvas:
           type: object
           required: [width, height]
@@ -3720,13 +3724,13 @@ components:
           type: array
           minItems: 2
           maxItems: 12
-          description: 源包 01 到 N 的前到后顺序；内部配置转换成 N 到 01 的绘制顺序。
+          description: 源包 01 到 N 的前到后顺序；API 只映射包内文件角色，不转换 config.json。
           items:
             $ref: '#/components/schemas/AdminParallaxSourceLayer'
 
     AdminParallaxSourceLayer:
       type: object
-      required: [index, originalFilename, role, ordinal, depth, scale, opacity, blendMode]
+      required: [index, originalFilename, role, ordinal]
       properties:
         index:
           type: integer
@@ -3742,21 +3746,6 @@ components:
           type: integer
           minimum: 0
           maximum: 10
-        depth:
-          type: number
-          minimum: 0
-          maximum: 1
-        scale:
-          type: number
-          minimum: 1
-          maximum: 1.5
-        opacity:
-          type: number
-          minimum: 0
-          maximum: 1
-        blendMode:
-          type: string
-          enum: [normal, screen, add]
 
     CreateParallaxResourceVersionRequest:
       type: object

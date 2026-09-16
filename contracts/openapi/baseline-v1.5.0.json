@@ -1,35 +1,34 @@
 {
-  "frozenOn": "2026-09-16",
-  "previousAcceptedCommit": "14ca9edfa2f20c92b43703bcc241ce7fb57b994b",
-  "contractVersion": "1.6.0",
-  "domainVersion": "1.6.0",
-  "databaseDesignVersion": "1.6.0",
+  "frozenOn": "2026-09-15",
+  "previousAcceptedCommit": "40421191599730e31070fefef7ba709d82635b31",
+  "contractVersion": "1.5.0",
+  "domainVersion": "1.5.0",
+  "databaseDesignVersion": "1.5.0",
   "migrationVersions": [
     "1",
     "2",
     "3",
     "4",
-    "5",
-    "6"
+    "5"
   ],
   "operationCount": 58,
   "schemaCount": 86,
   "files": [
     {
       "path": "contracts/openapi/openapi.yaml",
-      "sha256": "77308b599a584ab9d0c6cb4bb35e9a1600ce2b71fb0be87518b8e1745db394f9"
+      "sha256": "f052ed6abd414590c1b194e2339f54fe97d4f378dc4bf1f8d4364c1aa9795a92"
     },
     {
       "path": "docs/03-数据设计/DM-001-统一领域模型.md",
-      "sha256": "acedc8f575f2dc371ed923276b397c64721d9b48fe679092f541600aafc6ee65"
+      "sha256": "6565ce58dad4a8fd687c461468a873ceac0791e86a0500e25791e983ce0b4502"
     },
     {
       "path": "docs/03-数据设计/DB-001-MySQL数据库设计.md",
-      "sha256": "eb05c8df51f9a7cd2b7e1118089fb4103e0d7ed5db228caf345b470c628c0ad7"
+      "sha256": "ce4b7ab1706fcbf7217a9b79ccbb5b410b90ce3a6fa6ee391ea1438eca704d7b"
     },
     {
       "path": "docs/04-接口设计/API-001-OpenAPI-V1契约说明.md",
-      "sha256": "6c400d75c4df7d3894ceab6d8e70f64ab8f76865da7a14dc1d15ba0b002dd825"
+      "sha256": "29329fdd258053d2659c8eaa72d3844bbed12a21ba656215c93250a94590f32c"
     },
     {
       "path": "docs/02-系统架构/ARC-001-混合客户端与平台架构方案.md",
@@ -61,11 +60,15 @@
     },
     {
       "path": "docs/05-安全与合规/SEC-003-Android安全资源交付协议.md",
-      "sha256": "e6af786674d5489c277cad33560e14cf1bbcdf22993088515bb524d91d607a72"
+      "sha256": "610a5b3526b4a62bfd68805d0ffedf999ab458c7be7e74b40fa3865c261bc19c"
     },
     {
       "path": "packages/wallpaper-format/manifest-v2.schema.json",
       "sha256": "eef26314446d3f9cfa0f1bcf4e54896e6dbea1ce59679494bc7a3932b3517085"
+    },
+    {
+      "path": "packages/wallpaper-format/parallax-config-v2.schema.json",
+      "sha256": "5ae6620d2aced2cbb91d951be3bdc205ded4189fe1d21507f2edc070d9a55caf"
     },
     {
       "path": "services/api-server/src/main/resources/db/migration/V3__app_preview_delivery.sql",
@@ -93,23 +96,11 @@
     },
     {
       "path": "docs/04-接口设计/API-007-4D固定资源包导入接口.md",
-      "sha256": "6a591a43474aaee4fe9543acb7788f2bade6530841298b933f431c25f7678300"
+      "sha256": "a496cf6c7dcbd3a9f07f7cb07b4fd82990c0cce5ad6ba3d5b058ac57a71bd096"
     },
     {
-      "path": "packages/wallpaper-format/parallax-source-v2.schema.json",
-      "sha256": "aa0aae5f23c797676f3891af58194ac1bb23baadeb45a904b6d6356d4b2db998"
-    },
-    {
-      "path": "packages/wallpaper-format/4D源包制作说明.md",
-      "sha256": "51c56fce2c7b017fbaa034ff1e50897cbdf6889303d31415032dbdc0d5be543d"
-    },
-    {
-      "path": "services/api-server/src/main/resources/db/migration/V6__parallax_v2_config_passthrough.sql",
-      "sha256": "b6f6f36734959414172f7b2fb2fba56dbb944197ef0104df39015b4b010a7632"
-    },
-    {
-      "path": "docs/04-接口设计/API-008-4D配置透传与管理后台改造方案.md",
-      "sha256": "3ebeadd7989347d96fb134dec5074c98f5cb8dff9f9fb0d7eb24da592ba849b8"
+      "path": "packages/wallpaper-format/parallax-source-v1.schema.json",
+      "sha256": "2ae2d0982ba23c1217295afc712374205533e45a26bab6147a9163d40daa8c9b"
     }
   ]
 }

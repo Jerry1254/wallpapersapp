@@ -136,6 +136,10 @@ assert.deepEqual(document.components.schemas.PreviewDescriptor.properties.purpos
 assert.deepEqual(document.components.schemas.PreviewDescriptor.properties.durationSeconds.enum, [120]);
 assert.deepEqual(document.components.schemas.PreviewPackageMetadata.properties.formatVersion.enum, [3]);
 assert.deepEqual(document.components.schemas.SecurePackageMetadata.properties.formatVersion.enum, [2]);
+assert.deepEqual(document.components.schemas.AdminParallaxSourcePackage.properties.configFormatVersion.enum, [2]);
+for (const removed of ['depth', 'scale', 'opacity', 'blendMode']) {
+  assert.ok(!document.components.schemas.AdminParallaxSourceLayer.properties[removed], `admin source layer still exposes ${removed}`);
+}
 assert.deepEqual(document.paths['/preview/files'].get.security, [{ previewTicketBearer: [] }]);
 
 // Generated clients cannot decode an implementation error omitted by the enum.

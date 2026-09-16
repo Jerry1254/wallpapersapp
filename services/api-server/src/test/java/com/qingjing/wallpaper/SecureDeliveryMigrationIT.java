@@ -33,15 +33,55 @@ class SecureDeliveryMigrationIT {
             var migrated = Flyway.configure().dataSource(mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword())
                     .locations("classpath:db/migration").target("2").load().migrate();
             assertThat(migrated.migrationsExecuted).isEqualTo(1);
-            var previewMigration=Flyway.configure().dataSource(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword())
+            var throughV5=Flyway.configure().dataSource(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword())
+                    .locations("classpath:db/migration").target("5").load().migrate();
+            assertThat(throughV5.migrationsExecuted).isEqualTo(3);
+            try(var connection=DriverManager.getConnection(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword());
+                var statements=connection.createStatement()) {
+                statements.executeUpdate("INSERT INTO admin_account(singleton_key,username,password_hash,password_changed_at) VALUES(1,'migration-admin',REPEAT('a',60),UTC_TIMESTAMP(6))");
+                for(int i=1;i<=4;i++) statements.executeUpdate("""
+                        INSERT INTO asset(storage_key,original_filename,mime_type,file_extension,purpose,size_bytes,sha256,width_px,height_px,validation_status,created_by_admin_id)
+                        SELECT 'legacy-object-%1$d','legacy-%1$d.png',IF(%1$d=2,'application/json','image/png'),IF(%1$d=2,'json','png'),
+                               CASE %1$d WHEN 1 THEN 'WALLPAPER_COVER' WHEN 2 THEN 'PARALLAX_CONFIG' WHEN 3 THEN 'FOREGROUND' ELSE 'BACKGROUND' END,
+                               10,REPEAT('%2$s',64),IF(%1$d=2,NULL,512),IF(%1$d=2,NULL,512),'READY',id
+                        FROM admin_account WHERE singleton_key=1
+                        """.formatted(i,Integer.toHexString(i)));
+                statements.executeUpdate("""
+                        INSERT INTO parallax_source_package(sha256,original_filename,size_bytes,storage_key,cover_asset_id,config_asset_id,canvas_width,canvas_height,status,created_by_admin_id)
+                        SELECT REPEAT('f',64),'legacy-v1.zip',100,'legacy-source-object',
+                               (SELECT id FROM asset WHERE storage_key='legacy-object-1'),
+                               (SELECT id FROM asset WHERE storage_key='legacy-object-2'),512,512,'READY',id
+                        FROM admin_account WHERE singleton_key=1
+                        """);
+                statements.executeUpdate("""
+                        INSERT INTO parallax_source_layer(source_package_id,layer_index,asset_id,original_filename,role,ordinal,depth,scale,opacity,blend_mode)
+                        SELECT p.id,1,a.id,'layers/01.png','FOREGROUND',0,1,1.1,1,'normal'
+                        FROM parallax_source_package p JOIN asset a ON a.storage_key='legacy-object-3'
+                        """);
+                statements.executeUpdate("""
+                        INSERT INTO parallax_source_layer(source_package_id,layer_index,asset_id,original_filename,role,ordinal,depth,scale,opacity,blend_mode)
+                        SELECT p.id,2,a.id,'layers/02.png','BACKGROUND',0,0,1,1,'normal'
+                        FROM parallax_source_package p JOIN asset a ON a.storage_key='legacy-object-4'
+                        """);
+            }
+            var v2Passthrough=Flyway.configure().dataSource(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword())
                     .locations("classpath:db/migration").load().migrate();
-            assertThat(previewMigration.migrationsExecuted).isEqualTo(3);
+            assertThat(v2Passthrough.migrationsExecuted).isEqualTo(1);
             try(var connection=DriverManager.getConnection(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword());
                 var query=connection.createStatement()) {
                 try (var result=query.executeQuery("SELECT COUNT(*) FROM preview_resource_package")) {
                     assertThat(result.next()).isTrue();assertThat(result.getInt(1)).isZero();
                 }
                 try (var result=query.executeQuery("SELECT COUNT(*) FROM wallpaper_setting_tutorial")) {
+                    assertThat(result.next()).isTrue();assertThat(result.getInt(1)).isEqualTo(5);
+                }
+                try (var result=query.executeQuery("SELECT COUNT(*) FROM parallax_source_package")) {
+                    assertThat(result.next()).isTrue();assertThat(result.getInt(1)).isZero();
+                }
+                try (var result=query.executeQuery("SELECT COUNT(*) FROM asset WHERE storage_key LIKE 'legacy-object-%'")) {
+                    assertThat(result.next()).isTrue();assertThat(result.getInt(1)).isZero();
+                }
+                try (var result=query.executeQuery("SELECT COUNT(*) FROM parallax_storage_cleanup")) {
                     assertThat(result.next()).isTrue();assertThat(result.getInt(1)).isEqualTo(5);
                 }
             }

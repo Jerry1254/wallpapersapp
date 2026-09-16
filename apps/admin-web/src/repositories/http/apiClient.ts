@@ -146,7 +146,7 @@ const errorLabels: Record<string, string> = {
   DUPLICATE_VARIANT: '此平台的资源组合已存在，请刷新后编辑',
   ASSET_NOT_READY: '资源尚未就绪，请补齐资源并检查校验结果',
   RESOURCE_VERSION_NOT_READY: '尚无可发布的资源版本，请补齐资源并检查校验结果',
-  ASSET_VALIDATION_FAILED: '资源校验失败，请检查文件内容、尺寸、透明通道或景深 JSON 配置',
+  ASSET_VALIDATION_FAILED: '资源校验失败，请检查文件内容、尺寸、透明通道或 4D 配置版本',
   PARALLAX_PACKAGE_REQUIRED: '请上传固定格式的 4D ZIP 资源包',
   PARALLAX_PACKAGE_INVALID: '4D ZIP 解析失败，请检查固定目录、图层编号和 config.json',
   PARALLAX_PACKAGE_IN_USE: '4D ZIP 已绑定资源版本，不能删除',

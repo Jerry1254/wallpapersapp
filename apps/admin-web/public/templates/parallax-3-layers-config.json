@@ -1,10 +1,36 @@
 {
-  "formatVersion": 1,
-  "canvas": { "width": 512, "height": 1024 },
-  "sensor": { "maxAngle": 10, "smoothing": 0.2, "strength": 1 },
+  "formatVersion": 2,
+  "canvas": {
+    "width": 512,
+    "height": 1024
+  },
+  "motion": {
+    "maxAngle": 75
+  },
   "layers": [
-    { "index": 1, "depth": 1.000000, "scale": 1.1, "opacity": 1, "blendMode": "normal" },
-    { "index": 2, "depth": 0.500000, "scale": 1.1, "opacity": 1, "blendMode": "normal" },
-    { "index": 3, "depth": 0.000000, "scale": 1.1, "opacity": 1, "blendMode": "normal" }
+    {
+      "index": 1,
+      "offsetPercent": 8,
+      "direction": "follow",
+      "scale": 1.18,
+      "opacity": 1,
+      "blendMode": "normal"
+    },
+    {
+      "index": 2,
+      "offsetPercent": 7,
+      "direction": "follow",
+      "scale": 1.18,
+      "opacity": 1,
+      "blendMode": "normal"
+    },
+    {
+      "index": 3,
+      "offsetPercent": 3,
+      "direction": "reverse",
+      "scale": 1,
+      "opacity": 1,
+      "blendMode": "normal"
+    }
   ]
 }

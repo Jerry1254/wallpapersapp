@@ -123,7 +123,7 @@ class InfrastructureIntegrationIT {
                 """,
                 String.class);
 
-        assertThat(successfulMigrations).isEqualTo(5);
+        assertThat(successfulMigrations).isEqualTo(6);
         assertThat(tables).containsExactlyInAnyOrder(
                 "admin_account",
                 "anonymous_device",
@@ -148,6 +148,15 @@ class InfrastructureIntegrationIT {
                 "wallpaper",
                 "wallpaper_setting_tutorial",
                 "wallpaper_variant");
+        assertThat(jdbc.queryForList("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_schema=DATABASE() AND table_name='parallax_source_layer'
+                ORDER BY ordinal_position
+                """,String.class)).containsExactly("source_package_id","layer_index","asset_id","original_filename","role","ordinal");
+        assertThat(jdbc.queryForObject("""
+                SELECT column_default FROM information_schema.columns
+                WHERE table_schema=DATABASE() AND table_name='parallax_source_package' AND column_name='format_version'
+                """,String.class)).isEqualTo("2");
     }
 
     @Test
@@ -997,14 +1006,34 @@ class InfrastructureIntegrationIT {
         long legacy=jdbc.queryForObject("SELECT id FROM resource_version WHERE variant_id=?",Long.class,variant);
         var legacyRead=getJson("/api/v1/admin/resource-versions/"+legacy,admin).getBody();
         assertThat(legacyRead.has("sourcePackage")).isTrue();assertThat(legacyRead.path("sourcePackage").isNull()).isTrue();
+        var unknownFiles=com.qingjing.wallpaper.parallax.ParallaxFixtures.files(2);
+        String unknownConfig=new String(unknownFiles.get("config.json"),StandardCharsets.UTF_8)
+                .replace("\"motion\":{","\"futureRoot\":true,\"motion\":{");
+        unknownFiles.put("config.json",unknownConfig.getBytes(StandardCharsets.UTF_8));
+        var unknownSource=importParallax(admin,com.qingjing.wallpaper.parallax.ParallaxFixtures.zip(unknownFiles),true);
+        assertThat(unknownSource.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        var unknownVersion=jsonExchange("/api/v1/admin/variants/"+variant+"/parallax-resource-versions",HttpMethod.POST,
+                Map.of("versionNo",99,"sourcePackageId",unknownSource.getBody().path("id").asText()),admin,null);
+        assertThat(unknownVersion.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        var refusedUnknown=jsonExchange("/api/v1/admin/resource-versions/"+unknownVersion.getBody().path("id").asLong()+"/secure-package",
+                HttpMethod.POST,Map.of(),admin,null);
+        assertThat(refusedUnknown.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        var v1Files=com.qingjing.wallpaper.parallax.ParallaxFixtures.files(2);
+        v1Files.put("config.json",new String(v1Files.get("config.json"),StandardCharsets.UTF_8)
+                .replace("\"formatVersion\":2","\"formatVersion\":1").getBytes(StandardCharsets.UTF_8));
+        assertThat(importParallax(admin,com.qingjing.wallpaper.parallax.ParallaxFixtures.zip(v1Files),true).getStatusCode())
+                .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
         String earlierSource=null;long earlierVersion=0;int versionNo=2;
         for(int count:List.of(2,3,12)) {
-            byte[] zip=com.qingjing.wallpaper.parallax.ParallaxFixtures.zip(com.qingjing.wallpaper.parallax.ParallaxFixtures.files(count));
+            var sourceFiles=com.qingjing.wallpaper.parallax.ParallaxFixtures.files(count);
+            byte[] sourceConfig=sourceFiles.get("config.json");
+            byte[] zip=com.qingjing.wallpaper.parallax.ParallaxFixtures.zip(sourceFiles);
             assertThat(importParallax(admin,zip,false).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
             var first=importParallax(admin,zip,true);
             assertThat(first.getStatusCode()).as(first.getBody().toString()).isEqualTo(HttpStatus.CREATED);
             var source=first.getBody();String sourceId=source.path("id").asText();
             assertThat(source.path("layers").size()).isEqualTo(count);
+            assertThat(source.path("configFormatVersion").asInt()).isEqualTo(2);
             assertThat(source.path("validationStatus").asText()).isEqualTo("READY");
             assertThat(source.has("storageKey")).isFalse();assertThat(source.has("url")).isFalse();
             var again=importParallax(admin,zip,true);assertThat(again.getStatusCode()).isEqualTo(HttpStatus.OK);assertThat(again.getBody()).isEqualTo(source);
@@ -1020,6 +1049,7 @@ class InfrastructureIntegrationIT {
             var built=jsonExchange("/api/v1/admin/resource-versions/"+id+"/secure-package",HttpMethod.POST,Map.of(),admin,null);
             assertThat(built.getStatusCode()).as(built.getBody().toString()).isEqualTo(HttpStatus.OK);
             assertThat(built.getBody().path("sourcePackage")).isEqualTo(source);
+            assertThat(formalParallaxConfig(id,wallpaper,variant,versionNo)).containsExactly(sourceConfig);
             jdbc.update("UPDATE wallpaper SET cover_asset_id=? WHERE id=?",source.path("cover").path("id").asLong(),wallpaper);
             var detail=getJson("/api/v1/admin/wallpapers/"+wallpaper,admin);
             var published=jsonExchange("/api/v1/admin/wallpapers/"+wallpaper+"/publish",HttpMethod.POST,Map.of("resourceVersionIds",List.of(Long.toString(id))),admin,detail.getHeaders().getETag());
@@ -1036,6 +1066,30 @@ class InfrastructureIntegrationIT {
         jdbc.update("UPDATE wallpaper SET status='ARCHIVED',archived_at=UTC_TIMESTAMP(6) WHERE id=?",wallpaper);
         assertThat(jsonExchange("/api/v1/admin/variants/"+variant+"/parallax-resource-versions",HttpMethod.POST,
                 Map.of("versionNo",5,"sourcePackageId",earlierSource),admin,null).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    private byte[] formalParallaxConfig(long versionId,long wallpaperId,long variantId,int versionNo) throws Exception {
+        var stored=jdbc.queryForMap("SELECT * FROM secure_resource_package WHERE resource_version_id=?",versionId);
+        byte[] key=securityCrypto.decrypt("secure-package-key-v2:"+versionId,stored.get("content_key_ciphertext").toString());
+        byte[] encrypted;
+        try(var content=packageStorage.open(new com.qingjing.wallpaper.asset.application.StorageKey(stored.get("storage_key").toString()))) {
+            encrypted=content.inputStream().readAllBytes();
+        }
+        try {
+            var cipher=javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(javax.crypto.Cipher.DECRYPT_MODE,new javax.crypto.spec.SecretKeySpec(key,"AES"),
+                    new javax.crypto.spec.GCMParameterSpec(128,java.util.Arrays.copyOfRange(encrypted,8,20)));
+            cipher.updateAAD(new com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.Identity(
+                    wallpaperId,variantId,versionNo,"LAYER_PARALLAX").aad());
+            byte[] plain=cipher.doFinal(java.util.Arrays.copyOfRange(encrypted,20,encrypted.length));
+            try(var zip=new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(plain),StandardCharsets.UTF_8)) {
+                java.util.zip.ZipEntry entry;
+                while((entry=zip.getNextEntry())!=null) {
+                    if(entry.getName().equals("payload/parallax_config-0.json"))return zip.readAllBytes();
+                }
+            }
+            throw new AssertionError("formal package has no parallax config");
+        } finally { java.util.Arrays.fill(key,(byte)0); }
     }
 
     @Test
@@ -1097,10 +1151,10 @@ class InfrastructureIntegrationIT {
                 if (role.equals("VIDEO")) { bytes = testVideo(); extension = "mp4"; }
                 else if (role.equals("PARALLAX_CONFIG")) {
                     extension = "json";
-                    bytes = objectMapper.writeValueAsBytes(Map.of("canvas",Map.of("width",512,"height",512),
-                            "sensor",Map.of("maxAngle",10,"smoothing",0.2,"strength",1),"layers",List.of(
-                            Map.of("role","BACKGROUND","ordinal",0,"depth",0,"scale",1.1,"opacity",1,"blendMode","normal"),
-                            Map.of("role","FOREGROUND","ordinal",0,"depth",0.8,"scale",1.1,"opacity",1,"blendMode","normal"))));
+                    bytes = objectMapper.writeValueAsBytes(Map.of("formatVersion",2,"canvas",Map.of("width",512,"height",512),
+                            "motion",Map.of("maxAngle",75),"layers",List.of(
+                            Map.of("index",1,"offsetPercent",8,"direction","follow","scale",1.18,"opacity",1,"blendMode","normal"),
+                            Map.of("index",2,"offsetPercent",3,"direction","reverse","scale",1,"opacity",1,"blendMode","normal"))));
                 } else if (role.equals("FOREGROUND")) {
                     var output = new ByteArrayOutputStream(); ImageIO.write(new BufferedImage(512,512,BufferedImage.TYPE_INT_ARGB),"png",output); bytes=output.toByteArray();
                 } else bytes=png(512,512);
@@ -1163,7 +1217,7 @@ class InfrastructureIntegrationIT {
                     .isInstanceOf(com.qingjing.wallpaper.asset.application.FileStorageException.class);
             if (!type.equals("STATIC_IMAGE")) {
                 byte[] invalidBytes=type.equals("VIDEO") ? new byte[]{0,0,0,12,102,116,121,112,105,115,111,109} :
-                        "{\"canvas\":{\"width\":512,\"height\":512},\"sensor\":{\"maxAngle\":10,\"smoothing\":0.2,\"strength\":1},\"layers\":[{\"file\":\"../escape.png\"}]}".getBytes(StandardCharsets.UTF_8);
+                        "{\"formatVersion\":2,\"canvas\":{\"width\":512,\"height\":512},\"motion\":{\"maxAngle\":75},\"layers\":[{\"index\":1,\"futureField\":true},{\"index\":2}]}".getBytes(StandardCharsets.UTF_8);
                 String badRole=type.equals("VIDEO") ? "VIDEO" : "PARALLAX_CONFIG";
                 JsonNode badAsset=uploadAsset(admin,badRole,type.equals("VIDEO") ? "fake.mp4" : "bad.json",invalidBytes);
                 List<Map<String,Object>> invalidBindings=bindings.stream().map(binding -> binding.get("role").equals(badRole) ?

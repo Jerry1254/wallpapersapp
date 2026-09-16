@@ -102,16 +102,13 @@ interface ApiParallaxPackage {
   sha256: string;
   validationStatus: 'READY';
   cover: ApiAsset;
+  configFormatVersion: number;
   canvas: { width: number; height: number };
   layers: Array<{
     index: number;
     originalFilename: string;
     role: 'BACKGROUND' | 'FOREGROUND';
     ordinal: number;
-    depth: number;
-    scale: number;
-    opacity: number;
-    blendMode: 'normal' | 'screen' | 'add';
   }>;
 }
 
@@ -209,6 +206,8 @@ const toParallaxPackage = (value: ApiParallaxPackage): ParallaxPackageFile => ({
   packageId: value.id,
   coverAssetId: value.cover.id,
   coverUrl: apiResourceUrl(value.cover.previewUrl),
+  sha256: value.sha256,
+  configFormatVersion: value.configFormatVersion,
   layerCount: value.layers.length,
   canvasWidth: value.canvas.width,
   canvasHeight: value.canvas.height

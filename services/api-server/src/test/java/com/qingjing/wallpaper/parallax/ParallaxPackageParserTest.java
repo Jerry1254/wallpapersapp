@@ -18,18 +18,18 @@ class ParallaxPackageParserTest {
     private final ParallaxPackageParser parser=new ParallaxPackageParser(mapper,new ParallaxImageInspector(System.getenv().getOrDefault("QJ_FFMPEG","ffmpeg")));
 
     @ParameterizedTest @ValueSource(ints={2,3,12})
-    void convertsSourceOrderToAndroidDrawingOrder(int count) throws Exception {
-        var result=parser.parse(zip(files(count)));
+    void preservesOriginalV2ConfigAndMapsOnlyFileRoles(int count) throws Exception {
+        var source=files(count);byte[] config=source.get("config.json");
+        var result=parser.parse(zip(source));
         assertThat(result.layers()).hasSize(count);
-        var internal=mapper.readTree(result.internalConfig());
-        assertThat(internal.has("formatVersion")).isFalse();
-        assertThat(internal.path("layers").get(0).path("role").asText()).isEqualTo("BACKGROUND");
-        for(int i=1;i<count;i++) {
-            var layer=internal.path("layers").get(i);
-            assertThat(layer.path("role").asText()).isEqualTo("FOREGROUND");
-            assertThat(layer.path("ordinal").asInt()).isEqualTo(count-i-1);
-            assertThat(layer.path("depth").asDouble()).isGreaterThanOrEqualTo(internal.path("layers").get(i-1).path("depth").asDouble());
-        }
+        assertThat(result.formatVersion()).isEqualTo(2);
+        assertThat(result.configBytes()).containsExactly(config);
+        for(int i=0;i<count-1;i++) assertThat(result.layers().get(i))
+                .extracting(ParallaxPackageDtos.Layer::role,ParallaxPackageDtos.Layer::ordinal)
+                .containsExactly("FOREGROUND",i);
+        assertThat(result.layers().get(count-1))
+                .extracting(ParallaxPackageDtos.Layer::role,ParallaxPackageDtos.Layer::ordinal)
+                .containsExactly("BACKGROUND",0);
     }
     @Test void permitsStoredZipAndMacMetadata() throws Exception {
         var files=files(2);files.put("layers/",new byte[0]);files.put("__MACOSX/._cover.jpg",new byte[]{1});files.put("layers/.DS_Store",new byte[]{2});
@@ -73,12 +73,18 @@ class ParallaxPackageParserTest {
         files=files(2);files.put("layers/02.png",image("png",true,512));reject(files);
         files=files(2);files.put("cover.jpg",image("png",false,512));reject(files);
     }
-    @Test void rejectsUnknownDuplicateTrailingAndOutOfRangeJson() throws Exception {
+    @Test void passesThroughUnknownAlgorithmFieldsAndValues() throws Exception {
+        var source=files(2);String config=new String(source.get("config.json"),StandardCharsets.UTF_8);
+        String extended=config.replace("\"offsetPercent\":8","\"offsetPercent\":999,\"futureCurve\":{\"name\":\"spring\"}")
+                .replace("\"motion\":{","\"futureRoot\":true,\"motion\":{");
+        source.put("config.json",extended.getBytes(StandardCharsets.UTF_8));
+        assertThat(parser.parse(zip(source)).configBytes()).containsExactly(extended.getBytes(StandardCharsets.UTF_8));
+    }
+    @Test void rejectsMalformedOrUnsupportedStableStructure() throws Exception {
         String config=new String(files(2).get("config.json"),StandardCharsets.UTF_8);
-        for(String bad:List.of("\ufeff"+config,config+"{}",config.replace("\"formatVersion\":1","\"formatVersion\":1,\"formatVersion\":1"),
-                config.replace("\"formatVersion\":1","\"formatVersion\":1,\"extra\":0"),config.replace("\"width\":512","\"width\":511"),
-                config.replace("\"smoothing\":0.2","\"smoothing\":0.01"),config.replace("\"scale\":1.1","\"scale\":2"),
-                config.replace("\"depth\":0.0","\"depth\":0.1"),config.replace("\"index\":2","\"index\":1"))) {
+        for(String bad:List.of("\ufeff"+config,config+"{}",config.replace("\"formatVersion\":2","\"formatVersion\":2,\"formatVersion\":2"),
+                config.replace("\"formatVersion\":2","\"formatVersion\":1"),config.replace("\"width\":512","\"width\":511"),
+                config.replace("\"index\":2","\"index\":1"))) {
             var files=files(2);files.put("config.json",bad.getBytes(StandardCharsets.UTF_8));reject(files);
         }
     }

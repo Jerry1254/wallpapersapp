@@ -30,6 +30,6 @@ ZIP 包含 `manifest.json` 原始 UTF-8 字节、`manifest.sig` 原始 RSA 签�
 
 制作接口 `POST /admin/resource-versions/{resourceVersionId}/secure-package` 只为未制作的 READY 版本生成包；已有包幂等返回，不重加密、不重签名。使用 FFprobe 探测、FFmpeg 全量解码，子进程限制为 file/pipe 协议、单线程、探测 15 秒/解码 45 秒截止。单资源尺寸最多 4096×4096；视频为 H.264/yuv420p、单视频流无音频、0～30 秒（不含 0）、最多 60 fps。不兼容内容需先转码，不能只凭文件头发布。缺工具时拒绝制作。
 
-format 2 分层配置见 parallax-config-v2.schema.json：通过 role + ordinal 引用 manifest 的资源，无用户文件路径；拒绝重复键、额外字段和尾随 JSON。画布需与每层实际尺寸一致，前景需可确认 alpha 像素格式，depth 按远到近排列。已有 format 1 的 file 路径配置需转换后再制作。
+4D 分层配置见 `parallax-source-v2.schema.json`：配置按源文件 `index` 从最前景到背景排列，manifest 通过 `FOREGROUND/BACKGROUND + ordinal` 定位对应资源。Android 拒绝重复键、额外字段、尾随 JSON 和非 v2 配置；画布需与每层实际尺寸一致，前景需可确认 alpha 像素格式。API 将模拟器导出的原始配置字节写入正式包，不生成另一份内部配置。
 
 macOS 本地验证使用 [FFmpeg 官方下载页](https://ffmpeg.org/download.html) 列出的 [Evermeet 9.0.1 构建](https://evermeet.cx/ffmpeg/)，位于忽略的 .runtime/media-tools；镜像和 API CI 通过系统包安装 ffmpeg。格式与媒体约束纳入 1.2.0 冻结；本地工具不进入 Git，实际环境需独立配置签名私钥与工具路径。

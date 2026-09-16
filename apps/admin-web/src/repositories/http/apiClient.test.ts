@@ -122,10 +122,11 @@ describe('adminRepository.saveWallpaper', () => {
       sha256: 'a'.repeat(64),
       validationStatus: 'READY',
       cover: { ...asset('1', 'cover.jpg'), mimeType: 'image/jpeg' },
+      configFormatVersion: 2,
       canvas: { width: 1080, height: 2160 },
       layers: [
-        { index: 1, originalFilename: 'layers/01.png', role: 'FOREGROUND', ordinal: 0, depth: 1, scale: 1.08, opacity: 1, blendMode: 'normal' },
-        { index: 2, originalFilename: 'layers/02.jpg', role: 'BACKGROUND', ordinal: 0, depth: 0, scale: 1, opacity: 1, blendMode: 'normal' }
+        { index: 1, originalFilename: 'layers/01.png', role: 'FOREGROUND', ordinal: 0 },
+        { index: 2, originalFilename: 'layers/02.jpg', role: 'BACKGROUND', ordinal: 0 }
       ]
     };
     const readyVersion = { id: '50', versionNo: 1, status: 'READY', bindings: [], sourcePackage };

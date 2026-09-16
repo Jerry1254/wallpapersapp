@@ -247,6 +247,7 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
 .package-format-note code { overflow-wrap: anywhere; color: #9a5c00; font-size: 12px; }
 .package-format-note small, .package-analysis { color: var(--admin-muted); font-size: 12px; line-height: 1.6; }
 .package-analysis { margin-top: 9px; color: #287245; }
+.package-analysis__sha { display: block; overflow-wrap: anywhere; }
 .field-error { margin: 6px 0 0; color: #e34d59; font-size: 12px; }
 .wallpaper-editor__preview { padding: 22px; background: #f7f7f6; }
 .preview-sticky { position: sticky; top: 18px; }

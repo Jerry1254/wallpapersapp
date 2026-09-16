@@ -18,6 +18,8 @@ export interface ParallaxPackageFile extends ResourceFile {
   packageId?: string;
   coverAssetId?: string;
   coverUrl?: string;
+  sha256?: string;
+  configFormatVersion?: number;
   layerCount?: number;
   canvasWidth?: number;
   canvasHeight?: number;

@@ -24,7 +24,7 @@ public class ParallaxPackageParser {
     public ParallaxPackageParser(ObjectMapper mapper,ParallaxImageInspector images){this.mapper=mapper;this.images=images;}
     public record Asset(String name,byte[] bytes,ParallaxImageInspector.Image image) {}
     public record Parsed(Asset cover,List<Asset> images,List<ParallaxPackageDtos.Layer> layers,
-                         int width,int height,byte[] internalConfig) {}
+                         int width,int height,int formatVersion,byte[] configBytes) {}
 
     public Parsed parse(byte[] zip) {
         if(zip.length>ZIP_LIMIT)throw size("ZIP");
@@ -33,53 +33,38 @@ public class ParallaxPackageParser {
         List<String> names=files.keySet().stream().filter(n->n.startsWith("layers/")).sorted().toList();
         int count=names.size();
         if(count<2||count>12)throw invalid("layers/","LAYER_COUNT_INVALID","图层数量必须为 2～12 层");
-        JsonNode config;
+        JsonNode config;byte[] configBytes=files.get("config.json");
         try {
-            byte[] json=files.get("config.json");
+            byte[] json=configBytes;
             if(json.length>=3&&(json[0]&255)==239&&(json[1]&255)==187&&(json[2]&255)==191)throw new IllegalArgumentException();
             String utf8=StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT).decode(ByteBuffer.wrap(json)).toString();
             config=mapper.reader().with(JsonParser.Feature.STRICT_DUPLICATE_DETECTION).with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(utf8);
         } catch(Exception e){throw invalid("config.json","CONFIG_INVALID","config.json 必须是无 BOM、无重复键的 UTF-8 JSON");}
-        fields(config,Set.of("formatVersion","canvas","sensor","layers"));
-        if(integer(config.path("formatVersion"),1,1)!=1)throw configError();
-        fields(config.path("canvas"),Set.of("width","height"));
+        if(!config.isObject()||integer(config.path("formatVersion"),2,2)!=2)throw configError();
+        if(!config.path("canvas").isObject())throw configError();
         int width=integer(config.path("canvas").path("width"),512,4096),height=integer(config.path("canvas").path("height"),512,4096);
-        fields(config.path("sensor"),Set.of("maxAngle","smoothing","strength"));
-        number(config.path("sensor").path("maxAngle"),5,25);number(config.path("sensor").path("smoothing"),.05,.5);number(config.path("sensor").path("strength"),0,2);
         JsonNode inputLayers=config.path("layers");
         if(!inputLayers.isArray()||inputLayers.size()!=count)throw invalid("config.json","LAYER_COUNT_INVALID","config.json 图层数量与文件数量不一致");
         List<Asset> assets=new ArrayList<>();List<ParallaxPackageDtos.Layer> layers=new ArrayList<>();
-        double previous=1;long payloadSize=0;
+        long payloadSize=0;
         for(int i=1;i<=count;i++) {
             String name=names.get(i-1),prefix=String.format(Locale.ROOT,"layers/%02d.",i);
             if(!name.startsWith(prefix))throw invalid(name,"LAYER_SEQUENCE_INVALID","图层必须从 01 连续编号，每个编号只能有一个文件");
             JsonNode layer=inputLayers.get(i-1);
-            fields(layer,Set.of("index","depth","scale","opacity","blendMode"));
+            if(!layer.isObject())throw configError();
             if(integer(layer.path("index"),1,12)!=i)throw configError();
-            double depth=number(layer.path("depth"),0,1),scale=number(layer.path("scale"),1,1.5),opacity=number(layer.path("opacity"),0,1);
-            String blend=layer.path("blendMode").asText();
-            if(depth>previous||!Set.of("normal","screen","add").contains(blend))throw configError();
-            previous=depth;boolean background=i==count;
-            if(background&&(depth!=0||opacity!=1||!blend.equals("normal")))throw configError();
+            boolean background=i==count;
             byte[] content=files.get(name);var image=images.inspect(name,content);
             if(image.width()!=width||image.height()!=height)throw invalid(name,"DIMENSION_MISMATCH",name+" 尺寸为 "+image.width()+"×"+image.height()+"，与画布 "+width+"×"+height+" 不一致");
             if(!background&&(!image.alpha()||name.endsWith(".jpg")))throw invalid(name,"ALPHA_REQUIRED",name+" 前景必须是保留透明通道的 PNG 或 WebP");
             if(background&&!image.opaque())throw invalid(name,"BACKGROUND_NOT_OPAQUE",name+" 背景所有像素必须完全不透明");
             assets.add(new Asset(name,content,image));
-            layers.add(new ParallaxPackageDtos.Layer(i,name,background?"BACKGROUND":"FOREGROUND",background?0:i-1,depth,scale,opacity,blend));
+            layers.add(new ParallaxPackageDtos.Layer(i,name,background?"BACKGROUND":"FOREGROUND",background?0:i-1));
             payloadSize+=content.length;
         }
-        var internal=mapper.createObjectNode();internal.set("canvas",config.get("canvas"));internal.set("sensor",config.get("sensor"));
-        var outputLayers=internal.putArray("layers");
-        for(int i=count-1;i>=0;i--) {
-            var l=layers.get(i);outputLayers.addObject().put("role",l.role()).put("ordinal",l.ordinal()).put("depth",l.depth())
-                    .put("scale",l.scale()).put("opacity",l.opacity()).put("blendMode",l.blendMode());
-        }
-        byte[] internalBytes;
-        try{internalBytes=mapper.writeValueAsBytes(internal);}catch(Exception e){throw configError();}
-        if(payloadSize+internalBytes.length>PAYLOAD_LIMIT)throw size("图层与内部 config");
+        if(payloadSize+configBytes.length>PAYLOAD_LIMIT)throw size("图层与 config.json");
         byte[] cover=files.get("cover.jpg");var coverImage=images.inspect("cover.jpg",cover);
-        return new Parsed(new Asset("cover.jpg",cover,coverImage),List.copyOf(assets),List.copyOf(layers),width,height,internalBytes);
+        return new Parsed(new Asset("cover.jpg",cover,coverImage),List.copyOf(assets),List.copyOf(layers),width,height,2,configBytes);
     }
 
     private Map<String,byte[]> unzip(byte[] zip) {
@@ -153,8 +138,6 @@ public class ParallaxPackageParser {
     private static long u32(ByteBuffer b,int p){return Integer.toUnsignedLong(b.getInt(p));}
     private record Entry(int method,long size,long compressed,long crc) {}
     private static com.qingjing.wallpaper.shared.web.ApiException structure(){return invalid("ZIP","STRUCTURE_INVALID","ZIP 目录、路径或压缩格式不符合要求（仅支持普通 STORE/DEFLATE ZIP）");}
-    private static com.qingjing.wallpaper.shared.web.ApiException configError(){return invalid("config.json","CONFIG_INVALID","config.json 字段、图层顺序或参数范围不符合固定格式");}
-    private static void fields(JsonNode node,Set<String> expected){if(node==null||!node.isObject())throw configError();Set<String> actual=new HashSet<>();node.fieldNames().forEachRemaining(actual::add);if(!actual.equals(expected))throw configError();}
+    private static com.qingjing.wallpaper.shared.web.ApiException configError(){return invalid("config.json","CONFIG_INVALID","config.json 版本、画布或图层索引不符合固定结构");}
     private static int integer(JsonNode node,int min,int max){if(!node.isInt()||node.intValue()<min||node.intValue()>max)throw configError();return node.intValue();}
-    private static double number(JsonNode node,double min,double max){double value=node.asDouble(Double.NaN);if(!node.isNumber()||!Double.isFinite(value)||value<min||value>max)throw configError();return value;}
 }

@@ -128,26 +128,29 @@ public class SecurePackagePublisher {
     private void validateParallax(byte[] bytes,Map<String,PackageMediaInspector.Media> images) {
         try {
             if (bytes==null || bytes.length>65536) throw invalid();
+            if (bytes.length>=3 && (bytes[0]&255)==239 && (bytes[1]&255)==187 && (bytes[2]&255)==191) throw invalid();
             var config=mapper.reader().with(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION).with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(bytes);
-            exactFields(config,Set.of("canvas","sensor","layers"));
+            // This is a version compatibility gate, not an algorithm validator. The API does not
+            // interpret motion values; it only prevents a config with a future field set from being
+            // released to today's strict v2 Android client.
+            exactFields(config,Set.of("formatVersion","canvas","motion","layers"));
+            if (!config.path("formatVersion").isInt() || config.path("formatVersion").intValue()!=2) throw invalid();
             exactFields(config.path("canvas"),Set.of("width","height"));
-            exactFields(config.path("sensor"),Set.of("maxAngle","smoothing","strength"));
+            exactFields(config.path("motion"),Set.of("maxAngle"));
             if (!config.path("canvas").path("width").isInt() || !config.path("canvas").path("height").isInt()) throw invalid();
             int width=config.path("canvas").path("width").asInt(),height=config.path("canvas").path("height").asInt();
             if (width<512 || height<512 || width>4096 || height>4096) throw invalid();
-            range(config.path("sensor").path("maxAngle"),5,25); range(config.path("sensor").path("smoothing"),0.05,0.5); range(config.path("sensor").path("strength"),0,2);
             var layers=config.path("layers");
             if (!layers.isArray() || layers.size()!=images.size() || layers.size()<2 || layers.size()>12) throw invalid();
-            Set<String> seen=new HashSet<>(); double previous=-1;
-            for (var layer:layers) {
-                exactFields(layer,Set.of("role","ordinal","depth","scale","opacity","blendMode"));
-                if (!layer.path("ordinal").isInt()) throw invalid();
-                String role=layer.path("role").asText(); int ordinal=layer.path("ordinal").asInt(-1);
+            Set<String> seen=new HashSet<>();
+            for (int i=0;i<layers.size();i++) {
+                var layer=layers.get(i);
+                exactFields(layer,Set.of("index","offsetPercent","direction","scale","opacity","blendMode"));
+                if (!layer.path("index").isInt() || layer.path("index").intValue()!=i+1) throw invalid();
+                String role=i==layers.size()-1?"BACKGROUND":"FOREGROUND";
+                int ordinal=role.equals("BACKGROUND")?0:i;
                 var image=images.get(role+":"+ordinal);
                 if (image==null || !seen.add(role+":"+ordinal) || image.width()!=width || image.height()!=height || (role.equals("FOREGROUND") && !image.alpha())) throw invalid();
-                double depth=range(layer.path("depth"),0,1); if (depth<previous) throw invalid(); previous=depth;
-                range(layer.path("scale"),1,1.5); range(layer.path("opacity"),0,1);
-                if (!Set.of("normal","screen","add").contains(layer.path("blendMode").asText())) throw invalid();
             }
         } catch (ApiException exception) { throw exception; }
         catch (Exception exception) { throw invalid(); }
@@ -156,11 +159,6 @@ public class SecurePackagePublisher {
         if (!value.isObject()) throw invalid();
         Set<String> fields=new HashSet<>(); value.fieldNames().forEachRemaining(fields::add);
         if (!fields.equals(expected)) throw invalid();
-    }
-    private double range(com.fasterxml.jackson.databind.JsonNode value,double min,double max) {
-        double number=value.asDouble(Double.NaN);
-        if (!value.isNumber() || !Double.isFinite(number) || number<min || number>max) throw invalid();
-        return number;
     }
     private static ApiException invalid() { return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,"ASSET_VALIDATION_FAILED","Resource package input validation failed"); }
     private record Version(long id,int number,String status,long variantId,long wallpaperId,String platform,String type) {}

@@ -4,12 +4,12 @@
 
 ## 文件
 
-当前兼容扩展为 **1.5.0，58 操作 / 86 Schema**：固定 4D ZIP 导入、来源关联版本与显式 `sourcePackage`。源包制作说明见 [4D 源包制作说明](../../packages/wallpaper-format/4D源包制作说明.md)。1.4.0 快照逐字节归档于 `baseline-v1.4.0.json`。
+当前契约为 **1.6.0，58 操作 / 86 Schema**：4D ZIP 只接受 v2，原始配置透传；管理 DTO 增加配置版本并移除算法字段。源包制作说明见 [4D 源包制作说明](../../packages/wallpaper-format/4D源包制作说明.md)。1.5.0 快照逐字节归档于 `baseline-v1.5.0.json`。
 
 - `openapi.yaml`：V1 唯一机器契约。
 - `scripts/check-contract.mjs`：项目边界与敏感字段专项检查。
 - `package.json` / `package-lock.json`：固定契约校验工具版本。
-- `baseline-v1.json`：当前 App 契约冻结快照；历史版本逐字节归档在 baseline-v1.0.1.json、baseline-v1.1.0.json、baseline-v1.2.0.json、baseline-v1.3.0.json、baseline-v1.3.1.json。
+- `baseline-v1.json`：当前 App 契约冻结快照；历史版本逐字节归档在对应版本号的 baseline 文件中。
 - `scripts/check-baseline.mjs`：只读核对快照 SHA-256、版本和数量；字段变更须同步语义、实现、测试并显式更新版本/快照。
 
 ## 验证
@@ -31,3 +31,5 @@ WP-A03 当前兼容扩展为 1.1.0：Android 安装 RSA 持钥证明、RSA_SHA25
 A10 1.3.1 修正二进制客户端的 JSON 错误响应及下架响应说明，与 A05 的既有授权规则对齐；操作、Schema、DTO 和资源格式不变。1.3.0 原快照可在 83b3cae 历史树核验，当前冻结只更新明确审阅的 OpenAPI/API-001 两项，DM/DB 及迁移字节保持 1.3.0。
 
 WP-UI04 1.4.0 增加五个固定设置教程槽位、`TUTORIAL_VIDEO` 上传用途、管理查询/更新、公开列表和 Range/HEAD MP4 视频流，当前为 56 操作/83 Schema。V4 只增加 asset purpose 和教程配置表；V1/V2/V3 与 1.3.1 快照保留。
+
+WP-UI05 1.5.0 增加固定 4D ZIP 导入、来源关联版本和 V5。WP-UI07 1.6.0 保持端点与 Schema 数量不变，将 4D 配置改为模拟器 v2 原始字节透传；V6 清理未上线测试数据和旧算法列，V5 字节保持不变。
