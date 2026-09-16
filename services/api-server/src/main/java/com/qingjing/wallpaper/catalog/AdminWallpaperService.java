@@ -83,6 +83,7 @@ public class AdminWallpaperService {
             int pageSize,
             WallpaperStatus status,
             WallpaperKind kind,
+            WallpaperAccessType accessType,
             String categoryId,
             String query) {
         if (page < 1 || pageSize < 1 || pageSize > 100) {
@@ -105,6 +106,10 @@ public class AdminWallpaperService {
         if (kind != null) {
             where.append(" AND w.kind = :kind");
             parameters.addValue("kind", kind.name());
+        }
+        if (accessType != null) {
+            where.append(" AND w.access_type = :accessType");
+            parameters.addValue("accessType", accessType.name());
         }
         if (categoryId != null) {
             long parsedCategory = Ids.parse(categoryId, "categoryId");
@@ -165,13 +170,14 @@ public class AdminWallpaperService {
             int updated = jdbc.update(
                     """
                     UPDATE wallpaper
-                    SET title = ?, slug = ?, kind = ?, category_id = ?, cover_asset_id = ?,
+                    SET title = ?, slug = ?, kind = ?, access_type = ?, category_id = ?, cover_asset_id = ?,
                         featured_rank = ?, sort_order = ?, copyright_note = ?, lock_version = lock_version + 1
                     WHERE id = ? AND lock_version = ?
                     """,
                     request.title().strip(),
                     request.slug(),
                     request.kind().name(),
+                    accessType(request).name(),
                     shape.selectedCategoryId(),
                     shape.coverAssetId(),
                     request.featuredRank(),
@@ -684,24 +690,29 @@ public class AdminWallpaperService {
         PreparedStatement statement = connection.prepareStatement(
                 """
                 INSERT INTO wallpaper
-                    (title, slug, kind, category_id, cover_asset_id, featured_rank,
+                    (title, slug, kind, access_type, category_id, cover_asset_id, featured_rank,
                      sort_order, copyright_note, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT')
                 """,
                 Statement.RETURN_GENERATED_KEYS);
         statement.setString(1, request.title().strip());
         statement.setString(2, request.slug());
         statement.setString(3, request.kind().name());
-        statement.setLong(4, shape.selectedCategoryId());
-        statement.setLong(5, shape.coverAssetId());
+        statement.setString(4, accessType(request).name());
+        statement.setLong(5, shape.selectedCategoryId());
+        statement.setLong(6, shape.coverAssetId());
         if (request.featuredRank() == null) {
-            statement.setNull(6, java.sql.Types.INTEGER);
+            statement.setNull(7, java.sql.Types.INTEGER);
         } else {
-            statement.setInt(6, request.featuredRank());
+            statement.setInt(7, request.featuredRank());
         }
-        statement.setInt(7, request.sortOrder());
-        statement.setString(8, request.copyrightNote().strip());
+        statement.setInt(8, request.sortOrder());
+        statement.setString(9, request.copyrightNote().strip());
         return statement;
+    }
+
+    private WallpaperAccessType accessType(WallpaperWriteRequest request) {
+        return request.accessType() == null ? WallpaperAccessType.REDEEM : request.accessType();
     }
 
     private String computeManifest(List<ResolvedBinding> bindings) {

@@ -33,6 +33,7 @@ const blank = (): Wallpaper => ({
   categoryId: '',
   subcategoryId: '',
   kind: 'four_d',
+  accessType: 'REDEEM',
   platforms: ['android'],
   status: 'draft',
   sort: 100,
@@ -105,6 +106,7 @@ const validate = () => {
   if (!form.title.trim()) next.title = '请输入壁纸名称';
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.slug)) next.slug = '请输入小写字母、数字和连字符组成的 Slug';
   if (!form.categoryId) next.categoryId = '请选择一级分类';
+  if (!['REDEEM', 'FREE'].includes(form.accessType)) next.accessType = '请选择获取方式';
   if (form.kind !== 'four_d' && !form.resources.cover && !form.coverUrl) next.cover = '请上传列表封面';
   if (form.platforms.length === 0) next.platforms = '请至少选择一个平台';
 
@@ -192,6 +194,12 @@ const resourceRows = computed(() => {
                   <ElInputNumber v-if="form.featuredRank !== null" v-model="form.featuredRank" :min="0" :max="999999" aria-label="精选排序" controls-position="right" />
                   <small>排序值越小越靠前；取消勾选后不进入精选。</small>
                 </div>
+              </ElFormItem>
+              <ElFormItem class="span-2" label="获取方式" :error="errors.accessType">
+                <ElRadioGroup v-model="form.accessType" @change="delete errors.accessType">
+                  <ElRadio value="REDEEM">需要兑换</ElRadio>
+                  <ElRadio value="FREE">免费</ElRadio>
+                </ElRadioGroup>
               </ElFormItem>
               <ElFormItem class="span-2" label="版权说明" :error="errors.copyrightNote">
                 <ElInput v-model="form.copyrightNote" type="textarea" :rows="2" maxlength="500" show-word-limit @input="delete errors.copyrightNote" />

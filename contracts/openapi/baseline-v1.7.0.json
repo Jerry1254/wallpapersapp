@@ -1,9 +1,9 @@
 {
   "frozenOn": "2026-09-16",
-  "previousAcceptedCommit": "695943905b671fe20beceecb2524bb2ad4f5dcba",
-  "contractVersion": "1.8.0",
-  "domainVersion": "1.8.0",
-  "databaseDesignVersion": "1.8.0",
+  "previousAcceptedCommit": "ca207958b30008410ff193906d4f6554d3c40625",
+  "contractVersion": "1.7.0",
+  "domainVersion": "1.7.0",
+  "databaseDesignVersion": "1.7.0",
   "migrationVersions": [
     "1",
     "2",
@@ -11,27 +11,26 @@
     "4",
     "5",
     "6",
-    "7",
-    "8"
+    "7"
   ],
-  "operationCount": 59,
-  "schemaCount": 89,
+  "operationCount": 58,
+  "schemaCount": 86,
   "files": [
     {
       "path": "contracts/openapi/openapi.yaml",
-      "sha256": "4ed249be6bfe3658587ceab73473593040b58a46465090d55c93d708029c8c14"
+      "sha256": "bd3c05e39c5df1160f058af54028bc5ae09b8cffefaf3ee5e8b573e8564a3655"
     },
     {
       "path": "docs/03-数据设计/DM-001-统一领域模型.md",
-      "sha256": "a3d28edcbd3358f990af7492d77f0bf5710d95b44a3ebc3eb11c7cb7295b67e2"
+      "sha256": "b634d3a3d693b31d37ff5acf561570b793c752c07db66857168f02298c54e7f0"
     },
     {
       "path": "docs/03-数据设计/DB-001-MySQL数据库设计.md",
-      "sha256": "78770781b3010941ac177f3b1fb70964dcc6003d39deb4da8bef38e4f088c700"
+      "sha256": "59971592917abb8f0d1fc9caaeebcb9256d788778479bf59f6096f8c2c285169"
     },
     {
       "path": "docs/04-接口设计/API-001-OpenAPI-V1契约说明.md",
-      "sha256": "c588bea49a9fb82a952a106e0333611fec825da75df6037632abb8d0e339df6d"
+      "sha256": "5f092a7be487182b3e83df5541c6614d0d43d3f41c8aecbfc1609d650d91497f"
     },
     {
       "path": "docs/02-系统架构/ARC-001-混合客户端与平台架构方案.md",
@@ -115,23 +114,7 @@
     },
     {
       "path": "docs/04-接口设计/API-010-1.0原资源详情预览Java交接说明.md",
-      "sha256": "4d4596ee8d884ed73b0fdd3122556f3823b05ec5f818df0f533259f18787b476"
-    },
-    {
-      "path": "services/api-server/src/main/resources/db/migration/V8__wallpaper_access_type.sql",
-      "sha256": "8fcad7993a8f15a418d890f607785d0109d042e0dafd1a39497eb80f22043fc3"
-    },
-    {
-      "path": "docs/04-接口设计/API-003-兑换设备权益API实现说明.md",
-      "sha256": "75d29f39effcd638cdd87892dc970b78ace88288cda297e429cd8eb21f23c9ca"
-    },
-    {
-      "path": "docs/04-接口设计/API-011-4D真机调试配置保存实现说明.md",
-      "sha256": "d9fa04c747ec62327d6722e5f255da37bffe776e3c6123a7ed949ad073beb61e"
-    },
-    {
-      "path": "docs/04-接口设计/API-012-免费壁纸获取方式接口交接说明.md",
-      "sha256": "378fde5df5fbd084c2eeea2e7e6bec4086d338cbb95fb9b6077219db18bc85ff"
+      "sha256": "ebe8e08c7ae4ffcbd057e9a5748aed96ce5119a3f52a96cd06299fcdde6447b0"
     }
   ]
 }

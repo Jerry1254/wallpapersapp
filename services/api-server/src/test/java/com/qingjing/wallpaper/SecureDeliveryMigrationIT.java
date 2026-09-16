@@ -64,9 +64,9 @@ class SecureDeliveryMigrationIT {
                         FROM parallax_source_package p JOIN asset a ON a.storage_key='legacy-object-4'
                         """);
             }
-            var v2Passthrough=Flyway.configure().dataSource(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword())
+            var throughV8=Flyway.configure().dataSource(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword())
                     .locations("classpath:db/migration").load().migrate();
-            assertThat(v2Passthrough.migrationsExecuted).isEqualTo(2);
+            assertThat(throughV8.migrationsExecuted).isEqualTo(3);
             try(var connection=DriverManager.getConnection(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword());
                 var query=connection.createStatement()) {
                 try (var result=query.executeQuery("SELECT COUNT(*) FROM preview_resource_package")) {
@@ -83,6 +83,12 @@ class SecureDeliveryMigrationIT {
                 }
                 try (var result=query.executeQuery("SELECT COUNT(*) FROM parallax_storage_cleanup")) {
                     assertThat(result.next()).isTrue();assertThat(result.getInt(1)).isEqualTo(5);
+                }
+                try (var result=query.executeQuery("""
+                        SELECT column_default FROM information_schema.columns
+                        WHERE table_schema=DATABASE() AND table_name='wallpaper' AND column_name='access_type'
+                        """)) {
+                    assertThat(result.next()).isTrue();assertThat(result.getString(1)).isEqualTo("REDEEM");
                 }
             }
             try (var connection = DriverManager.getConnection(mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword());

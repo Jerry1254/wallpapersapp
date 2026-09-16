@@ -31,6 +31,7 @@ const detail = (
   title: '晨雾山峦',
   slug: 'misty-mountains',
   kind: 'STATIC',
+  accessType: 'REDEEM',
   rootCategory: category,
   childCategory,
   cover,
@@ -153,7 +154,7 @@ describe('adminRepository.saveWallpaper', () => {
     const zip = new File(['zip'], 'wallpaper-4d.zip', { type: 'application/zip' });
     const input: Wallpaper = {
       id: '30', title: '4D 多层风景', slug: 'parallax-landscape', categoryId: '20', subcategoryId: '',
-      kind: 'four_d', platforms: ['android'], status: 'draft', sort: 1, featuredRank: null,
+      kind: 'four_d', accessType: 'REDEEM', platforms: ['android'], status: 'draft', sort: 1, featuredRank: null,
       coverUrl: '', copyrightNote: '本地测试', updatedAt: '', version: 0, variants: [], resources: {
         parallaxPackage: { name: zip.name, size: zip.size, mime: zip.type, nativeFile: zip }
       }
@@ -196,7 +197,7 @@ describe('adminRepository.saveWallpaper', () => {
     vi.stubGlobal('fetch', fetchMock);
     const resources = Object.fromEntries(['iosPhoto', 'iosMov'].map((key, index) => [key, { name: key, assetId: String(index + 2), size: 68, mime: 'image/png' }]));
     const input: Wallpaper = { id: '30', title: '多角色发布', slug: 'multi-role', categoryId: '20', subcategoryId: '',
-      kind: 'dynamic', platforms: ['ios'], status: 'draft', sort: 1, featuredRank: null,
+      kind: 'dynamic', accessType: 'REDEEM', platforms: ['ios'], status: 'draft', sort: 1, featuredRank: null,
       coverUrl: '', copyrightNote: '本地测试', updatedAt: '', version: 0, variants: [], resources: {
         ...resources, cover: { name: 'cover.png', assetId: '1', size: 68, mime: 'image/png' }
       } };
@@ -251,7 +252,7 @@ describe('adminRepository.saveWallpaper', () => {
     vi.stubGlobal('fetch', fetchMock);
     const file = new File(['invalid'], 'image.png', { type: 'image/png' });
     const input: Wallpaper = { id: '', title: '恢复草稿', slug: 'recover', categoryId: '20', subcategoryId: '',
-      kind: 'static', platforms: ['android', 'ios', 'harmony'], status: 'draft', sort: 1, featuredRank: null,
+      kind: 'static', accessType: 'REDEEM', platforms: ['android', 'ios', 'harmony'], status: 'draft', sort: 1, featuredRank: null,
       coverUrl: '', copyrightNote: '本地测试', updatedAt: '', version: 0, variants: [], resources: {
         cover: { name: file.name, size: file.size, mime: file.type, nativeFile: file },
         staticImage: { name: file.name, size: file.size, mime: file.type, nativeFile: file }
@@ -323,7 +324,7 @@ describe('adminRepository.saveWallpaper', () => {
     const png = new File([new Uint8Array([137, 80, 78, 71])], 'image.png', { type: 'image/png' });
     const input: Wallpaper = {
       id: '', title: '晨雾山峦', slug: 'misty-mountains', categoryId: '20', subcategoryId: '21',
-      kind: 'static', platforms: ['android', 'ios', 'harmony'], status: 'published', sort: 10,
+      kind: 'static', accessType: 'FREE', platforms: ['android', 'ios', 'harmony'], status: 'published', sort: 10,
       coverUrl: '', featuredRank: 2, copyrightNote: '已获得授权', updatedAt: '', version: 0, variants: [],
       resources: {
         cover: { name: 'cover.png', size: png.size, mime: png.type, nativeFile: png },
@@ -345,7 +346,7 @@ describe('adminRepository.saveWallpaper', () => {
       'POST /admin/wallpapers/30/publish'
     ]);
     const variantRequest = requests[2].options.headers as Headers;
-    expect(JSON.parse(String(requests[1].options.body)).featuredRank).toBe(2);
+    expect(JSON.parse(String(requests[1].options.body))).toMatchObject({ featuredRank: 2, accessType: 'FREE' });
     expect(variantRequest.get('If-Match')).toBe('"0"');
     expect(variantRequest.get('Content-Type')).toBe('application/json');
     const publishRequest = requests[7].options.headers as Headers;

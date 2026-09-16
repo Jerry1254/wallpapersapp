@@ -1,9 +1,9 @@
 # DB-001 MySQL 数据库设计
 
 **状态：** 已确认  
-**版本：** V1.7.0
+**版本：** V1.8.0
 
-**日期：** 2026-09-15
+**日期：** 2026-09-16
 **数据库：** MySQL 8.4 LTS  
 **关联领域：** [DM-001 统一领域模型](DM-001-统一领域模型.md)  
 **适用阶段：** WP-P02 至 WP-P12
@@ -182,6 +182,7 @@ erDiagram
 | `title` | `VARCHAR(40)` | 否 | 作品名称 |
 | `slug` | `VARCHAR(64)` | 否 | 全局唯一，不复用 |
 | `kind` | `VARCHAR(20)` | 否 | `PARALLAX_4D/DYNAMIC/STATIC` |
+| `access_type` | `VARCHAR(16)` | 否 | `REDEEM/FREE`，默认 `REDEEM` |
 | `category_id` | `BIGINT` | 否 | FK，最深选中的分类节点 |
 | `cover_asset_id` | `BIGINT` | 否 | FK，必须是 READY 图片资源 |
 | `featured_rank` | `INT` | 是 | 空表示不推荐；非空越小越靠前 |
@@ -192,7 +193,7 @@ erDiagram
 | `archived_at` | `DATETIME(6)` | 是 | 归档时间 |
 | `lock_version` | `BIGINT` | 否 | 乐观锁 |
 
-发布前服务必须确认分类未软删除、封面 READY、至少一个平台变体存在 PUBLISHED 资源版本。归档壁纸从公开查询移除，但仍可被历史权益和事件引用。
+发布前服务必须确认分类未软删除、封面 READY、至少一个平台变体存在 PUBLISHED 资源版本。`access_type` 是作品级获取方式，不属于分类、变体或资源版本；修改它不创建新资源版本，也不改写历史权益。归档壁纸从公开查询移除，但仍可被历史权益和事件引用。
 
 搜索首版对 `title` 和受控关键词使用 `LIKE`，只扫描 `PUBLISHED` 小数据集并限制 `pageSize`。达到 1 万条内容或出现慢查询后，再通过新迁移增加 ngram FULLTEXT 或独立搜索 Adapter，避免在没有查询证据时提前引入搜索基础设施。
 
@@ -414,6 +415,7 @@ erDiagram
 | `wallpaper(status, featured_rank, sort_order, id)` | 首页推荐和默认列表 |
 | `wallpaper(category_id, status, sort_order, id)` | 二级分类或指定节点列表 |
 | `wallpaper(status, kind, updated_at, id)` | 管理端按类型和状态筛选 |
+| `wallpaper(status, access_type, sort_order, id)` | 公开免费/需兑换列表 |
 | `wallpaper(updated_at, id)` | 管理端默认倒序分页 |
 | `asset(sha256)` | 上传重复检测和排障 |
 | `wallpaper_variant(wallpaper_id, platform)` | 按设备平台选择变体 |
@@ -459,11 +461,12 @@ CodeBatch、RedemptionCode、RedemptionEvent 和 AuditEvent 是额度或审计�
 
 1. 根据设备会话取得 device_id，先锁定 anonymous_device 行，再非锁定读取/插入 `redemption_request`，同设备写入由设备行串行化，不锁定不存在幂等行的索引范围。
 2. 同幂等键异参立即返回冲突；已完成请求直接返回原结果。
-3. 查询 `(device_id, wallpaper_id)` 权益。已存在时写 ALREADY_OWNED，额度不变；不存在的作品返回 404 并回滚请求，已下线作品保存最终拒绝事件。
-4. 计算兑换码 HMAC，`SELECT ... FOR UPDATE` 锁定单码行。
-5. 校验 `used_quota < total_quota`，插入权益。
-6. 以条件 UPDATE 增加 `used_quota`，写 GRANTED 事件和最终请求结果。
-7. 任何 SQL 失败全部回滚。唯一键冲突重新读取权益或幂等结果，不盲目重放。
+3. 查询作品状态和 `access_type`。不存在的作品返回 404 并回滚请求，已下线作品保存 `WALLPAPER_UNAVAILABLE`；免费作品保存 `WALLPAPER_FREE`，不查码、不扣额度、不建权益。
+4. 需兑换作品查询 `(device_id, wallpaper_id)` 权益；已存在时写 ALREADY_OWNED，额度不变。
+5. 计算兑换码 HMAC，`SELECT ... FOR UPDATE` 锁定单码行。
+6. 校验 `used_quota < total_quota`，插入权益。
+7. 以条件 UPDATE 增加 `used_quota`，写 GRANTED 事件和最终请求结果。
+8. 任何 SQL 失败全部回滚。唯一键冲突重新读取权益或幂等结果，不盲目重放。
 
 数据库锁内不执行文件 IO、网络调用、密码哈希或媒体探测。
 
@@ -586,3 +589,7 @@ V1/V2 原字节保留，V3__app_preview_delivery.sql 新增 preview_resource_pac
 V1/V2/V3 原字节保留。`V4__wallpaper_setting_tutorial.sql` 给 `asset` 增加可空 `purpose` 受控用途，新增 `wallpaper_setting_tutorial` 并预置五个固定 key，总计 20 张业务表。迁移同时把 `WALLPAPER_TUTORIAL` 加入审计聚合类型，不修改历史资产引用或文件字节。
 
 空库和 V1→V2→V3→V4 升级都由 MySQL 8.4 集成测试验证；升级后原安装凭据保留，五个教程槽位为停用且版本 0。
+
+## 1.8.0 / Flyway V8 免费壁纸获取方式
+
+V1～V7 原字节保留。`V8__wallpaper_access_type.sql` 为 `wallpaper` 增加非空 `access_type`，默认与旧行回填为 `REDEEM`，CHECK 只允许 `REDEEM/FREE`；增加公开获取方式索引，并把 `WALLPAPER_FREE` 加入 `redemption_event.result` 约束。不新增权益、兑换码或免费记录表。

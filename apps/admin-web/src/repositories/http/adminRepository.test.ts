@@ -16,6 +16,17 @@ it('rejects a 4D wallpaper without the fixed ZIP before making a request', async
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
+it('requests only free wallpapers when the management filter is selected', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    items: [], page: { page: 1, pageSize: 100, totalItems: 0, totalPages: 0 }
+  }), { headers: { 'Content-Type': 'application/json' } }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await adminRepository.wallpapers({ accessType: 'FREE' });
+
+  expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/admin/wallpapers?page=1&pageSize=100&accessType=FREE');
+});
+
 it('updates a fixed tutorial slot with optimistic locking', async () => {
   setCsrfToken('csrf-token');
   const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({

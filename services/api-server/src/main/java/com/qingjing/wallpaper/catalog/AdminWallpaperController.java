@@ -51,9 +51,10 @@ public class AdminWallpaperController {
             @RequestParam(defaultValue = "20") int pageSize,
             @RequestParam(required = false) WallpaperStatus status,
             @RequestParam(required = false) WallpaperKind kind,
+            @RequestParam(required = false) WallpaperAccessType accessType,
             @RequestParam(required = false) String categoryId,
             @RequestParam(required = false) String q) {
-        return wallpapers.list(page, pageSize, status, kind, categoryId, q);
+        return wallpapers.list(page, pageSize, status, kind, accessType, categoryId, q);
     }
 
     @PostMapping("/wallpapers")

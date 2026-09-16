@@ -85,6 +85,10 @@ paths:
           in: query
           schema:
             $ref: '#/components/schemas/WallpaperKind'
+        - name: accessType
+          in: query
+          schema:
+            $ref: '#/components/schemas/WallpaperAccessType'
         - name: platform
           in: query
           schema:
@@ -1270,6 +1274,10 @@ paths:
           in: query
           schema:
             $ref: '#/components/schemas/WallpaperKind'
+        - name: accessType
+          in: query
+          schema:
+            $ref: '#/components/schemas/WallpaperAccessType'
         - name: categoryId
           in: query
           schema:
@@ -2493,6 +2501,7 @@ components:
         - ASSET_VALIDATION_FAILED
         - RESOURCE_VERSION_NOT_READY
         - WALLPAPER_UNAVAILABLE
+        - WALLPAPER_FREE
         - CODE_NOT_FOUND
         - CODE_EXHAUSTED
         - ENTITLEMENT_REQUIRED
@@ -2538,6 +2547,11 @@ components:
     WallpaperKind:
       type: string
       enum: [PARALLAX_4D, DYNAMIC, STATIC]
+
+    WallpaperAccessType:
+      type: string
+      description: 正式资源获取方式。FREE 可直接申请正式下载；REDEEM 必须先取得设备权益。
+      enum: [REDEEM, FREE]
 
     WallpaperTutorialKey:
       type: string
@@ -2687,6 +2701,7 @@ components:
           title,
           slug,
           kind,
+          accessType,
           rootCategory,
           cover,
           featured,
@@ -2707,6 +2722,8 @@ components:
           pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
         kind:
           $ref: '#/components/schemas/WallpaperKind'
+        accessType:
+          $ref: '#/components/schemas/WallpaperAccessType'
         rootCategory:
           $ref: '#/components/schemas/CategorySummary'
         childCategory:
@@ -2896,6 +2913,7 @@ components:
         - CODE_NOT_FOUND
         - CODE_EXHAUSTED
         - WALLPAPER_UNAVAILABLE
+        - WALLPAPER_FREE
         - FAILED
 
     RedemptionResult:
@@ -3438,6 +3456,7 @@ components:
           title,
           slug,
           kind,
+          accessType,
           rootCategoryId,
           coverAssetId,
           sortOrder,
@@ -3455,6 +3474,8 @@ components:
           pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
         kind:
           $ref: '#/components/schemas/WallpaperKind'
+        accessType:
+          $ref: '#/components/schemas/WallpaperAccessType'
         rootCategoryId:
           $ref: '#/components/schemas/LongId'
         childCategoryId:
@@ -3487,6 +3508,7 @@ components:
           title,
           slug,
           kind,
+          accessType,
           rootCategory,
           cover,
           featured,
@@ -3508,6 +3530,8 @@ components:
           maxLength: 64
         kind:
           $ref: '#/components/schemas/WallpaperKind'
+        accessType:
+          $ref: '#/components/schemas/WallpaperAccessType'
         rootCategory:
           $ref: '#/components/schemas/CategorySummary'
         childCategory:

@@ -2,9 +2,9 @@
 
 **状态：** 已确认
 
-**版本：** V1.7.0
+**版本：** V1.8.0
 
-**日期：** 2026-09-15
+**日期：** 2026-09-16
 
 **机器契约：** [`contracts/openapi/openapi.yaml`](../../contracts/openapi/openapi.yaml)
 
@@ -12,7 +12,7 @@
 
 ## 1. 契约结论
 
-当前 V1.7.0 共 58 个操作、86 个 Schema。4D 源包响应的 `configFormatVersion` 为不低于 2 的客户端版本数据，图层响应只保留文件结构字段；配置算法字段仅存在于原始 `config.json`，不通过管理 DTO 展开。固定 ZIP、稳定外壳和原样透传边界见 [API-007](API-007-4D固定资源包导入接口.md)、[API-008](API-008-4D配置透传与管理后台改造方案.md)与[API-009](API-009-4D独立轴配置Java交接说明.md)。公开目录和设备端点数量不变。
+当前 V1.8.0 共 59 个操作、89 个 Schema。在 1.7.0 的 4D 不透明配置边界上，新增 Lab 整体保存接口，并为壁纸增加 `REDEEM/FREE` 作品级获取方式。公开目录和管理端均返回 `accessType`，免费正式交付免权益但保留设备、签名、状态、兼容性、安全包和限流校验。详见 [API-011](API-011-4D真机调试配置保存实现说明.md) 与 [API-012](API-012-免费壁纸获取方式接口交接说明.md)。
 
 V1 使用同一份 OpenAPI 3.0.3 契约服务 H5、正式 App 和管理后台，但按调用方分成三个边界：
 
@@ -31,7 +31,7 @@ WP-P12 冻结版本为 1.0.1，47 个操作和 72 个 Schema 保持不变。相�
 ### 2.1 公开目录
 
 - `GET /public/categories` 返回最多两级的分类树与已发布壁纸计数。
-- `GET /public/wallpapers` 统一承担分类筛选、推荐视图、静态视图、平台筛选和搜索。
+- `GET /public/wallpapers` 统一承担分类筛选、推荐视图、静态视图、获取方式、平台筛选和搜索。
 - `GET /public/wallpapers/{wallpaperId}` 只返回已发布作品、封面和交付能力描述。
 - `GET /public/assets/{assetId}/content` 只允许读取已发布目录引用的分类图标和封面。
 - `GET /public/wallpaper-tutorials` 只返回已启用且 MP4 已就绪的固定教程槽位。
@@ -48,7 +48,7 @@ WP-P12 冻结版本为 1.0.1，47 个操作和 72 个 Schema 保持不变。相�
 - `POST /device/wallpapers/{wallpaperId}/download-tickets` 在同一契约中返回 H5 占位描述或 App 安全资源包描述。
 - `GET /delivery/files` 只接受放在 `Authorization` header 中的短时、限定设备与资源版本的 Bearer 票据。
 
-H5 的已下载、已设置和试用倒计时继续保存在客户端本地，不通过 API 伪造成权益。服务端权益只由兑换事务创建。
+H5 的已下载、已设置和试用倒计时继续保存在客户端本地，不通过 API 伪造成权益。服务端权益只由需兑换作品的兑换事务创建；免费作品不伪造权益或“已获得”状态。
 
 ### 2.3 管理端
 
@@ -150,7 +150,7 @@ QJ-SIGNED-REQUEST-V1
 | 409 | `DUPLICATE_SLUG`、`DUPLICATE_CATEGORY_NAME`、`DUPLICATE_VARIANT`、`IDEMPOTENCY_KEY_REUSED`、`STATE_CONFLICT`、`RESOURCE_IN_USE`、`CODE_GENERATION_CONFLICT`、`REDEMPTION_PROCESSING`、`REQUEST_NONCE_REUSED`、`DELIVERY_EXPIRED` |
 | 412 | `VERSION_CONFLICT` |
 | 413/415 | `PAYLOAD_TOO_LARGE`、`UNSUPPORTED_MEDIA_TYPE` |
-| 422 | `DOMAIN_RULE_VIOLATION`、`ASSET_NOT_READY`、`ASSET_VALIDATION_FAILED`、`RESOURCE_VERSION_NOT_READY`、`WALLPAPER_UNAVAILABLE`、`CODE_NOT_FOUND`、`CODE_EXHAUSTED`、`DELIVERY_UNAVAILABLE`、`UNSUPPORTED_DEVICE`、`SECURE_PACKAGE_NOT_READY` |
+| 422 | `DOMAIN_RULE_VIOLATION`、`ASSET_NOT_READY`、`ASSET_VALIDATION_FAILED`、`RESOURCE_VERSION_NOT_READY`、`WALLPAPER_UNAVAILABLE`、`WALLPAPER_FREE`、`CODE_NOT_FOUND`、`CODE_EXHAUSTED`、`DELIVERY_UNAVAILABLE`、`UNSUPPORTED_DEVICE`、`SECURE_PACKAGE_NOT_READY` |
 | 410 | `TICKET_EXPIRED`、`DELIVERY_EXPIRED` |
 | 429 | `RATE_LIMITED`，并返回 `Retry-After` |
 | 500/503 | `INTERNAL_ERROR`、`SERVICE_UNAVAILABLE` |
@@ -168,7 +168,7 @@ POST 兑换和 GET 结果的 202 均返回 `{status: "PROCESSING", idempotencyKe
 | `H5_PLACEHOLDER` | 当前 H5 联调 | 封面和占位交互；ticket、资源版本和安全包字段为空 |
 | `SECURE_PACKAGE` | 后续正式 App | 短时 ticket、资源版本、密文摘要、大小和按设备公钥包装的内容密钥 |
 
-两种模式使用同一端点和作品权益判断。后续接入加密包、对象存储或 CDN 时，可以替换交付 Adapter，不改变作品、兑换和权益接口。
+两种模式使用同一端点和授权规则：`FREE` 可直接签发，`REDEEM` 需要有效权益。后续接入对象存储或 CDN 时，可以替换交付 Adapter，不改变作品、兑换和权益接口。
 
 ## 6. 契约验证
 
@@ -218,3 +218,9 @@ A10 的实际 HTTPS 下架测试发现：客户端使用 `Accept: application/oc
 新增 5 个操作、6 个 Schema，当前合计 56 操作、83 Schema。管理端读取五个固定槽位，通过 `TUTORIAL_VIDEO` 上传不超过 200 MB/15 分钟的真实 MP4，再用 `PUT /admin/wallpaper-tutorials/{tutorialKey}` 和强 ETag 替换视频、启停或排序。固定标题、平台和壁纸类型不接受客户端写入。
 
 公开列表只包含已启用且 READY 的教程，`contentUrl` 带教程乐观锁版本。视频流支持 GET、HEAD、完整 200 与单段 Range 206，未配置或已停用统一返回 `TUTORIAL_NOT_FOUND`。详细字段与前端匹配规则见 [API-006](API-006-壁纸设置教程接口.md)。
+
+## 1.8.0 Lab 配置保存与免费获取方式
+
+1.8.0 新增 `POST /admin/lab/wallpapers/{wallpaperId}/parallax-config`，将真机 Lab 确认的完整配置保存为新资源版本。同版本增加 `WallpaperAccessType`，公开/管理列表支持 `accessType` 筛选，作品摘要与管理写入将它作为必填字段。
+
+免费作品的兑换意图返回并保存 `WALLPAPER_FREE` / `quotaDelta=0`，不查码、不扣额度、不建权益。下载票据保存签发时的免费/权益授权类型，获取方式切回需兑换后新票据立即恢复权益校验，已签发免费票据在原 90 秒内保持有效。

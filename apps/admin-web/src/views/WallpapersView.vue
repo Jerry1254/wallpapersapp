@@ -6,7 +6,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import WallpaperEditorDrawer from '@/components/WallpaperEditorDrawer.vue';
-import { platformLabels, statusLabels, wallpaperKindLabels, type Category, type Platform, type ResourceFile, type Wallpaper, type WallpaperKind } from '@/domain/admin';
+import { platformLabels, statusLabels, wallpaperKindLabels, type Category, type Platform, type ResourceFile, type Wallpaper, type WallpaperAccessType, type WallpaperKind } from '@/domain/admin';
 import { readableApiError } from '@/repositories/http/apiClient';
 import { adminRepository, WallpaperSaveError } from '@/repositories/http/adminRepository';
 
@@ -17,6 +17,7 @@ const loadError = ref('');
 const keywords = ref('');
 const kind = ref<WallpaperKind | ''>('');
 const status = ref<Wallpaper['status'] | ''>('');
+const accessType = ref<WallpaperAccessType | ''>('');
 const categories = ref<Category[]>([]);
 const wallpapers = ref<Wallpaper[]>([]);
 const drawerOpen = ref(false);
@@ -36,7 +37,10 @@ const load = async () => {
   loading.value = true;
   loadError.value = '';
   try {
-    [categories.value, wallpapers.value] = await Promise.all([adminRepository.categories(), adminRepository.wallpapers()]);
+    [categories.value, wallpapers.value] = await Promise.all([
+      adminRepository.categories(),
+      adminRepository.wallpapers({ accessType: accessType.value })
+    ]);
   } catch (cause) {
     loadError.value = readableApiError(cause, '壁纸加载失败');
   } finally {
@@ -145,6 +149,9 @@ onMounted(load);
         <ElSelect v-model="status" clearable placeholder="全部状态" style="width: 130px">
           <ElOption label="草稿" value="draft" /><ElOption label="已发布" value="published" /><ElOption label="已下架" value="offline" /><ElOption label="已归档" value="archived" />
         </ElSelect>
+        <ElSelect v-model="accessType" clearable placeholder="全部获取方式" style="width: 150px" @change="load">
+          <ElOption label="免费" value="FREE" /><ElOption label="需兑换" value="REDEEM" />
+        </ElSelect>
       </div>
       <span v-if="!loadError" class="toolbar__result">共 {{ filtered.length }} 条</span>
     </section>
@@ -161,6 +168,7 @@ onMounted(load);
         </ElTableColumn>
         <ElTableColumn label="分类" min-width="120"><template #default="{ row }"><strong>{{ categoryMap[row.categoryId] || '未分类' }}</strong><br><small style="color:#817d77">{{ categoryMap[row.subcategoryId] || '—' }}</small></template></ElTableColumn>
         <ElTableColumn label="类型" width="110"><template #default="{ row }"><ElTag effect="plain">{{ kindLabel(row.kind) }}</ElTag></template></ElTableColumn>
+        <ElTableColumn label="获取方式" width="105"><template #default="{ row }"><ElTag :type="row.accessType === 'FREE' ? 'success' : 'info'" effect="plain">{{ row.accessType === 'FREE' ? '免费' : '需兑换' }}</ElTag></template></ElTableColumn>
         <ElTableColumn label="状态" width="95"><template #default="{ row }"><ElTag :type="statusType(row.status)">{{ statusLabel(row.status) }}</ElTag></template></ElTableColumn>
         <ElTableColumn label="资源" min-width="125">
           <template #default="{ row }">

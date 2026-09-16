@@ -1,4 +1,5 @@
 export type WallpaperKind = 'four_d' | 'dynamic' | 'static';
+export type WallpaperAccessType = 'REDEEM' | 'FREE';
 export type PublishStatus = 'draft' | 'published' | 'offline' | 'archived';
 export type Platform = 'android' | 'ios' | 'harmony';
 export type ApiPlatform = 'ANDROID' | 'IOS' | 'HARMONYOS' | 'UNIVERSAL';
@@ -87,6 +88,7 @@ export interface Wallpaper {
   categoryId: string;
   subcategoryId: string;
   kind: WallpaperKind;
+  accessType: WallpaperAccessType;
   platforms: Platform[];
   status: PublishStatus;
   sort: number;
@@ -116,7 +118,7 @@ export interface PageMetadata {
 
 export type DeliveryStatus = 'AVAILABLE' | 'CONFIRMED' | 'EXPIRED';
 export type RedemptionCodeStatus = 'AVAILABLE' | 'EXHAUSTED';
-export type RedemptionResult = 'GRANTED' | 'ALREADY_OWNED' | 'CODE_NOT_FOUND' | 'CODE_EXHAUSTED' | 'WALLPAPER_UNAVAILABLE' | 'FAILED';
+export type RedemptionResult = 'GRANTED' | 'ALREADY_OWNED' | 'CODE_NOT_FOUND' | 'CODE_EXHAUSTED' | 'WALLPAPER_UNAVAILABLE' | 'WALLPAPER_FREE' | 'FAILED';
 export type DevicePlatform = 'ANDROID' | 'IOS' | 'HARMONYOS' | 'H5_TEST';
 export type DeviceStatus = 'ACTIVE' | 'REVIEW' | 'DISABLED';
 export const devicePlatformLabels: Record<DevicePlatform, string> = { ANDROID: 'Android', IOS: 'iOS', HARMONYOS: 'HarmonyOS', H5_TEST: 'H5 联调' };

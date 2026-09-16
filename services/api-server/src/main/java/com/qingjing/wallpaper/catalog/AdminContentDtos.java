@@ -50,6 +50,7 @@ public final class AdminContentDtos {
             @NotBlank @Size(min = 2, max = 64)
                     @Pattern(regexp = "[a-z0-9]+(?:-[a-z0-9]+)*") String slug,
             @NotNull WallpaperKind kind,
+            @NotNull WallpaperAccessType accessType,
             @NotBlank @Pattern(regexp = "[1-9][0-9]*") String rootCategoryId,
             @Pattern(regexp = "[1-9][0-9]*") String childCategoryId,
             @NotBlank @Pattern(regexp = "[1-9][0-9]*") String coverAssetId,
@@ -102,6 +103,7 @@ public final class AdminContentDtos {
             String title,
             String slug,
             WallpaperKind kind,
+            WallpaperAccessType accessType,
             CategorySummary rootCategory,
             CategorySummary childCategory,
             AdminAssetView cover,
@@ -121,6 +123,7 @@ public final class AdminContentDtos {
             String title,
             String slug,
             WallpaperKind kind,
+            WallpaperAccessType accessType,
             CategorySummary rootCategory,
             CategorySummary childCategory,
             AdminAssetView cover,

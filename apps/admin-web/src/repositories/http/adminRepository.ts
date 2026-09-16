@@ -24,6 +24,7 @@ import type {
   ResourceType,
   ResourceVersionStatus,
   Wallpaper,
+  WallpaperAccessType,
   WallpaperKind,
   WallpaperResources,
   WallpaperTutorial,
@@ -125,6 +126,7 @@ interface ApiWallpaperSummary {
   title: string;
   slug: string;
   kind: 'PARALLAX_4D' | 'DYNAMIC' | 'STATIC';
+  accessType: WallpaperAccessType;
   rootCategory: ApiCategorySummary;
   childCategory: ApiCategorySummary | null;
   cover: ApiAsset;
@@ -284,6 +286,7 @@ const wallpaperFromApi = (value: ApiWallpaperDetail): Wallpaper => {
     categoryId: value.rootCategory.id,
     subcategoryId: value.childCategory?.id || '',
     kind,
+    accessType: value.accessType,
     platforms: platformsFromVariants(kind, value.variants),
     status: statusFromApi[value.status],
     sort: value.sortOrder,
@@ -383,11 +386,11 @@ const eligibleVersion = (variant: ApiWallpaperVariant) => (
   || variant.resourceVersions.find((item) => item.status === 'PUBLISHED')
 );
 
-const listAllSummaries = async () => {
-  const first = (await apiRequest<ApiWallpaperPage>('/admin/wallpapers?page=1&pageSize=100')).data;
+const listAllSummaries = async (accessType?: WallpaperAccessType | '') => {
+  const first = (await apiRequest<ApiWallpaperPage>(`/admin/wallpapers${queryString({ page: 1, pageSize: 100, accessType })}`)).data;
   if (first.page.totalPages <= 1) return first.items;
   const pages = await Promise.all(Array.from({ length: first.page.totalPages - 1 }, (_, index) => (
-    apiRequest<ApiWallpaperPage>(`/admin/wallpapers?page=${index + 2}&pageSize=100`)
+    apiRequest<ApiWallpaperPage>(`/admin/wallpapers${queryString({ page: index + 2, pageSize: 100, accessType })}`)
   )));
   return [first.items, ...pages.map((item) => item.data.items)].flat();
 };
@@ -469,8 +472,8 @@ export const adminRepository = {
     return categoryFromApi(response.data);
   },
 
-  async wallpapers() {
-    const summaries = await listAllSummaries();
+  async wallpapers(input: { accessType?: WallpaperAccessType | '' } = {}) {
+    const summaries = await listAllSummaries(input.accessType);
     const details = await Promise.all(summaries.map((item) => fetchWallpaper(item.id)));
     return details.map(wallpaperFromApi);
   },
@@ -497,6 +500,7 @@ export const adminRepository = {
       title: input.title.trim(),
       slug: input.slug.trim(),
       kind: kindToApi[input.kind],
+      accessType: input.accessType,
       rootCategoryId: input.categoryId,
       childCategoryId: input.subcategoryId || null,
       coverAssetId,

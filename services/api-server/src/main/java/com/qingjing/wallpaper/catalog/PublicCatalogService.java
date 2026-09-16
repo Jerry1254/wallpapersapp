@@ -83,6 +83,7 @@ public class PublicCatalogService {
             Long childCategoryId,
             CatalogView view,
             WallpaperKind kind,
+            WallpaperAccessType accessType,
             DeliveryPlatform platform,
             String query,
             CatalogSort sort) {
@@ -118,6 +119,10 @@ public class PublicCatalogService {
         if (kind != null) {
             where.append(" AND w.kind = ?");
             parameters.add(kind.name());
+        }
+        if (accessType != null) {
+            where.append(" AND w.access_type = ?");
+            parameters.add(accessType.name());
         }
         if (platform != null) {
             where.append("""

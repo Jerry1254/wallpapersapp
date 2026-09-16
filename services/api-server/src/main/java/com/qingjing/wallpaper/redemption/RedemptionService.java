@@ -84,25 +84,11 @@ public class RedemptionService {
         }, requestKey);
         long requestId = requiredKey(requestKey, "Redemption request");
 
-        List<EntitlementRow> owned = jdbc.query(
-                """
-                SELECT id, granted_at FROM device_entitlement
-                WHERE device_id = ? AND wallpaper_id = ? AND status = 'ACTIVE'
-                """,
-                (resultSet, rowNumber) -> new EntitlementRow(
-                        resultSet.getLong("id"), resultSet.getTimestamp("granted_at").toInstant()),
-                deviceId, wallpaperId);
-        if (!owned.isEmpty()) {
-            EntitlementRow entitlement = owned.get(0);
-            complete(
-                    requestId, deviceId, wallpaperId, null, suffix(normalizedCode), entitlement.id(),
-                    RedemptionResultCode.ALREADY_OWNED, 0, null, "SUCCEEDED");
-            return new RedemptionAttempt(result(requestId, idempotencyKey), false, false);
-        }
-
-        List<String> wallpaperStatuses = jdbc.queryForList(
-                "SELECT status FROM wallpaper WHERE id = ?", String.class, wallpaperId);
-        if (wallpaperStatuses.isEmpty()) {
+        List<WallpaperRow> wallpapers = jdbc.query(
+                "SELECT status,access_type FROM wallpaper WHERE id = ?",
+                (resultSet,rowNumber)->new WallpaperRow(
+                        resultSet.getString("status"),resultSet.getString("access_type")),wallpaperId);
+        if (wallpapers.isEmpty()) {
             throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_FOUND", "The wallpaper was not found");
         }
         String platform = jdbc.queryForObject("SELECT platform FROM anonymous_device WHERE id = ?", String.class, deviceId);
@@ -117,11 +103,34 @@ public class RedemptionService {
                     """, Long.class, wallpaperId);
             androidDelivery = compatible != null && compatible > 0;
         }
-        if (!wallpaperStatuses.get(0).equals("PUBLISHED") || !androidDelivery) {
+        WallpaperRow wallpaper=wallpapers.get(0);
+        if (!wallpaper.status().equals("PUBLISHED") || !androidDelivery) {
             complete(
                     requestId, deviceId, wallpaperId, null, suffix(normalizedCode), null,
                     RedemptionResultCode.WALLPAPER_UNAVAILABLE, 0, "WALLPAPER_UNAVAILABLE", "REJECTED");
             return new RedemptionAttempt(result(requestId, idempotencyKey), false, true);
+        }
+        if (wallpaper.accessType().equals("FREE")) {
+            complete(
+                    requestId, deviceId, wallpaperId, null, suffix(normalizedCode), null,
+                    RedemptionResultCode.WALLPAPER_FREE, 0, "WALLPAPER_FREE", "REJECTED");
+            return new RedemptionAttempt(result(requestId, idempotencyKey), false, true);
+        }
+
+        List<EntitlementRow> owned = jdbc.query(
+                """
+                SELECT id, granted_at FROM device_entitlement
+                WHERE device_id = ? AND wallpaper_id = ? AND status = 'ACTIVE'
+                """,
+                (resultSet, rowNumber) -> new EntitlementRow(
+                        resultSet.getLong("id"), resultSet.getTimestamp("granted_at").toInstant()),
+                deviceId, wallpaperId);
+        if (!owned.isEmpty()) {
+            EntitlementRow entitlement = owned.get(0);
+            complete(
+                    requestId, deviceId, wallpaperId, null, suffix(normalizedCode), entitlement.id(),
+                    RedemptionResultCode.ALREADY_OWNED, 0, null, "SUCCEEDED");
+            return new RedemptionAttempt(result(requestId, idempotencyKey), false, false);
         }
 
         List<CodeRow> codes = jdbc.query(
@@ -314,6 +323,9 @@ public class RedemptionService {
     }
 
     private record EntitlementRow(long id, Instant grantedAt) {
+    }
+
+    private record WallpaperRow(String status,String accessType) {
     }
 
     private record EventRow(

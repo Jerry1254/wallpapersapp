@@ -50,6 +50,7 @@ public class AdminContentViewReader {
                 summary.title(),
                 summary.slug(),
                 summary.kind(),
+                summary.accessType(),
                 summary.rootCategory(),
                 summary.childCategory(),
                 summary.cover(),
@@ -78,6 +79,7 @@ public class AdminContentViewReader {
                 row.title(),
                 row.slug(),
                 WallpaperKind.valueOf(row.kind()),
+                WallpaperAccessType.valueOf(row.accessType()),
                 root,
                 child,
                 assets.get(row.coverAssetId()),
@@ -95,7 +97,7 @@ public class AdminContentViewReader {
     public WallpaperRow wallpaperRow(long wallpaperId) {
         List<WallpaperRow> rows = jdbc.query(
                 """
-                SELECT w.id, w.title, w.slug, w.kind, w.category_id, w.cover_asset_id,
+                SELECT w.id, w.title, w.slug, w.kind, w.access_type, w.category_id, w.cover_asset_id,
                        w.featured_rank, w.sort_order, w.copyright_note, w.status,
                        w.published_at, w.archived_at, w.created_at, w.updated_at, w.lock_version,
                        CASE WHEN selected.level = 1 THEN selected.id ELSE root.id END AS root_id,
@@ -264,6 +266,7 @@ public class AdminContentViewReader {
                 resultSet.getString("title"),
                 resultSet.getString("slug"),
                 resultSet.getString("kind"),
+                resultSet.getString("access_type"),
                 resultSet.getLong("category_id"),
                 resultSet.getLong("cover_asset_id"),
                 (Integer) resultSet.getObject("featured_rank"),
@@ -324,6 +327,7 @@ public class AdminContentViewReader {
             String title,
             String slug,
             String kind,
+            String accessType,
             long categoryId,
             long coverAssetId,
             Integer featuredRank,

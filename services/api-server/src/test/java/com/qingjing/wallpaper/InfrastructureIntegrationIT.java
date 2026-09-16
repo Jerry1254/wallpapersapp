@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.core.io.ByteArrayResource;
@@ -123,7 +124,7 @@ class InfrastructureIntegrationIT {
                 """,
                 String.class);
 
-        assertThat(successfulMigrations).isEqualTo(7);
+        assertThat(successfulMigrations).isEqualTo(8);
         assertThat(tables).containsExactlyInAnyOrder(
                 "admin_account",
                 "anonymous_device",
@@ -157,6 +158,10 @@ class InfrastructureIntegrationIT {
                 SELECT column_default FROM information_schema.columns
                 WHERE table_schema=DATABASE() AND table_name='parallax_source_package' AND column_name='format_version'
                 """,String.class)).isEqualTo("2");
+        assertThat(jdbc.queryForObject("""
+                SELECT column_default FROM information_schema.columns
+                WHERE table_schema=DATABASE() AND table_name='wallpaper' AND column_name='access_type'
+                """,String.class)).isEqualTo("REDEEM");
     }
 
     @Test
@@ -205,6 +210,13 @@ class InfrastructureIntegrationIT {
                 """, categoryId, assetId);
         Long wallpaperId = jdbc.queryForObject(
                 "SELECT id FROM wallpaper WHERE slug = 'integration-wallpaper'", Long.class);
+        assertThat(jdbc.queryForObject(
+                "SELECT access_type FROM wallpaper WHERE id=?", String.class, wallpaperId))
+                .isEqualTo("REDEEM");
+        assertThatThrownBy(() -> jdbc.update(
+                "UPDATE wallpaper SET access_type='UNKNOWN' WHERE id=?", wallpaperId))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("ck_wallpaper_access_type");
 
         jdbc.update("""
                 INSERT INTO wallpaper_variant
@@ -399,12 +411,21 @@ class InfrastructureIntegrationIT {
         wallpaperRequest.put("title", "API 集成静态壁纸");
         wallpaperRequest.put("slug", "api-integration-static-wallpaper");
         wallpaperRequest.put("kind", "STATIC");
+        wallpaperRequest.put("accessType", "REDEEM");
         wallpaperRequest.put("rootCategoryId", category.getBody().path("id").asText());
         wallpaperRequest.put("childCategoryId", childCategory.getBody().path("id").asText());
         wallpaperRequest.put("coverAssetId", cover.path("id").asText());
         wallpaperRequest.put("sortOrder", 20);
         wallpaperRequest.put("featuredRank", 2);
         wallpaperRequest.put("copyrightNote", "API integration test asset");
+        Map<String, Object> missingAccessType = new LinkedHashMap<>(wallpaperRequest);
+        missingAccessType.remove("accessType");
+        assertThat(jsonExchange(
+                "/api/v1/admin/wallpapers",
+                HttpMethod.POST,
+                missingAccessType,
+                session,
+                null).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         ResponseEntity<JsonNode> wallpaper = jsonExchange(
                 "/api/v1/admin/wallpapers",
                 HttpMethod.POST,
@@ -484,6 +505,7 @@ class InfrastructureIntegrationIT {
         JsonNode publicPage = http.getForObject(publicList, JsonNode.class);
         assertThat(publicPage.path("items")).hasSize(1);
         assertThat(publicPage.path("items").get(0).path("id").asText()).isEqualTo(wallpaperId);
+        assertThat(publicPage.path("items").get(0).path("accessType").asText()).isEqualTo("REDEEM");
         assertThat(publicPage.path("page").path("totalItems").asLong()).isEqualTo(1);
         assertThat(publicPage.path("page").path("totalPages").asInt()).isEqualTo(1);
         assertThat(http.getForObject("/api/v1/public/wallpapers?rootCategoryId=" + rootId + "&q=集成静态",
@@ -501,10 +523,13 @@ class InfrastructureIntegrationIT {
                 JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(http.getForEntity("/api/v1/public/wallpapers?q= ",
                 JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(http.getForEntity("/api/v1/public/wallpapers?accessType=UNKNOWN",
+                JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
 
         JsonNode publicDetail = http.getForObject("/api/v1/public/wallpapers/" + wallpaperId + "?platform=ANDROID",
                 JsonNode.class);
         assertThat(publicDetail.path("copyrightNote").asText()).isEqualTo("API integration test asset");
+        assertThat(publicDetail.path("accessType").asText()).isEqualTo("REDEEM");
         assertThat(publicDetail.path("publishedAt").asText()).isNotBlank();
         assertThat(publicDetail.path("capabilities").get(0).path("platform").asText()).isEqualTo("UNIVERSAL");
         assertThat(publicDetail.toString()).doesNotContain("storageKey", "storage_key", "password", "secret", "bindings");
@@ -516,6 +541,42 @@ class InfrastructureIntegrationIT {
         assertThat(publicCover.getHeaders().getCacheControl()).contains("public", "max-age=3600");
         assertThat(http.getForEntity("/api/v1/public/assets/" + staticAsset.path("id").asText() + "/content",
                 byte[].class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        Long resourceVersionCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM resource_version rv JOIN wallpaper_variant v ON v.id=rv.variant_id WHERE v.wallpaper_id=?",
+                Long.class,
+                Long.parseLong(wallpaperId));
+        Map<String, Object> freeWallpaperRequest = new LinkedHashMap<>(wallpaperRequest);
+        freeWallpaperRequest.put("accessType", "FREE");
+        ResponseEntity<JsonNode> freeWallpaper = jsonExchange(
+                "/api/v1/admin/wallpapers/" + wallpaperId,
+                HttpMethod.PATCH,
+                freeWallpaperRequest,
+                session,
+                publishedOne.getHeaders().getETag());
+        assertThat(freeWallpaper.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(freeWallpaper.getBody().path("accessType").asText()).isEqualTo("FREE");
+        assertThat(http.getForObject("/api/v1/public/wallpapers/" + wallpaperId, JsonNode.class)
+                .path("accessType").asText()).isEqualTo("FREE");
+        assertThat(http.getForObject(publicList + "&accessType=FREE", JsonNode.class)
+                .path("items").findValuesAsText("id")).contains(wallpaperId);
+        assertThat(http.getForObject("/api/v1/public/wallpapers?accessType=REDEEM&q=api-integration-static-wallpaper", JsonNode.class)
+                .path("items")).isEmpty();
+        assertThat(getJson("/api/v1/admin/wallpapers?accessType=FREE&status=PUBLISHED&kind=STATIC&categoryId=" + rootId, session)
+                .getBody().path("items").findValuesAsText("id")).contains(wallpaperId);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM resource_version rv JOIN wallpaper_variant v ON v.id=rv.variant_id WHERE v.wallpaper_id=?",
+                Long.class,
+                Long.parseLong(wallpaperId))).isEqualTo(resourceVersionCount);
+
+        ResponseEntity<JsonNode> redeemWallpaper = jsonExchange(
+                "/api/v1/admin/wallpapers/" + wallpaperId,
+                HttpMethod.PATCH,
+                wallpaperRequest,
+                session,
+                freeWallpaper.getHeaders().getETag());
+        assertThat(redeemWallpaper.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(redeemWallpaper.getBody().path("accessType").asText()).isEqualTo("REDEEM");
 
         ResponseEntity<JsonNode> staleUpdate = jsonExchange(
                 "/api/v1/admin/wallpapers/" + wallpaperId,
@@ -548,7 +609,7 @@ class InfrastructureIntegrationIT {
                 session,
                 null);
         String versionTwoId = versionTwo.getBody().path("id").asText();
-        String publishedEtag = publishedOne.getHeaders().getETag();
+        String publishedEtag = redeemWallpaper.getHeaders().getETag();
         ResponseEntity<JsonNode> publishedTwo = jsonExchange(
                 "/api/v1/admin/wallpapers/" + wallpaperId + "/publish",
                 HttpMethod.POST,
@@ -943,6 +1004,69 @@ class InfrastructureIntegrationIT {
         assertThat(descriptor.getBody().path("deliveryMode").asText()).isEqualTo("H5_PLACEHOLDER");
         assertThat(descriptor.getBody().has("ticket")).isFalse();
 
+        DeviceTestSession freeDevice = registerAndCreateSession("integration-free-" + UUID.randomUUID());
+        jdbc.update("UPDATE wallpaper SET access_type='FREE', lock_version=lock_version+1 WHERE id=?", wallpaperId);
+        ResponseEntity<JsonNode> freeDescriptor = signedPost(
+                "/api/v1/device/wallpapers/" + wallpaperId + "/download-tickets",
+                orderedMap("platform", "H5_TEST", "supportedResourceTypes", List.of("STATIC_IMAGE")),
+                freeDevice,
+                null);
+        assertThat(freeDescriptor.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(freeDescriptor.getBody().path("deliveryMode").asText()).isEqualTo("H5_PLACEHOLDER");
+
+        String freeRedemptionKey = UUID.randomUUID().toString();
+        ResponseEntity<JsonNode> freeRedemption = signedPost(
+                "/api/v1/device/redemptions",
+                orderedMap("wallpaperId", Long.toString(wallpaperId), "code", "AAAAAAAAAAAAAAAAAAAA"),
+                freeDevice,
+                freeRedemptionKey);
+        assertThat(freeRedemption.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(freeRedemption.getBody().path("result").asText()).isEqualTo("WALLPAPER_FREE");
+        assertThat(freeRedemption.getBody().path("errorCode").asText()).isEqualTo("WALLPAPER_FREE");
+        assertThat(freeRedemption.getBody().path("quotaDelta").asInt()).isZero();
+        assertThat(freeRedemption.getBody().hasNonNull("entitlement")).isFalse();
+        ResponseEntity<JsonNode> freeRedemptionReplay = signedPost(
+                "/api/v1/device/redemptions",
+                orderedMap("wallpaperId", Long.toString(wallpaperId), "code", "AAAAAAAAAAAAAAAAAAAA"),
+                freeDevice,
+                freeRedemptionKey);
+        assertThat(freeRedemptionReplay.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(freeRedemptionReplay.getBody()).isEqualTo(freeRedemption.getBody());
+        assertThat(jdbc.queryForObject(
+                "SELECT used_quota FROM redemption_code WHERE batch_id=?",
+                Integer.class,
+                Long.parseLong(batchId))).isEqualTo(3);
+        assertThat(jdbc.queryForMap("""
+                SELECT result,quota_delta,error_code,code_id,entitlement_id
+                FROM redemption_event e JOIN redemption_request r ON r.id=e.request_id
+                WHERE r.idempotency_key=?
+                """, freeRedemptionKey))
+                .containsEntry("result", "WALLPAPER_FREE")
+                .containsEntry("quota_delta", 0)
+                .containsEntry("error_code", "WALLPAPER_FREE")
+                .containsEntry("code_id", null)
+                .containsEntry("entitlement_id", null);
+        ResponseEntity<JsonNode> freeAdminRedemptions = getJson(
+                "/api/v1/admin/redemptions?result=WALLPAPER_FREE&pageSize=100",
+                admin);
+        assertThat(freeAdminRedemptions.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(freeAdminRedemptions.getBody().path("items").findValuesAsText("result"))
+                .contains("WALLPAPER_FREE");
+
+        jdbc.update("UPDATE wallpaper SET access_type='REDEEM', lock_version=lock_version+1 WHERE id=?", wallpaperId);
+        ResponseEntity<JsonNode> newlyRestricted = signedPost(
+                "/api/v1/device/wallpapers/" + wallpaperId + "/download-tickets",
+                orderedMap("platform", "H5_TEST", "supportedResourceTypes", List.of("STATIC_IMAGE")),
+                freeDevice,
+                null);
+        assertThat(newlyRestricted.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(newlyRestricted.getBody().path("error").path("code").asText()).isEqualTo("ENTITLEMENT_REQUIRED");
+        assertThat(signedPost(
+                "/api/v1/device/wallpapers/" + wallpaperId + "/download-tickets",
+                orderedMap("platform", "H5_TEST", "supportedResourceTypes", List.of("STATIC_IMAGE")),
+                owner,
+                null).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
         ResponseEntity<JsonNode> adminRedemptions = getJson("/api/v1/admin/redemptions?pageSize=100", admin);
         assertThat(adminRedemptions.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(adminRedemptions.getBody().path("page").path("totalItems").asLong()).isGreaterThanOrEqualTo(5);
@@ -1306,6 +1430,20 @@ class InfrastructureIntegrationIT {
         var previewHeaders=verifyUnownedPreview(signing,encryption,token,deviceId,wallpaperId,versionId,type);
         String ticketPath="/api/v1/device/wallpapers/"+wallpaperId+"/download-tickets";
         String body=objectMapper.writeValueAsString(Map.of("platform","ANDROID","osVersion","35","supportedResourceTypes",List.of(type)));
+        if (type.equals("STATIC_IMAGE")) {
+            jdbc.update("UPDATE wallpaper SET access_type='FREE',lock_version=lock_version+1 WHERE id=?",wallpaperId);
+            var freeIssued=http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,body),JsonNode.class);
+            assertThat(freeIssued.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+            String freeTicket=freeIssued.getBody().path("ticket").asText();
+            assertThat(freeTicket).isNotBlank();
+            jdbc.update("UPDATE wallpaper SET access_type='REDEEM',lock_version=lock_version+1 WHERE id=?",wallpaperId);
+            HttpHeaders freeDownload=new HttpHeaders();freeDownload.setBearerAuth(freeTicket);
+            freeDownload.setAccept(List.of(MediaType.APPLICATION_OCTET_STREAM));
+            assertThat(http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(freeDownload),byte[].class).getStatusCode()).isEqualTo(HttpStatus.OK);
+            var newlyRestricted=http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,body),JsonNode.class);
+            assertThat(newlyRestricted.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+            assertThat(newlyRestricted.getBody().path("error").path("code").asText()).isEqualTo("ENTITLEMENT_REQUIRED");
+        }
         assertThat(http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,body),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         HttpHeaders batchHeaders=headers(admin,true,null);batchHeaders.setContentType(MediaType.APPLICATION_JSON);batchHeaders.set("Idempotency-Key",UUID.randomUUID().toString());
         var batch=http.exchange("/api/v1/admin/code-batches",HttpMethod.POST,new HttpEntity<>(Map.of("name","secure-delivery-fixture","generatedCount",1,"quotaPerCode",1),batchHeaders),JsonNode.class).getBody();

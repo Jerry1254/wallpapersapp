@@ -34,7 +34,7 @@ public class PublicWallpaperViewReader {
     public PublicWallpaperSummary summary(long wallpaperId, DeliveryPlatform preferredPlatform) {
         List<WallpaperRow> rows = jdbc.query(
                 """
-                SELECT w.id, w.title, w.slug, w.kind, w.featured_rank, w.sort_order,
+                SELECT w.id, w.title, w.slug, w.kind, w.access_type, w.featured_rank, w.sort_order,
                        selected.id AS selected_id, selected.name AS selected_name,
                        selected.slug AS selected_slug, selected.level AS selected_level,
                        parent.id AS parent_id, parent.name AS parent_name, parent.slug AS parent_slug,
@@ -50,6 +50,7 @@ public class PublicWallpaperViewReader {
                         resultSet.getString("title"),
                         resultSet.getString("slug"),
                         WallpaperKind.valueOf(resultSet.getString("kind")),
+                        WallpaperAccessType.valueOf(resultSet.getString("access_type")),
                         resultSet.getObject("featured_rank", Integer.class),
                         resultSet.getInt("sort_order"),
                         resultSet.getLong("selected_id"),
@@ -98,6 +99,7 @@ public class PublicWallpaperViewReader {
                 row.title(),
                 row.slug(),
                 row.kind(),
+                row.accessType(),
                 root,
                 child,
                 new PublicMedia(
@@ -124,6 +126,7 @@ public class PublicWallpaperViewReader {
             String title,
             String slug,
             WallpaperKind kind,
+            WallpaperAccessType accessType,
             Integer featuredRank,
             int sortOrder,
             long selectedId,

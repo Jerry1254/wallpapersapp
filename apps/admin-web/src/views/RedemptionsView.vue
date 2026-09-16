@@ -26,10 +26,11 @@ const resultLabels: Record<RedemptionResult, string> = {
   CODE_NOT_FOUND: '兑换码无效',
   CODE_EXHAUSTED: '额度耗尽',
   WALLPAPER_UNAVAILABLE: '壁纸不可用',
+  WALLPAPER_FREE: '壁纸已免费',
   FAILED: '处理失败'
 };
 const resultLabel = (result: RedemptionResult) => resultLabels[result];
-const resultTag = (result: RedemptionResult) => result === 'GRANTED' || result === 'ALREADY_OWNED'
+const resultTag = (result: RedemptionResult) => result === 'GRANTED' || result === 'ALREADY_OWNED' || result === 'WALLPAPER_FREE'
   ? 'success'
   : (result === 'FAILED' ? 'danger' : 'warning');
 const date = (value?: string | null) => value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '—';

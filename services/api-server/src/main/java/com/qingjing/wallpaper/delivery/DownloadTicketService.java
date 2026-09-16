@@ -6,6 +6,7 @@ import com.qingjing.wallpaper.asset.application.StorageKey;
 import com.qingjing.wallpaper.catalog.PublicWallpaperViewReader;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.DeliveryPlatform;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.ResourceType;
+import com.qingjing.wallpaper.catalog.WallpaperAccessType;
 import com.qingjing.wallpaper.delivery.DeliveryDtos.*;
 import com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec;
 import com.qingjing.wallpaper.device.DeviceDtos.DevicePlatform;
@@ -47,7 +48,9 @@ public class DownloadTicketService {
     public DownloadDescriptor create(DevicePrincipal principal,long wallpaperId,CreateDownloadTicketRequest request) {
         rateLimiter.require("download-ticket",Long.toString(principal.deviceId()),30,Duration.ofMinutes(1));
         if (request.platform()!=principal.platform()) throw new ApiException(HttpStatus.FORBIDDEN,"PLATFORM_MISMATCH","The requested platform does not match the device session");
-        if (!entitled(principal.deviceId(),wallpaperId)) throw new ApiException(HttpStatus.FORBIDDEN,"ENTITLEMENT_REQUIRED","An active entitlement is required");
+        Access access=access(wallpaperId);
+        Authorization authorization=access.type()==WallpaperAccessType.FREE?Authorization.FREE:Authorization.ENTITLEMENT;
+        if (authorization==Authorization.ENTITLEMENT && !entitled(principal.deviceId(),wallpaperId)) throw new ApiException(HttpStatus.FORBIDDEN,"ENTITLEMENT_REQUIRED","An active entitlement is required");
         var wallpaper=wallpapers.summary(wallpaperId);
         if (principal.platform()==DevicePlatform.H5_TEST) return new DownloadDescriptor(DeliveryMode.H5_PLACEHOLDER,Long.toString(wallpaperId),wallpaper.cover(),null,null,null,null,null);
         if (principal.platform()!=DevicePlatform.ANDROID || !devices.isAndroidEnabled()) throw unavailable();
@@ -65,7 +68,7 @@ public class DownloadTicketService {
         try { wrapped=Base64.getUrlEncoder().withoutPadding().encodeToString(SecurePackageCodec.wrapContentKey(contentKey,encryptionKey)); }
         finally { Arrays.fill(contentKey,(byte)0); }
         String token=crypto.randomToken(32); Instant expiry=Instant.now().plus(TTL);
-        Ticket state=new Ticket(principal.deviceId(),principal.credentialKeyId(),wallpaperId,selected.versionId(),fingerprint,expiry.toString());
+        Ticket state=new Ticket(principal.deviceId(),principal.credentialKeyId(),wallpaperId,selected.versionId(),fingerprint,authorization,expiry.toString());
         validate(state);
         try { redis.opsForValue().set(ticketKey(token),mapper.writeValueAsString(state),TTL); }
         catch (com.fasterxml.jackson.core.JsonProcessingException exception) { throw new IllegalStateException("Cannot serialize download ticket"); }
@@ -108,7 +111,8 @@ public class DownloadTicketService {
         } catch (Exception error) { throw invalid(); }
     }
     private PackageRow validate(Ticket state) {
-        if (!devices.isAndroidEnabled() || !entitled(state.deviceId(),state.wallpaperId())) throw invalid();
+        if (!devices.isAndroidEnabled() || state.authorization()==null ||
+                (state.authorization()==Authorization.ENTITLEMENT && !entitled(state.deviceId(),state.wallpaperId()))) throw invalid();
         var credentials=jdbc.queryForList("""
                 SELECT d.app_install_scope FROM anonymous_device d JOIN device_credential c ON c.device_id=d.id
                 JOIN device_encryption_key k ON k.credential_id=c.id
@@ -123,6 +127,13 @@ public class DownloadTicketService {
     private boolean entitled(long device,long wallpaper) {
         return Integer.valueOf(1).equals(jdbc.queryForObject("SELECT COUNT(*) FROM device_entitlement WHERE device_id=? AND wallpaper_id=? AND status='ACTIVE'",Integer.class,device,wallpaper));
     }
+    private Access access(long wallpaperId) {
+        var rows=jdbc.query("SELECT status,access_type FROM wallpaper WHERE id=?",
+                (rs,n)->new Access(rs.getString("status"),WallpaperAccessType.valueOf(rs.getString("access_type"))),wallpaperId);
+        if(rows.isEmpty())throw new ApiException(HttpStatus.NOT_FOUND,"WALLPAPER_NOT_FOUND","The wallpaper was not found");
+        if(!rows.get(0).status().equals("PUBLISHED"))throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,"WALLPAPER_UNAVAILABLE","The wallpaper is not available");
+        return rows.get(0);
+    }
     private String ticketKey(String token) { return "download-ticket-v2:"+crypto.hmacHex("download-ticket-v2",token); }
     static boolean compatibleOs(String actual,String minimum) {
         if (minimum==null || minimum.isBlank()) return true;
@@ -131,7 +142,9 @@ public class DownloadTicketService {
         for(int i=0;i<Math.max(a.length,b.length);i++) { int x=i<a.length?Integer.parseInt(a[i]):0,y=i<b.length?Integer.parseInt(b[i]):0; if(x!=y)return x>y; }
         return true;
     }
-    public record Ticket(long deviceId,String credentialKeyId,long wallpaperId,long versionId,String keyHash,String expiresAt) {}
+    public record Ticket(long deviceId,String credentialKeyId,long wallpaperId,long versionId,String keyHash,Authorization authorization,String expiresAt) {}
+    private enum Authorization { FREE, ENTITLEMENT }
+    private record Access(String status,WallpaperAccessType type) {}
     @FunctionalInterface public interface Writer { void write(OutputStream output) throws IOException; }
     public record ProtectedFile(long sizeBytes,String sha256,Writer writer) {}
     private static final String SELECT_PACKAGE="""

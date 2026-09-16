@@ -91,7 +91,7 @@ Java API 正式工程目录，承载内容目录、匿名设备、兑换、权�
 
 ## 配置边界
 
-当前契约版本为 OpenAPI 1.5.0；历史开工冻结规则见 [PM-003](../../docs/10-项目管理/PM-003-App开工门禁与接入清单.md)。Android 正式设备身份与安全资源包交付已经接入；HarmonyOS 与 iOS Provider 仍按各自工作包实现。不存在的 wallpaperId 兑换返回 404 `WALLPAPER_NOT_FOUND` 并回滚事务，已存在但下线作品仍返回 422 最终兑换结果。
+当前契约版本为 OpenAPI 1.8.0；历史开工冻结规则见 [PM-003](../../docs/10-项目管理/PM-003-App开工门禁与接入清单.md)。Android 正式设备身份与安全资源包交付已经接入；HarmonyOS 与 iOS Provider 仍按各自工作包实现。不存在的 wallpaperId 兑换返回 404 `WALLPAPER_NOT_FOUND` 并回滚事务，已存在但下线作品仍返回 422 最终兑换结果。`FREE` 作品免权益正式交付，误兑换返回 `WALLPAPER_FREE`。
 
 - `local` profile 默认连接本地 Compose，并允许应用启动时执行 Flyway。
 - `test` profile 只连接 Testcontainers 创建的独立数据服务。

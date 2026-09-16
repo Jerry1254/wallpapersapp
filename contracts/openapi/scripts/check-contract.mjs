@@ -54,8 +54,20 @@ assert.equal(new Set(operationIds).size, operationIds.length, 'operationId value
 assert.equal(document.components.schemas.LongId.type, 'string', 'LongId must remain a JSON string');
 assert.deepEqual(
   document.components.schemas.RedemptionResultCode.enum,
-  ['GRANTED', 'ALREADY_OWNED', 'CODE_NOT_FOUND', 'CODE_EXHAUSTED', 'WALLPAPER_UNAVAILABLE', 'FAILED'],
+  ['GRANTED', 'ALREADY_OWNED', 'CODE_NOT_FOUND', 'CODE_EXHAUSTED', 'WALLPAPER_UNAVAILABLE', 'WALLPAPER_FREE', 'FAILED'],
   'redemption result enum drifted from DM-001'
+);
+assert.deepEqual(document.components.schemas.WallpaperAccessType.enum, ['REDEEM', 'FREE']);
+for (const [path, schema] of [
+  ['/public/wallpapers', 'PublicWallpaperSummary'],
+  ['/admin/wallpapers', 'AdminWallpaperSummary']
+]) {
+  assert.ok(document.paths[path].get.parameters.some(parameter => parameter.name === 'accessType'));
+  assert.equal(document.components.schemas[schema].properties.accessType.$ref, '#/components/schemas/WallpaperAccessType');
+}
+assert.equal(
+  document.components.schemas.WallpaperWriteRequest.properties.accessType.$ref,
+  '#/components/schemas/WallpaperAccessType'
 );
 
 const parameterName = (parameter) => {

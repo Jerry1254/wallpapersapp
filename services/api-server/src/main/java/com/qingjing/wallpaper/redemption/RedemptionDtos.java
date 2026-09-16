@@ -11,7 +11,7 @@ public final class RedemptionDtos {
     }
 
     public enum RedemptionResultCode {
-        GRANTED, ALREADY_OWNED, CODE_NOT_FOUND, CODE_EXHAUSTED, WALLPAPER_UNAVAILABLE, FAILED
+        GRANTED, ALREADY_OWNED, CODE_NOT_FOUND, CODE_EXHAUSTED, WALLPAPER_UNAVAILABLE, WALLPAPER_FREE, FAILED
     }
 
     public record RedeemWallpaperRequest(

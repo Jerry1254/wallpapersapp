@@ -37,6 +37,7 @@ public class PublicCatalogController {
             @RequestParam(required = false) String childCategoryId,
             @RequestParam(required = false) CatalogView view,
             @RequestParam(required = false) WallpaperKind kind,
+            @RequestParam(required = false) WallpaperAccessType accessType,
             @RequestParam(required = false) DeliveryPlatform platform,
             @RequestParam(name = "q", required = false) String query,
             @RequestParam(defaultValue = "DEFAULT") CatalogSort sort) {
@@ -47,6 +48,7 @@ public class PublicCatalogController {
                 optionalId(childCategoryId, "childCategoryId"),
                 view,
                 kind,
+                accessType,
                 platform,
                 query,
                 sort);
