@@ -28,29 +28,29 @@ class ParallaxMotionTest {
         for ((w,h) in listOf(1080 to 2400,2400 to 1080,512 to 512))
             for ((iw,ih) in listOf(512 to 512,1080 to 2400,4096 to 512))
                 for (scale in listOf(1f,1.1f,1.5f)) for (x in listOf(-1f,1f)) for (y in listOf(-1f,1f)) {
-                    val p = ParallaxMotion.placement(w,h,iw,ih,scale,25f,x,y,true)
+                    val p = ParallaxMotion.placement(w,h,iw,ih,scale,100f,"follow",x,y,true)
                     assertTrue(p.left<=.001f && p.top<=.001f)
                     assertTrue(p.left+iw*p.scale>=w-.001f && p.top+ih*p.scale>=h-.001f)
                 }
     }
-    @Test fun signedOffsetsMoveLayersInOppositeDirections() {
-        val foreground=ParallaxMotion.placement(1000,2000,1000,2000,1f,8f,1f,1f,false)
-        val background=ParallaxMotion.placement(1000,2000,1000,2000,1f,-3f,1f,1f,true)
-        assertTrue(foreground.left<0f)
-        assertTrue(foreground.top>0f)
-        assertTrue(background.left>-30.001f)
-        assertTrue(background.top<-60f)
+    @Test fun explicitDirectionsMoveLayersInOppositeDirections() {
+        val foreground=ParallaxMotion.placement(1000,2000,1000,2000,1f,100f,"follow",1f,1f,false)
+        val background=ParallaxMotion.placement(1000,2000,1000,2000,1f,20f,"reverse",1f,1f,true)
+        assertEquals(-150f,foreground.left,.001f)
+        assertEquals(300f,foreground.top,.001f)
+        assertEquals(0f,background.left,.001f)
+        assertEquals(-120f,background.top,.001f)
     }
-    @Test fun backgroundOverscanCoversMaximumSignedTravel() {
-        for(percent in listOf(-25f,-3f,0f,8f,25f)) for(x in listOf(-1f,1f)) for(y in listOf(-1f,1f)) {
-            val p=ParallaxMotion.placement(1080,2400,1080,2400,1f,percent,x,y,true)
+    @Test fun backgroundOverscanCoversMaximumDirectionalTravel() {
+        for(percent in listOf(0f,20f,50f,100f)) for(direction in listOf("follow","reverse","fixed")) for(x in listOf(-1f,1f)) for(y in listOf(-1f,1f)) {
+            val p=ParallaxMotion.placement(1080,2400,1080,2400,1f,percent,direction,x,y,true)
             assertTrue(p.left<=.001f && p.top<=.001f)
             assertTrue(p.left+1080*p.scale>=1080-.001f)
             assertTrue(p.top+2400*p.scale>=2400-.001f)
         }
     }
     @Test fun zeroOffsetStaysCentered() {
-        val centered = ParallaxMotion.placement(1080,2400,1080,2400,1.1f,0f,1f,1f,false)
+        val centered = ParallaxMotion.placement(1080,2400,1080,2400,1.1f,100f,"fixed",1f,1f,false)
         assertEquals(ParallaxMotion.Placement(1.1f,-54f,-120f),centered)
     }
     @Test fun smoothingHasSameProgressAcrossFrameRates() {

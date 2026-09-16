@@ -5,9 +5,9 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class ParallaxConfigurationTest {
-    private val valid = """{"formatVersion":2,"canvas":{"width":1080,"height":2400},"motion":{"maxAngle":75},"layers":[{"index":1,"offsetPercent":8,"scale":1.18,"opacity":0.5,"blendMode":"screen"},{"index":2,"offsetPercent":0,"scale":1.1,"opacity":1,"blendMode":"add"},{"index":3,"offsetPercent":-3,"scale":1,"opacity":1,"blendMode":"normal"}]}"""
+    private val valid = """{"formatVersion":2,"canvas":{"width":1080,"height":2400},"motion":{"maxAngle":75},"layers":[{"index":1,"offsetPercent":55,"direction":"follow","scale":1.18,"opacity":0.5,"blendMode":"screen"},{"index":2,"offsetPercent":0,"direction":"fixed","scale":1.1,"opacity":1,"blendMode":"add"},{"index":3,"offsetPercent":20,"direction":"reverse","scale":1,"opacity":1,"blendMode":"normal"}]}"""
 
-    @Test fun parsesSignedOffsetsAndReversesSourceOrderForDrawing() {
+    @Test fun parsesDirectionalStrengthAndReversesSourceOrderForDrawing() {
         val config = ParallaxConfiguration.parse(valid.toByteArray())
         assertEquals(1080, config.width)
         assertEquals(2400, config.height)
@@ -15,7 +15,8 @@ class ParallaxConfigurationTest {
         assertEquals(.2f, config.smoothing, 0f)
         assertEquals(listOf("BACKGROUND", "FOREGROUND", "FOREGROUND"), config.layers.map { it.role })
         assertEquals(listOf(0, 1, 0), config.layers.map { it.ordinal })
-        assertEquals(listOf(-3f, 0f, 8f), config.layers.map { it.offsetPercent })
+        assertEquals(listOf(20f, 0f, 55f), config.layers.map { it.offsetPercent })
+        assertEquals(listOf("reverse", "fixed", "follow"), config.layers.map { it.direction })
         assertEquals(listOf("normal", "add", "screen"), config.layers.map { it.blend })
     }
 
@@ -29,7 +30,8 @@ class ParallaxConfigurationTest {
             valid.replace("\"maxAngle\":75", "\"maxAngle\":0"),
             valid.replace("\"maxAngle\":75", "\"maxAngle\":76"),
             valid.replace("\"index\":1", "\"index\":2"),
-            valid.replace("\"offsetPercent\":8", "\"offsetPercent\":26"),
+            valid.replace("\"offsetPercent\":55", "\"offsetPercent\":101"),
+            valid.replace("\"direction\":\"follow\"", "\"direction\":\"sideways\""),
             valid.replace("\"scale\":1.18", "\"scale\":2"),
             valid.replace("\"opacity\":0.5", "\"opacity\":2"),
             valid.replace("screen", "multiply"),

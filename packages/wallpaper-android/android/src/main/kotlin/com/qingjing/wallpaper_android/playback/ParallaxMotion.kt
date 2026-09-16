@@ -6,6 +6,8 @@ import kotlin.math.pow
 
 /** Geometry migrated from PoC TiltSensor/ParallaxScene, independent of Android for boundary tests. */
 internal object ParallaxMotion {
+    /** At 100% authoring strength a layer travels 15% of the corresponding screen axis. */
+    const val MAX_TRAVEL_FRACTION = .15f
     fun angleDelta(angle: Float, base: Float): Float {
         if (!angle.isFinite() || !base.isFinite()) return 0f
         return kotlin.math.atan2(kotlin.math.sin(angle-base),kotlin.math.cos(angle-base))
@@ -24,16 +26,14 @@ internal object ParallaxMotion {
     }
     data class Placement(val scale: Float,val left: Float,val top: Float)
 
-    /**
-     * Signed percentage motion used by source config v2. Positive layers follow the
-     * phone, negative layers move in the opposite direction, and zero stays fixed.
-     * The last opaque background receives enough overscan to cover its full travel.
-     */
+    /** 0..100 authoring strength with an explicit direction, shared by Web config v2. */
     fun placement(width: Int,height: Int,imageWidth: Int,imageHeight: Int,scale: Float,
-                  offsetPercent: Float,x: Float,y: Float,background: Boolean): Placement {
+                  offsetPercent: Float,direction: String,x: Float,y: Float,background: Boolean): Placement {
         require(width>0 && height>0 && imageWidth>0 && imageHeight>0)
-        require(scale in 1f..1.5f && offsetPercent.isFinite() && offsetPercent in -25f..25f)
-        val fraction=offsetPercent/100f
+        require(scale in 1f..1.5f && offsetPercent.isFinite() && offsetPercent in 0f..100f)
+        require(direction in setOf("follow","reverse","fixed"))
+        val sign=when(direction) { "follow" -> 1f; "reverse" -> -1f; else -> 0f }
+        val fraction=sign*offsetPercent/100f*MAX_TRAVEL_FRACTION
         val overscan=if(background) 1f+2f*abs(fraction) else 1f
         val cover=max(width.toFloat()/imageWidth,height.toFloat()/imageHeight)*max(scale,overscan)
         val marginX=max(0f,(imageWidth*cover-width)/2f)

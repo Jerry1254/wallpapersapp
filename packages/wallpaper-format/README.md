@@ -1,6 +1,6 @@
 # 壁纸格式共享定义
 
-理解 4D 效果可先阅读 [4D 分层视差壁纸原理](../../docs/02-系统架构/ARC-003-4D分层视差壁纸原理.md)，制作素材请查看 [4D 源包制作说明](4D源包制作说明.md)。固定 ZIP 支持 2～12 层，当前链路的签名位移配置只使用 `parallax-source-v2.schema.json`。
+理解 4D 效果可先阅读 [4D 分层视差壁纸原理](../../docs/02-系统架构/ARC-003-4D分层视差壁纸原理.md)，制作素材请查看 [4D 源包制作说明](4D源包制作说明.md)。固定 ZIP 支持 2～12 层，当前链路的方向与强度配置只使用 `parallax-source-v2.schema.json`。
 
 正式交付采用冻结的安全包 manifest formatVersion=2，见 `manifest-v2.schema.json` 和 [SEC-003](../../docs/05-安全与合规/SEC-003-Android安全资源交付协议.md)。`parallax-config-v2.schema.json` 只作为已废弃 Android 内部配置的历史参考，当前链路将 Web 模拟器导出的源 `config.json` 原样签名下发。
 

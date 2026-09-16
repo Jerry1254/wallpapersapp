@@ -6,6 +6,7 @@ internal data class ParallaxLayer(
     val role: String,
     val ordinal: Int,
     val offsetPercent: Float,
+    val direction: String,
     val scale: Float,
     val opacity: Float,
     val blend: String
@@ -35,15 +36,18 @@ internal data class ParallaxConfiguration(
             val input=root["layers"] as? List<*> ?: error("Invalid layers")
             require(input.size in 2..12)
             val source=input.mapIndexed { position,item ->
-                val layer=fields(item,setOf("index","offsetPercent","scale","opacity","blendMode"))
+                val layer=fields(item,setOf("index","offsetPercent","direction","scale","opacity","blendMode"))
                 require(integer(layer["index"],1,12)==position+1)
                 val blend=layer["blendMode"] as? String ?: error("Invalid blend")
                 require(blend in setOf("normal","screen","add"))
+                val direction=layer["direction"] as? String ?: error("Invalid direction")
+                require(direction in setOf("follow","reverse","fixed"))
                 val background=position==input.lastIndex
                 ParallaxLayer(
                     if(background) "BACKGROUND" else "FOREGROUND",
                     if(background) 0 else position,
-                    number(layer["offsetPercent"],-25.0,25.0),
+                    number(layer["offsetPercent"],0.0,100.0),
+                    direction,
                     number(layer["scale"],1.0,1.5),
                     number(layer["opacity"],0.0,1.0),
                     blend

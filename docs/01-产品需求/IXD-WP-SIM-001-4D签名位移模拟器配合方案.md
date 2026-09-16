@@ -1,46 +1,51 @@
-# 4D 签名位移模拟器配合方案
+# 4D 方向与强度模拟器配合方案
 
-**日期：** 2026-09-15
+**日期：** 2026-09-16
 
 **对接对象：** Web 4D 模拟器、Android 壁纸播放端
 
 **项目文件：** [`wallpaper-tools/parallax-studio/index.html`](../../wallpaper-tools/parallax-studio/index.html)
 
-**实施状态：** Web 模拟器 v2 已于 2026-09-16 纳入项目维护；API 透传改造另行实施。
+**实施状态：** Web 与 Android 的 v2 方向/强度模型已同步；API 透传改造另行实施。
 
-## 1. 确认后的核心模型
+## 1. 核心模型
 
-4D 效果只由手机倾斜和每层的签名位移百分比决定。
+倾斜角度决定动画进度，每层的方向和强度决定终点：
 
-- `offsetPercent > 0`：图层跟随手机倾斜方向。
-- `offsetPercent < 0`：图层向手机倾斜的反方向移动。
-- `offsetPercent = 0`：图层保持不动。
-- `maxAngle`：达到配置位移百分比所需的倾斜角度；从中立位置的 0° 变化开始线性响应，没有启动死区。
+- `direction=follow`：跟随手机倾斜方向。
+- `direction=reverse`：向手机倾斜的反方向移动。
+- `direction=fixed`：固定不动。
+- `offsetPercent`：`0～100` 的位移强度，不再使用正负号表达方向。
+- `maxAngle`：达到该层最大位移所需的倾斜角度，支持 `1°～75°`。
+- 最大安全位移固定为屏幕对应轴长的 `15%`，因此强度 `100%` 对应屏幕轴长 `15%`，强度 `50%` 对应 `7.5%`。
 
-屏幕坐标中，设当前倾斜归一化结果为 `x/y`，范围为 `-1～1`：
+设倾斜输入和方向符号为：
 
 ```text
-x = clamp(左右倾斜角 / maxAngle, -1, 1)
-y = clamp(上下倾斜角 / maxAngle, -1, 1)
+inputX = clamp(左右倾斜角 / maxAngle, -1, 1)
+inputY = clamp(上下倾斜角 / maxAngle, -1, 1)
+directionSign = follow ? 1 : reverse ? -1 : 0
+travel = offsetPercent / 100 × 15%
 
-水平位移 = x × 屏幕宽度 × offsetPercent / 100
-垂直位移 = y × 屏幕高度 × offsetPercent / 100
+水平位移 = inputX × 屏幕宽度 × travel × directionSign
+垂直位移 = inputY × 屏幕高度 × travel × directionSign
 ```
 
-二层默认值：前景 `+8%`，背景 `-3%`。手机左倾/下倾时，前景左移/下移，背景右移/上移。
+坐标正负由 Web 与 Android 的同一约定处理。以满幅角度 `75°`、强度 `100%` 为例：`0°` 位移为 0，`37.5°` 达到最大安全位移的一半，`75°` 达到全部最大安全位移。
+
+二层默认值：前景 `55% / follow`，背景 `20% / reverse`，分别约等于屏幕轴长 `8.25%` 与 `3%` 的实际满幅位移。
 
 ## 2. 多层编辑交互
 
-保留现有图层列表、图层顺序、缩略图和实时预览。将当前「景深 Depth」改为「位移 Offset」：
+每个图层单独提供：
 
-- 滑块以 0 为中心，可输入负数、0 和正数。
-- v2 建议可视滑块范围为 `-15%～+15%`，数值框允许 `-25%～+25%`，步进 `0.1%`。
-- 负数区显示「反向」，0 显示「固定」，正数区显示「跟随」。
-- 图层编号只决定绘制顺序：`01` 为最前景，最后一层为完整背景。模拟器不根据编号猜测运动方向。
-- 新增二层项目时自动填入 `+8% / -3%`。新增多层项目可给出起始值，但必须允许制作人逐层调整。
-- `Scale`、`Opacity`、`BlendMode` 继续负责构图和图层合成，不参与运动方向判断。
+- 「运动方向」：跟随、反向、固定。
+- 「位移强度」：`0～100%`，步进 `1%`。
+- `0%` 或固定方向均不移动。
+- 图层编号只决定绘制顺序：`01` 为最前景，最后一层为完整背景；程序不根据编号推断运动方向。
+- `Scale`、`Opacity`、`BlendMode` 只负责构图与合成。
 
-预览区的鼠标/触摸拖动必须与 Android 使用同一坐标约定，并提供中立位置复位。
+预览区鼠标/触摸拖动、角度滑块和回正操作必须与 Android 使用同一计算规则。
 
 ## 3. v2 导出格式
 
@@ -50,10 +55,10 @@ y = clamp(上下倾斜角 / maxAngle, -1, 1)
   "canvas": { "width": 2048, "height": 2048 },
   "motion": { "maxAngle": 75 },
   "layers": [
-    { "index": 1, "offsetPercent": 8, "scale": 1.18, "opacity": 1, "blendMode": "normal" },
-    { "index": 2, "offsetPercent": 5, "scale": 1.18, "opacity": 0.25, "blendMode": "screen" },
-    { "index": 3, "offsetPercent": 0, "scale": 1.18, "opacity": 1, "blendMode": "normal" },
-    { "index": 4, "offsetPercent": -3, "scale": 1, "opacity": 1, "blendMode": "normal" }
+    { "index": 1, "offsetPercent": 55, "direction": "follow", "scale": 1.18, "opacity": 1, "blendMode": "normal" },
+    { "index": 2, "offsetPercent": 35, "direction": "follow", "scale": 1.18, "opacity": 0.25, "blendMode": "screen" },
+    { "index": 3, "offsetPercent": 0, "direction": "fixed", "scale": 1.18, "opacity": 1, "blendMode": "normal" },
+    { "index": 4, "offsetPercent": 20, "direction": "reverse", "scale": 1, "opacity": 1, "blendMode": "normal" }
   ]
 }
 ```
@@ -74,8 +79,8 @@ wallpaper.zip
 
 ## 4. 一致性验收
 
-1. 二层配置 `+8/-3`，水平和垂直四个方向的前后景均相反。
-2. 任一层从正数拖到负数时，预览位移方向立即反转；设为 0 时固定。
-3. 同一配置在 Web 预览和 Android 真机上的图层顺序、方向和最大位移一致。
-4. 导出 ZIP 后的 `config.json` 与工程当前参数逐项一致，不在导出时转换为 `depth/strength/responseCurve`。
-5. 背景预览使用与其最大位移相匹配的显示放大，不修改源图字节或降低分辨率。
+1. `100% / follow` 在满幅角度达到屏幕轴长 `15%`，半角度达到 `7.5%`，0° 位移为 0。
+2. 同一强度从 follow 切换为 reverse 时立即反向；切换 fixed 或设为 0% 时不移动。
+3. 同一配置在 Web 和 Android 上的图层顺序、方向和最大位移一致。
+4. 导出配置保留 `offsetPercent` 和 `direction`，不转换成 `depth/strength/responseCurve`。
+5. 背景按实际位移自动补足显示边缘，不修改源图字节或降低分辨率。

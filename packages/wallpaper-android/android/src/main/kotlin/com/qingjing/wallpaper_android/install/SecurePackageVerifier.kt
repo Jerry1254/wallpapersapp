@@ -161,14 +161,15 @@ internal class SecurePackageVerifier(private val purpose: PackagePurpose = Packa
         val layers=root["layers"] as? List<*> ?: error("Invalid layers")
         require(layers.size in 2..12 && layers.size==images.size)
         for((position,value) in layers.withIndex()) {
-            val layer=fields(value,setOf("index","offsetPercent","scale","opacity","blendMode"))
+            val layer=fields(value,setOf("index","offsetPercent","direction","scale","opacity","blendMode"))
             require(layer["index"]==(position+1).toLong())
             val background=position==layers.lastIndex
             val role=if(background) "BACKGROUND" else "FOREGROUND"
             val ordinal=if(background) 0 else position
             val image=images["$role:$ordinal"] ?: error("Missing layer")
             require(image.width.toLong()==width && image.height.toLong()==height && (background || image.alpha))
-            range(layer["offsetPercent"],-25.0,25.0)
+            range(layer["offsetPercent"],0.0,100.0)
+            require(layer["direction"] in setOf("follow","reverse","fixed"))
             range(layer["scale"],1.0,1.5);range(layer["opacity"],0.0,1.0)
             require(layer["blendMode"] in setOf("normal","screen","add"))
         }

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const html = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
-const coreStart = html.indexOf('/* ARC-003 v2 signed-offset geometry shared with the Android implementation. */');
+const coreStart = html.indexOf('/* ARC-003 v2 directional-strength geometry shared with the Android implementation. */');
 const coreEnd = html.indexOf('</script>', coreStart);
 assert.ok(coreStart >= 0 && coreEnd > coreStart, 'must contain the v2 core script');
 
@@ -25,8 +25,8 @@ const validConfig = {
   canvas: { width: 2048, height: 2048 },
   motion: { maxAngle: 75 },
   layers: [
-    { index: 1, offsetPercent: 8, scale: 1.18, opacity: 1, blendMode: 'normal' },
-    { index: 2, offsetPercent: -3, scale: 1, opacity: 1, blendMode: 'normal' },
+    { index: 1, offsetPercent: 55, direction: 'follow', scale: 1.18, opacity: 1, blendMode: 'normal' },
+    { index: 2, offsetPercent: 20, direction: 'reverse', scale: 1, opacity: 1, blendMode: 'normal' },
   ],
 };
 
@@ -37,8 +37,12 @@ assert.match(core.validateConfig({ ...validConfig, motion: { maxAngle: 76 } }).j
 assert.match(core.validateConfig({ ...validConfig, motion: { maxAngle: 75, strength: 1 } }).join('；'), /只能包含 maxAngle/);
 assert.match(core.validateConfig({
   ...validConfig,
-  layers: [{ ...validConfig.layers[0], offsetPercent: 26 }, validConfig.layers[1]],
+  layers: [{ ...validConfig.layers[0], offsetPercent: 101 }, validConfig.layers[1]],
 }).join('；'), /offsetPercent 超出范围/);
+assert.match(core.validateConfig({
+  ...validConfig,
+  layers: [{ ...validConfig.layers[0], direction: 'sideways' }, validConfig.layers[1]],
+}).join('；'), /运动方向无效/);
 
 assert.equal(core.inputFromAngles(0, 0, 75).x, 0);
 assert.ok(core.inputFromAngles(0.1, 0, 75).x > 0, 'motion starts at the first non-zero angle');
@@ -46,16 +50,16 @@ assert.equal(core.inputFromAngles(75, -75, 75).x, 1);
 assert.equal(core.inputFromAngles(75, -75, 75).y, -1);
 assert.equal(core.inputFromAngles(150, -150, 75).x, 1, 'input clamps after maxAngle');
 
-const following = core.geometry(1000, 1000, 1000, 1000, { offsetPercent: 8, scale: 1 }, 1, 1, false);
-const opposite = core.geometry(1000, 1000, 1000, 1000, { offsetPercent: -3, scale: 1 }, 1, 1, true);
-const fixed = core.geometry(1000, 1000, 1000, 1000, { offsetPercent: 0, scale: 1 }, 1, 1, false);
-assert.equal(following.dx, -80);
-assert.equal(following.dy, 80);
+const following = core.geometry(1000, 1000, 1000, 1000, { offsetPercent: 100, direction: 'follow', scale: 1 }, 1, 1, false);
+const opposite = core.geometry(1000, 1000, 1000, 1000, { offsetPercent: 20, direction: 'reverse', scale: 1 }, 1, 1, true);
+const fixed = core.geometry(1000, 1000, 1000, 1000, { offsetPercent: 100, direction: 'fixed', scale: 1 }, 1, 1, false);
+assert.equal(following.dx, -150);
+assert.equal(following.dy, 150);
 assert.equal(opposite.dx, 30);
 assert.equal(opposite.dy, -30);
 assert.ok(Math.abs(fixed.dx) === 0);
 assert.ok(Math.abs(fixed.dy) === 0);
-assert.equal(opposite.relativeScale, 1.06, 'background overscan covers its full signed travel');
+assert.equal(opposite.relativeScale, 1.06, 'background overscan covers its full directional travel');
 assert.ok(opposite.marginX >= Math.abs(opposite.dx));
 assert.ok(opposite.marginY >= Math.abs(opposite.dy));
 
@@ -89,7 +93,9 @@ for (const stale of ['scene.sensor', 'sensorParams', 'normalizedPNG', 'projectVe
   assert.equal(appSource.includes(stale), false, `application must not contain stale v1 token: ${stale}`);
 }
 assert.match(html, /<span class="version">2\.0\.0<\/span>/);
-assert.match(appSource, /\['offsetPercent','位移','Offset %',-25,25/);
+assert.match(appSource, /\['offsetPercent','位移强度','Offset %',0,100/);
+assert.match(appSource, /id="layer-direction"/);
+assert.equal(core.MAX_TRAVEL_PERCENT, 15);
 assert.match(html, /不做静默降采样/);
 assert.match(html, /\.preview-panel\{grid-column:3;/);
 assert.match(appSource, /function syncResponsiveLayout\(\)/);
