@@ -12,7 +12,7 @@ import QjStatePanel from '@/design-system/components/QjStatePanel.vue';
 import QjSubcategoryRail from '@/design-system/components/QjSubcategoryRail.vue';
 import QjWallpaperCard from '@/design-system/components/QjWallpaperCard.vue';
 import type { PublicRootCategory } from '@/domain/catalog';
-import { wallpaperTypeLabel } from '@/domain/catalog';
+import { isFreeWallpaper, wallpaperTypeLabel } from '@/domain/catalog';
 import { catalogErrorMessage } from '@/repositories/http/apiClient';
 import { catalogRepository, type WallpaperListQuery } from '@/repositories/http/catalogRepository';
 
@@ -29,6 +29,7 @@ let catalogVersion = 0;
 
 const systemViews = [
   { id: 'all', label: '精选推荐' },
+  { id: 'free', label: '免费壁纸' },
   { id: 'depth', label: '4D动态' },
   { id: 'dynamic', label: '动态壁纸' },
   { id: 'static', label: '静态壁纸' }
@@ -38,6 +39,7 @@ const sectionTitle = computed(() => activeSubcategory.value === 'all' ? '精选�
 
 const selectedQuery = (): WallpaperListQuery => {
   if (activeSubcategory.value === 'depth') return { pageSize: 20, kind: 'PARALLAX_4D' };
+  if (activeSubcategory.value === 'free') return { pageSize: 20, accessType: 'FREE' };
   if (activeSubcategory.value === 'dynamic') return { pageSize: 20, kind: 'DYNAMIC' };
   if (activeSubcategory.value === 'static') return { pageSize: 20, view: 'STATIC' };
   return { pageSize: 20, view: 'FEATURED' };
@@ -120,6 +122,7 @@ const search = () => {
           :src="wallpaper.cover.contentUrl"
           :title="wallpaper.title"
           :type="wallpaperTypeLabel(wallpaper.kind)"
+          :free="isFreeWallpaper(wallpaper)"
           @select="openWallpaper(wallpaper.id)"
         />
       </div>

@@ -62,7 +62,7 @@ class _DetailScreenState extends State<DetailScreen> {
               widget.downloads!.installer,
             ));
   bool? owned;
-  String? ownershipError, installedId, _installedKey;
+  String? ownershipError, installedId, _installedKey, _ownershipKey;
   final scroll = ScrollController();
   bool previewActive = true;
   List<WallpaperTutorial>? tutorialCache;
@@ -72,7 +72,6 @@ class _DetailScreenState extends State<DetailScreen> {
     future = widget.repository.detail(widget.id);
     scroll.addListener(_scrolled);
     _capabilities();
-    _ownership();
   }
 
   void _scrolled() {
@@ -92,6 +91,16 @@ class _DetailScreenState extends State<DetailScreen> {
     } catch (_) {
       if (mounted) setState(() => ownershipError = '权益暂时无法确认，请重试');
     }
+  }
+
+  void _loadOwnership(Wallpaper wallpaper) {
+    if (wallpaper.isFree || trials == null || _ownershipKey == widget.id) {
+      return;
+    }
+    _ownershipKey = widget.id;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _ownership();
+    });
   }
 
   Future<void> _capabilities() async {
@@ -172,13 +181,13 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
-  Future<void> _action(WallpaperEffect effect) async {
-    if (owned == null && trials != null) {
+  Future<void> _action(Wallpaper wallpaper, WallpaperEffect effect) async {
+    if (!wallpaper.isFree && owned == null && trials != null) {
       await _ownership();
       if (owned == null) return;
       if (!mounted) return;
     }
-    if (owned == false) {
+    if (!wallpaper.isFree && owned == false) {
       final coordinator = widget.redemptions;
       if (coordinator == null) return;
       final granted = await showModalBottomSheet<bool>(
@@ -190,8 +199,7 @@ class _DetailScreenState extends State<DetailScreen> {
             RedemptionDialog(coordinator: coordinator, wallpaperId: widget.id),
       );
       if (granted != true) return;
-      await _ownership();
-      if (owned != true) return;
+      if (mounted) setState(() => owned = true);
       await _openDownload(effect);
       return;
     }
@@ -276,6 +284,9 @@ class _DetailScreenState extends State<DetailScreen> {
                           : '详情加载失败，请重试',
                       onPressed: () {
                         setState(() {
+                          owned = null;
+                          ownershipError = null;
+                          _ownershipKey = null;
                           future = widget.repository.detail(widget.id);
                         });
                       },
@@ -284,6 +295,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 );
               }
               final wallpaper = snapshot.requireData;
+              _loadOwnership(wallpaper);
               final effects = deliveryEffects(
                 wallpaper,
                 capabilities.platform,
@@ -301,11 +313,14 @@ class _DetailScreenState extends State<DetailScreen> {
                   WallpaperTarget.values.any(
                     (target) => capabilities.canApply(effect, target),
                   );
+              final waitsForOwnership =
+                  !wallpaper.isFree && trials != null && owned == null;
+              final hasAccess = wallpaper.isFree || owned == true;
               final label = !usable
                   ? '当前设备不支持'
-                  : trials != null && owned == null
+                  : waitsForOwnership
                   ? '正在确认权益'
-                  : owned == true && installedId != null
+                  : hasAccess && installedId != null
                   ? '设置壁纸'
                   : '下载壁纸';
               return ListView(
@@ -379,12 +394,13 @@ class _DetailScreenState extends State<DetailScreen> {
                               child: QjPrimaryAction(
                                 label: label,
                                 accent: true,
-                                loading: trials != null && owned == null,
+                                loading: waitsForOwnership,
                                 onPressed:
                                     usable &&
-                                        (trials == null || owned != null) &&
-                                        ownershipError == null
-                                    ? () => _action(effect)
+                                        !waitsForOwnership &&
+                                        (wallpaper.isFree ||
+                                            ownershipError == null)
+                                    ? () => _action(wallpaper, effect)
                                     : null,
                               ),
                             ),
@@ -393,7 +409,7 @@ class _DetailScreenState extends State<DetailScreen> {
                       ),
                     ),
                   ),
-                  if (ownershipError != null)
+                  if (!wallpaper.isFree && ownershipError != null)
                     Padding(
                       padding: const EdgeInsets.only(top: T.space3),
                       child: Row(

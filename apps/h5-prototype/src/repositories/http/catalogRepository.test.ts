@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiClientError, apiRequest, catalogErrorMessage } from './apiClient';
 import { catalogRepository } from './catalogRepository';
+import { isFreeWallpaper } from '@/domain/catalog';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
@@ -21,6 +22,20 @@ describe('public catalog HTTP contract', () => {
     expect(parameters.get('q')).toBe('海 & 山');
     expect(parameters.get('rootCategoryId')).toBe('9007199254740993');
     expect(parameters.has('childCategoryId')).toBe(false);
+  });
+
+  it('sends the free access filter and defaults missing or unknown values to redemption', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [], page: {} }), {
+      headers: { 'Content-Type': 'application/json' }
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    await catalogRepository.listWallpapers({ accessType: 'FREE' });
+    const parameters = new URL(String(fetchMock.mock.calls[0]?.[0]), 'http://local.test').searchParams;
+    expect(parameters.get('accessType')).toBe('FREE');
+    expect(isFreeWallpaper({ accessType: 'FREE' })).toBe(true);
+    expect(isFreeWallpaper({ accessType: 'REDEEM' })).toBe(false);
+    expect(isFreeWallpaper({})).toBe(false);
+    expect(isFreeWallpaper({ accessType: 'FUTURE' })).toBe(false);
   });
 
   it('preserves stable server error codes and request IDs while displaying a local message', async () => {

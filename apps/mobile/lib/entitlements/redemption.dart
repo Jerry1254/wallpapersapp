@@ -150,6 +150,7 @@ class RedemptionCoordinator {
       'CODE_NOT_FOUND' => '兑换码无效，本次未扣额度',
       'CODE_EXHAUSTED' => '兑换码额度已用尽，本次未扣额度',
       'WALLPAPER_UNAVAILABLE' => '此壁纸暂不可兑换，本次未扣额度',
+      'WALLPAPER_FREE' => '这张壁纸已经免费，无需兑换',
       'FAILED' => '兑换未成功，请联系客服',
       _ => null,
     };

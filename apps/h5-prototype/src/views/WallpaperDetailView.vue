@@ -16,7 +16,7 @@ import type { PublicWallpaperDetail, PublicWallpaperSummary } from '@/domain/cat
 import type { RedemptionResult } from '@/domain/device';
 import type { WallpaperTutorial } from '@/domain/tutorial';
 import { tutorialFor, tutorialPlatformForUserAgent } from '@/domain/tutorial';
-import { wallpaperTypeLabel } from '@/domain/catalog';
+import { isFreeWallpaper, wallpaperTypeLabel } from '@/domain/catalog';
 import { ApiClientError, catalogErrorMessage } from '@/repositories/http/apiClient';
 import { catalogRepository } from '@/repositories/http/catalogRepository';
 import { deviceRepository } from '@/repositories/http/deviceRepository';
@@ -59,11 +59,13 @@ let transitionTimer: number | undefined;
 let permissionTimer: number | undefined;
 let tutorialRequest: Promise<WallpaperTutorial[]> | undefined;
 
-const wallpaperCompatible = computed(() => Boolean(wallpaper.value?.capabilities.length) || isOwned.value);
+const isFree = computed(() => wallpaper.value ? isFreeWallpaper(wallpaper.value) : false);
 const isOwned = computed(() => wallpaper.value ? device.isOwned(wallpaper.value.id) : false);
-const isDownloaded = computed(() => Boolean(isOwned.value && wallpaper.value && store.isDownloaded(wallpaper.value.id)));
-const isApplied = computed(() => Boolean(isOwned.value && wallpaper.value && store.isApplied(wallpaper.value.id)));
-const pendingHere = computed(() => device.pending?.wallpaperId === wallpaper.value?.id);
+const hasAccess = computed(() => isFree.value || isOwned.value);
+const wallpaperCompatible = computed(() => Boolean(wallpaper.value?.capabilities.length) || isOwned.value);
+const isDownloaded = computed(() => Boolean(hasAccess.value && wallpaper.value && store.isDownloaded(wallpaper.value.id)));
+const isApplied = computed(() => Boolean(hasAccess.value && wallpaper.value && store.isApplied(wallpaper.value.id)));
+const pendingHere = computed(() => !isFree.value && device.pending?.wallpaperId === wallpaper.value?.id);
 
 const actionLabel = computed(() => {
   if (!wallpaperCompatible.value) return '当前设备不支持';
@@ -103,7 +105,9 @@ const loadWallpaper = async () => {
   } finally {
     if (version === detailVersion) loading.value = false;
   }
-  void device.ensureOwned(String(route.params.id)).catch(() => {});
+  if (wallpaper.value && !isFreeWallpaper(wallpaper.value)) {
+    void device.ensureOwned(String(route.params.id)).catch(() => {});
+  }
 };
 
 const clearDownloadTimer = () => {
@@ -151,7 +155,7 @@ const startDownload = async () => {
 
 const acceptRedemption = (result: RedemptionResult) => {
   redeemCode.value = '';
-  if (['GRANTED', 'ALREADY_OWNED'].includes(result.result)) {
+  if (['GRANTED', 'ALREADY_OWNED', 'WALLPAPER_FREE'].includes(result.result)) {
     redeemStatus.value = 'success';
     redeemSuccess.value = redemptionResultMessage(result);
   } else {
@@ -182,6 +186,18 @@ const confirmRedemption = () => { void runRedemption(true); };
 
 const openPrimaryFlow = async () => {
   if (!wallpaperCompatible.value || !wallpaper.value || primaryLoading.value) return;
+  if (isFree.value) {
+    if (isDownloaded.value) {
+      try { await deviceRepository.download(wallpaper.value.id); }
+      catch (error) { showToast(deviceErrorMessage(error)); return; }
+      settingSuccess.value = false;
+      settingFailure.value = '';
+      settingVisible.value = true;
+      return;
+    }
+    await startDownload();
+    return;
+  }
   device.syncPending();
   if (device.pending && !pendingHere.value) {
     showToast('请先确认上一次兑换结果');
@@ -317,7 +333,7 @@ watch(() => route.params.id, loadWallpaper, { immediate: true });
       :action-label="actionLabel"
       :action-loading="primaryLoading"
       :action-disabled="!wallpaperCompatible"
-      :show-trial="!isOwned"
+      :show-trial="!hasAccess"
       :trial-disabled="!wallpaperCompatible"
       @back="router.back()"
       @tutorial="openTutorial"
@@ -326,10 +342,11 @@ watch(() => route.params.id, loadWallpaper, { immediate: true });
     />
     <section v-if="wallpaper" class="wallpaper-facts">
       <span>{{ wallpaperTypeLabel(wallpaper.kind) }}</span>
+      <span v-if="isFree">免费</span>
       <span>{{ wallpaper.rootCategory.name }}<template v-if="wallpaper.childCategory"> · {{ wallpaper.childCategory.name }}</template></span>
       <p>{{ wallpaper.copyrightNote }}</p>
       <p>浏览器联调环境：预览、下载与系统设置为演示交互。</p>
-      <button v-if="isOwned" type="button" class="detail-repeat" @click="startDownload">重新准备下载演示</button>
+      <button v-if="hasAccess" type="button" class="detail-repeat" @click="startDownload">重新准备下载演示</button>
     </section>
 
     <van-popup v-model:show="redeemVisible" position="bottom" round>

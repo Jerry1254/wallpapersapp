@@ -34,6 +34,26 @@ void main() {
     expect(find.text('倾境'), findsOneWidget);
     expect(repository.pending, hasLength(1));
   });
+  testWidgets('首页免费壁纸标签使用独立获取方式筛选', (tester) async {
+    final repository = FakeCatalog();
+    await tester.pumpWidget(
+      QingjingApp(
+        repository: repository,
+        config: AppConfig(
+          environment: 'local',
+          apiBase: Uri.parse('http://127.0.0.1:8080/api/v1'),
+          debug: true,
+        ),
+      ),
+    );
+    repository.pending.single.complete(WallpaperPage([], 1, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('免费壁纸'));
+    await tester.pump();
+    expect(repository.queries.last['accessType'], 'FREE');
+    repository.pending.last.complete(WallpaperPage([], 1, 0));
+    await tester.pumpAndSettle();
+  });
   test('正式包和非调试包拒绝明文地址', () {
     for (final env in ['local', 'prod']) {
       expect(

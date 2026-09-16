@@ -102,6 +102,23 @@ void main() {
     });
     expect(item.kindLabel, '未知类型');
   });
+  test('只有明确 FREE 才免兑换，缺失或未知值保持需要兑换', () {
+    Map<String, dynamic> json([String? accessType]) {
+      return <String, dynamic>{
+        'id': '1',
+        'title': '获取方式',
+        'kind': 'STATIC',
+        'accessType': ?accessType,
+        'cover': {'contentUrl': '/x'},
+        'capabilities': [],
+      };
+    }
+
+    expect(Wallpaper.fromJson(json('FREE')).isFree, true);
+    expect(Wallpaper.fromJson(json('REDEEM')).isFree, false);
+    expect(Wallpaper.fromJson(json()).accessType, 'REDEEM');
+    expect(Wallpaper.fromJson(json('FUTURE')).accessType, 'REDEEM');
+  });
   test('媒体路径从服务器 origin 解析，拒绝降级和带凭据 URL', () {
     final repo = HttpCatalogRepository(Uri.parse('https://local.test/api/v1'));
     expect(

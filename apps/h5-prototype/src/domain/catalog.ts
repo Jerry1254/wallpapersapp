@@ -1,4 +1,5 @@
 export type WallpaperKind = 'PARALLAX_4D' | 'DYNAMIC' | 'STATIC';
+export type WallpaperAccessType = 'REDEEM' | 'FREE';
 export type DeliveryPlatform = 'ANDROID' | 'IOS' | 'HARMONYOS' | 'UNIVERSAL';
 export type ResourceType = 'LAYER_PARALLAX' | 'VIDEO' | 'LIVE_PHOTO' | 'STATIC_IMAGE' | 'THEME_PACKAGE';
 
@@ -40,6 +41,7 @@ export interface PublicWallpaperSummary {
   title: string;
   slug: string;
   kind: WallpaperKind;
+  accessType?: WallpaperAccessType;
   rootCategory: CategorySummary;
   childCategory?: CategorySummary | null;
   cover: PublicMedia;
@@ -70,3 +72,6 @@ export const wallpaperTypeLabel = (kind: WallpaperKind) => {
   if (kind === 'DYNAMIC') return '动态';
   return '静态';
 };
+
+// Older API responses and unknown future values stay protected by redemption.
+export const isFreeWallpaper = (wallpaper: { accessType?: string }) => wallpaper.accessType === 'FREE';

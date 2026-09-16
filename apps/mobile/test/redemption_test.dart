@@ -195,4 +195,13 @@ void main() {
     );
     expect(api.keys, isEmpty);
   });
+  test('免费作品兼容结果不扣额度并清除待确认请求', () async {
+    final store = MemoryStore(),
+        api = FakeApi()
+          ..timeout = false
+          ..result = 'WALLPAPER_FREE';
+    final message = await RedemptionCoordinator(api, store).redeem('1', code);
+    expect(message, contains('无需兑换'));
+    expect(store.value, isNull);
+  });
 }

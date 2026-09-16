@@ -809,9 +809,17 @@ class QjCatalogCard extends StatelessWidget {
                   Positioned(
                     left: 10,
                     top: 10,
-                    child: QjTypeBadge(
-                      wallpaper.kindLabel,
-                      tone: QjBadgeTone.light,
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        QjTypeBadge(
+                          wallpaper.kindLabel,
+                          tone: QjBadgeTone.light,
+                        ),
+                        if (wallpaper.isFree)
+                          const QjTypeBadge('免费', tone: QjBadgeTone.amber),
+                      ],
                     ),
                   ),
                 ],

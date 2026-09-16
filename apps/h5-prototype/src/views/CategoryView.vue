@@ -11,7 +11,7 @@ import QjStatePanel from '@/design-system/components/QjStatePanel.vue';
 import QjSubcategoryRail from '@/design-system/components/QjSubcategoryRail.vue';
 import QjWallpaperCard from '@/design-system/components/QjWallpaperCard.vue';
 import type { PublicRootCategory } from '@/domain/catalog';
-import { wallpaperTypeLabel } from '@/domain/catalog';
+import { isFreeWallpaper, wallpaperTypeLabel } from '@/domain/catalog';
 import { catalogErrorMessage } from '@/repositories/http/apiClient';
 import { catalogRepository } from '@/repositories/http/catalogRepository';
 
@@ -102,6 +102,7 @@ const search = () => {
             :src="wallpaper.cover.contentUrl"
             :title="wallpaper.title"
             :type="wallpaperTypeLabel(wallpaper.kind)"
+            :free="isFreeWallpaper(wallpaper)"
             @select="router.push(`/wallpapers/${wallpaper.id}`)"
           />
         </div>

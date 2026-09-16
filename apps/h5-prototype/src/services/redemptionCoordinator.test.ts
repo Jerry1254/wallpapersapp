@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RedemptionResult } from '@/domain/device';
 import { ApiClientError } from '@/repositories/http/apiClient';
 import { memoryStorage } from '@/test/storage';
-import { RedemptionCoordinator, RedemptionUncertain, pendingRedemptionStorageKey } from './redemptionCoordinator';
+import { RedemptionCoordinator, RedemptionUncertain, pendingRedemptionStorageKey, redemptionResultMessage } from './redemptionCoordinator';
 
 const code = 'ABCDEFGHJKLMNPQRSTUV';
 const finalResult = (key: string, result: RedemptionResult['result'] = 'GRANTED'): RedemptionResult => ({
@@ -65,5 +65,11 @@ describe('redemption uncertainty and recovery', () => {
     repository.redeem.mockRejectedValue(new ApiClientError(400, 'VALIDATION_FAILED', 'invalid'));
     await expect(coordinator.redeem('1', code)).rejects.toMatchObject({ status: 400 });
     expect(coordinator.pending).toBeUndefined();
+  });
+
+  it('recognizes the free-wallpaper compatibility result without consuming quota', () => {
+    const result = finalResult('free', 'WALLPAPER_FREE');
+    expect(result.quotaDelta).toBe(0);
+    expect(redemptionResultMessage(result)).toBe('这张壁纸已经免费，无需兑换');
   });
 });

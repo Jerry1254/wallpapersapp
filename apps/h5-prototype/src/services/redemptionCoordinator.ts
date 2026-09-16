@@ -79,6 +79,7 @@ export const redemptionResultMessage = (result: RedemptionResult) => {
   if (result.result === 'CODE_NOT_FOUND') return '兑换码无效，请检查后重试';
   if (result.result === 'CODE_EXHAUSTED') return '兑换额度已用完，请联系客服';
   if (result.result === 'WALLPAPER_UNAVAILABLE') return '这张壁纸暂时无法兑换';
+  if (result.result === 'WALLPAPER_FREE') return '这张壁纸已经免费，无需兑换';
   if (result.result === 'ALREADY_OWNED') return '当前浏览器已获得这张壁纸，本次未消耗额度';
   if (result.result === 'GRANTED') return '兑换成功，已绑定当前浏览器';
   return '兑换未完成，请稍后重试';

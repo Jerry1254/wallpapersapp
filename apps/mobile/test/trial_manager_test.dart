@@ -14,11 +14,14 @@ import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
 import 'catalog_test.dart' show FakeCatalog;
 
 class PreviewCatalog extends FakeCatalog {
+  PreviewCatalog({this.accessType = 'REDEEM'});
+  final String accessType;
   @override
   Future<Wallpaper> detail(String id) async => Wallpaper.fromJson({
     'id': id,
     'title': '试用入口测试',
     'kind': 'STATIC',
+    'accessType': accessType,
     'cover': {'contentUrl': '/image'},
     'capabilities': [
       {'platform': 'UNIVERSAL', 'resourceType': 'STATIC_IMAGE'},
@@ -52,7 +55,7 @@ class UnusedTransport implements DeviceTransport {
 class PreviewSessions extends DeviceSessionManager {
   PreviewSessions() : super(UnusedTransport());
   bool owned = false, ownedOnSecondPage = false;
-  int issuances = 0, bindings = 0;
+  int issuances = 0, bindings = 0, entitlementChecks = 0;
   Future<String>? binding;
   Map<String, dynamic> descriptor = {
     'deliveryMode': 'APP_PREVIEW',
@@ -79,6 +82,7 @@ class PreviewSessions extends DeviceSessionManager {
     Set<int> accepted = const {},
   }) async {
     if (path.startsWith('/device/me/entitlements')) {
+      entitlementChecks++;
       return {
         'items': (owned || (ownedOnSecondPage && path.contains('page=2&')))
             ? [
@@ -195,6 +199,39 @@ void main() {
       await installer.stream.close();
     });
   }
+  testWidgets('免费详情不查询权益，也不显示确认权益状态', (tester) async {
+    final sessions = PreviewSessions(), installer = PreviewInstaller();
+    final trials = TrialManager(
+      sessions,
+      Uri.parse('https://example.test/api/v1'),
+      installer,
+      native: PreviewNative(),
+    );
+    final downloads = DownloadManager(
+      sessions,
+      Uri.parse('https://example.test/api/v1'),
+      installer: installer,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DetailScreen(
+          repository: PreviewCatalog(accessType: 'FREE'),
+          id: '10',
+          trials: trials,
+          downloads: downloads,
+          playback: PreviewCapabilities(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(sessions.entitlementChecks, 0);
+    expect(find.text('正在确认权益'), findsNothing);
+    expect(find.text('设置壁纸'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    trials.dispose();
+    downloads.dispose();
+    await installer.stream.close();
+  });
   test('未获得试用只申请签名预览票据，使用固定同源路径并在结束时清理', () async {
     final sessions = PreviewSessions(),
         installer = PreviewInstaller(),

@@ -39,14 +39,16 @@ class Wallpaper {
     : id = _id(json['id']),
       title = json['title'] as String,
       kind = json['kind'] as String,
+      accessType = json['accessType'] == 'FREE' ? 'FREE' : 'REDEEM',
       cover = (json['cover'] as Map<String, dynamic>)['contentUrl'] as String,
       capabilities = List<Map<String, dynamic>>.from(
         json['capabilities'] as List,
       ),
       copyright = json['copyrightNote'] as String?;
-  final String id, title, kind, cover;
+  final String id, title, kind, accessType, cover;
   final List<Map<String, dynamic>> capabilities;
   final String? copyright;
+  bool get isFree => accessType == 'FREE';
   String get kindLabel => switch (kind) {
     'PARALLAX_4D' => '4D动态',
     'DYNAMIC' => '动态',

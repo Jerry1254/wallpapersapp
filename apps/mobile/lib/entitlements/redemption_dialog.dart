@@ -49,7 +49,10 @@ class _RedemptionDialogState extends State<RedemptionDialog> {
       result = '兑换服务暂不可用，请重试';
     }
     if (!mounted) return;
-    final granted = result.startsWith('兑换成功') || result.startsWith('已拥有');
+    final granted =
+        result.startsWith('兑换成功') ||
+        result.startsWith('已拥有') ||
+        result.contains('无需兑换');
     setState(() {
       busy = false;
       message = result;

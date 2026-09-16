@@ -27,7 +27,7 @@ export interface EntitlementPage {
 }
 export interface RedemptionResult {
   idempotencyKey: string;
-  result: 'GRANTED' | 'ALREADY_OWNED' | 'CODE_NOT_FOUND' | 'CODE_EXHAUSTED' | 'WALLPAPER_UNAVAILABLE' | 'FAILED';
+  result: 'GRANTED' | 'ALREADY_OWNED' | 'CODE_NOT_FOUND' | 'CODE_EXHAUSTED' | 'WALLPAPER_UNAVAILABLE' | 'WALLPAPER_FREE' | 'FAILED';
   quotaDelta: number;
   entitlement?: Entitlement | null;
   errorCode?: string | null;

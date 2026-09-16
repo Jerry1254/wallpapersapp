@@ -64,6 +64,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
       };
     }
     return switch (view) {
+      '免费壁纸' => {'accessType': 'FREE'},
       '4D动态' => {'kind': 'PARALLAX_4D'},
       '动态壁纸' => {'kind': 'DYNAMIC'},
       '静态壁纸' => {'view': 'STATIC'},
@@ -206,7 +207,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
                   const SizedBox(height: T.space7),
                   _heading(view == '精选推荐' ? '精选壁纸' : view),
                   const SizedBox(height: T.space3),
-                  _filters(['精选推荐', '4D动态', '动态壁纸', '静态壁纸'], view, (value) {
+                  _filters(['精选推荐', '免费壁纸', '4D动态', '动态壁纸', '静态壁纸'], view, (
+                    value,
+                  ) {
                     setState(() => view = value);
                     _reload();
                   }),

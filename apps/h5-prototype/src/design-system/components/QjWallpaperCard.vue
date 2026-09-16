@@ -5,6 +5,7 @@ defineProps<{
   src: string;
   title: string;
   type: string;
+  free?: boolean;
 }>();
 
 defineEmits<{
@@ -18,6 +19,7 @@ defineEmits<{
       <img :src="src" :alt="title + '壁纸预览'" />
       <span class="qj-wallpaper-card__badges">
         <QjTypeBadge :label="type" tone="light" />
+        <QjTypeBadge v-if="free" label="免费" tone="amber" />
       </span>
     </span>
     <span class="qj-wallpaper-card__content">
@@ -65,6 +67,9 @@ defineEmits<{
   position: absolute;
   top: 10px;
   left: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .qj-wallpaper-card__content {

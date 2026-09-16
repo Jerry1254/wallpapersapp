@@ -3,6 +3,7 @@ import type {
   PublicRootCategory,
   PublicWallpaperDetail,
   PublicWallpaperPage,
+  WallpaperAccessType,
   WallpaperKind
 } from '@/domain/catalog';
 
@@ -18,6 +19,7 @@ export interface WallpaperListQuery {
   platform?: DeliveryPlatform;
   q?: string;
   sort?: 'DEFAULT' | 'NEWEST';
+  accessType?: WallpaperAccessType;
 }
 
 const queryString = (query: WallpaperListQuery) => {

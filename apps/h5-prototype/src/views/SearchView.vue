@@ -9,7 +9,7 @@ import QjSearchBar from '@/components/QjSearchBar.vue';
 import { useWallpaperPage } from '@/composables/useWallpaperPage';
 import QjStatePanel from '@/design-system/components/QjStatePanel.vue';
 import QjWallpaperCard from '@/design-system/components/QjWallpaperCard.vue';
-import { wallpaperTypeLabel } from '@/domain/catalog';
+import { isFreeWallpaper, wallpaperTypeLabel } from '@/domain/catalog';
 
 const route = useRoute();
 const router = useRouter();
@@ -64,6 +64,7 @@ const search = () => {
           :src="wallpaper.cover.contentUrl"
           :title="wallpaper.title"
           :type="wallpaperTypeLabel(wallpaper.kind)"
+          :free="isFreeWallpaper(wallpaper)"
           @select="router.push(`/wallpapers/${wallpaper.id}`)"
         />
       </div>
