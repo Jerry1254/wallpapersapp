@@ -168,7 +168,7 @@ internal class SecurePackageVerifier(private val purpose: PackagePurpose = Packa
             val ordinal=if(background) 0 else position
             val image=images["$role:$ordinal"] ?: error("Missing layer")
             require(image.width.toLong()==width && image.height.toLong()==height && (background || image.alpha))
-            range(layer["offsetPercent"],0.0,100.0)
+            range(layer["offsetPercent"],0.0,Float.MAX_VALUE.toDouble())
             require(layer["direction"] in setOf("follow","reverse","fixed"))
             range(layer["scale"],1.0,1.5);range(layer["opacity"],0.0,1.0)
             require(layer["blendMode"] in setOf("normal","screen","add"))

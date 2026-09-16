@@ -46,7 +46,7 @@ internal data class ParallaxConfiguration(
                 ParallaxLayer(
                     if(background) "BACKGROUND" else "FOREGROUND",
                     if(background) 0 else position,
-                    number(layer["offsetPercent"],0.0,100.0),
+                    number(layer["offsetPercent"],0.0,Float.MAX_VALUE.toDouble()),
                     direction,
                     number(layer["scale"],1.0,1.5),
                     number(layer["opacity"],0.0,1.0),

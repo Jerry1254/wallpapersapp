@@ -25,7 +25,7 @@ const validConfig = {
   canvas: { width: 2048, height: 2048 },
   motion: { maxAngle: 75 },
   layers: [
-    { index: 1, offsetPercent: 55, direction: 'follow', scale: 1.18, opacity: 1, blendMode: 'normal' },
+    { index: 1, offsetPercent: 300, direction: 'follow', scale: 1.18, opacity: 1, blendMode: 'normal' },
     { index: 2, offsetPercent: 20, direction: 'reverse', scale: 1, opacity: 1, blendMode: 'normal' },
   ],
 };
@@ -37,8 +37,8 @@ assert.match(core.validateConfig({ ...validConfig, motion: { maxAngle: 76 } }).j
 assert.match(core.validateConfig({ ...validConfig, motion: { maxAngle: 75, strength: 1 } }).join('；'), /只能包含 maxAngle/);
 assert.match(core.validateConfig({
   ...validConfig,
-  layers: [{ ...validConfig.layers[0], offsetPercent: 101 }, validConfig.layers[1]],
-}).join('；'), /offsetPercent 超出范围/);
+  layers: [{ ...validConfig.layers[0], offsetPercent: -1 }, validConfig.layers[1]],
+}).join('；'), /offsetPercent 必须为非负有限数值/);
 assert.match(core.validateConfig({
   ...validConfig,
   layers: [{ ...validConfig.layers[0], direction: 'sideways' }, validConfig.layers[1]],
@@ -51,15 +51,18 @@ assert.equal(core.inputFromAngles(75, -75, 75).y, -1);
 assert.equal(core.inputFromAngles(150, -150, 75).x, 1, 'input clamps after maxAngle');
 
 const following = core.geometry(1000, 1000, 1000, 1000, { offsetPercent: 100, direction: 'follow', scale: 1 }, 1, 1, false);
+const beyondScreen = core.geometry(1000, 1000, 1000, 1000, { offsetPercent: 300, direction: 'follow', scale: 1 }, 1, 1, false);
 const opposite = core.geometry(1000, 1000, 1000, 1000, { offsetPercent: 20, direction: 'reverse', scale: 1 }, 1, 1, true);
-const fixed = core.geometry(1000, 1000, 1000, 1000, { offsetPercent: 100, direction: 'fixed', scale: 1 }, 1, 1, false);
-assert.equal(following.dx, -150);
-assert.equal(following.dy, 150);
-assert.equal(opposite.dx, 30);
-assert.equal(opposite.dy, -30);
+const fixed = core.geometry(1000, 1000, 1000, 1000, { offsetPercent: 300, direction: 'fixed', scale: 1 }, 1, 1, false);
+assert.equal(following.dx, -1000);
+assert.equal(following.dy, 1000);
+assert.equal(beyondScreen.dx, -3000);
+assert.equal(beyondScreen.dy, 3000);
+assert.equal(opposite.dx, 200);
+assert.equal(opposite.dy, -200);
 assert.ok(Math.abs(fixed.dx) === 0);
 assert.ok(Math.abs(fixed.dy) === 0);
-assert.equal(opposite.relativeScale, 1.06, 'background overscan covers its full directional travel');
+assert.equal(opposite.relativeScale, 1.4, 'background overscan covers its full directional travel');
 assert.ok(opposite.marginX >= Math.abs(opposite.dx));
 assert.ok(opposite.marginY >= Math.abs(opposite.dy));
 
@@ -93,9 +96,10 @@ for (const stale of ['scene.sensor', 'sensorParams', 'normalizedPNG', 'projectVe
   assert.equal(appSource.includes(stale), false, `application must not contain stale v1 token: ${stale}`);
 }
 assert.match(html, /<span class="version">2\.0\.0<\/span>/);
-assert.match(appSource, /\['offsetPercent','位移强度','Offset %',0,100/);
+assert.match(appSource, /\['offsetPercent','位移比例','Offset %',0,null/);
 assert.match(appSource, /id="layer-direction"/);
-assert.equal(core.MAX_TRAVEL_PERCENT, 15);
+assert.equal('MAX_TRAVEL_PERCENT' in core, false);
+assert.match(appSource, /function adaptiveOffsetMax\(value\)/);
 assert.match(html, /不做静默降采样/);
 assert.match(html, /\.preview-panel\{grid-column:3;/);
 assert.match(appSource, /function syncResponsiveLayout\(\)/);

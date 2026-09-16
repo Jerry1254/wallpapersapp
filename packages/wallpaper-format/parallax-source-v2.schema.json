@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://qingjing.local/schemas/parallax-source-v2.schema.json",
-  "title": "4D 方向与强度源配置（Web 模拟器与 Android 共用）",
+  "title": "4D 方向与位移比例源配置（Web 模拟器与 Android 共用）",
   "type": "object",
   "additionalProperties": false,
   "required": ["formatVersion", "canvas", "motion", "layers"],
@@ -38,8 +38,7 @@
           "offsetPercent": {
             "type": "number",
             "minimum": 0,
-            "maximum": 100,
-            "description": "位移强度。100 表示满幅角度时移动对应屏幕轴长的 15%，数值按比例线性换算。"
+            "description": "满幅角度下相对屏幕轴长的位移百分比。100 表示移动一整屏，200 表示移动两屏；不设置产品上限。"
           },
           "direction": {
             "enum": ["follow", "reverse", "fixed"],
