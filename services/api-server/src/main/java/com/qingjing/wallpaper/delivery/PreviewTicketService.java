@@ -18,7 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
-/** Free reduced previews use distinct grants and storage. This service never writes business entitlement facts. */
+/** Free in-app previews use distinct grants and storage. This service never writes business entitlement facts. */
 @Service
 public class PreviewTicketService {
     private final JdbcTemplate jdbc;private final StringRedisTemplate redis;private final SecurityCrypto crypto;
@@ -93,6 +93,6 @@ public class PreviewTicketService {
     }
     public record Ticket(long device,String credential,long wallpaper,long version,String fingerprint,String expires) { }
     private record Package(long version,long variant,int number,String platform,String minimum,int requirements,String storage,long size,long plainSize,String encryptedHash,String plainHash,String manifest,String signing,String encryptedKey) { }
-    private static ApiException unavailable() { return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,"PREVIEW_RESOURCE_NOT_READY","A compatible reduced preview is unavailable"); }
+    private static ApiException unavailable() { return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,"PREVIEW_RESOURCE_NOT_READY","A compatible app preview is unavailable"); }
     private static ApiException invalid() { return new ApiException(HttpStatus.UNAUTHORIZED,"PREVIEW_TICKET_INVALID","The preview grant is invalid or expired"); }
 }

@@ -50,8 +50,8 @@ public final class SecurePackageCodec {
         return encodePurpose(identity,payloads,signingKeyId,signingKey,false);
     }
     /** Preview has its own magic, signed purpose and AAD. It cannot be installed as a format-2 paid package. */
-    public Encoded encodePreview(Identity identity, List<Payload> reducedPreviewPayloads, String signingKeyId, PrivateKey signingKey) {
-        return encodePurpose(identity,reducedPreviewPayloads,signingKeyId,signingKey,true);
+    public Encoded encodePreview(Identity identity, List<Payload> previewPayloads, String signingKeyId, PrivateKey signingKey) {
+        return encodePurpose(identity,previewPayloads,signingKeyId,signingKey,true);
     }
     public static byte[] previewAad(Identity identity) {
         return ("QJ-PREVIEW-V1\n"+identity.wallpaperId()+"\n"+identity.variantId()+"\n"+identity.versionNo()+"\n"+identity.resourceType())

@@ -6,7 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-/** Only failed rollback objects are retried; successfully imported packages are never collected. */
+/** Retries failed rollback cleanup and removal of replaced derived packages. */
 @Component
 @org.springframework.scheduling.annotation.EnableScheduling
 public class ParallaxStorageCleanup {
@@ -39,8 +39,10 @@ public class ParallaxStorageCleanup {
                 else {
                     Long references=jdbc.queryForObject("""
                             SELECT (SELECT COUNT(*) FROM asset WHERE storage_key=?) +
-                                   (SELECT COUNT(*) FROM parallax_source_package WHERE storage_key=?)
-                            """,Long.class,item.reference(),item.reference());
+                                   (SELECT COUNT(*) FROM parallax_source_package WHERE storage_key=?) +
+                                   (SELECT COUNT(*) FROM secure_resource_package WHERE storage_key=?) +
+                                   (SELECT COUNT(*) FROM preview_resource_package WHERE storage_key=?)
+                            """,Long.class,item.reference(),item.reference(),item.reference(),item.reference());
                     if(references!=null&&references>0)continue;
                     storage.delete(new StorageKey(item.reference()));
                 }

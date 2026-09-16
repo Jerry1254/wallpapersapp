@@ -201,7 +201,7 @@ Android 下载票据返回 SECURE_PACKAGE，增加 variantId、formatVersion=2�
 
 ## 1.3.0 受限试用交付
 
-新增 2 操作、3 Schema，当前合计 51 操作、77 Schema。POST /device/wallpapers/{wallpaperId}/preview-tickets 要求 Android 会话及 timestamp/nonce/精确正文签名，无需作品权益；请求平台 ANDROID、resourceType 三类及 osVersion。201 PreviewDescriptor 的 deliveryMode/purpose 固定 APP_PREVIEW、durationSeconds=120、package.formatVersion=3；清单摘要指向派生清单。GET /preview/files 只接受 previewTicketBearer，固定同源下载路径、90 秒票据、no-store/长度/Digest，与正式 /delivery/files 双向拒绝。无兼容受限包为 422 PREVIEW_RESOURCE_NOT_READY，失效票据为 401 PREVIEW_TICKET_INVALID，频繁操作为 429 RATE_LIMITED。
+新增 2 操作、3 Schema，当前合计 51 操作、77 Schema。POST /device/wallpapers/{wallpaperId}/preview-tickets 要求 Android 会话及 timestamp/nonce/精确正文签名，无需作品权益；请求平台 ANDROID、resourceType 三类及 osVersion。201 PreviewDescriptor 的 deliveryMode/purpose 固定 APP_PREVIEW、durationSeconds=120、package.formatVersion=3；1.0 包内媒体使用正式版本绑定的原 payload。GET /preview/files 只接受 previewTicketBearer，固定同源下载路径、90 秒票据、no-store/长度/Digest，与正式 /delivery/files 双向拒绝。无兼容预览包为 422 PREVIEW_RESOURCE_NOT_READY，失效票据为 401 PREVIEW_TICKET_INVALID，频繁操作为 429 RATE_LIMITED。
 
 正式 DownloadDescriptor 和 SecurePackageMetadata 保持原模式与 format 2，H5 占位字段不变。既有管理 secure-package 操作扩展为制作正式/受限包对，允许已有正式包的 PUBLISHED 版本补建派生包；正式字节、正式清单与权益不变。详细规格、用途签名、临时库和计时边界见 [SEC-004](../05-安全与合规/SEC-004-Android受限试用交付协议.md)。1.2.0 历史冻结输入单独保留；1.3.0 在契约、API 实现与格式/权限回归检查后显式冻结，端侧 120 秒与三类显示的真机验收继续属于 A09，不以接口冻结代替。
 

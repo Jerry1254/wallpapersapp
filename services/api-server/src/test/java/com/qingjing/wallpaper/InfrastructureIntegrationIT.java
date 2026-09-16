@@ -1177,34 +1177,34 @@ class InfrastructureIntegrationIT {
             assertThat(built.getStatusCode()).isEqualTo(HttpStatus.OK);
             Map<String,Object> stored=jdbc.queryForMap("SELECT * FROM secure_resource_package WHERE resource_version_id=?",versionId);
             assertThat(stored.get("manifest_sha256")).isEqualTo(built.getBody().path("manifestSha256").asText());
-            byte[] key=securityCrypto.decrypt("secure-package-key-v2:"+versionId,stored.get("content_key_ciphertext").toString());
-            assertThat(key).hasSize(32);
-            try (var content=packageStorage.open(new com.qingjing.wallpaper.asset.application.StorageKey(stored.get("storage_key").toString()))) {
-                byte[] encrypted=content.inputStream().readAllBytes();
-                assertThat(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.sha256(encrypted)).isEqualTo(stored.get("encrypted_sha256"));
-                var cipher=javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
-                cipher.init(javax.crypto.Cipher.DECRYPT_MODE,new javax.crypto.spec.SecretKeySpec(key,"AES"),new javax.crypto.spec.GCMParameterSpec(128,java.util.Arrays.copyOfRange(encrypted,8,20)));
-                cipher.updateAAD(new com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.Identity(wallpaperId,variantId,2,type).aad());
-                assertThat(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.sha256(cipher.doFinal(java.util.Arrays.copyOfRange(encrypted,20,encrypted.length)))).isEqualTo(stored.get("plaintext_sha256"));
-            }
+            var identity=new com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.Identity(wallpaperId,variantId,2,type);
+            var formal=decodeStoredPackage(stored,versionId,identity,false);
+            assertThat(formal.manifest().path("formatVersion").asInt()).isEqualTo(2);
             assertThat(jsonExchange(path,HttpMethod.POST,Map.of(),admin,null).getBody()).isEqualTo(built.getBody());
             assertThat(jdbc.queryForMap("SELECT * FROM secure_resource_package WHERE resource_version_id=?",versionId)).isEqualTo(stored);
             var previewStored=jdbc.queryForMap("SELECT * FROM preview_resource_package WHERE resource_version_id=?",versionId);
             assertThat(previewStored.get("format_version")).isEqualTo(3);
             assertThat(previewStored.get("purpose")).isEqualTo("APP_PREVIEW");
             assertThat(previewStored.get("encrypted_sha256")).isNotEqualTo(stored.get("encrypted_sha256"));
+            var preview=decodeStoredPackage(previewStored,versionId,identity,true);
+            assertThat(preview.manifest().path("formatVersion").asInt()).isEqualTo(3);
+            assertThat(preview.manifest().path("purpose").asText()).isEqualTo("APP_PREVIEW");
+            assertSamePayloadBytes(formal,preview);
             assertThat(jsonExchange(path,HttpMethod.POST,Map.of(),admin,null).getStatusCode()).isEqualTo(HttpStatus.OK);
             assertThat(jdbc.queryForMap("SELECT * FROM preview_resource_package WHERE resource_version_id=?",versionId)).isEqualTo(previewStored);
             ResponseEntity<JsonNode> published=jsonExchange("/api/v1/admin/wallpapers/"+wallpaperId+"/publish",HttpMethod.POST,
                     Map.of("resourceVersionIds",List.of(Long.toString(versionId))),admin,"\"0\"");
             assertThat(published.getStatusCode()).isEqualTo(HttpStatus.OK);
             verifyTicketDelivery(admin,wallpaperId,versionId,type);
-            // Upgrade/backfill of an already published v2 resource must preserve the formal package byte for byte.
-            jdbc.update("DELETE FROM preview_resource_package WHERE resource_version_id=?",versionId);
-            packageStorage.delete(new com.qingjing.wallpaper.asset.application.StorageKey(previewStored.get("storage_key").toString()));
+            // A legacy/mismatched preview is replaced on the next existing package build while the formal package stays byte-identical.
+            jdbc.update("UPDATE preview_resource_package SET manifest_sha256=? WHERE resource_version_id=?","0".repeat(64),versionId);
             assertThat(jsonExchange(path,HttpMethod.POST,Map.of(),admin,null).getStatusCode()).isEqualTo(HttpStatus.OK);
             assertThat(jdbc.queryForMap("SELECT * FROM secure_resource_package WHERE resource_version_id=?",versionId)).isEqualTo(stored);
-            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM preview_resource_package WHERE resource_version_id=?",Integer.class,versionId)).isEqualTo(1);
+            var rebuiltPreview=jdbc.queryForMap("SELECT * FROM preview_resource_package WHERE resource_version_id=?",versionId);
+            assertThat(rebuiltPreview.get("storage_key")).isNotEqualTo(previewStored.get("storage_key"));
+            assertSamePayloadBytes(formal,decodeStoredPackage(rebuiltPreview,versionId,identity,true));
+            assertThatThrownBy(()->packageStorage.open(new com.qingjing.wallpaper.asset.application.StorageKey(previewStored.get("storage_key").toString())))
+                    .isInstanceOf(com.qingjing.wallpaper.asset.application.FileStorageException.class);
             long rollbackVersion=jsonExchange("/api/v1/admin/variants/"+variantId+"/resource-versions",HttpMethod.POST,
                     Map.of("versionNo",3,"bindings",bindings),admin,null).getBody().path("id").asLong();
             var orphanKey=new java.util.concurrent.atomic.AtomicReference<String>();
@@ -1237,6 +1237,45 @@ class InfrastructureIntegrationIT {
             }
         }
     }
+    private DecodedPackage decodeStoredPackage(Map<String,Object> stored,long versionId,
+            com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.Identity identity,boolean preview) throws Exception {
+        byte[] key=securityCrypto.decrypt((preview?"preview-package-key-v1:":"secure-package-key-v2:")+versionId,
+                stored.get("content_key_ciphertext").toString());
+        try {
+            byte[] encrypted;
+            try(var content=packageStorage.open(new com.qingjing.wallpaper.asset.application.StorageKey(stored.get("storage_key").toString()))) {
+                assertThat(content.sizeBytes()).isEqualTo(((Number)stored.get("size_bytes")).longValue());
+                encrypted=content.inputStream().readAllBytes();
+            }
+            assertThat(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.sha256(encrypted)).isEqualTo(stored.get("encrypted_sha256"));
+            assertThat(new String(encrypted,0,8,StandardCharsets.US_ASCII)).isEqualTo(preview?"QJPV0001":"QJWP0002");
+            var cipher=javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(javax.crypto.Cipher.DECRYPT_MODE,new javax.crypto.spec.SecretKeySpec(key,"AES"),
+                    new javax.crypto.spec.GCMParameterSpec(128,java.util.Arrays.copyOfRange(encrypted,8,20)));
+            cipher.updateAAD(preview?com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.previewAad(identity):identity.aad());
+            byte[] plain=cipher.doFinal(java.util.Arrays.copyOfRange(encrypted,20,encrypted.length));
+            assertThat(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.sha256(plain)).isEqualTo(stored.get("plaintext_sha256"));
+            Map<String,byte[]> files=new LinkedHashMap<>();
+            try(var zip=new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(plain),StandardCharsets.UTF_8)) {
+                for(var entry=zip.getNextEntry();entry!=null;entry=zip.getNextEntry())files.put(entry.getName(),zip.readAllBytes());
+            }
+            byte[] manifestBytes=files.get("manifest.json");
+            assertThat(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.sha256(manifestBytes)).isEqualTo(stored.get("manifest_sha256"));
+            JsonNode manifest=objectMapper.readTree(manifestBytes);Map<String,byte[]> payloads=new LinkedHashMap<>();
+            for(var file:manifest.path("files")) {
+                byte[] content=files.get(file.path("path").asText());
+                assertThat(content).hasSize(file.path("sizeBytes").asInt());
+                assertThat(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.sha256(content)).isEqualTo(file.path("sha256").asText());
+                payloads.put(file.path("role").asText()+":"+file.path("ordinal").asInt(),content);
+            }
+            return new DecodedPackage(manifest,payloads);
+        } finally { java.util.Arrays.fill(key,(byte)0); }
+    }
+    private static void assertSamePayloadBytes(DecodedPackage formal,DecodedPackage preview) {
+        assertThat(preview.payloads().keySet()).containsExactlyInAnyOrderElementsOf(formal.payloads().keySet());
+        for(var entry:formal.payloads().entrySet())assertThat(preview.payloads().get(entry.getKey())).containsExactly(entry.getValue());
+    }
+    private record DecodedPackage(JsonNode manifest,Map<String,byte[]> payloads) {}
     private void verifyTicketDelivery(AdminTestSession admin,long wallpaperId,long versionId,String type) throws Exception {
         var signing=resourceSigningKey(); var encryption=resourceSigningKey();
         var registered=http.postForEntity("/api/v1/device/registrations",androidRegistration(signing),JsonNode.class);
