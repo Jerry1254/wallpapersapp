@@ -2,10 +2,6 @@ package com.qingjing.wallpaper.parallax;
 
 import static com.qingjing.wallpaper.parallax.ParallaxErrors.*;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qingjing.wallpaper.parallax.infrastructure.ParallaxImageInspector;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -19,9 +15,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class ParallaxPackageParser {
     public static final long ZIP_LIMIT=100L*1024*1024, EXPANDED_LIMIT=85L*1024*1024, PAYLOAD_LIMIT=64L*1024*1024;
-    private final ObjectMapper mapper;
+    private final ParallaxConfigEnvelopeValidator configs;
     private final ParallaxImageInspector images;
-    public ParallaxPackageParser(ObjectMapper mapper,ParallaxImageInspector images){this.mapper=mapper;this.images=images;}
+    public ParallaxPackageParser(ParallaxConfigEnvelopeValidator configs,ParallaxImageInspector images){this.configs=configs;this.images=images;}
     public record Asset(String name,byte[] bytes,ParallaxImageInspector.Image image) {}
     public record Parsed(Asset cover,List<Asset> images,List<ParallaxPackageDtos.Layer> layers,
                          int width,int height,int formatVersion,byte[] configBytes) {}
@@ -33,26 +29,16 @@ public class ParallaxPackageParser {
         List<String> names=files.keySet().stream().filter(n->n.startsWith("layers/")).sorted().toList();
         int count=names.size();
         if(count<2||count>12)throw invalid("layers/","LAYER_COUNT_INVALID","图层数量必须为 2～12 层");
-        JsonNode config;byte[] configBytes=files.get("config.json");
-        try {
-            byte[] json=configBytes;
-            if(json.length>=3&&(json[0]&255)==239&&(json[1]&255)==187&&(json[2]&255)==191)throw new IllegalArgumentException();
-            String utf8=StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT).decode(ByteBuffer.wrap(json)).toString();
-            config=mapper.reader().with(JsonParser.Feature.STRICT_DUPLICATE_DETECTION).with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(utf8);
-        } catch(Exception e){throw invalid("config.json","CONFIG_INVALID","config.json 必须是无 BOM、无重复键的 UTF-8 JSON");}
-        if(!config.isObject()||integer(config.path("formatVersion"),2,2)!=2)throw configError();
-        if(!config.path("canvas").isObject())throw configError();
-        int width=integer(config.path("canvas").path("width"),512,4096),height=integer(config.path("canvas").path("height"),512,4096);
-        JsonNode inputLayers=config.path("layers");
-        if(!inputLayers.isArray()||inputLayers.size()!=count)throw invalid("config.json","LAYER_COUNT_INVALID","config.json 图层数量与文件数量不一致");
+        byte[] configBytes=files.get("config.json");
+        ParallaxConfigEnvelopeValidator.Envelope envelope;
+        try { envelope=configs.validate(configBytes,count); }
+        catch(ParallaxConfigEnvelopeValidator.InvalidEnvelope error) { throw configError(); }
+        int width=envelope.width(),height=envelope.height();
         List<Asset> assets=new ArrayList<>();List<ParallaxPackageDtos.Layer> layers=new ArrayList<>();
         long payloadSize=0;
         for(int i=1;i<=count;i++) {
             String name=names.get(i-1),prefix=String.format(Locale.ROOT,"layers/%02d.",i);
             if(!name.startsWith(prefix))throw invalid(name,"LAYER_SEQUENCE_INVALID","图层必须从 01 连续编号，每个编号只能有一个文件");
-            JsonNode layer=inputLayers.get(i-1);
-            if(!layer.isObject())throw configError();
-            if(integer(layer.path("index"),1,12)!=i)throw configError();
             boolean background=i==count;
             byte[] content=files.get(name);var image=images.inspect(name,content);
             if(image.width()!=width||image.height()!=height)throw invalid(name,"DIMENSION_MISMATCH",name+" 尺寸为 "+image.width()+"×"+image.height()+"，与画布 "+width+"×"+height+" 不一致");
@@ -64,7 +50,7 @@ public class ParallaxPackageParser {
         }
         if(payloadSize+configBytes.length>PAYLOAD_LIMIT)throw size("图层与 config.json");
         byte[] cover=files.get("cover.jpg");var coverImage=images.inspect("cover.jpg",cover);
-        return new Parsed(new Asset("cover.jpg",cover,coverImage),List.copyOf(assets),List.copyOf(layers),width,height,2,configBytes);
+        return new Parsed(new Asset("cover.jpg",cover,coverImage),List.copyOf(assets),List.copyOf(layers),width,height,envelope.formatVersion(),configBytes);
     }
 
     private Map<String,byte[]> unzip(byte[] zip) {
@@ -138,6 +124,5 @@ public class ParallaxPackageParser {
     private static long u32(ByteBuffer b,int p){return Integer.toUnsignedLong(b.getInt(p));}
     private record Entry(int method,long size,long compressed,long crc) {}
     private static com.qingjing.wallpaper.shared.web.ApiException structure(){return invalid("ZIP","STRUCTURE_INVALID","ZIP 目录、路径或压缩格式不符合要求（仅支持普通 STORE/DEFLATE ZIP）");}
-    private static com.qingjing.wallpaper.shared.web.ApiException configError(){return invalid("config.json","CONFIG_INVALID","config.json 版本、画布或图层索引不符合固定结构");}
-    private static int integer(JsonNode node,int min,int max){if(!node.isInt()||node.intValue()<min||node.intValue()>max)throw configError();return node.intValue();}
+    private static com.qingjing.wallpaper.shared.web.ApiException configError(){return invalid("config.json","CONFIG_INVALID","config.json 必须包含有效的格式版本、画布和连续图层索引");}
 }

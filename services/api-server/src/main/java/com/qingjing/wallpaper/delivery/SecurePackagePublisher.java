@@ -5,6 +5,7 @@ import com.qingjing.wallpaper.asset.application.*;
 import com.qingjing.wallpaper.delivery.infrastructure.PackageMediaInspector;
 import com.qingjing.wallpaper.delivery.infrastructure.PreviewMediaReducer;
 import com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec;
+import com.qingjing.wallpaper.parallax.ParallaxConfigEnvelopeValidator;
 import com.qingjing.wallpaper.shared.security.SecurityCrypto;
 import com.qingjing.wallpaper.shared.web.ApiException;
 import java.io.ByteArrayInputStream;
@@ -27,11 +28,13 @@ public class SecurePackagePublisher {
     private final SecurityCrypto crypto;
     private final ObjectMapper mapper;
     private final PreviewMediaReducer previews;
+    private final ParallaxConfigEnvelopeValidator parallaxConfigs;
     private final Semaphore slots = new Semaphore(1);
     public SecurePackagePublisher(JdbcTemplate jdbc, FileStorage storage, AssetContentValidator assetValidator,
-            PackageMediaInspector media, PackageSigningKeys signing, SecurityCrypto crypto, ObjectMapper mapper,PreviewMediaReducer previews) {
+            PackageMediaInspector media, PackageSigningKeys signing, SecurityCrypto crypto, ObjectMapper mapper,
+            PreviewMediaReducer previews,ParallaxConfigEnvelopeValidator parallaxConfigs) {
         this.jdbc=jdbc; this.storage=storage; this.assetValidator=assetValidator; this.media=media;
-        this.signing=signing; this.crypto=crypto; this.mapper=mapper;this.previews=previews;
+        this.signing=signing; this.crypto=crypto; this.mapper=mapper;this.previews=previews;this.parallaxConfigs=parallaxConfigs;
     }
     @Transactional
     public void build(long versionId) {
@@ -127,38 +130,17 @@ public class SecurePackagePublisher {
     }
     private void validateParallax(byte[] bytes,Map<String,PackageMediaInspector.Media> images) {
         try {
-            if (bytes==null || bytes.length>65536) throw invalid();
-            if (bytes.length>=3 && (bytes[0]&255)==239 && (bytes[1]&255)==187 && (bytes[2]&255)==191) throw invalid();
-            var config=mapper.reader().with(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION).with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(bytes);
-            // This is a version compatibility gate, not an algorithm validator. The API does not
-            // interpret motion values; it only prevents a config with a future field set from being
-            // released to today's strict v2 Android client.
-            exactFields(config,Set.of("formatVersion","canvas","motion","layers"));
-            if (!config.path("formatVersion").isInt() || config.path("formatVersion").intValue()!=2) throw invalid();
-            exactFields(config.path("canvas"),Set.of("width","height"));
-            exactFields(config.path("motion"),Set.of("maxAngleX","maxAngleY"));
-            if (!config.path("canvas").path("width").isInt() || !config.path("canvas").path("height").isInt()) throw invalid();
-            int width=config.path("canvas").path("width").asInt(),height=config.path("canvas").path("height").asInt();
-            if (width<512 || height<512 || width>4096 || height>4096) throw invalid();
-            var layers=config.path("layers");
-            if (!layers.isArray() || layers.size()!=images.size() || layers.size()<2 || layers.size()>12) throw invalid();
+            var envelope=parallaxConfigs.validate(bytes,images.size());
+            int width=envelope.width(),height=envelope.height();
             Set<String> seen=new HashSet<>();
-            for (int i=0;i<layers.size();i++) {
-                var layer=layers.get(i);
-                exactFields(layer,Set.of("index","offsetXPercent","offsetYPercent","initialOffsetXPercent","initialOffsetYPercent","direction","scale","opacity","blendMode"));
-                if (!layer.path("index").isInt() || layer.path("index").intValue()!=i+1) throw invalid();
-                String role=i==layers.size()-1?"BACKGROUND":"FOREGROUND";
+            for (int i=0;i<envelope.layerCount();i++) {
+                String role=i==envelope.layerCount()-1?"BACKGROUND":"FOREGROUND";
                 int ordinal=role.equals("BACKGROUND")?0:i;
                 var image=images.get(role+":"+ordinal);
                 if (image==null || !seen.add(role+":"+ordinal) || image.width()!=width || image.height()!=height || (role.equals("FOREGROUND") && !image.alpha())) throw invalid();
             }
         } catch (ApiException exception) { throw exception; }
         catch (Exception exception) { throw invalid(); }
-    }
-    private void exactFields(com.fasterxml.jackson.databind.JsonNode value,Set<String> expected) {
-        if (!value.isObject()) throw invalid();
-        Set<String> fields=new HashSet<>(); value.fieldNames().forEachRemaining(fields::add);
-        if (!fields.equals(expected)) throw invalid();
     }
     private static ApiException invalid() { return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,"ASSET_VALIDATION_FAILED","Resource package input validation failed"); }
     private record Version(long id,int number,String status,long variantId,long wallpaperId,String platform,String type) {}

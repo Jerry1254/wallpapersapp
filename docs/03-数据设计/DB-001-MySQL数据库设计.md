@@ -1,7 +1,7 @@
 # DB-001 MySQL 数据库设计
 
 **状态：** 已确认  
-**版本：** V1.6.0
+**版本：** V1.7.0
 
 **日期：** 2026-09-15
 **数据库：** MySQL 8.4 LTS  
@@ -47,6 +47,10 @@ Flyway `V6__parallax_v2_config_passthrough.sql` 清理尚未上线的 v1 测试�
 - `parallax_source_layer` 只保存 `source_package_id/layer_index/asset_id/original_filename/role/ordinal`。
 - 删除 `depth/scale/opacity/blend_mode`；不增加 `offset_percent/direction` 等算法列。
 - 算法配置由模拟器和 Android 共同约定，MySQL 不建立第二份事实。
+
+### V1.7 4D 配置版本数据化
+
+Flyway `V7__parallax_config_version_data.sql` 保留默认版本 2，将 `parallax_source_package.format_version` 的等值约束放宽为 2～INT 最大值。API 只保存客户端版本和稳定外壳元数据；未来版本及算法字段不新增数据库列或迁移。
 
 管理表单仍让管理员联动选择一级和二级分类，但 `wallpaper` 表只保存 `category_id`，含义为“最深选中的分类节点”：
 

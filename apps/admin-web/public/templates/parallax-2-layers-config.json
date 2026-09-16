@@ -1,9 +1,0 @@
-{
-  "formatVersion": 2,
-  "canvas": { "width": 512, "height": 1024 },
-  "motion": { "maxAngleX": 75, "maxAngleY": 75 },
-  "layers": [
-    { "index": 1, "offsetXPercent": 8, "offsetYPercent": 7, "initialOffsetXPercent": 0, "initialOffsetYPercent": 0, "direction": "follow", "scale": 1.18, "opacity": 1, "blendMode": "normal" },
-    { "index": 2, "offsetXPercent": 3, "offsetYPercent": 2, "initialOffsetXPercent": 0, "initialOffsetYPercent": 0, "direction": "reverse", "scale": 1.00, "opacity": 1, "blendMode": "normal" }
-  ]
-}

@@ -123,7 +123,7 @@ class InfrastructureIntegrationIT {
                 """,
                 String.class);
 
-        assertThat(successfulMigrations).isEqualTo(6);
+        assertThat(successfulMigrations).isEqualTo(7);
         assertThat(tables).containsExactlyInAnyOrder(
                 "admin_account",
                 "anonymous_device",
@@ -1008,16 +1008,22 @@ class InfrastructureIntegrationIT {
         assertThat(legacyRead.has("sourcePackage")).isTrue();assertThat(legacyRead.path("sourcePackage").isNull()).isTrue();
         var unknownFiles=com.qingjing.wallpaper.parallax.ParallaxFixtures.files(2);
         String unknownConfig=new String(unknownFiles.get("config.json"),StandardCharsets.UTF_8)
-                .replace("\"motion\":{","\"futureRoot\":true,\"motion\":{");
-        unknownFiles.put("config.json",unknownConfig.getBytes(StandardCharsets.UTF_8));
+                .replace("\"formatVersion\":2","\"formatVersion\":37")
+                .replace("\"motion\":{","\"futureRoot\":true,\"motion\":{\"futureMotion\":{\"type\":\"spring\"},")
+                .replace("\"offsetXPercent\":8","\"futureLayer\":[1,2,3],\"offsetXPercent\":8");
+        byte[] unknownConfigBytes=unknownConfig.getBytes(StandardCharsets.UTF_8);
+        unknownFiles.put("config.json",unknownConfigBytes);
         var unknownSource=importParallax(admin,com.qingjing.wallpaper.parallax.ParallaxFixtures.zip(unknownFiles),true);
         assertThat(unknownSource.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(unknownSource.getBody().path("configFormatVersion").asInt()).isEqualTo(37);
         var unknownVersion=jsonExchange("/api/v1/admin/variants/"+variant+"/parallax-resource-versions",HttpMethod.POST,
                 Map.of("versionNo",99,"sourcePackageId",unknownSource.getBody().path("id").asText()),admin,null);
         assertThat(unknownVersion.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        var refusedUnknown=jsonExchange("/api/v1/admin/resource-versions/"+unknownVersion.getBody().path("id").asLong()+"/secure-package",
+        long unknownVersionId=unknownVersion.getBody().path("id").asLong();
+        var builtUnknown=jsonExchange("/api/v1/admin/resource-versions/"+unknownVersionId+"/secure-package",
                 HttpMethod.POST,Map.of(),admin,null);
-        assertThat(refusedUnknown.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(builtUnknown.getStatusCode()).as(builtUnknown.getBody().toString()).isEqualTo(HttpStatus.OK);
+        assertThat(formalParallaxConfig(unknownVersionId,wallpaper,variant,99)).containsExactly(unknownConfigBytes);
         var v1Files=com.qingjing.wallpaper.parallax.ParallaxFixtures.files(2);
         v1Files.put("config.json",new String(v1Files.get("config.json"),StandardCharsets.UTF_8)
                 .replace("\"formatVersion\":2","\"formatVersion\":1").getBytes(StandardCharsets.UTF_8));
@@ -1217,7 +1223,7 @@ class InfrastructureIntegrationIT {
                     .isInstanceOf(com.qingjing.wallpaper.asset.application.FileStorageException.class);
             if (!type.equals("STATIC_IMAGE")) {
                 byte[] invalidBytes=type.equals("VIDEO") ? new byte[]{0,0,0,12,102,116,121,112,105,115,111,109} :
-                        "{\"formatVersion\":2,\"canvas\":{\"width\":512,\"height\":512},\"motion\":{\"maxAngleX\":75,\"maxAngleY\":75},\"layers\":[{\"index\":1,\"futureField\":true},{\"index\":2}]}".getBytes(StandardCharsets.UTF_8);
+                        "{\"formatVersion\":1,\"canvas\":{\"width\":512,\"height\":512},\"layers\":[{\"index\":1},{\"index\":2}]}".getBytes(StandardCharsets.UTF_8);
                 String badRole=type.equals("VIDEO") ? "VIDEO" : "PARALLAX_CONFIG";
                 JsonNode badAsset=uploadAsset(admin,badRole,type.equals("VIDEO") ? "fake.mp4" : "bad.json",invalidBytes);
                 List<Map<String,Object>> invalidBindings=bindings.stream().map(binding -> binding.get("role").equals(badRole) ?

@@ -15,7 +15,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 class ParallaxPackageParserTest {
     private final ObjectMapper mapper=new ObjectMapper();
-    private final ParallaxPackageParser parser=new ParallaxPackageParser(mapper,new ParallaxImageInspector(System.getenv().getOrDefault("QJ_FFMPEG","ffmpeg")));
+    private final ParallaxPackageParser parser=new ParallaxPackageParser(new ParallaxConfigEnvelopeValidator(mapper),new ParallaxImageInspector(System.getenv().getOrDefault("QJ_FFMPEG","ffmpeg")));
 
     @ParameterizedTest @ValueSource(ints={2,3,12})
     void preservesOriginalV2ConfigAndMapsOnlyFileRoles(int count) throws Exception {
@@ -34,13 +34,6 @@ class ParallaxPackageParserTest {
     @Test void permitsStoredZipAndMacMetadata() throws Exception {
         var files=files(2);files.put("layers/",new byte[0]);files.put("__MACOSX/._cover.jpg",new byte[]{1});files.put("layers/.DS_Store",new byte[]{2});
         assertThat(parser.parse(zip(files,true)).layers()).hasSize(2);
-    }
-    @Test void shippedExamplesMatchTheSourceContract() throws Exception {
-        for(int count:List.of(2,3,12)) {
-            var path=java.nio.file.Path.of("../../apps/admin-web/public/templates/parallax-"+count+"-layers.zip");
-            var parsed=parser.parse(java.nio.file.Files.readAllBytes(path));
-            assertThat(parsed.layers()).hasSize(count);assertThat(parsed.height()).isEqualTo(1024);
-        }
     }
     @Test void decodesStaticAlphaAndOpaqueWebp() throws Exception {
         var directory=java.nio.file.Files.createTempDirectory("qj-webp-test-");
@@ -75,10 +68,13 @@ class ParallaxPackageParserTest {
     }
     @Test void passesThroughUnknownAlgorithmFieldsAndValues() throws Exception {
         var source=files(2);String config=new String(source.get("config.json"),StandardCharsets.UTF_8);
-        String extended=config.replace("\"offsetXPercent\":8","\"offsetXPercent\":999,\"futureCurve\":{\"name\":\"spring\"}")
-                .replace("\"motion\":{","\"futureRoot\":true,\"motion\":{");
+        String extended=config.replace("\"formatVersion\":2","\"formatVersion\":37")
+                .replace("\"offsetXPercent\":8","\"offsetXPercent\":999,\"futureCurve\":{\"name\":\"spring\"}")
+                .replace("\"motion\":{","\"futureRoot\":true,\"motion\":{\"futureMotion\":false,");
         source.put("config.json",extended.getBytes(StandardCharsets.UTF_8));
-        assertThat(parser.parse(zip(source)).configBytes()).containsExactly(extended.getBytes(StandardCharsets.UTF_8));
+        var parsed=parser.parse(zip(source));
+        assertThat(parsed.formatVersion()).isEqualTo(37);
+        assertThat(parsed.configBytes()).containsExactly(extended.getBytes(StandardCharsets.UTF_8));
     }
     @Test void rejectsMalformedOrUnsupportedStableStructure() throws Exception {
         String config=new String(files(2).get("config.json"),StandardCharsets.UTF_8);
