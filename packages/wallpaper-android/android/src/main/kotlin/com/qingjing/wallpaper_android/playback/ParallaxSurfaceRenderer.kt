@@ -54,12 +54,7 @@ internal class ParallaxSurfaceRenderer(private val context: Context,private val 
                 if (!valid(attempt)) { releaseResources(); return@post }
                 decodedBytes = scene!!.decodedBytes
                 val configuration = scene!!.configuration
-                @Suppress("DEPRECATION")
-                val rotation = { (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay.rotation }
-                sensor = ParallaxTiltSensor(context,configuration.maxAngleX,configuration.maxAngleY,rotation) { tx,ty ->
-                    if (valid(attempt)) { targetX = tx; targetY = ty; if (kotlin.math.abs(tx)>.03f || kotlin.math.abs(ty)>.03f) motionObserved = true }
-                }
-                sensorRunning = !forceNoSensor && configuration.layers.any { (it.offsetXPercent!=0f || it.offsetYPercent!=0f) && it.direction!="fixed" } && sensor!!.start(handler)
+                configureSensor(attempt,configuration)
                 renderGeneration = attempt; lastPostTime = SystemClock.elapsedRealtime(); loading = false; changed(); handler.post(drawFrame)
             } catch (_: Exception) { error(attempt) }
             catch (_: OutOfMemoryError) { error(attempt) }
@@ -103,6 +98,28 @@ internal class ParallaxSurfaceRenderer(private val context: Context,private val 
         }
     }
     fun redraw() { if (active && !closed) handler.post { handler.removeCallbacks(drawFrame); handler.post(drawFrame) } }
+    fun updateConfiguration(bytes: ByteArray, completed: (Boolean) -> Unit) {
+        if (closed || bytes.isEmpty() || bytes.size>65536) { completed(false); return }
+        val attempt = generation.get()
+        handler.post {
+            try {
+                val configuration = scene?.update(bytes) ?: error("Scene unavailable")
+                if(!valid(attempt)) throw IllegalStateException()
+                sensor?.stop(); sensor = null; sensorRunning = false
+                configureSensor(attempt,configuration)
+                handler.removeCallbacks(drawFrame); handler.post(drawFrame)
+                completed(true)
+            } catch(_: Exception) { completed(false) }
+        }
+    }
+    private fun configureSensor(attempt: Int,configuration: ParallaxConfiguration) {
+        @Suppress("DEPRECATION")
+        val rotation = { (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay.rotation }
+        sensor = ParallaxTiltSensor(context,configuration.maxAngleX,configuration.maxAngleY,rotation) { tx,ty ->
+            if (valid(attempt)) { targetX = tx; targetY = ty; if (kotlin.math.abs(tx)>.03f || kotlin.math.abs(ty)>.03f) motionObserved = true }
+        }
+        sensorRunning = !forceNoSensor && configuration.layers.any { (it.offsetXPercent!=0f || it.offsetYPercent!=0f) && it.direction!="fixed" } && sensor!!.start(handler)
+    }
     fun touch(x: Float?,y: Float?) {
         if (closed) return
         handler.post {

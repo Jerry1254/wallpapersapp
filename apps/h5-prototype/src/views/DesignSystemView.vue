@@ -238,9 +238,9 @@ onMounted(async () => {
               </div>
               <QjSubcategoryRail v-model="activeSubcategory" :items="subcategories" />
               <div class="wallpaper-grid">
-                <QjWallpaperCard :src="mountainImage" title="暮色山峦" type="4D" @select="showFeedback('打开暮色山峦')" />
+                <QjWallpaperCard :src="mountainImage" title="暮色山峦" type="4D动态" @select="showFeedback('打开暮色山峦')" />
                 <QjWallpaperCard :src="zenImage" title="静观" type="动态" />
-                <QjWallpaperCard :src="cityImage" title="城市余晖" type="4D" />
+                <QjWallpaperCard :src="cityImage" title="城市余晖" type="4D动态" />
                 <QjWallpaperCard :src="coastImage" title="深海呼吸" type="静态" />
               </div>
             </section>
@@ -303,7 +303,7 @@ onMounted(async () => {
             <span>列表只显示封面、类型和名称。</span>
           </div>
           <div class="component-card__pair">
-            <QjWallpaperCard :src="cityImage" title="城市余晖" type="4D" />
+            <QjWallpaperCard :src="cityImage" title="城市余晖" type="4D动态" />
             <QjWallpaperCard :src="coastImage" title="深海呼吸" type="静态" />
           </div>
         </article>
@@ -314,7 +314,7 @@ onMounted(async () => {
             <span>黑色为默认主操作，黄色只表示当前选中。</span>
           </div>
           <div class="badge-row">
-            <QjTypeBadge label="4D" />
+            <QjTypeBadge label="4D动态" />
             <QjTypeBadge label="动态" tone="amber" />
             <QjTypeBadge label="已获得" tone="success" />
             <QjTypeBadge label="Android" tone="light" />
@@ -353,7 +353,7 @@ onMounted(async () => {
             <strong>我的 · 教程入口</strong>
             <span>放在已购买壁纸列表之前。</span>
           </div>
-          <QjTutorialCard @open="showFeedback('打开壁纸设计教程')" />
+          <QjTutorialCard @open="showFeedback('打开壁纸设置教程')" />
         </article>
 
         <article class="component-card">

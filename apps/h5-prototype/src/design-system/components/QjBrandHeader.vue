@@ -17,6 +17,7 @@ defineEmits<{
     <strong>{{ title }}</strong>
     <button type="button" aria-label="联系客服" @click="$emit('service')">
       <MessageCircleMore :size="21" :stroke-width="2.2" aria-hidden="true" />
+      <span>客服</span>
     </button>
   </header>
 </template>
@@ -58,16 +59,18 @@ defineEmits<{
 }
 
 .qj-brand-header button {
-  display: grid;
-  width: var(--qj-size-touch-target-min);
+  display: flex;
   height: var(--qj-size-touch-target-min);
-  padding: 0;
-  place-items: center;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
   border: 0;
-  border-radius: 50%;
+  border-radius: var(--qj-radius-pill);
   color: var(--qj-color-inverse-ink);
   background: var(--qj-color-navigation);
   cursor: pointer;
+  font-size: var(--qj-font-size-caption);
+  font-weight: var(--qj-font-weight-bold);
   transition: opacity var(--qj-duration-fast) var(--qj-ease-standard);
 }
 

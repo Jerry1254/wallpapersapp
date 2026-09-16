@@ -154,6 +154,7 @@ void main() {
     ) async {
       final sessions = PreviewSessions()..owned = owned,
           installer = PreviewInstaller();
+      String? previewType;
       final trials = TrialManager(
         sessions,
         Uri.parse('https://example.test/api/v1'),
@@ -173,6 +174,11 @@ void main() {
             trials: trials,
             downloads: downloads,
             playback: PreviewCapabilities(),
+            detailPreviewBuilder:
+                (manager, wallpaperId, resourceType, cover, active) {
+                  previewType = resourceType;
+                  return cover;
+                },
           ),
         ),
       );
@@ -180,6 +186,7 @@ void main() {
       expect(find.text('试用两分钟'), findsNothing);
       expect(find.text('试用 2 分钟'), findsNothing);
       expect(find.text(owned ? '设置壁纸' : '下载壁纸'), findsOneWidget);
+      expect(previewType, 'STATIC_IMAGE');
       expect(sessions.issuances, 0);
       expect(find.byType(DownloadPanel), findsNothing);
       await tester.pumpWidget(const SizedBox());

@@ -5,9 +5,7 @@ import { useRouter } from 'vue-router';
 import QjMobileShell from '@/components/QjMobileShell.vue';
 import QjOwnedWallpaperRow from '@/components/QjOwnedWallpaperRow.vue';
 import QjCatalogMore from '@/components/QjCatalogMore.vue';
-import { useCustomerService } from '@/composables/useCustomerService';
 import QjBrandHeader from '@/design-system/components/QjBrandHeader.vue';
-import QjCustomerServiceCard from '@/design-system/components/QjCustomerServiceCard.vue';
 import QjStatePanel from '@/design-system/components/QjStatePanel.vue';
 import QjTutorialCard from '@/design-system/components/QjTutorialCard.vue';
 import { wallpaperTypeLabel } from '@/domain/catalog';
@@ -15,13 +13,11 @@ import { useDeviceStore } from '@/stores/device';
 
 const router = useRouter();
 const store = useDeviceStore();
-const { wechatId, qrCodeUrl, ensureQrCode, previewQrCode, saveQrCode, copyWechat } = useCustomerService();
 
 const refresh = () => { void store.refresh().catch(() => {}); };
 const loadMore = () => { void store.loadMore().catch(() => {}); };
 
 onMounted(() => {
-  void ensureQrCode();
   store.syncPending();
   refresh();
 });
@@ -57,19 +53,6 @@ onMounted(() => {
       <QjStatePanel v-else description="兑换壁纸后会显示在这里" @action="router.push('/home')" />
       <p v-if="store.errorMessage && store.items.length" role="status" class="mine-device-note">{{ store.errorMessage }}</p>
       <QjCatalogMore :has-more="store.hasMore" :loading="store.loading" :error-message="store.errorMessage" @load="loadMore" />
-    </section>
-
-    <section class="prototype-section">
-      <div class="prototype-section__header">
-        <h2>微信客服</h2>
-      </div>
-      <QjCustomerServiceCard
-        :wechat-id="wechatId"
-        :qr-code-url="qrCodeUrl"
-        @copy="copyWechat"
-        @preview="previewQrCode"
-        @save="saveQrCode"
-      />
     </section>
 
   </QjMobileShell>

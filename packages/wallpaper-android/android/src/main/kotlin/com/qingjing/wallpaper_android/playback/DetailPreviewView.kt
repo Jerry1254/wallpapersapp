@@ -4,6 +4,8 @@ import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.content.ContextWrapper
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -12,6 +14,7 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.ImageView
 import com.qingjing.wallpaper_android.install.DetailPreviewRuntime
 import com.qingjing.wallpaper_android.install.InstalledPackage
 import com.qingjing.wallpaper_android.install.PackagePurpose
@@ -33,12 +36,23 @@ private class DetailPreviewView(context: Context,id: Int,args: Map<*,*>,messenge
     private val worker = Executors.newSingleThreadExecutor()
     private val channel = MethodChannel(messenger,"qingjing/detail_preview/$id")
     private val surface = SurfaceView(context)
-    private val frame = FrameLayout(context).apply { setBackgroundColor(android.graphics.Color.BLACK); addView(surface,FrameLayout.LayoutParams(-1,-1)) }
     private val type = args["resourceType"] as? String
+    private val image = ImageView(context).apply {
+        scaleType = ImageView.ScaleType.CENTER_CROP
+        visibility = if(type == "STATIC_IMAGE") View.VISIBLE else View.GONE
+    }
+    private val frame = FrameLayout(context).apply {
+        setBackgroundColor(android.graphics.Color.BLACK)
+        addView(image,FrameLayout.LayoutParams(-1,-1))
+        addView(surface,FrameLayout.LayoutParams(-1,-1))
+        surface.visibility = if(type == "STATIC_IMAGE") View.GONE else View.VISIBLE
+    }
     private var active = args["visible"] == true
     private var resumed = true
     private var dead = false
     private var playing = false
+    private var staticReady = false
+    private var bitmap: Bitmap? = null
     private var pin: AutoCloseable? = null
     private var content: InstalledPackage? = null
     private val player = VideoSurfacePlayer(ready = { status("ready") },failed = { status("failed") })
@@ -64,7 +78,14 @@ private class DetailPreviewView(context: Context,id: Int,args: Map<*,*>,messenge
         channel.setMethodCallHandler { call,result ->
             when(call.method) {
                 "visible" -> { active = call.arguments == true; if(active) play() else stop(); result.success(null) }
-                "state" -> result.success(mapOf("resourceType" to type,"playing" to player.playing,"rendering" to (player.rendered || renderer?.state()?.get("rendering") == true)))
+                "state" -> result.success(mapOf("resourceType" to type,"playing" to player.playing,"rendering" to (staticReady || player.rendered || renderer?.state()?.get("rendering") == true)))
+                "configuration" -> {
+                    val text=call.argument<String>("config")
+                    if(type!="LAYER_PARALLAX" || text==null || text.toByteArray(Charsets.UTF_8).size>65536) result.error("CONFIG_INVALID","参数无法应用",null)
+                    else renderer?.updateConfiguration(text.toByteArray(Charsets.UTF_8)) { ok -> main.post {
+                        if(ok) result.success(null) else result.error("CONFIG_INVALID","参数无法应用",null)
+                    }} ?: result.error("PREVIEW_UNAVAILABLE","预览尚未就绪",null)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -85,19 +106,32 @@ private class DetailPreviewView(context: Context,id: Int,args: Map<*,*>,messenge
         }
         worker.execute {
             var lease: AutoCloseable? = null
+            var decoded: Bitmap? = null
             try {
-                require(type in setOf("VIDEO","LAYER_PARALLAX"))
+                require(type in setOf("STATIC_IMAGE","VIDEO","LAYER_PARALLAX"))
                 val installed = args["installedId"] as? String ?: error("Missing preview")
                 val restricted = args["restricted"] == true
                 val store = if(restricted) DetailPreviewRuntime.store(context) else PackageRuntime.store(context)
                 val purpose = if(restricted) PackagePurpose.APP_PREVIEW else PackagePurpose.FORMAL
                 lease = store.pin(installed)
                 val verified = PackageRuntime.verifier(context,purpose).verify(store,installed,type!!)
+                if(type == "STATIC_IMAGE") {
+                    decoded = BitmapFactory.decodeFile(verified.content("STATIC_IMAGE").absolutePath,
+                        BitmapFactory.Options().apply { inSampleSize = 1; inScaled = false; inPreferredConfig = Bitmap.Config.ARGB_8888 })
+                        ?: error("Undecodable image")
+                }
                 val retained = lease; lease = null
+                val retainedBitmap = decoded; decoded = null
                 main.post {
-                    if(dead) retained?.close()
+                    if(dead) { retained?.close(); retainedBitmap?.recycle() }
                     else {
                         pin = retained; content = verified
+                        if(type == "STATIC_IMAGE") {
+                            bitmap = retainedBitmap
+                            image.setImageBitmap(retainedBitmap)
+                            staticReady = true
+                            status("ready")
+                        }
                         if(type == "LAYER_PARALLAX") renderer = ParallaxSurfaceRenderer(context,surface.holder,
                             ready = { _,sensor -> main.post { status(if(sensor) "ready" else "touch") } },
                             failed = { main.post { status("failed") } },changed = {},
@@ -105,13 +139,14 @@ private class DetailPreviewView(context: Context,id: Int,args: Map<*,*>,messenge
                         play()
                     }
                 }
-            } catch(_: Exception) { lease?.close(); main.post { status("failed") } }
+            } catch(_: Exception) { decoded?.recycle(); lease?.close(); main.post { status("failed") } }
+            catch(_: OutOfMemoryError) { decoded?.recycle(); lease?.close(); main.post { status("failed") } }
         }
     }
     private fun status(value: String) { if(!dead) channel.invokeMethod("status",value) }
     private fun play() {
         val value = content ?: return
-        if(dead || !active || !resumed || !surface.holder.surface.isValid || playing) return
+        if(type == "STATIC_IMAGE" || dead || !active || !resumed || !surface.holder.surface.isValid || playing) return
         playing = true
         if(type == "VIDEO") player.open(value.content("VIDEO"),surface.holder) else renderer?.start(value.id)
     }
@@ -119,7 +154,7 @@ private class DetailPreviewView(context: Context,id: Int,args: Map<*,*>,messenge
     override fun getView(): View = frame
     override fun dispose() {
         if(dead) return
-        dead = true; stop(); renderer?.close(); pin?.close(); pin = null
+        dead = true; stop(); renderer?.close(); image.setImageDrawable(null); bitmap?.recycle(); bitmap = null; staticReady = false; pin?.close(); pin = null
         channel.setMethodCallHandler(null); application.unregisterActivityLifecycleCallbacks(lifecycle); worker.shutdown()
     }
 }

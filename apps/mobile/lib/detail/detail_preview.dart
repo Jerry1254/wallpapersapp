@@ -19,11 +19,20 @@ class DetailPreview extends StatefulWidget {
     required this.resourceType,
     required this.cover,
     this.active = true,
+    this.preferPreview = false,
+    this.fill = false,
+    this.configuration,
+    this.onInstalled,
+    this.onReady,
   });
   final DownloadManager manager;
   final String wallpaperId, resourceType;
   final Widget cover;
   final bool active;
+  final bool preferPreview, fill;
+  final String? configuration;
+  final ValueChanged<String>? onInstalled;
+  final ValueChanged<bool>? onReady;
   @override
   State<DetailPreview> createState() => _DetailPreviewState();
 }
@@ -63,6 +72,11 @@ class _DetailPreviewState extends State<DetailPreview>
   void didUpdateWidget(DetailPreview oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.active != widget.active) _visibility();
+    if (oldWidget.configuration != widget.configuration &&
+        widget.configuration != null &&
+        ready) {
+      unawaited(_applyConfiguration(widget.configuration!));
+    }
   }
 
   @override
@@ -101,6 +115,7 @@ class _DetailPreviewState extends State<DetailPreview>
         ready = false;
         error = null;
       });
+      widget.onInstalled?.call(state.installedId!);
     }
   }
 
@@ -119,16 +134,19 @@ class _DetailPreviewState extends State<DetailPreview>
     requestId = id;
     bool cancelled() => !mounted || requestId != id;
     try {
-      final local = await widget.manager.current(
-        widget.wallpaperId,
-        widget.resourceType,
-      );
+      final local = widget.preferPreview
+          ? null
+          : await widget.manager.current(
+              widget.wallpaperId,
+              widget.resourceType,
+            );
       if (cancelled()) return;
       if (local != null) {
         setState(() {
           installedId = local;
           restricted = false;
         });
+        widget.onInstalled?.call(local);
         return;
       }
       final binding = await widget.manager.sessions.ensureEncryptionKey();
@@ -166,7 +184,10 @@ class _DetailPreviewState extends State<DetailPreview>
           descriptor: descriptor,
         ),
       );
-      if (!cancelled()) setState(() => installedId = preview);
+      if (!cancelled()) {
+        setState(() => installedId = preview);
+        widget.onInstalled?.call(preview);
+      }
     } catch (failure) {
       if (!cancelled()) {
         setState(
@@ -192,14 +213,32 @@ class _DetailPreviewState extends State<DetailPreview>
         ready = call.arguments == 'ready' || call.arguments == 'touch';
         error = call.arguments == 'failed' ? '预览暂时不可用，请重试' : null;
       });
+      widget.onReady?.call(ready);
+      if (ready && widget.configuration != null) {
+        unawaited(_applyConfiguration(widget.configuration!));
+      }
     });
     _visibility();
     try {
       final state = await next.invokeMapMethod<String, dynamic>('state');
       if (mounted && channel == next && state?['rendering'] == true) {
         setState(() => ready = true);
+        widget.onReady?.call(true);
+        if (widget.configuration != null) {
+          await _applyConfiguration(widget.configuration!);
+        }
       }
     } catch (_) {}
+  }
+
+  Future<void> _applyConfiguration(String value) async {
+    final current = channel;
+    if (current == null || widget.resourceType != 'LAYER_PARALLAX') return;
+    try {
+      await current.invokeMethod<void>('configuration', {'config': value});
+    } catch (_) {
+      if (mounted) setState(() => error = '参数无法应用，请复位后重试');
+    }
   }
 
   Widget _surface() => PlatformViewLink(
@@ -247,54 +286,66 @@ class _DetailPreviewState extends State<DetailPreview>
   }
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(24),
-    child: AspectRatio(
-      aspectRatio: 1 / 2,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          widget.cover,
-          if (installedId != null) _surface(),
-          if (!ready && error == null)
-            const Center(child: CircularProgressIndicator()),
-          if (error != null)
-            Positioned(
-              left: 12,
-              right: 12,
-              bottom: 12,
-              child: Align(
-                alignment: Alignment.bottomLeft,
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(error!),
-                        TextButton(
-                          onPressed: () {
-                            _cancel();
-                            channel?.setMethodCallHandler(null);
-                            channel = null;
-                            setState(() {
-                              installedId = null;
-                              error = null;
-                              ready = false;
-                            });
-                            unawaited(_prepare());
-                          },
-                          child: const Text('重新加载预览'),
-                        ),
-                      ],
-                    ),
+  Widget build(BuildContext context) {
+    final content = Stack(
+      fit: StackFit.expand,
+      children: [
+        widget.cover,
+        if (installedId != null) _surface(),
+        if (!ready && error == null)
+          const Center(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Color(0x99000000),
+                borderRadius: BorderRadius.all(Radius.circular(18)),
+              ),
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                child: Text('正在加载原图预览…', style: TextStyle(color: Colors.white)),
+              ),
+            ),
+          ),
+        if (error != null)
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: 12,
+            child: Align(
+              alignment: Alignment.bottomLeft,
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(error!),
+                      TextButton(
+                        onPressed: () {
+                          _cancel();
+                          channel?.setMethodCallHandler(null);
+                          channel = null;
+                          setState(() {
+                            installedId = null;
+                            error = null;
+                            ready = false;
+                          });
+                          unawaited(_prepare());
+                        },
+                        child: const Text('重新加载预览'),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
-        ],
-      ),
-    ),
-  );
+          ),
+      ],
+    );
+    if (widget.fill) return content;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: AspectRatio(aspectRatio: 1 / 2, child: content),
+    );
+  }
 }

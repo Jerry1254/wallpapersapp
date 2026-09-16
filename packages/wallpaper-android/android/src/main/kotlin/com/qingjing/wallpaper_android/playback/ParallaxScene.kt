@@ -12,13 +12,15 @@ import com.qingjing.wallpaper_android.install.InstalledPackage
 import java.io.File
 
 /** Directional-strength rendering from verified private files; total scene allocation is bounded. */
-internal class ParallaxScene private constructor(val configuration: ParallaxConfiguration,private val bitmaps: List<Bitmap>) : AutoCloseable {
+internal class ParallaxScene private constructor(private var current: ParallaxConfiguration,private val bitmaps: List<Bitmap>) : AutoCloseable {
+    val configuration get() = current
     val decodedBytes get() = bitmaps.sumOf { it.allocationByteCount.toLong() }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val matrix = Matrix()
     private val modes = mapOf("screen" to PorterDuffXfermode(PorterDuff.Mode.SCREEN),"add" to PorterDuffXfermode(PorterDuff.Mode.ADD))
     fun draw(canvas: Canvas,x: Float,y: Float) {
         canvas.drawColor(Color.BLACK)
+        val configuration = current
         for ((index,layer) in configuration.layers.withIndex()) {
             val bitmap = bitmaps[index]
             val p = ParallaxMotion.placement(canvas.width,canvas.height,bitmap.width,bitmap.height,layer.scale,
@@ -29,6 +31,13 @@ internal class ParallaxScene private constructor(val configuration: ParallaxConf
             canvas.drawBitmap(bitmap,matrix,paint)
         }
         paint.xfermode = null
+    }
+    fun update(bytes: ByteArray): ParallaxConfiguration {
+        val next = ParallaxConfiguration.parse(bytes)
+        require(next.width == current.width && next.height == current.height)
+        require(next.layers.map { it.role to it.ordinal } == current.layers.map { it.role to it.ordinal })
+        current = next
+        return next
     }
     override fun close() { bitmaps.forEach { if (!it.isRecycled) it.recycle() } }
     companion object {

@@ -29,16 +29,16 @@ let catalogVersion = 0;
 
 const systemViews = [
   { id: 'all', label: '精选推荐' },
-  { id: 'new', label: '最近上新' },
-  { id: 'depth', label: '4D 景深' },
+  { id: 'depth', label: '4D动态' },
+  { id: 'dynamic', label: '动态壁纸' },
   { id: 'static', label: '静态壁纸' }
 ];
 const tones = ['amber', 'sage', 'blush', 'stone'] as const;
 const sectionTitle = computed(() => activeSubcategory.value === 'all' ? '精选壁纸' : systemViews.find((item) => item.id === activeSubcategory.value)?.label || '壁纸');
 
 const selectedQuery = (): WallpaperListQuery => {
-  if (activeSubcategory.value === 'new') return { pageSize: 20, sort: 'NEWEST' };
   if (activeSubcategory.value === 'depth') return { pageSize: 20, kind: 'PARALLAX_4D' };
+  if (activeSubcategory.value === 'dynamic') return { pageSize: 20, kind: 'DYNAMIC' };
   if (activeSubcategory.value === 'static') return { pageSize: 20, view: 'STATIC' };
   return { pageSize: 20, view: 'FEATURED' };
 };
@@ -69,11 +69,6 @@ const openCategory = (categoryId: string) => {
 
 const openWallpaper = (wallpaperId: string) => {
   void router.push(`/wallpapers/${wallpaperId}`);
-};
-
-const openFirstCategory = () => {
-  const first = categories.value[0];
-  if (first) openCategory(first.id);
 };
 
 const search = () => {
@@ -116,7 +111,6 @@ const search = () => {
     <section class="prototype-section">
       <div class="prototype-section__header">
         <h2>{{ sectionTitle }}</h2>
-        <button v-if="categories.length" type="button" @click="openFirstCategory">查看分类</button>
       </div>
       <QjSubcategoryRail v-model="activeSubcategory" :items="systemViews" />
       <div v-if="visibleWallpapers.length" class="prototype-wallpaper-grid">

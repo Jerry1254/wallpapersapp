@@ -180,22 +180,28 @@ class WallpaperTargetSheet extends StatefulWidget {
     required this.effect,
     required this.playback,
     required this.capabilities,
+    this.initialResult,
   });
   final String installedId;
   final WallpaperEffect effect;
   final AndroidWallpaperPlayback playback;
   final WallpaperCapabilities capabilities;
+  final PlatformResult<void>? initialResult;
   @override
   State<WallpaperTargetSheet> createState() => _WallpaperTargetSheetState();
 }
 
 class _WallpaperTargetSheetState extends State<WallpaperTargetSheet> {
   WallpaperTarget? target;
-  bool busy = false, success = false;
+  bool busy = false, success = false, accepted = false;
+  String? acceptedMessage;
   String? failure;
+  bool get systemChoosesTarget =>
+      widget.capabilities.systemChoosesLiveTarget &&
+      widget.effect != WallpaperEffect.staticImage;
+
   List<(WallpaperTarget, String, String, String)> get options {
-    if (widget.capabilities.systemChoosesLiveTarget &&
-        widget.effect != WallpaperEffect.staticImage) {
+    if (systemChoosesTarget) {
       return [(WallpaperTarget.home, '桌面和锁屏', '设置位置由手机系统选择', 'smartphone')];
     }
     return [
@@ -214,12 +220,32 @@ class _WallpaperTargetSheetState extends State<WallpaperTargetSheet> {
     target = values.any((e) => e.$1 == WallpaperTarget.both)
         ? WallpaperTarget.both
         : values.firstOrNull?.$1;
+    final initialResult = widget.initialResult;
+    if (initialResult != null) _readResult(initialResult);
+  }
+
+  void _readResult(PlatformResult<void> result) {
+    success = result.status == OperationStatus.completed;
+    accepted = result.status == OperationStatus.accepted;
+    acceptedMessage = accepted ? result.message : null;
+    failure = success || accepted
+        ? null
+        : result.message ??
+              switch (result.status) {
+                OperationStatus.cancelled => '已取消',
+                OperationStatus.unsupported => '当前手机不支持此操作',
+                OperationStatus.unknown => '结果不可确认，请检查系统壁纸',
+                OperationStatus.accepted => '系统已接受设置',
+                OperationStatus.completed => '壁纸设置成功',
+              };
   }
 
   Future<void> apply() async {
     if (target == null || busy) return;
     setState(() {
       busy = true;
+      accepted = false;
+      acceptedMessage = null;
       failure = null;
     });
     final result = await widget.playback.apply(
@@ -230,154 +256,156 @@ class _WallpaperTargetSheetState extends State<WallpaperTargetSheet> {
     if (!mounted) return;
     setState(() {
       busy = false;
-      if (result.status == OperationStatus.completed) {
-        success = true;
-      } else {
-        failure =
-            result.message ??
-            switch (result.status) {
-              OperationStatus.cancelled => '已取消',
-              OperationStatus.unsupported => '当前手机不支持此操作',
-              OperationStatus.unknown => '结果不可确认，请检查系统壁纸',
-              _ => '设置失败，请重试',
-            };
-      }
+      _readResult(result);
     });
   }
 
   @override
-  Widget build(BuildContext context) => QjSheet(
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          success ? '壁纸设置成功' : '设置到哪里',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 4),
-        Text(
-          success ? '请返回桌面观看效果' : '选项由当前手机的系统能力决定',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-        const SizedBox(height: T.space4),
-        if (success)
-          Container(
-            constraints: const BoxConstraints(minHeight: 148),
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: T.colorSuccessSoft,
-              borderRadius: BorderRadius.circular(T.radiusCard),
-            ),
-            child: const QjIcon('check', size: 52, color: T.colorSuccess),
-          )
-        else if (failure != null)
-          Container(
-            constraints: const BoxConstraints(minHeight: 148),
-            padding: const EdgeInsets.all(T.space4),
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: T.colorDangerSoft,
-              borderRadius: BorderRadius.circular(T.radiusCard),
-            ),
-            child: Text(
-              failure!,
-              textAlign: TextAlign.center,
-              style: QjTheme.type(
-                13,
-                FontWeight.w500,
-                T.lineHeightBody,
-                T.colorDanger,
+  Widget build(BuildContext context) {
+    final positive = success || accepted;
+    return QjSheet(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            success
+                ? '壁纸设置成功'
+                : accepted
+                ? '系统已接受设置'
+                : '设置到哪里',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            success
+                ? '请返回桌面观看效果'
+                : accepted
+                ? (acceptedMessage ?? '请到桌面或锁屏查看效果')
+                : '选项由当前手机的系统能力决定',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: T.space4),
+          if (positive)
+            Container(
+              constraints: const BoxConstraints(minHeight: 148),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: T.colorSuccessSoft,
+                borderRadius: BorderRadius.circular(T.radiusCard),
               ),
-            ),
-          )
-        else
-          for (final item in options)
-            Padding(
-              padding: const EdgeInsets.only(bottom: T.space2),
-              child: Semantics(
-                button: true,
-                selected: target == item.$1,
-                child: InkWell(
-                  onTap: () => setState(() => target = item.$1),
-                  borderRadius: BorderRadius.circular(T.radiusControl),
-                  child: Container(
-                    constraints: const BoxConstraints(minHeight: 68),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: target == item.$1
-                          ? T.colorSurface
-                          : T.colorSurfaceMuted,
-                      border: Border.all(
-                        color: target == item.$1
-                            ? T.colorAccent
-                            : T.colorOutline,
+              child: const QjIcon('check', size: 52, color: T.colorSuccess),
+            )
+          else if (failure != null)
+            Container(
+              constraints: const BoxConstraints(minHeight: 148),
+              padding: const EdgeInsets.all(T.space4),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: T.colorDangerSoft,
+                borderRadius: BorderRadius.circular(T.radiusCard),
+              ),
+              child: Text(
+                failure!,
+                textAlign: TextAlign.center,
+                style: QjTheme.type(
+                  13,
+                  FontWeight.w500,
+                  T.lineHeightBody,
+                  T.colorDanger,
+                ),
+              ),
+            )
+          else if (!systemChoosesTarget)
+            for (final item in options)
+              Padding(
+                padding: const EdgeInsets.only(bottom: T.space2),
+                child: Semantics(
+                  button: true,
+                  selected: target == item.$1,
+                  child: InkWell(
+                    onTap: () => setState(() => target = item.$1),
+                    borderRadius: BorderRadius.circular(T.radiusControl),
+                    child: Container(
+                      constraints: const BoxConstraints(minHeight: 68),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
                       ),
-                      borderRadius: BorderRadius.circular(T.radiusControl),
-                      boxShadow: target == item.$1
-                          ? const [T.shadowSoft]
-                          : null,
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color: T.colorSurfaceStrong,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Center(
-                            child: QjIcon(item.$4, color: T.colorInkSoft),
-                          ),
+                      decoration: BoxDecoration(
+                        color: target == item.$1
+                            ? T.colorSurface
+                            : T.colorSurfaceMuted,
+                        border: Border.all(
+                          color: target == item.$1
+                              ? T.colorAccent
+                              : T.colorOutline,
                         ),
-                        const SizedBox(width: T.space3),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                item.$2,
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              Text(
-                                item.$3,
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
+                        borderRadius: BorderRadius.circular(T.radiusControl),
+                        boxShadow: target == item.$1
+                            ? const [T.shadowSoft]
+                            : null,
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: T.colorSurfaceStrong,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Center(
+                              child: QjIcon(item.$4, color: T.colorInkSoft),
+                            ),
                           ),
-                        ),
-                        if (target == item.$1)
-                          const QjIcon(
-                            'check',
-                            size: 16,
-                            color: T.colorAccentStrong,
+                          const SizedBox(width: T.space3),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.$2,
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.titleMedium,
+                                ),
+                                Text(
+                                  item.$3,
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
                           ),
-                      ],
+                          if (target == item.$1)
+                            const QjIcon(
+                              'check',
+                              size: 16,
+                              color: T.colorAccentStrong,
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-        const SizedBox(height: T.space5),
-        QjPrimaryAction(
-          label: success
-              ? '完成'
-              : failure != null
-              ? '重新尝试'
-              : '确认设置',
-          accent: success,
-          loading: busy,
-          onPressed: success
-              ? () => Navigator.pop(context)
-              : failure != null
-              ? () => setState(() => failure = null)
-              : apply,
-        ),
-      ],
-    ),
-  );
+          const SizedBox(height: T.space5),
+          QjPrimaryAction(
+            label: positive
+                ? '完成'
+                : failure != null
+                ? '重新尝试'
+                : '确认设置',
+            accent: positive,
+            loading: busy,
+            onPressed: positive
+                ? () => Navigator.pop(context)
+                : failure != null && !systemChoosesTarget
+                ? () => setState(() => failure = null)
+                : apply,
+          ),
+        ],
+      ),
+    );
+  }
 }

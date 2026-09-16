@@ -4,7 +4,7 @@ enum WallpaperEffect { staticImage, video, parallax }
 
 enum WallpaperTarget { home, lock, both }
 
-enum OperationStatus { completed, cancelled, unknown, unsupported }
+enum OperationStatus { completed, accepted, cancelled, unknown, unsupported }
 
 class PlatformResult<T> {
   const PlatformResult(this.status, {this.value, this.message});

@@ -7,7 +7,6 @@ import '../detail/detail_screen.dart';
 import '../detail/help_screen.dart';
 import '../device/device_session.dart';
 import '../downloads/download_manager.dart';
-import '../support/customer_service.dart';
 import 'redemption.dart';
 
 class EntitlementsScreen extends StatefulWidget {
@@ -154,7 +153,9 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
         QjTutorialCard(
           onPressed: () => Navigator.push(
             context,
-            MaterialPageRoute<void>(builder: (_) => const HelpScreen()),
+            MaterialPageRoute<void>(
+              builder: (_) => HelpScreen(repository: widget.catalog),
+            ),
           ),
         ),
         const SizedBox(height: T.space7),
@@ -242,14 +243,6 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
             onPressed: busy ? null : () => load(more: true),
             child: const Text('加载更多'),
           ),
-        const SizedBox(height: T.space7),
-        Text('微信客服', style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: T.space4),
-        QjCustomerServiceCard(
-          onCopy: () => copyCustomerWechat(context),
-          onPreview: () => previewCustomerQr(context),
-          onSave: () => saveCustomerQr(context),
-        ),
       ],
     ),
   );

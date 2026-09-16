@@ -16,6 +16,7 @@ import io.flutter.plugin.common.EventChannel
 import com.qingjing.wallpaper_android.install.AndroidPackageDelivery
 import com.qingjing.wallpaper_android.install.PackagePurpose
 import com.qingjing.wallpaper_android.install.TrialRuntime
+import com.qingjing.wallpaper_android.install.DetailPreviewRuntime
 import com.qingjing.wallpaper_android.playback.WallpaperPlaybackBridge
 import com.qingjing.wallpaper_android.playback.LiveSelection
 import com.qingjing.wallpaper_android.playback.DetailPreviewFactory
@@ -156,6 +157,29 @@ class WallpaperAndroidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, A
                     "playbackCapabilities" -> playback.information()
                     "saveCustomerQr" -> saveCustomerQr(call.argument<ByteArray>("bytes") ?: throw IllegalArgumentException())
                     "installedPackage" -> delivery.current(call.argument<String>("wallpaperId") ?: throw IllegalArgumentException(),call.argument<String>("resourceType") ?: throw IllegalArgumentException())
+                    "detailPreviewConfiguration" -> DetailPreviewRuntime.inspect(context,call.argument<String>("previewId") ?: throw IllegalArgumentException())
+                    "readParallaxLabDraft" -> {
+                        val wallpaperId=call.argument<String>("wallpaperId") ?: throw IllegalArgumentException()
+                        require(wallpaperId.matches(Regex("[1-9][0-9]{0,18}")))
+                        context.getSharedPreferences("qingjing.parallax.lab.drafts",Context.MODE_PRIVATE).getString(wallpaperId,null)
+                    }
+                    "writeParallaxLabDraft" -> {
+                        val wallpaperId=call.argument<String>("wallpaperId") ?: throw IllegalArgumentException()
+                        val baseVersionId=call.argument<String>("baseResourceVersionId") ?: throw IllegalArgumentException()
+                        val config=call.argument<String>("config") ?: throw IllegalArgumentException()
+                        require(wallpaperId.matches(Regex("[1-9][0-9]{0,18}")) && baseVersionId.matches(Regex("[1-9][0-9]{0,18}")))
+                        val bytes=config.toByteArray(Charsets.UTF_8);require(bytes.size in 1..65536)
+                        com.qingjing.wallpaper_android.playback.ParallaxConfiguration.parse(bytes)
+                        val value=org.json.JSONObject().put("baseResourceVersionId",baseVersionId).put("config",config).toString()
+                        check(context.getSharedPreferences("qingjing.parallax.lab.drafts",Context.MODE_PRIVATE).edit().putString(wallpaperId,value).commit())
+                        null
+                    }
+                    "clearParallaxLabDraft" -> {
+                        val wallpaperId=call.argument<String>("wallpaperId") ?: throw IllegalArgumentException()
+                        require(wallpaperId.matches(Regex("[1-9][0-9]{0,18}")))
+                        check(context.getSharedPreferences("qingjing.parallax.lab.drafts",Context.MODE_PRIVATE).edit().remove(wallpaperId).commit())
+                        null
+                    }
                     "clearPackageCache" -> { LiveSelection.pending(context); delivery.clearUnused() }
                     "encryptionPublicKey" -> encryptionPublicKey()
                     "identity" -> {

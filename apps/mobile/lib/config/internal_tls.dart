@@ -5,7 +5,7 @@ import 'app_config.dart';
 // Android's native URLConnection uses the flavor's network security config.
 // Dart clients need their own public trust anchor; normal TLS checks remain active.
 void configureInternalTls(AppConfig config, {String? publicCertificate}) {
-  if (config.environment != 'internal') return;
+  if (!{'internal', 'lab'}.contains(config.environment)) return;
   const fromBuild = String.fromEnvironment('INTERNAL_TLS_CERTIFICATE');
   final encoded = publicCertificate ?? fromBuild;
   if (encoded.isEmpty || encoded.length > 24000) {

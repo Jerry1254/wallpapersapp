@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'design_system/qj_theme.dart';
 import 'design_system/qj_components.dart';
-import 'design_system/ui_spec_screen.dart';
 import 'config/app_config.dart';
 import 'config/internal_tls.dart';
 import 'catalog/catalog.dart';
 import 'catalog/catalog_screen.dart';
-import 'detail/help_screen.dart';
 import 'detail/detail_preview.dart';
 import 'device/device_session.dart';
 import 'entitlements/redemption.dart';
@@ -16,6 +15,8 @@ import 'package:wallpaper_android/wallpaper_android.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(qjSystemUiOverlayStyle);
   final config = AppConfig.fromBuild();
   configureInternalTls(config);
   runApp(QingjingApp(config: config));
@@ -35,6 +36,7 @@ class QingjingApp extends StatelessWidget {
       repository: repository ?? HttpCatalogRepository(config.apiBase),
       sessions: DeviceSessionManager(HttpDeviceTransport(config.apiBase)),
       apiBase: config.apiBase,
+      labMode: config.environment == 'lab',
     ),
   );
 }
@@ -45,17 +47,18 @@ class HomeShell extends StatefulWidget {
     required this.repository,
     required this.sessions,
     required this.apiBase,
+    this.labMode = false,
   });
   final Uri apiBase;
   final DeviceSessionManager sessions;
   final CatalogRepository repository;
+  final bool labMode;
   @override
   State<HomeShell> createState() => _HomeShellState();
 }
 
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
-  bool uiVisited = false;
   late final redemptions = RedemptionCoordinator(
     SessionRedemptionApi(widget.sessions),
     AndroidPendingStore(),
@@ -81,77 +84,53 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: index == 2
-        ? AppBar(
-            title: const Text('UI 规范'),
-            actions: [
-              IconButton(
-                tooltip: '微信客服',
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => const HelpScreen(customerService: true),
-                  ),
-                ),
-                icon: const QjIcon('headphones'),
+  Widget build(BuildContext context) => AnnotatedRegion<SystemUiOverlayStyle>(
+    value: qjSystemUiOverlayStyle,
+    child: Scaffold(
+      body: SafeArea(
+        child: IndexedStack(
+          index: index,
+          children: [
+            TickerMode(
+              enabled: index == 0,
+              child: CatalogScreen(
+                repository: widget.repository,
+                redemptions: redemptions,
+                downloads: downloads,
+                playback: const AndroidWallpaperPlayback(),
+                labMode: widget.labMode,
+                onTab: (value) => setState(() => index = value),
               ),
-            ],
-          )
-        : null,
-    body: SafeArea(
-      child: IndexedStack(
-        index: index,
-        children: [
-          TickerMode(
-            enabled: index == 0,
-            child: CatalogScreen(
-              repository: widget.repository,
-              redemptions: redemptions,
-              downloads: downloads,
-              playback: const AndroidWallpaperPlayback(),
-              onTab: (value) => setState(() {
-                index = value;
-                if (value == 2) uiVisited = true;
-              }),
             ),
-          ),
-          TickerMode(
-            enabled: index == 1,
-            child: EntitlementsScreen(
-              sessions: widget.sessions,
-              catalog: widget.repository,
-              redemptions: redemptions,
-              downloads: downloads,
-              playback: const AndroidWallpaperPlayback(),
-              active: index == 1,
-              onHome: () => setState(() => index = 0),
+            TickerMode(
+              enabled: index == 1,
+              child: EntitlementsScreen(
+                sessions: widget.sessions,
+                catalog: widget.repository,
+                redemptions: redemptions,
+                downloads: downloads,
+                playback: const AndroidWallpaperPlayback(),
+                active: index == 1,
+                onHome: () => setState(() => index = 0),
+              ),
             ),
-          ),
-          TickerMode(
-            enabled: index == 2,
-            child: uiVisited ? const UiSpecScreen() : const SizedBox.shrink(),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
-    bottomNavigationBar: SafeArea(
-      minimum: const EdgeInsets.fromLTRB(T.space5, 0, T.space5, T.space5),
-      child: Center(
-        heightFactor: 1,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 390),
-          child: QjBottomNav(
-            selectedIndex: index,
-            onSelected: (value) => setState(() {
-              index = value;
-              if (value == 2) uiVisited = true;
-            }),
-            items: const [
-              QjNavItem('首页', 'house'),
-              QjNavItem('我的', 'images'),
-              QjNavItem('UI 规范', 'palette'),
-            ],
+      bottomNavigationBar: SafeArea(
+        minimum: const EdgeInsets.fromLTRB(T.space5, 0, T.space5, T.space5),
+        child: Center(
+          heightFactor: 1,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 390),
+            child: QjBottomNav(
+              selectedIndex: index,
+              onSelected: (value) => setState(() => index = value),
+              items: const [
+                QjNavItem('首页', 'house'),
+                QjNavItem('我的', 'images'),
+              ],
+            ),
           ),
         ),
       ),

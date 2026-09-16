@@ -39,7 +39,7 @@ defineEmits<{
       <h3>{{ title }}</h3>
       <button type="button" class="qj-wallpaper-hero__tutorial" @click="$emit('tutorial')">
         <CirclePlay :size="16" aria-hidden="true" />
-        观看教程
+        观看设置教程
       </button>
     </header>
     <div class="qj-wallpaper-hero__media">

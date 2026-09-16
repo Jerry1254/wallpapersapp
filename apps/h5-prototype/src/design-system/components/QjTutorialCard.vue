@@ -13,7 +13,7 @@ defineEmits<{
     </span>
     <span class="qj-tutorial-card__copy">
       <small><BookOpen :size="13" aria-hidden="true" /> 使用指南</small>
-      <strong>壁纸设计教程</strong>
+      <strong>壁纸设置教程</strong>
       <span>了解不同手机的预览、下载和设置方式</span>
     </span>
     <ChevronRight :size="20" :stroke-width="1.8" aria-hidden="true" />

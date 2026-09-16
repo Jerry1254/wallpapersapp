@@ -7,7 +7,7 @@ import 'package:qingjing_wallpaper/main.dart';
 import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
 
 void main() {
-  testWidgets('首页和我的可切换且不虚构权益', (tester) async {
+  testWidgets('首页和我的两项导航可切换且不虚构内容', (tester) async {
     final repository = FakeCatalog();
     await tester.pumpWidget(
       QingjingApp(
@@ -24,13 +24,11 @@ void main() {
     expect(find.text('倾境'), findsOneWidget);
     expect(find.byType(TextField), findsOneWidget);
     expect(find.text('让每一屏，都有心动'), findsNothing);
+    expect(find.text('查看分类'), findsNothing);
+    expect(find.text('UI 规范'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('app-tab-1')));
     await tester.pump();
     expect(find.text('已获得壁纸'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('app-tab-2')));
-    await tester.pumpAndSettle();
-    expect(find.text('App UI 规范'), findsOneWidget);
-    expect(find.text('视觉原则'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('app-tab-0')));
     await tester.pumpAndSettle();
     expect(find.text('倾境'), findsOneWidget);

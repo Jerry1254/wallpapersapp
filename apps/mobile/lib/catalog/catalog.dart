@@ -48,7 +48,7 @@ class Wallpaper {
   final List<Map<String, dynamic>> capabilities;
   final String? copyright;
   String get kindLabel => switch (kind) {
-    'PARALLAX_4D' => '4D 景深',
+    'PARALLAX_4D' => '4D动态',
     'DYNAMIC' => '动态',
     'STATIC' => '静态',
     _ => '未知类型',
@@ -67,10 +67,54 @@ class WallpaperPage {
   final int page, totalPages;
 }
 
+class WallpaperTutorial {
+  WallpaperTutorial.fromJson(Map<String, dynamic> json)
+    : key = json['key'] as String,
+      title = json['title'] as String,
+      platform = json['platform'] as String,
+      wallpaperKind = json['wallpaperKind'] as String,
+      videoPath =
+          (json['video'] as Map<String, dynamic>)['contentUrl'] as String,
+      videoMimeType =
+          (json['video'] as Map<String, dynamic>)['mimeType'] as String,
+      durationMs = (json['video'] as Map<String, dynamic>)['durationMs'] as int,
+      sortOrder = json['sortOrder'] as int;
+  final String key, title, platform, wallpaperKind, videoPath, videoMimeType;
+  final int durationMs, sortOrder;
+}
+
+String? tutorialKeyFor(String platform, String wallpaperKind) {
+  if (wallpaperKind == 'STATIC') return 'STATIC';
+  if (platform == 'ANDROID' && wallpaperKind == 'PARALLAX_4D') {
+    return 'ANDROID_PARALLAX_4D';
+  }
+  if (platform == 'ANDROID' && wallpaperKind == 'DYNAMIC') {
+    return 'ANDROID_DYNAMIC';
+  }
+  if (platform == 'HARMONYOS' && wallpaperKind == 'DYNAMIC') {
+    return 'HARMONYOS_DYNAMIC';
+  }
+  if (platform == 'IOS' && wallpaperKind == 'DYNAMIC') {
+    return 'IOS_DYNAMIC';
+  }
+  return null;
+}
+
+WallpaperTutorial? tutorialFor(
+  List<WallpaperTutorial> tutorials,
+  String platform,
+  String wallpaperKind,
+) {
+  final key = tutorialKeyFor(platform, wallpaperKind);
+  if (key == null) return null;
+  return tutorials.where((item) => item.key == key).firstOrNull;
+}
+
 abstract interface class CatalogRepository {
   Future<List<Category>> categories();
   Future<WallpaperPage> list(Map<String, String> query);
   Future<Wallpaper> detail(String id);
+  Future<List<WallpaperTutorial>> tutorials();
   Uri media(String path);
 }
 
@@ -128,6 +172,12 @@ class HttpCatalogRepository implements CatalogRepository {
       'platform': 'ANDROID',
     }),
   );
+  @override
+  Future<List<WallpaperTutorial>> tutorials() async =>
+      ((await _get('/public/wallpaper-tutorials'))['items'] as List)
+          .map((e) => WallpaperTutorial.fromJson(e as Map<String, dynamic>))
+          .toList()
+        ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
   @override
   Uri media(String path) {
     final uri = base.resolve(path);

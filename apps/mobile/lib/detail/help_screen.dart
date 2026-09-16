@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
+import '../catalog/catalog.dart';
 import '../design_system/qj_components.dart';
 import '../design_system/qj_theme.dart';
 import '../support/customer_service.dart';
 
 class HelpScreen extends StatelessWidget {
-  const HelpScreen({super.key, this.customerService = false});
+  const HelpScreen({super.key, this.customerService = false, this.repository});
   final bool customerService;
+  final CatalogRepository? repository;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -19,7 +21,7 @@ class HelpScreen extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(T.space5, 0, T.space5, T.space6),
             children: [
               QjPageHeader(
-                title: customerService ? '微信客服' : '壁纸设计教程',
+                title: customerService ? '微信客服' : '壁纸设置教程',
                 serviceAction: !customerService,
                 onAction: () => Navigator.push(
                   context,
@@ -35,17 +37,8 @@ class HelpScreen extends StatelessWidget {
                   onPreview: () => previewCustomerQr(context),
                   onSave: () => saveCustomerQr(context),
                 ),
-                const SizedBox(height: T.space4),
-                QjSettingTutorialCard(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (_) => const SettingTutorialScreen(),
-                    ),
-                  ),
-                ),
               ] else
-                const _TutorialLessons(),
+                _TutorialCatalog(repository: repository),
             ],
           ),
         ),
@@ -54,129 +47,159 @@ class HelpScreen extends StatelessWidget {
   );
 }
 
-class _TutorialLessons extends StatelessWidget {
-  const _TutorialLessons();
-  static const lessons = [
-    (
-      '静态壁纸',
-      '准备适合手机竖屏显示的完整画面。',
-      'smartphone',
-      ['推荐比例 1:2', '主体避开顶部时间和底部手势区域', '导出 JPG、PNG 或 WebP'],
-    ),
-    (
-      'Android 4D 分层',
-      '把前景与背景拆开，给手机姿态变化留出移动范围。',
-      'layers-3',
-      ['至少包含背景层和透明前景层', '背景四周需要补全安全区域', '前景边缘使用透明 PNG'],
-    ),
-    (
-      '动态效果素材',
-      '使用短时、无声、可循环的演示素材。',
-      'play-square',
-      ['建议 6–12 秒', '首尾画面衔接自然', '避免快速闪烁和强烈位移'],
-    ),
-    (
-      '提交给客服',
-      '整理原图、分层文件和效果说明后发送。',
-      'send',
-      ['文件名写明壁纸名称', '说明希望支持的平台', '保留原始设计文件'],
-    ),
-    (
-      '内容授权',
-      '只提交自己拥有使用权的图片和角色素材。',
-      'shield-check',
-      ['不得上传盗版影视或动漫素材', '人物照片需要获得肖像授权', '保留素材来源和授权记录'],
-    ),
-  ];
+class _TutorialCatalog extends StatefulWidget {
+  const _TutorialCatalog({required this.repository});
+  final CatalogRepository? repository;
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      for (final (index, item) in lessons.indexed)
-        Padding(
-          padding: const EdgeInsets.only(bottom: T.space4),
-          child: Container(
-            padding: const EdgeInsets.all(T.space5),
-            decoration: BoxDecoration(
-              color: T.colorSurface,
-              border: Border.all(color: T.colorOutline),
-              borderRadius: BorderRadius.circular(T.radiusCard),
-              boxShadow: const [T.shadowSoft],
-            ),
-            child: Stack(
-              children: [
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  child: Text(
-                    '${index + 1}'.padLeft(2, '0'),
-                    style: QjTheme.type(
-                      22,
-                      FontWeight.w800,
-                      T.lineHeightSection,
-                      T.colorOutlineStrong,
+  State<_TutorialCatalog> createState() => _TutorialCatalogState();
+}
+
+class _TutorialCatalogState extends State<_TutorialCatalog> {
+  late Future<List<WallpaperTutorial>> future = _load();
+
+  Future<List<WallpaperTutorial>> _load() =>
+      widget.repository?.tutorials() ?? Future.error('教程接口尚未配置');
+
+  String icon(String key) => switch (key) {
+    'ANDROID_PARALLAX_4D' => 'layers-3',
+    'ANDROID_DYNAMIC' => 'play-square',
+    'STATIC' => 'smartphone',
+    'HARMONYOS_DYNAMIC' => 'panels-top-left',
+    'IOS_DYNAMIC' => 'smartphone',
+    _ => 'circle-play',
+  };
+
+  void retry() => setState(() => future = _load());
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<List<WallpaperTutorial>>(
+    future: future,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const Padding(
+          padding: EdgeInsets.symmetric(vertical: T.space8),
+          child: Center(child: CircularProgressIndicator()),
+        );
+      }
+      if (snapshot.hasError) {
+        return QjStatePanel(
+          kind: QjStateKind.error,
+          description: snapshot.error is ApiFailure
+              ? (snapshot.error! as ApiFailure).message
+              : '设置教程暂时无法加载',
+          onPressed: retry,
+        );
+      }
+      final tutorials = snapshot.requireData;
+      if (tutorials.isEmpty) {
+        return QjStatePanel(description: '设置教程暂时还没有发布', onPressed: retry);
+      }
+      return Column(
+        children: [
+          for (final (index, tutorial) in tutorials.indexed)
+            Padding(
+              padding: const EdgeInsets.only(bottom: T.space3),
+              child: Semantics(
+                button: true,
+                label: '播放${tutorial.title}',
+                child: InkWell(
+                  onTap: () => showSettingTutorial(
+                    context,
+                    widget.repository!,
+                    tutorial,
+                  ),
+                  borderRadius: BorderRadius.circular(T.radiusCard),
+                  child: Container(
+                    constraints: const BoxConstraints(minHeight: 88),
+                    padding: const EdgeInsets.all(T.space4),
+                    decoration: BoxDecoration(
+                      color: T.colorSurface,
+                      border: Border.all(color: T.colorOutline),
+                      borderRadius: BorderRadius.circular(T.radiusCard),
+                      boxShadow: const [T.shadowSoft],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 50,
+                          height: 50,
+                          decoration: BoxDecoration(
+                            color: T.colorAccent,
+                            borderRadius: BorderRadius.circular(17),
+                          ),
+                          child: Center(
+                            child: QjIcon(icon(tutorial.key), size: 24),
+                          ),
+                        ),
+                        const SizedBox(width: T.space4),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                tutorial.title,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                '点击播放',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          '${index + 1}'.padLeft(2, '0'),
+                          style: QjTheme.type(
+                            20,
+                            FontWeight.w800,
+                            T.lineHeightSection,
+                            T.colorOutlineStrong,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 50,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        color: T.colorAccent,
-                        borderRadius: BorderRadius.circular(17),
-                      ),
-                      child: Center(child: QjIcon(item.$3, size: 24)),
-                    ),
-                    const SizedBox(width: T.space4),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.only(right: 36),
-                            child: Text(
-                              item.$1,
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                          ),
-                          const SizedBox(height: 5),
-                          Text(
-                            item.$2,
-                            style: Theme.of(
-                              context,
-                            ).textTheme.bodySmall?.copyWith(fontSize: 13),
-                          ),
-                          const SizedBox(height: T.space3),
-                          for (final point in item.$4)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 4),
-                              child: Text(
-                                '• $point',
-                                style: QjTheme.type(
-                                  13,
-                                  FontWeight.w400,
-                                  1.8,
-                                  T.colorInkSoft,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+              ),
             ),
-          ),
-        ),
-    ],
+        ],
+      );
+    },
+  );
+}
+
+Future<void> showSettingTutorial(
+  BuildContext context,
+  CatalogRepository repository,
+  WallpaperTutorial tutorial,
+) async {
+  late final Uri source;
+  try {
+    source = repository.media(tutorial.videoPath);
+  } catch (_) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('教程播放地址无效，请稍后重试')));
+    return;
+  }
+  await showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    transitionDuration: const Duration(milliseconds: 180),
+    pageBuilder: (_, _, _) =>
+        SettingTutorialScreen(title: tutorial.title, source: source),
   );
 }
 
 class SettingTutorialScreen extends StatefulWidget {
-  const SettingTutorialScreen({super.key});
+  const SettingTutorialScreen({
+    super.key,
+    required this.title,
+    required this.source,
+  });
+  final String title;
+  final Uri source;
   @override
   State<SettingTutorialScreen> createState() => _SettingTutorialScreenState();
 }
@@ -184,15 +207,20 @@ class SettingTutorialScreen extends StatefulWidget {
 class _SettingTutorialScreenState extends State<SettingTutorialScreen> {
   late final VideoPlayerController controller;
   bool ready = false, immersive = false;
+  String? failure;
   @override
   void initState() {
     super.initState();
-    controller = VideoPlayerController.asset(
-      'assets/ui-reference/setting-tutorial.mp4',
-    )..addListener(_changed);
-    controller.initialize().then((_) {
-      if (mounted) setState(() => ready = true);
-    });
+    controller = VideoPlayerController.networkUrl(widget.source)
+      ..addListener(_changed);
+    controller
+        .initialize()
+        .then((_) {
+          if (mounted) setState(() => ready = true);
+        })
+        .catchError((_) {
+          if (mounted) setState(() => failure = '教程视频暂时无法播放，请稍后重试');
+        });
   }
 
   void _changed() {
@@ -247,7 +275,7 @@ class _SettingTutorialScreenState extends State<SettingTutorialScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '设置教程',
+                          widget.title,
                           style: QjTheme.type(
                             18,
                             FontWeight.w700,
@@ -286,7 +314,23 @@ class _SettingTutorialScreenState extends State<SettingTutorialScreen> {
                       borderRadius: BorderRadius.circular(T.radiusCard),
                       child: ColoredBox(
                         color: T.colorNavigation,
-                        child: ready
+                        child: failure != null
+                            ? Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(T.space5),
+                                  child: Text(
+                                    failure!,
+                                    textAlign: TextAlign.center,
+                                    style: QjTheme.type(
+                                      13,
+                                      FontWeight.w500,
+                                      T.lineHeightBody,
+                                      T.colorInverseInk,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : ready
                             ? Stack(
                                 fit: StackFit.expand,
                                 children: [

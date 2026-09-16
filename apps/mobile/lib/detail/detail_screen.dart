@@ -14,6 +14,15 @@ import 'detail_preview.dart';
 import 'help_screen.dart';
 import 'trial_manager.dart';
 
+typedef DetailPreviewBuilder =
+    Widget Function(
+      DownloadManager manager,
+      String wallpaperId,
+      String resourceType,
+      Widget cover,
+      bool active,
+    );
+
 class DetailScreen extends StatefulWidget {
   const DetailScreen({
     super.key,
@@ -26,6 +35,7 @@ class DetailScreen extends StatefulWidget {
     ),
     this.playback,
     this.trials,
+    this.detailPreviewBuilder,
   });
   final CatalogRepository repository;
   final String id;
@@ -34,6 +44,7 @@ class DetailScreen extends StatefulWidget {
   final WallpaperCapabilities capabilities;
   final AndroidWallpaperPlayback? playback;
   final TrialManager? trials;
+  final DetailPreviewBuilder? detailPreviewBuilder;
   @override
   State<DetailScreen> createState() => _DetailScreenState();
 }
@@ -54,6 +65,7 @@ class _DetailScreenState extends State<DetailScreen> {
   String? ownershipError, installedId, _installedKey;
   final scroll = ScrollController();
   bool previewActive = true;
+  List<WallpaperTutorial>? tutorialCache;
   @override
   void initState() {
     super.initState();
@@ -132,6 +144,19 @@ class _DetailScreenState extends State<DetailScreen> {
   Future<void> _openTarget(WallpaperEffect effect, String id) async {
     final playback = widget.playback;
     if (playback == null) return;
+    PlatformResult<void>? initialResult;
+    if (capabilities.systemChoosesLiveTarget &&
+        effect != WallpaperEffect.staticImage) {
+      try {
+        initialResult = await playback.apply(id, effect, WallpaperTarget.home);
+      } catch (_) {
+        initialResult = const PlatformResult(
+          OperationStatus.unknown,
+          message: '无法打开系统动态壁纸设置，请重试',
+        );
+      }
+      if (!mounted) return;
+    }
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -142,6 +167,7 @@ class _DetailScreenState extends State<DetailScreen> {
         effect: effect,
         playback: playback,
         capabilities: capabilities,
+        initialResult: initialResult,
       ),
     );
   }
@@ -174,6 +200,48 @@ class _DetailScreenState extends State<DetailScreen> {
     } else {
       await _openDownload(effect);
     }
+  }
+
+  Future<void> _openTutorial(Wallpaper wallpaper) async {
+    try {
+      final tutorials = tutorialCache ?? await widget.repository.tutorials();
+      tutorialCache = tutorials;
+      final tutorial = tutorialFor(tutorials, 'ANDROID', wallpaper.kind);
+      if (!mounted) return;
+      if (tutorial == null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('对应的设置教程暂未发布')));
+        return;
+      }
+      await showSettingTutorial(context, widget.repository, tutorial);
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is ApiFailure ? error.message : '设置教程暂时无法加载';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Widget _preview(Wallpaper wallpaper, WallpaperEffect effect, Widget cover) {
+    final manager = widget.downloads!;
+    final type = AndroidWallpaperPlayback.resourceType(effect);
+    return widget.detailPreviewBuilder?.call(
+          manager,
+          wallpaper.id,
+          type,
+          cover,
+          previewActive,
+        ) ??
+        DetailPreview(
+          key: ValueKey('${wallpaper.id}-${effect.name}'),
+          manager: manager,
+          wallpaperId: wallpaper.id,
+          resourceType: type,
+          active: previewActive,
+          cover: cover,
+        );
   }
 
   @override
@@ -251,13 +319,8 @@ class _DetailScreenState extends State<DetailScreen> {
                 children: [
                   QjPageHeader(
                     title: wallpaper.title,
-                    actionLabel: '观看教程',
-                    onAction: () => Navigator.push(
-                      context,
-                      MaterialPageRoute<void>(
-                        builder: (_) => const SettingTutorialScreen(),
-                      ),
-                    ),
+                    actionLabel: '观看设置教程',
+                    onAction: () => _openTutorial(wallpaper),
                   ),
                   const SizedBox(height: T.space4),
                   Container(
@@ -275,20 +338,11 @@ class _DetailScreenState extends State<DetailScreen> {
                             if (widget.downloads != null &&
                                 capabilities.platform ==
                                     ClientPlatform.android &&
-                                (effect == WallpaperEffect.video ||
-                                    effect == WallpaperEffect.parallax))
-                              DetailPreview(
-                                key: ValueKey(
-                                  '${wallpaper.id}-${effect!.name}',
-                                ),
-                                manager: widget.downloads!,
-                                wallpaperId: wallpaper.id,
-                                resourceType:
-                                    AndroidWallpaperPlayback.resourceType(
-                                      effect,
-                                    ),
-                                active: previewActive,
-                                cover: CatalogImage(
+                                effect != null)
+                              _preview(
+                                wallpaper,
+                                effect,
+                                CatalogImage(
                                   repository: widget.repository,
                                   path: wallpaper.cover,
                                 ),

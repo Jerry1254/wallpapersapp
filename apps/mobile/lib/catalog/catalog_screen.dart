@@ -6,6 +6,7 @@ import '../detail/detail_screen.dart';
 import '../detail/help_screen.dart';
 import '../downloads/download_manager.dart';
 import '../entitlements/redemption.dart';
+import '../lab/parallax_lab_screen.dart';
 import 'catalog.dart';
 import 'catalog_image.dart';
 
@@ -19,6 +20,7 @@ class CatalogScreen extends StatefulWidget {
     this.onTab,
     this.category,
     this.search,
+    this.labMode = false,
   });
   final CatalogRepository repository;
   final RedemptionCoordinator? redemptions;
@@ -27,6 +29,7 @@ class CatalogScreen extends StatefulWidget {
   final ValueChanged<int>? onTab;
   final Category? category;
   final String? search;
+  final bool labMode;
   @override
   State<CatalogScreen> createState() => _CatalogScreenState();
 }
@@ -61,8 +64,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
       };
     }
     return switch (view) {
-      '最近上新' => {'sort': 'NEWEST'},
-      '4D 景深' => {'kind': 'PARALLAX_4D'},
+      '4D动态' => {'kind': 'PARALLAX_4D'},
+      '动态壁纸' => {'kind': 'DYNAMIC'},
       '静态壁纸' => {'view': 'STATIC'},
       _ => {'view': 'FEATURED'},
     };
@@ -97,6 +100,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
           downloads: widget.downloads,
           playback: widget.playback,
           onTab: widget.onTab,
+          labMode: widget.labMode,
         ),
       ),
     );
@@ -105,13 +109,23 @@ class _CatalogScreenState extends State<CatalogScreen> {
   void _detail(Wallpaper item) => Navigator.push(
     context,
     MaterialPageRoute<void>(
-      builder: (_) => DetailScreen(
-        repository: widget.repository,
-        id: item.id,
-        redemptions: widget.redemptions,
-        downloads: widget.downloads,
-        playback: widget.playback,
-      ),
+      builder: (_) =>
+          widget.labMode &&
+              item.kind == 'PARALLAX_4D' &&
+              widget.downloads != null
+          ? ParallaxLabScreen(
+              repository: widget.repository,
+              downloads: widget.downloads!,
+              id: item.id,
+              apiBase: widget.downloads!.apiBase,
+            )
+          : DetailScreen(
+              repository: widget.repository,
+              id: item.id,
+              redemptions: widget.redemptions,
+              downloads: widget.downloads,
+              playback: widget.playback,
+            ),
     ),
   );
   void _category(Category item) => Navigator.push(
@@ -124,6 +138,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
         downloads: widget.downloads,
         playback: widget.playback,
         onTab: widget.onTab,
+        labMode: widget.labMode,
       ),
     ),
   );
@@ -189,14 +204,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     _categoriesRow(),
                   ],
                   const SizedBox(height: T.space7),
-                  _heading(
-                    view == '精选推荐' ? '精选壁纸' : view,
-                    action: categories.isEmpty
-                        ? null
-                        : () => _category(categories.first),
-                  ),
+                  _heading(view == '精选推荐' ? '精选壁纸' : view),
                   const SizedBox(height: T.space3),
-                  _filters(['精选推荐', '最近上新', '4D 景深', '静态壁纸'], view, (value) {
+                  _filters(['精选推荐', '4D动态', '动态壁纸', '静态壁纸'], view, (value) {
                     setState(() => view = value);
                     _reload();
                   }),
@@ -351,7 +361,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     items: const [
                       QjNavItem('首页', 'house'),
                       QjNavItem('我的', 'images'),
-                      QjNavItem('UI 规范', 'palette'),
                     ],
                   ),
                 ),
@@ -361,18 +370,15 @@ class _CatalogScreenState extends State<CatalogScreen> {
         : content;
   }
 
-  Widget _heading(String title, {VoidCallback? action, String? trailing}) =>
-      Row(
-        children: [
-          Expanded(
-            child: Text(title, style: Theme.of(context).textTheme.titleLarge),
-          ),
-          if (action != null)
-            TextButton(onPressed: action, child: const Text('查看分类')),
-          if (trailing != null)
-            Text(trailing, style: Theme.of(context).textTheme.bodySmall),
-        ],
-      );
+  Widget _heading(String title, {String? trailing}) => Row(
+    children: [
+      Expanded(
+        child: Text(title, style: Theme.of(context).textTheme.titleLarge),
+      ),
+      if (trailing != null)
+        Text(trailing, style: Theme.of(context).textTheme.bodySmall),
+    ],
+  );
   Widget _filters(
     List<String> labels,
     String selected,

@@ -41,7 +41,7 @@ const router = createRouter({
       path: '/tutorial',
       name: 'tutorial',
       component: () => import('@/views/TutorialView.vue'),
-      meta: { title: '壁纸设计教程 · 倾境' }
+      meta: { title: '壁纸设置教程 · 倾境' }
     },
     {
       path: '/customer-service',

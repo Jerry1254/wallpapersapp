@@ -1,7 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:qingjing_design_tokens/qingjing_design_tokens.dart';
 
 typedef T = QingjingWallpaperTokens;
+
+const qjSystemUiOverlayStyle = SystemUiOverlayStyle(
+  statusBarColor: Colors.transparent,
+  statusBarBrightness: Brightness.light,
+  statusBarIconBrightness: Brightness.dark,
+  systemStatusBarContrastEnforced: false,
+  systemNavigationBarColor: T.colorSurface,
+  systemNavigationBarDividerColor: Colors.transparent,
+  systemNavigationBarIconBrightness: Brightness.dark,
+  systemNavigationBarContrastEnforced: false,
+);
 
 abstract final class QjTheme {
   static TextStyle type(
@@ -95,6 +107,7 @@ abstract final class QjTheme {
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       scrolledUnderElevation: 0,
+      systemOverlayStyle: qjSystemUiOverlayStyle,
       toolbarHeight: T.sizeTopBar,
       titleTextStyle: type(
         T.fontSizePageTitle,

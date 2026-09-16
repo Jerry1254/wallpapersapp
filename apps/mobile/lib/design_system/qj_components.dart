@@ -493,7 +493,7 @@ class QjTutorialCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text('壁纸设计教程', style: Theme.of(context).textTheme.titleMedium),
+                Text('壁纸设置教程', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 4),
                 Text(
                   '了解不同手机的预览、下载和设置方式',
@@ -549,20 +549,67 @@ class QjBrandHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SizedBox(
     height: T.sizeTopBar,
-    child: Row(
+    child: Stack(
+      clipBehavior: Clip.none,
       children: [
-        Expanded(
-          child: Text(title, style: Theme.of(context).textTheme.headlineMedium),
-        ),
-        IconButton(
-          tooltip: '微信客服',
-          onPressed: onService,
-          style: IconButton.styleFrom(
-            backgroundColor: T.colorNavigation,
-            foregroundColor: T.colorInverseInk,
-            minimumSize: const Size(44, 44),
+        const Positioned(
+          top: -20,
+          right: -20,
+          width: 280,
+          height: 205,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment(.56, -.68),
+                  radius: 1.05,
+                  colors: [
+                    Color(0x61DE9C95),
+                    Color(0x8CF8E8E5),
+                    Color(0x52FFF3D8),
+                    Color(0x00FFF3D8),
+                  ],
+                  stops: [0, .34, .54, .74],
+                ),
+              ),
+            ),
           ),
-          icon: const QjIcon('headphones', size: 21, color: T.colorInverseInk),
+        ),
+        Positioned.fill(
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+              ),
+              Tooltip(
+                message: '微信客服',
+                child: TextButton.icon(
+                  onPressed: onService,
+                  style: TextButton.styleFrom(
+                    backgroundColor: T.colorNavigation,
+                    foregroundColor: T.colorInverseInk,
+                    minimumSize: const Size(0, 44),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    shape: const StadiumBorder(),
+                    textStyle: QjTheme.type(
+                      12,
+                      FontWeight.w700,
+                      T.lineHeightCaption,
+                    ),
+                  ),
+                  icon: const QjIcon(
+                    'message-circle-more',
+                    size: 21,
+                    color: T.colorInverseInk,
+                  ),
+                  label: const Text('客服'),
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     ),
@@ -677,7 +724,18 @@ class QjSearchBar extends StatelessWidget {
             inputFormatters: [LengthLimitingTextInputFormatter(40)],
             textInputAction: TextInputAction.search,
             onSubmitted: (_) => onSearch(),
-            decoration: const InputDecoration.collapsed(hintText: '搜索壁纸名称'),
+            decoration: const InputDecoration(
+              hintText: '搜索壁纸名称',
+              isCollapsed: true,
+              filled: false,
+              contentPadding: EdgeInsets.zero,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              disabledBorder: InputBorder.none,
+              errorBorder: InputBorder.none,
+              focusedErrorBorder: InputBorder.none,
+            ),
           ),
         ),
         ValueListenableBuilder<TextEditingValue>(

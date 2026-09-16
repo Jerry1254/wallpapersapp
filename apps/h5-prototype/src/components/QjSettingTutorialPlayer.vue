@@ -5,8 +5,10 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 const props = withDefaults(defineProps<{
   modelValue: boolean;
   src?: string;
+  title?: string;
 }>(), {
-  src: '/media/setting-tutorial.mp4'
+  src: '/media/setting-tutorial.mp4',
+  title: '设置教程'
 });
 
 const emit = defineEmits<{
@@ -94,6 +96,14 @@ watch(() => props.modelValue, async (visible) => {
   player.value?.focus();
 });
 
+watch(() => props.src, () => {
+  player.value?.pause();
+  currentTime.value = 0;
+  duration.value = 0;
+  playing.value = false;
+  player.value?.load();
+});
+
 onBeforeUnmount(() => {
   document.body.style.overflow = '';
   window.removeEventListener('keydown', handleKeydown);
@@ -115,7 +125,7 @@ window.addEventListener('keydown', handleKeydown);
       >
         <header>
           <div>
-            <strong>设置教程</strong>
+            <strong>{{ title }}</strong>
             <small>跟随视频完成壁纸设置</small>
           </div>
           <button type="button" aria-label="关闭教程" @click="close">
@@ -125,6 +135,7 @@ window.addEventListener('keydown', handleKeydown);
 
         <div class="qj-setting-player__stage">
           <video
+            :key="src"
             ref="player"
             :src="src"
             playsinline

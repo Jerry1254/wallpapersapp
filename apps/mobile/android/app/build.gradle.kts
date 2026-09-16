@@ -68,6 +68,13 @@ android {
             resValue("string", "qj_package_signing_key_id", System.getenv("QJ_INTERNAL_PACKAGE_SIGNING_KEY_ID") ?: "")
             resValue("string", "qj_package_signing_public_key", System.getenv("QJ_INTERNAL_PACKAGE_PUBLIC_KEY_DER") ?: "")
         }
+        create("lab") {
+            dimension = "environment"
+            applicationIdSuffix = ".lab"
+            resValue("string", "app_name", "倾境壁纸·4D调试")
+            resValue("string", "qj_package_signing_key_id", System.getenv("QJ_INTERNAL_PACKAGE_SIGNING_KEY_ID") ?: "")
+            resValue("string", "qj_package_signing_public_key", System.getenv("QJ_INTERNAL_PACKAGE_PUBLIC_KEY_DER") ?: "")
+        }
     }
 
     buildTypes {
@@ -95,7 +102,11 @@ if (!internalStore.isNullOrBlank()) {
         keyPassword = System.getenv("QJ_INTERNAL_KEY_PASSWORD")
     }
     android.productFlavors.getByName("internal").signingConfig = internalSigning
+    android.productFlavors.getByName("lab").signingConfig = internalSigning
 }
+
+android.sourceSets.getByName("lab").manifest.srcFile("src/internal/AndroidManifest.xml")
+android.sourceSets.getByName("lab").res.srcDir("src/internal/res")
 
 val generateInternalTrustResources = tasks.register<GenerateInternalTrustResources>("generateInternalTrustResources") {
     certificate.set(layout.file(providers.environmentVariable("QJ_INTERNAL_TLS_CERT_FILE").map { file(it) }))
@@ -103,6 +114,9 @@ val generateInternalTrustResources = tasks.register<GenerateInternalTrustResourc
 }
 androidComponents {
     onVariants(selector().withFlavor("environment" to "internal")) { variant ->
+        variant.sources.res?.addGeneratedSourceDirectory(generateInternalTrustResources) { it.outputDirectory }
+    }
+    onVariants(selector().withFlavor("environment" to "lab")) { variant ->
         variant.sources.res?.addGeneratedSourceDirectory(generateInternalTrustResources) { it.outputDirectory }
     }
 }

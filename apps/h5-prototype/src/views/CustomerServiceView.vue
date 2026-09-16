@@ -1,16 +1,14 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 
 import QjMobileShell from '@/components/QjMobileShell.vue';
 import QjPageHeader from '@/components/QjPageHeader.vue';
 import QjSettingTutorialCard from '@/components/QjSettingTutorialCard.vue';
-import QjSettingTutorialPlayer from '@/components/QjSettingTutorialPlayer.vue';
 import { useCustomerService } from '@/composables/useCustomerService';
 import QjCustomerServiceCard from '@/design-system/components/QjCustomerServiceCard.vue';
 
 const router = useRouter();
-const tutorialVisible = ref(false);
 const { wechatId, qrCodeUrl, ensureQrCode, previewQrCode, saveQrCode, copyWechat } = useCustomerService();
 
 onMounted(() => {
@@ -30,9 +28,8 @@ onMounted(() => {
         @save="saveQrCode"
       />
 
-      <QjSettingTutorialCard @open="tutorialVisible = true" />
+      <QjSettingTutorialCard @open="router.push('/tutorial')" />
     </section>
-    <QjSettingTutorialPlayer v-model="tutorialVisible" />
   </QjMobileShell>
 </template>
 

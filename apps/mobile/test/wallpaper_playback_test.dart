@@ -40,7 +40,13 @@ void main() {
     expect(capabilities.osVersion, '15');
   });
   test('已打开系统设置、取消和未知结果均不能冒充确认成功', () async {
-    for (final status in ['opened', 'cancelled', 'unknown', 'completed']) {
+    for (final status in [
+      'opened',
+      'accepted',
+      'cancelled',
+      'unknown',
+      'completed',
+    ]) {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
             expect(call.method, 'applyWallpaper');
@@ -60,6 +66,8 @@ void main() {
         result.status,
         status == 'completed'
             ? OperationStatus.completed
+            : status == 'accepted'
+            ? OperationStatus.accepted
             : status == 'cancelled'
             ? OperationStatus.cancelled
             : OperationStatus.unknown,

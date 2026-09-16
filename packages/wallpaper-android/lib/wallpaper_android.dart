@@ -73,6 +73,7 @@ class AndroidWallpaperPlayback implements Preview, WallpaperApply {
       );
       final status = switch (data?['status']) {
         'completed' => OperationStatus.completed,
+        'accepted' => OperationStatus.accepted,
         'cancelled' => OperationStatus.cancelled,
         'unsupported' => OperationStatus.unsupported,
         _ => OperationStatus.unknown,
@@ -217,7 +218,7 @@ class AndroidDetailPreview {
     if (id == null ||
         id.length > 160 ||
         !RegExp(
-          r'^[1-9][0-9]{0,18}-(VIDEO|LAYER_PARALLAX)-[1-9][0-9]{0,18}-[a-f0-9]{64}$',
+          r'^[1-9][0-9]{0,18}-(STATIC_IMAGE|VIDEO|LAYER_PARALLAX)-[1-9][0-9]{0,18}-[a-f0-9]{64}$',
         ).hasMatch(id) ||
         result?['resourceType'] != request.resourceType) {
       throw PlatformException(code: 'PACKAGE_INVALID', message: '预览资源暂时不可用');
@@ -229,6 +230,16 @@ class AndroidDetailPreview {
     'cancelDetailPreview',
     {'requestId': requestId},
   );
+
+  Future<Map<String, dynamic>> configuration(String previewId) async =>
+      await _channel.invokeMapMethod<String, dynamic>(
+        'detailPreviewConfiguration',
+        {'previewId': previewId},
+      ) ??
+      (throw PlatformException(
+        code: 'PREVIEW_UNAVAILABLE',
+        message: '预览配置不可用',
+      ));
 }
 
 /// Trial handles are opaque and never identify a formal installed package.

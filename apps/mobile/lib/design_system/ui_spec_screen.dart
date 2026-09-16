@@ -383,8 +383,8 @@ class _UiSpecScreenState extends State<UiSpecScreen> {
                                 T.lineHeightCaption,
                               ),
                             ),
-                            onPressed: () => feedback('观看教程'),
-                            child: const Text('观看教程'),
+                            onPressed: () => feedback('观看设置教程'),
+                            child: const Text('观看设置教程'),
                           ),
                         ],
                       ),
@@ -512,7 +512,7 @@ class _UiSpecScreenState extends State<UiSpecScreen> {
                       Expanded(
                         child: QjWallpaperCard(
                           name: '城市余晖',
-                          type: '4D',
+                          type: '4D动态',
                           image: 'city',
                           onPressed: () => feedback('城市余晖'),
                         ),
@@ -537,7 +537,7 @@ class _UiSpecScreenState extends State<UiSpecScreen> {
                         spacing: T.space2,
                         runSpacing: T.space2,
                         children: [
-                          QjTypeBadge('4D'),
+                          QjTypeBadge('4D动态'),
                           QjTypeBadge('动态', tone: QjBadgeTone.amber),
                           QjTypeBadge('已获得', tone: QjBadgeTone.success),
                           QjTypeBadge('Android', tone: QjBadgeTone.light),
@@ -588,7 +588,7 @@ class _UiSpecScreenState extends State<UiSpecScreen> {
                 ),
                 specimen(
                   '我的 · 教程入口',
-                  QjTutorialCard(onPressed: () => feedback('壁纸设计教程')),
+                  QjTutorialCard(onPressed: () => feedback('壁纸设置教程')),
                 ),
                 specimen(
                   '空状态',

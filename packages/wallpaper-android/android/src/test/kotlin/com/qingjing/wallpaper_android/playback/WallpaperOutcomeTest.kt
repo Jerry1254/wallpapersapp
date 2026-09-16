@@ -21,6 +21,7 @@ class WallpaperOutcomeTest {
         assertEquals(false,WallpaperResults.live(true,false,true,true,true).retainLiveContent)
         assertEquals("unknown",WallpaperResults.live(true,true,false,false,true).status)
         assertEquals(false,WallpaperResults.live(true,true,false,false,true).retainLiveContent)
+        assertEquals("accepted",WallpaperResults.live(true,true,false,false,false).status)
         assertEquals(true,WallpaperResults.live(true,true,false,false,false).retainLiveContent)
     }
     @Test fun confirmedLiveResultDescribesActualLocationAndOlderOsLimit() {

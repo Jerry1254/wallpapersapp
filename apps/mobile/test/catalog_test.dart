@@ -26,6 +26,8 @@ class FakeCatalog implements CatalogRepository {
   @override
   Future<Wallpaper> detail(String id) async => sample(id);
   @override
+  Future<List<WallpaperTutorial>> tutorials() async => [];
+  @override
   Uri media(String path) => Uri.parse('https://example.invalid$path');
 }
 
@@ -111,5 +113,39 @@ void main() {
       () => repo.media('https://user:pass@local.test/x'),
       throwsFormatException,
     );
+  });
+  test('教程按平台和壁纸类型精确匹配', () {
+    final tutorials = [
+      WallpaperTutorial.fromJson({
+        'key': 'ANDROID_PARALLAX_4D',
+        'title': '4D动态壁纸教程',
+        'platform': 'ANDROID',
+        'wallpaperKind': 'PARALLAX_4D',
+        'video': {
+          'contentUrl': '/tutorials/4d.mp4',
+          'mimeType': 'video/mp4',
+          'durationMs': 12000,
+        },
+        'sortOrder': 10,
+      }),
+      WallpaperTutorial.fromJson({
+        'key': 'STATIC',
+        'title': '静态壁纸教程',
+        'platform': 'UNIVERSAL',
+        'wallpaperKind': 'STATIC',
+        'video': {
+          'contentUrl': '/tutorials/static.mp4',
+          'mimeType': 'video/mp4',
+          'durationMs': 8000,
+        },
+        'sortOrder': 30,
+      }),
+    ];
+    expect(
+      tutorialFor(tutorials, 'ANDROID', 'PARALLAX_4D')?.key,
+      'ANDROID_PARALLAX_4D',
+    );
+    expect(tutorialFor(tutorials, 'ANDROID', 'STATIC')?.key, 'STATIC');
+    expect(tutorialFor(tutorials, 'IOS', 'PARALLAX_4D'), isNull);
   });
 }

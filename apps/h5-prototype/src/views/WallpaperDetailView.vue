@@ -14,11 +14,14 @@ import QjWallpaperHero from '@/design-system/components/QjWallpaperHero.vue';
 import QjWallpaperTargetSheet from '@/design-system/components/QjWallpaperTargetSheet.vue';
 import type { PublicWallpaperDetail, PublicWallpaperSummary } from '@/domain/catalog';
 import type { RedemptionResult } from '@/domain/device';
+import type { WallpaperTutorial } from '@/domain/tutorial';
+import { tutorialFor, tutorialPlatformForUserAgent } from '@/domain/tutorial';
 import { wallpaperTypeLabel } from '@/domain/catalog';
 import { ApiClientError, catalogErrorMessage } from '@/repositories/http/apiClient';
 import { catalogRepository } from '@/repositories/http/catalogRepository';
 import { deviceRepository } from '@/repositories/http/deviceRepository';
 import { deviceErrorMessage } from '@/repositories/http/h5DeviceProvider';
+import { tutorialRepository } from '@/repositories/http/tutorialRepository';
 import { RedemptionUncertain, redemptionResultMessage } from '@/services/redemptionCoordinator';
 import { useDeviceStore } from '@/stores/device';
 import { usePrototypeStore } from '@/stores/prototype';
@@ -48,11 +51,13 @@ const settingSuccess = ref(false);
 const settingFailure = ref('');
 const settingLoading = ref(false);
 const tutorialVisible = ref(false);
+const selectedTutorial = ref<WallpaperTutorial>();
 const trialVisible = ref(false);
 const dynamicPermissionGranted = ref(window.sessionStorage.getItem('qj-dynamic-wallpaper-permission') === 'granted');
 let downloadTimer: number | undefined;
 let transitionTimer: number | undefined;
 let permissionTimer: number | undefined;
+let tutorialRequest: Promise<WallpaperTutorial[]> | undefined;
 
 const wallpaperCompatible = computed(() => Boolean(wallpaper.value?.capabilities.length) || isOwned.value);
 const isOwned = computed(() => wallpaper.value ? device.isOwned(wallpaper.value.id) : false);
@@ -262,6 +267,28 @@ const requestDynamicPermission = () => {
   }, 650);
 };
 
+const openTutorial = async () => {
+  if (!wallpaper.value) return;
+  try {
+    tutorialRequest ??= tutorialRepository.list();
+    const tutorials = await tutorialRequest;
+    const tutorial = tutorialFor(
+      tutorials,
+      tutorialPlatformForUserAgent(window.navigator.userAgent),
+      wallpaper.value.kind
+    );
+    if (!tutorial) {
+      showToast('对应的设置教程暂未发布');
+      return;
+    }
+    selectedTutorial.value = tutorial;
+    tutorialVisible.value = true;
+  } catch (error) {
+    tutorialRequest = undefined;
+    showToast(catalogErrorMessage(error));
+  }
+};
+
 onBeforeUnmount(() => {
   detailVersion += 1;
   clearDownloadTimer();
@@ -293,7 +320,7 @@ watch(() => route.params.id, loadWallpaper, { immediate: true });
       :show-trial="!isOwned"
       :trial-disabled="!wallpaperCompatible"
       @back="router.back()"
-      @tutorial="tutorialVisible = true"
+      @tutorial="openTutorial"
       @trial="trialVisible = true"
       @action="openPrimaryFlow"
     />
@@ -333,7 +360,12 @@ watch(() => route.params.id, loadWallpaper, { immediate: true });
         @request-permission="requestDynamicPermission"
       />
     </van-popup>
-    <QjSettingTutorialPlayer v-model="tutorialVisible" />
+    <QjSettingTutorialPlayer
+      v-if="selectedTutorial"
+      v-model="tutorialVisible"
+      :src="selectedTutorial.video.contentUrl"
+      :title="selectedTutorial.title"
+    />
     <QjWallpaperTrial
       v-if="wallpaper"
       v-model="trialVisible"

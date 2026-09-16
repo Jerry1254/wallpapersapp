@@ -1069,6 +1069,19 @@ class InfrastructureIntegrationIT {
             earlierSource=sourceId;earlierVersion=id;versionNo++;
         }
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event WHERE action='CREATE_PARALLAX_VERSION' AND aggregate_id=?",Integer.class,Long.toString(earlierVersion))).isEqualTo(1);
+        String labConfig=new String(com.qingjing.wallpaper.parallax.ParallaxFixtures.files(12).get("config.json"),StandardCharsets.UTF_8)
+                .replace("\"offsetXPercent\":8","\"offsetXPercent\":333");
+        var labSaved=jsonExchange("/api/v1/admin/lab/wallpapers/"+wallpaper+"/parallax-config",HttpMethod.POST,
+                Map.of("baseResourceVersionId",Long.toString(earlierVersion),"config",objectMapper.readTree(labConfig)),admin,null);
+        assertThat(labSaved.getStatusCode()).as(labSaved.getBody().toString()).isEqualTo(HttpStatus.CREATED);
+        long labVersion=labSaved.getBody().path("resourceVersionId").asLong();
+        int labVersionNo=labSaved.getBody().path("versionNo").asInt();
+        assertThat(labSaved.getBody().path("configFormatVersion").asInt()).isEqualTo(2);
+        assertThat(formalParallaxConfig(labVersion,wallpaper,variant,labVersionNo)).containsExactly(labConfig.getBytes(StandardCharsets.UTF_8));
+        assertThat(jdbc.queryForObject("SELECT status FROM resource_version WHERE id=?",String.class,earlierVersion)).isEqualTo("RETIRED");
+        assertThat(jdbc.queryForObject("SELECT status FROM resource_version WHERE id=?",String.class,labVersion)).isEqualTo("PUBLISHED");
+        assertThat(jsonExchange("/api/v1/admin/lab/wallpapers/"+wallpaper+"/parallax-config",HttpMethod.POST,
+                Map.of("baseResourceVersionId",Long.toString(earlierVersion),"config",objectMapper.readTree(labConfig)),admin,null).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         jdbc.update("UPDATE wallpaper SET status='ARCHIVED',archived_at=UTC_TIMESTAMP(6) WHERE id=?",wallpaper);
         assertThat(jsonExchange("/api/v1/admin/variants/"+variant+"/parallax-resource-versions",HttpMethod.POST,
                 Map.of("versionNo",5,"sourcePackageId",earlierSource),admin,null).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);

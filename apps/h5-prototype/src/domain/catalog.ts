@@ -66,7 +66,7 @@ export interface PublicWallpaperPage {
 }
 
 export const wallpaperTypeLabel = (kind: WallpaperKind) => {
-  if (kind === 'PARALLAX_4D') return '4D';
+  if (kind === 'PARALLAX_4D') return '4D动态';
   if (kind === 'DYNAMIC') return '动态';
   return '静态';
 };

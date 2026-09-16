@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 1.7.0
+  version: 1.8.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -919,6 +919,46 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/lab/wallpapers/{wallpaperId}/parallax-config:
+    post:
+      tags: [Admin Catalog]
+      operationId: saveAdminParallaxLabConfig
+      summary: 整体保存 4D Lab 真机调试参数
+      description: 只允许以当前已发布的 Android 4D 资源版本为基础，保持画布、图层数量、索引、素材和顺序不变；原子创建新配置资产、资源安全包并切换发布版本，旧版本保留。基础版本已变化时拒绝覆盖。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/WallpaperId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveParallaxLabConfigRequest'
+      responses:
+        '201':
+          description: 新配置版本、安全包和发布切换均已完成
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaveParallaxLabConfigResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -2060,7 +2100,7 @@ paths:
         - Device Entitlement
       operationId: createPreviewTicket
       summary: 为 Android App 签发独立受限效果试用描述
-      description: 需 Android 设备会话与持钥签名，无需权益，不扣兑换额度。仅交付降低规格且标记的试用素材；票据有效 90 秒仅用于下载，App
+      description: 需 Android 设备会话与持钥签名，无需权益，不扣兑换额度。交付与正式版本绑定一致的原始媒体 payload，并使用独立 APP_PREVIEW 外壳、密钥、票据和临时库；票据有效 90 秒仅用于下载，App
         实际预览由单调时钟限制为 120 秒，后台时间继续计入。正式下载与试用票据、包格式和临时库相互隔离。
       security:
         - deviceBearer: []
@@ -2493,6 +2533,7 @@ components:
         - PARALLAX_PACKAGE_REQUIRED
         - PARALLAX_PACKAGE_INVALID
         - PARALLAX_PACKAGE_IN_USE
+        - CONFIG_INVALID
 
     WallpaperKind:
       type: string
@@ -3758,6 +3799,45 @@ components:
           minimum: 1
         sourcePackageId:
           $ref: '#/components/schemas/LongId'
+
+    SaveParallaxLabConfigRequest:
+      type: object
+      additionalProperties: false
+      required: [baseResourceVersionId, config]
+      properties:
+        baseResourceVersionId:
+          $ref: '#/components/schemas/LongId'
+        config:
+          type: object
+          description: 完整 4D v2 配置；序列化后不超过 64 KiB。保存只允许算法参数变化，稳定画布和连续图层索引必须与基础版本一致。
+          required: [formatVersion, canvas, motion, layers]
+          properties:
+            formatVersion:
+              type: integer
+              enum: [2]
+            canvas:
+              type: object
+            motion:
+              type: object
+            layers:
+              type: array
+              minItems: 2
+              maxItems: 12
+          additionalProperties: true
+
+    SaveParallaxLabConfigResponse:
+      type: object
+      additionalProperties: false
+      required: [resourceVersionId, versionNo, configFormatVersion]
+      properties:
+        resourceVersionId:
+          $ref: '#/components/schemas/LongId'
+        versionNo:
+          type: integer
+          minimum: 1
+        configFormatVersion:
+          type: integer
+          enum: [2]
 
     AdminResourceBinding:
       type: object
