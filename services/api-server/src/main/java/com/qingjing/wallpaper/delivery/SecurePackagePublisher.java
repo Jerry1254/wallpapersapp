@@ -136,7 +136,7 @@ public class SecurePackagePublisher {
             exactFields(config,Set.of("formatVersion","canvas","motion","layers"));
             if (!config.path("formatVersion").isInt() || config.path("formatVersion").intValue()!=2) throw invalid();
             exactFields(config.path("canvas"),Set.of("width","height"));
-            exactFields(config.path("motion"),Set.of("maxAngle"));
+            exactFields(config.path("motion"),Set.of("maxAngleX","maxAngleY"));
             if (!config.path("canvas").path("width").isInt() || !config.path("canvas").path("height").isInt()) throw invalid();
             int width=config.path("canvas").path("width").asInt(),height=config.path("canvas").path("height").asInt();
             if (width<512 || height<512 || width>4096 || height>4096) throw invalid();
@@ -145,7 +145,7 @@ public class SecurePackagePublisher {
             Set<String> seen=new HashSet<>();
             for (int i=0;i<layers.size();i++) {
                 var layer=layers.get(i);
-                exactFields(layer,Set.of("index","offsetPercent","direction","scale","opacity","blendMode"));
+                exactFields(layer,Set.of("index","offsetXPercent","offsetYPercent","initialOffsetXPercent","initialOffsetYPercent","direction","scale","opacity","blendMode"));
                 if (!layer.path("index").isInt() || layer.path("index").intValue()!=i+1) throw invalid();
                 String role=i==layers.size()-1?"BACKGROUND":"FOREGROUND";
                 int ordinal=role.equals("BACKGROUND")?0:i;

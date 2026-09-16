@@ -22,7 +22,8 @@ internal class ParallaxScene private constructor(val configuration: ParallaxConf
         for ((index,layer) in configuration.layers.withIndex()) {
             val bitmap = bitmaps[index]
             val p = ParallaxMotion.placement(canvas.width,canvas.height,bitmap.width,bitmap.height,layer.scale,
-                layer.offsetPercent,layer.direction,x,y,layer.role=="BACKGROUND")
+                layer.offsetXPercent,layer.offsetYPercent,layer.initialOffsetXPercent,layer.initialOffsetYPercent,
+                layer.direction,x,y,layer.role=="BACKGROUND")
             matrix.reset(); matrix.setScale(p.scale,p.scale); matrix.postTranslate(p.left,p.top)
             paint.alpha = (255*layer.opacity).toInt(); paint.xfermode = modes[layer.blend]
             canvas.drawBitmap(bitmap,matrix,paint)

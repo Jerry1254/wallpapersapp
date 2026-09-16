@@ -10,13 +10,13 @@ clearUnused() 拒绝与下载同时运行，保留 active-home/active-lock、视
 
 `AndroidWallpaperPlayback` 实现共享 Preview/WallpaperApply。capabilities() 读取系统壁纸策略、H.264 解码器及动态壁纸入口；open(installedId,effect) 复验原始 manifest 签名、身份和所有文件哈希后进入 App 内全屏预览；apply(installedId,effect,target) 只使用已安装私有资源。静态 home/lock/both 使用 WallpaperManager.setStream，不允许备份，返回 ID 与请求位置一致才报告 completed；BOTH 桌面 ID 匹配、锁屏无独立 ID 时按系统共用画面规则确认。预览 completed 仅表示预览已展示并结束。
 
-视频和 4D apply 只接受 home 作为打开系统选择页的入口，`systemChoosesLiveTarget` 为 true 时 UI 必须说明位置由系统选择。不能把它解释为保证独立动态桌面或锁屏；lock/both 不作为可直接请求的能力。系统取消保留原提交版本。RESULT_OK、待设置资源已渲染且系统查询到倾境服务时提交并描述实际位置。Android 13 及更早系统无法读取组件时，RESULT_OK 与已渲染只允许保留新资源供已启用服务播放，结果仍为 unknown，不声称某个位置成功；Android 14+ 可以查询却未找到倾境服务时保留旧资源。两处使用同一倾境服务时共用资源，不支持同一服务独立配置两份资源；未申请 QUERY_ALL_PACKAGES。
+视频和 4D apply 只接受 home 作为打开系统选择页的入口，`systemChoosesLiveTarget` 为 true 时 UI 必须说明位置由系统选择。不能把它解释为保证独立动态桌面或锁屏；lock/both 不作为可直接请求的能力。系统取消保留原提交版本。RESULT_OK、待设置资源已渲染且系统查询到倾境服务时提交并描述实际位置。Android 13 及更早系统无法读取组件时，RESULT_OK 与已渲染返回 accepted，保留新资源并提示用户到桌面或锁屏查看，不虚构具体位置；Android 14+ 可以查询却未找到倾境服务时仍返回 unknown 并保留旧资源。两处使用同一倾境服务时共用资源，不支持同一服务独立配置两份资源；未申请 QUERY_ALL_PACKAGES。
 
 红米 Android 13 的系统选择器另检查 MIUI AppOp 10045。`LiveWallpaperPolicy` 只读查询本应用 UID，在确认拒绝时禁用视频和 4D 设置目标并返回 setupMessage，引导用户从系统“动态壁纸服务”权限开启后重新检测；不自动授予权限或修改 AppOps。非 SDK 查询在其他 ROM 不可用时回到系统选择页，不假定拒绝。当前只在 M2012K11AC 验证，不据此宣称所有小米 ROM 兼容。
 
 VideoWallpaperService 的每个 Engine 和 App 预览各自创建播放器。视频静音循环且居中裁切；不可见或 Surface 销毁释放播放器；可见/进程重建时从持久提交指针复验重载。预览使用待选指针，已有桌面使用提交指针，取消不替换桌面内容。debugPlaybackState 仅调试包可调用，输出系统 ID、位置查询能力和 Engine 状态，不返回文件路径或密钥；QJPlayback 生命周期日志仅 debuggable 包输出状态变化。
 
-4D 的 ParallaxWallpaperService 和 App 预览各有独立渲染线程、姿态传感器、图片与资源租约。当前只接受 v2 配置，使用每层签名 `offsetPercent`：正数跟随手机，负数反向，0 固定；从 0° 变化开始线性响应，到 `maxAngle` 达到满幅。图层顺序只决定遮挡，运动数值由 Web 模拟器导出；旧 `depth/strength` 配置会被拒绝。背景按位移自动预留显示边缘，不改写源图。正式 4D 图层以 ARGB_8888 按源尺寸解码，固定 `inSampleSize=1` 且禁用密度缩放，不进行静默降采样；加载前保留至少 16 MiB 可用堆余量，不足时失败。显示频率不超过 30 fps。不可见或 Surface 销毁后注销传感器并释放图片/租约，重新可见时从私有提交指针复验恢复。视频与 4D 提交指针分开保存，兼容旧版视频指针。性能和真机倾斜结论见 [WP-A08 记录](../../docs/06-测试与验收/WP-A08-4D原生迁移记录-2026-09-14.md)。
+4D 的 ParallaxWallpaperService 和 App 预览各有独立渲染线程、姿态传感器、图片与资源租约。当前只接受 v2：全局 `maxAngleX/maxAngleY` 分别归一化水平和垂直倾斜；每层使用 `offsetXPercent/offsetYPercent`、`initialOffsetXPercent/initialOffsetYPercent`、`direction`、缩放、不透明度和混合模式。100% 为对应屏幕轴长，运动与初始位置无产品上限；`fixed` 仅关闭动态运动。背景按初始位置和最大运动量补足保护缩放，不改写源图。正式图层以 ARGB_8888 按源尺寸解码，固定 `inSampleSize=1` 且禁用密度缩放，不静默降采样；加载前保留至少 16 MiB 可用堆余量。显示频率不超过 30 fps，不可见或 Surface 销毁后释放传感器、图片与租约。旧 v1 仅能由 Web 制作工具导入转换，Android 不直接运行。
 
 构建 local/prod 时分别设置 QJ_LOCAL_PACKAGE_SIGNING_KEY_ID / QJ_LOCAL_PACKAGE_PUBLIC_KEY_DER 或 QJ_PROD_PACKAGE_SIGNING_KEY_ID / QJ_PROD_PACKAGE_PUBLIC_KEY_DER。公钥为 RSA-2048 SPKI DER 的标准 Base64，服务端 QJ_PACKAGE_SIGNING_KEY_ID 必须匹配，私钥只配置到 API。空信任根禁用安装；local 配置不会作为 production 的默认值。正式契约和尺寸/媒体限制见 [SEC-003](../../docs/05-安全与合规/SEC-003-Android安全资源交付协议.md)。
 

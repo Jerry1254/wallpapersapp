@@ -10,12 +10,14 @@ internal object ParallaxMotion {
         if (!angle.isFinite() || !base.isFinite()) return 0f
         return kotlin.math.atan2(kotlin.math.sin(angle-base),kotlin.math.cos(angle-base))
     }
-    fun tilt(roll: Float,pitch: Float,baseRoll: Float,basePitch: Float,maxAngle: Float,rotation: Int): Pair<Float,Float> {
-        require(maxAngle.isFinite() && maxAngle>0f && maxAngle<=75f && rotation in 0..3)
-        val radians = Math.toRadians(maxAngle.toDouble()).toFloat()
-        val x = (angleDelta(roll,baseRoll)/radians).coerceIn(-1f,1f)
-        val y = (angleDelta(pitch,basePitch)/radians).coerceIn(-1f,1f)
-        return when(rotation) { 1 -> -y to x; 2 -> -x to -y; 3 -> y to -x; else -> x to y }
+    fun tilt(roll: Float,pitch: Float,baseRoll: Float,basePitch: Float,maxAngleX: Float,maxAngleY: Float,rotation: Int): Pair<Float,Float> {
+        require(maxAngleX.isFinite() && maxAngleX>0f && maxAngleX<=75f && maxAngleY.isFinite() && maxAngleY>0f && maxAngleY<=75f && rotation in 0..3)
+        val rollDelta=angleDelta(roll,baseRoll)
+        val pitchDelta=angleDelta(pitch,basePitch)
+        val (screenX,screenY)=when(rotation) { 1 -> -pitchDelta to rollDelta; 2 -> -rollDelta to -pitchDelta; 3 -> pitchDelta to -rollDelta; else -> rollDelta to pitchDelta }
+        val x=(screenX/Math.toRadians(maxAngleX.toDouble()).toFloat()).coerceIn(-1f,1f)
+        val y=(screenY/Math.toRadians(maxAngleY.toDouble()).toFloat()).coerceIn(-1f,1f)
+        return x to y
     }
     fun smooth(current: Float,target: Float,smoothing: Float,elapsedMs: Long): Float {
         require(smoothing in .05f.. .5f)
@@ -24,20 +26,25 @@ internal object ParallaxMotion {
     }
     data class Placement(val scale: Float,val left: Float,val top: Float)
 
-    /** Direct screen-axis percentage with an explicit direction; 100 means one full screen axis. */
+    /** Independent screen-axis percentages plus a signed neutral-position correction. */
     fun placement(width: Int,height: Int,imageWidth: Int,imageHeight: Int,scale: Float,
-                  offsetPercent: Float,direction: String,x: Float,y: Float,background: Boolean): Placement {
+                  offsetXPercent: Float,offsetYPercent: Float,initialOffsetXPercent: Float,initialOffsetYPercent: Float,
+                  direction: String,x: Float,y: Float,background: Boolean): Placement {
         require(width>0 && height>0 && imageWidth>0 && imageHeight>0)
-        require(scale in 1f..1.5f && offsetPercent.isFinite() && offsetPercent>=0f)
+        require(scale in 1f..1.5f && offsetXPercent.isFinite() && offsetXPercent>=0f && offsetYPercent.isFinite() && offsetYPercent>=0f)
+        require(initialOffsetXPercent.isFinite() && initialOffsetYPercent.isFinite())
         require(direction in setOf("follow","reverse","fixed"))
         val sign=when(direction) { "follow" -> 1f; "reverse" -> -1f; else -> 0f }
-        val fraction=sign*offsetPercent/100f
-        val overscan=if(background) 1f+2f*abs(fraction) else 1f
+        val fractionX=sign*offsetXPercent/100f
+        val fractionY=sign*offsetYPercent/100f
+        val originX=initialOffsetXPercent/100f
+        val originY=initialOffsetYPercent/100f
+        val overscan=if(background) 1f+2f*max(abs(originX)+abs(fractionX),abs(originY)+abs(fractionY)) else 1f
         val cover=max(width.toFloat()/imageWidth,height.toFloat()/imageHeight)*max(scale,overscan)
         val marginX=max(0f,(imageWidth*cover-width)/2f)
         val marginY=max(0f,(imageHeight*cover-height)/2f)
-        val requestedX=-x.coerceIn(-1f,1f)*width*fraction
-        val requestedY=y.coerceIn(-1f,1f)*height*fraction
+        val requestedX=width*(originX-x.coerceIn(-1f,1f)*fractionX)
+        val requestedY=height*(originY+y.coerceIn(-1f,1f)*fractionY)
         val motionX=if(background) requestedX.coerceIn(-marginX,marginX) else requestedX
         val motionY=if(background) requestedY.coerceIn(-marginY,marginY) else requestedY
         return Placement(cover,-marginX+motionX,-marginY+motionY)

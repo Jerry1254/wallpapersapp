@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <title>倾境壁纸·4D调试页原型</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      --ink: #191817;
+      --muted: #706d68;
+      --surface: #fffdf9;
+      --soft: #f5f3ef;
+      --line: #dedad2;
+      --accent: #f4a91e;
+      --accent-strong: #db8e00;
+      --danger: #c84b44;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: #171615; }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    .stage {
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      background: radial-gradient(circle at 50% 0%, #49433a, #191817 70%);
+    }
+    .phone {
+      position: relative;
+      width: min(100vw, 430px);
+      height: min(100dvh, 900px);
+      overflow: hidden;
+      background: #071126;
+      isolation: isolate;
+    }
+    .preview {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      touch-action: none;
+      background: #09172f;
+    }
+    .layer {
+      position: absolute;
+      inset: -4%;
+      transform-origin: center;
+      will-change: transform, opacity;
+      transition: opacity 140ms ease;
+    }
+    .background {
+      background: linear-gradient(180deg, rgba(3, 11, 30, .18), rgba(3, 7, 15, .62)),
+        url('../../../apps/mobile/assets/ui-reference/city.svg') center/cover no-repeat;
+      filter: saturate(1.14) contrast(1.05);
+    }
+    .glow {
+      inset: -18%;
+      background:
+        radial-gradient(circle at 72% 20%, rgba(244, 169, 30, .62) 0 3%, transparent 18%),
+        radial-gradient(circle at 28% 68%, rgba(83, 163, 255, .38), transparent 28%);
+      mix-blend-mode: screen;
+    }
+    .subject {
+      inset: auto;
+      left: 50%;
+      top: 43%;
+      width: 42%;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #ffd75e, #e9a91a 66%, #9e6411);
+      border: 2px solid rgba(255,255,255,.9);
+      box-shadow: 0 24px 80px rgba(0,0,0,.44), inset 0 0 0 1px rgba(0,0,0,.08);
+    }
+    .subject::before, .subject::after {
+      content: "";
+      position: absolute;
+      left: 22%; right: 22%; top: 49%; height: 3px;
+      background: #182543;
+      border-radius: 4px;
+    }
+    .subject::after { top: 22%; bottom: 22%; left: 49%; width: 3px; height: auto; right: auto; }
+    .scrim-top, .scrim-bottom {
+      position: absolute;
+      z-index: 3;
+      left: 0; right: 0;
+      pointer-events: none;
+    }
+    .scrim-top { top: 0; height: 138px; background: linear-gradient(rgba(0,0,0,.58), transparent); }
+    .scrim-bottom { bottom: 0; height: 180px; background: linear-gradient(transparent, rgba(0,0,0,.56)); }
+    .sheet-dismiss {
+      position: absolute;
+      z-index: 7;
+      inset: 0 0 65% 0;
+      display: none;
+      width: 100%;
+      border: 0;
+      background: transparent;
+    }
+    .sheet-dismiss.active { display: block; }
+    .topbar {
+      position: absolute;
+      z-index: 8;
+      top: 0;
+      left: 0;
+      right: 0;
+      display: grid;
+      grid-template-columns: 48px 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: calc(env(safe-area-inset-top) + 14px) 16px 10px;
+      color: white;
+    }
+    .icon-btn, .status, .compact, .wake {
+      border: 1px solid rgba(255,255,255,.22);
+      color: white;
+      background: rgba(15,15,15,.46);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      box-shadow: 0 8px 30px rgba(0,0,0,.14);
+    }
+    .icon-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      padding: 0;
+    }
+    .icon-btn svg { width: 21px; height: 21px; stroke: currentColor; fill: none; stroke-width: 2; }
+    .title { min-width: 0; }
+    .title strong { display: block; font-size: 16px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .title small { display: flex; align-items: center; gap: 6px; margin-top: 3px; color: rgba(255,255,255,.78); font-size: 11px; }
+    .sensor-dot { width: 7px; height: 7px; border-radius: 50%; background: #6ddd9a; box-shadow: 0 0 0 3px rgba(109,221,154,.18); }
+    .status { border-radius: 999px; padding: 8px 11px; font-size: 12px; white-space: nowrap; }
+    .status.dirty { color: #191817; background: var(--accent); border-color: var(--accent); font-weight: 700; }
+    .status:disabled { opacity: .76; cursor: default; }
+    .hide-btn { position: absolute; z-index: 8; top: calc(env(safe-area-inset-top) + 72px); right: 16px; }
+    .compact {
+      position: absolute;
+      z-index: 8;
+      left: 16px;
+      right: 16px;
+      bottom: calc(env(safe-area-inset-bottom) + 18px);
+      min-height: 64px;
+      padding: 10px 10px 10px 16px;
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .compact .meta { min-width: 0; flex: 1; }
+    .compact strong { display: block; font-size: 14px; }
+    .compact small { color: rgba(255,255,255,.72); font-size: 11px; }
+    .primary {
+      min-height: 44px;
+      border: 0;
+      border-radius: 999px;
+      background: var(--accent);
+      color: var(--ink);
+      padding: 0 18px;
+      font-weight: 800;
+    }
+    .sheet {
+      position: absolute;
+      z-index: 12;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: min(65%, 590px);
+      display: flex;
+      flex-direction: column;
+      color: var(--ink);
+      background: rgba(255,253,249,.94);
+      border-radius: 28px 28px 0 0;
+      box-shadow: 0 -22px 60px rgba(0,0,0,.28);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      transform: translateY(105%);
+      transition: transform 240ms cubic-bezier(.2,.8,.2,1);
+    }
+    .sheet.open { transform: translateY(0); }
+    .grab-zone { width: 100%; padding: 10px 16px 6px; border: 0; background: transparent; cursor: pointer; }
+    .grab { display: block; width: 42px; height: 5px; border-radius: 99px; background: #c6c1b8; margin: 0 auto; }
+    .sheet-head { display: flex; align-items: center; padding: 6px 20px 12px; gap: 12px; }
+    .sheet-head h2 { margin: 0; font-size: 20px; line-height: 1.25; flex: 1; }
+    .sheet-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+    .text-btn { border: 0; background: transparent; color: var(--ink); min-height: 44px; font-weight: 700; padding: 0 8px; }
+    .layers {
+      display: flex;
+      gap: 9px;
+      overflow-x: auto;
+      padding: 0 20px 14px;
+      scrollbar-width: none;
+    }
+    .layers::-webkit-scrollbar { display: none; }
+    .layer-chip {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 46px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.72);
+      border-radius: 15px;
+      padding: 6px 12px 6px 7px;
+      color: var(--muted);
+    }
+    .layer-chip.active { color: var(--ink); border-color: var(--accent-strong); background: #fff6df; box-shadow: 0 0 0 1px var(--accent-strong); }
+    .thumb { width: 32px; height: 32px; border-radius: 10px; background: linear-gradient(145deg,#102450,#f0b526); border: 1px solid rgba(0,0,0,.06); }
+    .layer-chip:nth-child(2) .thumb { background: radial-gradient(circle,#ffd34f 0 24%,#102752 26% 100%); }
+    .layer-chip:nth-child(3) .thumb { background: linear-gradient(145deg,#3a6aa4,#071126); }
+    .layer-chip strong { display: block; font-size: 12px; }
+    .layer-chip small { display: block; font-size: 10px; margin-top: 1px; }
+    .scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0 20px calc(env(safe-area-inset-bottom) + 28px); }
+    .card { background: rgba(255,255,255,.7); border: 1px solid var(--line); border-radius: 20px; padding: 16px; margin-bottom: 12px; }
+    .card-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .card-title strong { font-size: 15px; }
+    .card-title small { color: var(--muted); font-size: 11px; }
+    .field { margin-top: 18px; }
+    .field:first-child { margin-top: 0; }
+    .subhead { margin: 22px 0 2px; padding-top: 16px; border-top: 1px solid var(--line); }
+    .subhead strong { display: block; font-size: 14px; }
+    .subhead small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+    .label { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
+    .label strong { font-size: 14px; }
+    .label span { font-size: 11px; color: var(--muted); }
+    .control { display: grid; grid-template-columns: 1fr 82px; gap: 12px; align-items: center; }
+    input[type="range"] { width: 100%; accent-color: var(--accent-strong); min-height: 44px; }
+    .number {
+      width: 100%; height: 44px; border: 1px solid var(--line); border-radius: 12px; background: white; text-align: right; padding: 0 12px; color: var(--ink); font-weight: 700;
+    }
+    .number:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .segmented { display: grid; grid-template-columns: repeat(3,1fr); padding: 3px; border-radius: 14px; background: #ebe8e2; }
+    .segmented button { min-height: 42px; border: 0; border-radius: 11px; background: transparent; color: var(--muted); font-weight: 700; }
+    .segmented button.active { background: white; color: var(--ink); box-shadow: 0 3px 12px rgba(0,0,0,.08); }
+    .dialog-backdrop {
+      position: absolute;
+      z-index: 40;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(8,8,8,.52);
+      backdrop-filter: blur(5px);
+      -webkit-backdrop-filter: blur(5px);
+    }
+    .dialog-backdrop.open { display: flex; }
+    .dialog {
+      width: 100%;
+      max-width: 360px;
+      border-radius: 26px;
+      padding: 22px;
+      background: var(--surface);
+      box-shadow: 0 24px 80px rgba(0,0,0,.32);
+    }
+    .dialog h3 { margin: 0; font-size: 21px; }
+    .dialog p { margin: 9px 0 20px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .dialog-actions { display: grid; gap: 9px; }
+    .dialog-actions button { min-height: 48px; border-radius: 999px; font-weight: 800; }
+    .dialog-primary { border: 0; background: var(--ink); color: white; }
+    .dialog-secondary { border: 1px solid var(--line); background: white; color: var(--ink); }
+    .dialog-text { border: 0; background: transparent; color: var(--muted); }
+    .wake {
+      position: absolute;
+      z-index: 15;
+      left: 50%;
+      bottom: calc(env(safe-area-inset-bottom) + 20px);
+      transform: translateX(-50%);
+      border-radius: 999px;
+      padding: 11px 16px;
+      display: none;
+      font-size: 12px;
+    }
+    .toast {
+      position: absolute;
+      z-index: 30;
+      left: 50%;
+      top: 104px;
+      transform: translate(-50%,-12px);
+      border-radius: 999px;
+      background: rgba(25,24,23,.9);
+      color: white;
+      padding: 10px 15px;
+      font-size: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transition: .2s ease;
+    }
+    .toast.show { opacity: 1; transform: translate(-50%,0); }
+    .hidden-ui .topbar, .hidden-ui .hide-btn, .hidden-ui .compact, .hidden-ui .sheet, .hidden-ui .scrim-top, .hidden-ui .scrim-bottom { display: none; }
+    .hidden-ui .wake { display: block; }
+    @media (min-width: 700px) {
+      .phone { border-radius: 34px; box-shadow: 0 30px 100px rgba(0,0,0,.5); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="stage">
+    <section class="phone" id="phone" aria-label="4D 真机调试页原型">
+      <div class="preview" id="preview" aria-label="全屏 4D 效果预览">
+        <div class="layer background" data-layer="2"></div>
+        <div class="layer glow" data-layer="1"></div>
+        <div class="layer subject" data-layer="0"></div>
+      </div>
+      <div class="scrim-top"></div>
+      <div class="scrim-bottom"></div>
+      <button class="sheet-dismiss" id="sheetDismiss" aria-label="收起参数面板" tabindex="-1"></button>
+
+      <header class="topbar">
+        <button class="icon-btn" id="back" aria-label="返回">
+          <svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+        <div class="title">
+          <strong>城市飞行 2233</strong>
+          <small id="versionLine"><i class="sensor-dot"></i>姿态响应正常 · 配置 v12</small>
+        </div>
+        <button class="status" id="topSave" disabled>已保存</button>
+      </header>
+      <button class="icon-btn hide-btn" id="hide" aria-label="隐藏全部控件">
+        <svg viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><path d="m3 3 18 18"/></svg>
+      </button>
+
+      <div class="compact" id="compact">
+        <div class="meta">
+          <strong id="compactTitle">图层 01 · 人物</strong>
+          <small id="compactMeta">跟随 · 水平 15% · 垂直 10%</small>
+        </div>
+        <button class="primary" id="open">调整参数</button>
+      </div>
+
+      <section class="sheet" id="sheet" aria-label="参数设置面板">
+        <button class="grab-zone" id="close" aria-label="收起参数面板"><span class="grab"></span></button>
+        <div class="sheet-head">
+          <div>
+            <h2>调整 4D 参数</h2>
+            <p>修改仅用于本机预览，最后一次保存全部参数</p>
+          </div>
+        </div>
+        <nav class="layers" aria-label="选择图层">
+          <button class="layer-chip active" data-select="0"><i class="thumb"></i><span><strong>01 人物</strong><small>前景</small></span></button>
+          <button class="layer-chip" data-select="1"><i class="thumb"></i><span><strong>02 光效</strong><small>前景</small></span></button>
+          <button class="layer-chip" data-select="2"><i class="thumb"></i><span><strong>03 背景</strong><small>背景</small></span></button>
+        </nav>
+        <div class="scroll">
+          <article class="card">
+            <div class="card-title"><span><strong id="layerTitle">图层 01 · 人物</strong><br><small>顺序只读，不支持拖动</small></span><button class="text-btn" id="resetLayer">复位本层</button></div>
+            <div class="field">
+              <div class="label"><strong>运动方向</strong><span>相对手机倾斜方向</span></div>
+              <div class="segmented" id="direction">
+                <button data-direction="follow" class="active">跟随</button>
+                <button data-direction="reverse">反向</button>
+                <button data-direction="fixed">固定</button>
+              </div>
+            </div>
+            <div class="field">
+              <div class="label"><strong>水平运动强度</strong><span>100% = 左右满幅移动一屏宽</span></div>
+              <div class="control"><input id="motionXRange" type="range" min="0" max="100" value="15"><input id="motionXNumber" class="number" type="number" min="0" value="15" aria-label="水平运动强度"></div>
+            </div>
+            <div class="field">
+              <div class="label"><strong>垂直运动强度</strong><span>100% = 上下满幅移动一屏高</span></div>
+              <div class="control"><input id="motionYRange" type="range" min="0" max="100" value="10"><input id="motionYNumber" class="number" type="number" min="0" value="10" aria-label="垂直运动强度"></div>
+            </div>
+            <div class="subhead"><strong>初始位置修正</strong><small>手机保持中立时生效；可修正素材构图</small></div>
+            <div class="field">
+              <div class="label"><strong>初始水平位置</strong><span>负数向左，正数向右</span></div>
+              <div class="control"><input id="originXRange" type="range" min="-100" max="100" value="0"><input id="originXNumber" class="number" type="number" value="0" aria-label="初始水平位置"></div>
+            </div>
+            <div class="field">
+              <div class="label"><strong>初始垂直位置</strong><span>负数向上，正数向下</span></div>
+              <div class="control"><input id="originYRange" type="range" min="-100" max="100" value="0"><input id="originYNumber" class="number" type="number" value="0" aria-label="初始垂直位置"></div>
+            </div>
+            <div class="field">
+              <div class="label"><strong>缩放</strong><span>保护边缘并调整视觉层次</span></div>
+              <div class="control"><input id="scaleRange" type="range" min="1" max="1.5" step="0.01" value="1.08"><input id="scaleNumber" class="number" type="number" min="1" max="1.5" step="0.01" value="1.08" aria-label="缩放"></div>
+            </div>
+            <div class="field">
+              <div class="label"><strong>不透明度</strong><span>与素材自身透明度共同生效</span></div>
+              <div class="control"><input id="opacityRange" type="range" min="0" max="100" value="100"><input id="opacityNumber" class="number" type="number" min="0" max="100" value="100" aria-label="不透明度"></div>
+            </div>
+            <div class="field">
+              <div class="label"><strong>混合模式</strong><span>立即在画面中预览</span></div>
+              <div class="segmented" id="blend">
+                <button data-blend="normal" class="active">正常</button>
+                <button data-blend="screen">滤色</button>
+                <button data-blend="add">叠加</button>
+              </div>
+            </div>
+          </article>
+          <article class="card">
+            <div class="card-title"><span><strong>全局高级设置</strong><br><small>全部图层共用，通常保持默认值即可</small></span></div>
+            <div class="field">
+              <div class="label"><strong>水平最大倾斜角度</strong><span>控制左右运动灵敏度</span></div>
+              <div class="control"><input id="angleXRange" type="range" min="1" max="75" value="75"><input id="angleXNumber" class="number" type="number" min="1" max="75" value="75" aria-label="水平最大倾斜角度"></div>
+            </div>
+            <div class="field">
+              <div class="label"><strong>垂直最大倾斜角度</strong><span>控制上下运动灵敏度</span></div>
+              <div class="control"><input id="angleYRange" type="range" min="1" max="75" value="75"><input id="angleYNumber" class="number" type="number" min="1" max="75" value="75" aria-label="垂直最大倾斜角度"></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <button class="wake" id="wake">点击显示控件</button>
+      <div class="toast" id="toast" role="status"></div>
+      <div class="dialog-backdrop" id="dialogBackdrop" role="presentation">
+        <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+          <h3 id="dialogTitle">保存全部参数？</h3>
+          <p id="dialogMessage">场景参数和所有图层参数将整体保存为一个新版本。</p>
+          <div class="dialog-actions">
+            <button class="dialog-primary" id="dialogPrimary">确认保存</button>
+            <button class="dialog-secondary" id="dialogSecondary">取消</button>
+            <button class="dialog-text" id="dialogTertiary" hidden>继续调整</button>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+  <script>
+    const clone = value => JSON.parse(JSON.stringify(value));
+    const original = {
+      angleX: 75,
+      angleY: 75,
+      layers: [
+        {name:'图层 01 · 人物', direction:'follow', motionX:15, motionY:10, originX:0, originY:-3, scale:1.08, opacity:100, blend:'normal'},
+        {name:'图层 02 · 光效', direction:'follow', motionX:5, motionY:3, originX:2, originY:0, scale:1.04, opacity:82, blend:'screen'},
+        {name:'图层 03 · 背景', direction:'reverse', motionX:3, motionY:2, originX:0, originY:0, scale:1.03, opacity:100, blend:'normal'}
+      ]
+    };
+    let baseline = clone(original), state = clone(original), selected = 0, version = 12;
+    let tilt = {x:.28, y:-.16};
+    const $ = id => document.getElementById(id);
+    const phone = $('phone'), sheet = $('sheet'), topSave = $('topSave'), toast = $('toast');
+    let dialogMode = null;
+    const fields = {
+      angleX: [$('angleXRange'), $('angleXNumber')],
+      angleY: [$('angleYRange'), $('angleYNumber')],
+      motionX: [$('motionXRange'), $('motionXNumber')],
+      motionY: [$('motionYRange'), $('motionYNumber')],
+      originX: [$('originXRange'), $('originXNumber')],
+      originY: [$('originYRange'), $('originYNumber')],
+      scale: [$('scaleRange'), $('scaleNumber')],
+      opacity: [$('opacityRange'), $('opacityNumber')]
+    };
+    const dirty = () => JSON.stringify(state) !== JSON.stringify(baseline);
+    function notify(message) {
+      toast.textContent = message; toast.classList.add('show');
+      clearTimeout(notify.timer); notify.timer = setTimeout(() => toast.classList.remove('show'), 1800);
+    }
+    function sliderMax(value) { return Math.max(100, Math.ceil(Number(value) / 100) * 100); }
+    function signedSliderMax(value) { return Math.max(100, Math.ceil(Math.abs(Number(value)) / 100) * 100); }
+    function mapBlend(value) { return value === 'add' ? 'plus-lighter' : value; }
+    function applyPreview() {
+      state.layers.forEach((layer, index) => {
+        const el = document.querySelector(`[data-layer="${index}"]`);
+        const sign = layer.direction === 'reverse' ? -1 : layer.direction === 'fixed' ? 0 : 1;
+        const distanceX = (layer.originX + layer.motionX * tilt.x * sign) / 100 * phone.clientWidth;
+        const distanceY = (layer.originY + layer.motionY * tilt.y * sign) / 100 * phone.clientHeight;
+        const base = index === 0 ? 'translate(-50%, -50%) ' : '';
+        el.style.transform = `${base}translate(${distanceX}px, ${distanceY}px) scale(${layer.scale})`;
+        el.style.opacity = layer.opacity / 100;
+        el.style.mixBlendMode = mapBlend(layer.blend);
+      });
+    }
+    function updateStatus() {
+      const changed = dirty();
+      topSave.textContent = changed ? '保存' : '已保存';
+      topSave.classList.toggle('dirty', changed);
+      topSave.disabled = !changed;
+      $('versionLine').innerHTML = `<i class="sensor-dot"></i>姿态响应正常 · 配置 v${version}${changed ? ' · 有修改' : ''}`;
+    }
+    function fill() {
+      const layer = state.layers[selected];
+      $('layerTitle').textContent = layer.name;
+      $('compactTitle').textContent = layer.name;
+      $('compactMeta').textContent = `${{follow:'跟随',reverse:'反向',fixed:'固定'}[layer.direction]} · 水平 ${layer.motionX}% · 垂直 ${layer.motionY}%`;
+      fields.angleX.forEach(el => el.value = state.angleX);
+      fields.angleY.forEach(el => el.value = state.angleY);
+      for (const key of ['motionX','motionY']) {
+        $(`${key}Range`).max = sliderMax(layer[key]);
+        fields[key].forEach(el => el.value = layer[key]);
+      }
+      for (const key of ['originX','originY']) {
+        const limit = signedSliderMax(layer[key]);
+        $(`${key}Range`).min = -limit; $(`${key}Range`).max = limit;
+        fields[key].forEach(el => el.value = layer[key]);
+      }
+      fields.scale.forEach(el => el.value = layer.scale);
+      fields.opacity.forEach(el => el.value = layer.opacity);
+      document.querySelectorAll('[data-direction]').forEach(el => el.classList.toggle('active', el.dataset.direction === layer.direction));
+      document.querySelectorAll('[data-blend]').forEach(el => el.classList.toggle('active', el.dataset.blend === layer.blend));
+      document.querySelectorAll('[data-select]').forEach(el => el.classList.toggle('active', Number(el.dataset.select) === selected));
+      updateStatus(); applyPreview();
+    }
+    function setNumber(kind, raw) {
+      const value = Number(raw);
+      const valid = Number.isFinite(value) && (
+        kind === 'angleX' || kind === 'angleY' ? value >= 1 && value <= 75 :
+        kind === 'motionX' || kind === 'motionY' ? value >= 0 :
+        kind === 'originX' || kind === 'originY' ? true :
+        kind === 'scale' ? value >= 1 && value <= 1.5 :
+        value >= 0 && value <= 100
+      );
+      if (!valid) { notify('数值无效，已保留上一个有效值'); fill(); return; }
+      if (kind === 'angleX' || kind === 'angleY') state[kind] = value;
+      else state.layers[selected][kind] = value;
+      fill();
+    }
+    for (const [kind, controls] of Object.entries(fields)) {
+      controls.forEach(el => el.addEventListener('input', event => setNumber(kind, event.target.value)));
+      controls[1].addEventListener('blur', fill);
+    }
+    document.querySelectorAll('[data-direction]').forEach(el => el.onclick = () => { state.layers[selected].direction = el.dataset.direction; fill(); });
+    document.querySelectorAll('[data-blend]').forEach(el => el.onclick = () => { state.layers[selected].blend = el.dataset.blend; fill(); });
+    document.querySelectorAll('[data-select]').forEach(el => el.onclick = () => { selected = Number(el.dataset.select); fill(); });
+    function openSheet() { sheet.classList.add('open'); $('sheetDismiss').classList.add('active'); }
+    function closeSheet() { sheet.classList.remove('open'); $('sheetDismiss').classList.remove('active'); }
+    $('open').onclick = openSheet;
+    $('close').onclick = closeSheet;
+    $('sheetDismiss').onclick = closeSheet;
+    $('hide').onclick = () => { closeSheet(); phone.classList.add('hidden-ui'); };
+    $('wake').onclick = () => phone.classList.remove('hidden-ui');
+    $('resetLayer').onclick = () => { state.layers[selected] = clone(baseline.layers[selected]); fill(); notify('当前图层已复位'); };
+    function closeDialog() { $('dialogBackdrop').classList.remove('open'); dialogMode = null; }
+    function openDialog(mode) {
+      dialogMode = mode;
+      const leaving = mode === 'back';
+      $('dialogTitle').textContent = leaving ? '保存本次修改？' : '保存全部参数？';
+      $('dialogMessage').textContent = leaving ? '当前修改尚未保存。你可以整体保存后返回，或者放弃修改直接返回。' : '场景参数和所有图层参数将整体保存为一个新版本。';
+      $('dialogPrimary').textContent = leaving ? '保存并返回' : '确认保存';
+      $('dialogSecondary').textContent = leaving ? '不保存并返回' : '取消';
+      $('dialogTertiary').hidden = !leaving;
+      $('dialogBackdrop').classList.add('open');
+    }
+    function saveAll(leaving = false) {
+      if (!dirty()) return;
+      closeDialog(); topSave.disabled = true; topSave.textContent = '保存中…';
+      setTimeout(() => {
+        baseline = clone(state); version += 1; fill(); notify(leaving ? `全部参数已保存为 v${version}，返回列表` : `全部参数已保存为版本 v${version}`);
+      }, 650);
+    }
+    topSave.onclick = () => openDialog('save');
+    $('back').onclick = () => dirty() ? openDialog('back') : notify('返回列表');
+    $('dialogPrimary').onclick = () => saveAll(dialogMode === 'back');
+    $('dialogSecondary').onclick = () => {
+      if (dialogMode === 'back') { state = clone(baseline); closeDialog(); fill(); notify('已放弃修改并返回列表'); }
+      else closeDialog();
+    };
+    $('dialogTertiary').onclick = closeDialog;
+    $('preview').addEventListener('pointermove', event => {
+      if (event.buttons !== 1) return;
+      const rect = event.currentTarget.getBoundingClientRect();
+      tilt = {x: ((event.clientX-rect.left)/rect.width-.5)*2, y: ((event.clientY-rect.top)/rect.height-.5)*2};
+      applyPreview();
+    });
+    $('preview').addEventListener('click', () => {
+      if (sheet.classList.contains('open')) closeSheet();
+    });
+    fill();
+  </script>
+</body>
+</html>

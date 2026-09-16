@@ -43,9 +43,10 @@ class GenerateParallaxExample {
         g.dispose();return image;
     }
     private static String config(int count) {
-        var text=new StringBuilder("{\n  \"formatVersion\": 1,\n  \"canvas\": { \"width\": 512, \"height\": 1024 },\n  \"sensor\": { \"maxAngle\": 10, \"smoothing\": 0.2, \"strength\": 1 },\n  \"layers\": [\n");
+        var text=new StringBuilder("{\n  \"formatVersion\": 2,\n  \"canvas\": { \"width\": 512, \"height\": 1024 },\n  \"motion\": { \"maxAngleX\": 75, \"maxAngleY\": 75 },\n  \"layers\": [\n");
         for(int i=1;i<=count;i++) {
-            text.append(String.format(Locale.ROOT,"    { \"index\": %d, \"depth\": %.6f, \"scale\": 1.1, \"opacity\": 1, \"blendMode\": \"normal\" }%s\n",i,(count-i)/(double)(count-1),i<count?",":""));
+            int offset=i==count?3:Math.max(1,9-i);
+            text.append(String.format(Locale.ROOT,"    { \"index\": %d, \"offsetXPercent\": %d, \"offsetYPercent\": %d, \"initialOffsetXPercent\": 0, \"initialOffsetYPercent\": 0, \"direction\": \"%s\", \"scale\": %.2f, \"opacity\": 1, \"blendMode\": \"normal\" }%s\n",i,offset,Math.max(1,offset-1),i==count?"reverse":"follow",i==count?1.0:1.18,i<count?",":""));
         }
         return text.append("  ]\n}\n").toString();
     }

@@ -1,36 +1,10 @@
 {
   "formatVersion": 2,
-  "canvas": {
-    "width": 512,
-    "height": 1024
-  },
-  "motion": {
-    "maxAngle": 75
-  },
+  "canvas": { "width": 512, "height": 1024 },
+  "motion": { "maxAngleX": 75, "maxAngleY": 75 },
   "layers": [
-    {
-      "index": 1,
-      "offsetPercent": 8,
-      "direction": "follow",
-      "scale": 1.18,
-      "opacity": 1,
-      "blendMode": "normal"
-    },
-    {
-      "index": 2,
-      "offsetPercent": 7,
-      "direction": "follow",
-      "scale": 1.18,
-      "opacity": 1,
-      "blendMode": "normal"
-    },
-    {
-      "index": 3,
-      "offsetPercent": 3,
-      "direction": "reverse",
-      "scale": 1,
-      "opacity": 1,
-      "blendMode": "normal"
-    }
+    { "index": 1, "offsetXPercent": 8, "offsetYPercent": 7, "initialOffsetXPercent": 0, "initialOffsetYPercent": 0, "direction": "follow", "scale": 1.18, "opacity": 1, "blendMode": "normal" },
+    { "index": 2, "offsetXPercent": 7, "offsetYPercent": 6, "initialOffsetXPercent": 0, "initialOffsetYPercent": 0, "direction": "follow", "scale": 1.18, "opacity": 1, "blendMode": "normal" },
+    { "index": 3, "offsetXPercent": 3, "offsetYPercent": 2, "initialOffsetXPercent": 0, "initialOffsetYPercent": 0, "direction": "reverse", "scale": 1.00, "opacity": 1, "blendMode": "normal" }
   ]
 }

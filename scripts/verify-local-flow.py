@@ -174,10 +174,11 @@ def prepare():
         cover = upload(admin, 'WALLPAPER_COVER', png(540, 1080))
         background = upload(admin, 'BACKGROUND', png(600, 1200), 'background.png')
         foreground = upload(admin, 'FOREGROUND', png(600, 1200, alpha=True), 'foreground.png')
-        config = upload(admin, 'PARALLAX_CONFIG', json.dumps({'formatVersion': 1, 'wallpaperId': 'flow-wallpaper-' + suffix,
-            'version': 1, 'canvas': {'width': 600, 'height': 1200}, 'sensor': {'maxAngle': 12, 'smoothing': 0.15, 'strength': 1},
-            'layers': [{'file': 'layers/background.png', 'depth': 0.1, 'scale': 1.1, 'opacity': 1, 'blendMode': 'normal'},
-                {'file': 'layers/foreground.png', 'depth': 0.65, 'scale': 1.16, 'opacity': 1, 'blendMode': 'normal'}]}).encode(), 'config.json', 'application/json')
+        config = upload(admin, 'PARALLAX_CONFIG', json.dumps({'formatVersion': 2,
+            'canvas': {'width': 600, 'height': 1200}, 'motion': {'maxAngleX': 75, 'maxAngleY': 75},
+            'layers': [
+                {'index': 1, 'offsetXPercent': 8, 'offsetYPercent': 6, 'initialOffsetXPercent': 0, 'initialOffsetYPercent': 0, 'direction': 'follow', 'scale': 1.16, 'opacity': 1, 'blendMode': 'normal'},
+                {'index': 2, 'offsetXPercent': 3, 'offsetYPercent': 2, 'initialOffsetXPercent': 0, 'initialOffsetYPercent': 0, 'direction': 'reverse', 'scale': 1, 'opacity': 1, 'blendMode': 'normal'}]}).encode(), 'config.json', 'application/json')
         root = admin.call('/categories', data={'name': '全链路风景 ' + suffix, 'slug': 'flow-root-' + suffix, 'iconAssetId': icon['id'], 'sortOrder': 20})[0]
         child = admin.call('/categories', data={'parentId': root['id'], 'name': '全链路景深 ' + suffix, 'slug': 'flow-child-' + suffix, 'sortOrder': 21})[0]
         wallpaper, headers, _ = admin.call('/wallpapers', data={'title': '全链路验收景深 ' + suffix, 'slug': 'flow-wallpaper-' + suffix,

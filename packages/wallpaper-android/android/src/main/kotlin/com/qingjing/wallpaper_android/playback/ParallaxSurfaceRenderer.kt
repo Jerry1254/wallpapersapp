@@ -56,10 +56,10 @@ internal class ParallaxSurfaceRenderer(private val context: Context,private val 
                 val configuration = scene!!.configuration
                 @Suppress("DEPRECATION")
                 val rotation = { (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay.rotation }
-                sensor = ParallaxTiltSensor(context,configuration.maxAngle,rotation) { tx,ty ->
+                sensor = ParallaxTiltSensor(context,configuration.maxAngleX,configuration.maxAngleY,rotation) { tx,ty ->
                     if (valid(attempt)) { targetX = tx; targetY = ty; if (kotlin.math.abs(tx)>.03f || kotlin.math.abs(ty)>.03f) motionObserved = true }
                 }
-                sensorRunning = !forceNoSensor && configuration.layers.any { it.offsetPercent!=0f && it.direction!="fixed" } && sensor!!.start(handler)
+                sensorRunning = !forceNoSensor && configuration.layers.any { (it.offsetXPercent!=0f || it.offsetYPercent!=0f) && it.direction!="fixed" } && sensor!!.start(handler)
                 renderGeneration = attempt; lastPostTime = SystemClock.elapsedRealtime(); loading = false; changed(); handler.post(drawFrame)
             } catch (_: Exception) { error(attempt) }
             catch (_: OutOfMemoryError) { error(attempt) }

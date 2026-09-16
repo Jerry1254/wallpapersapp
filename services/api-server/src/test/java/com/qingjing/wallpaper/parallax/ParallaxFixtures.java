@@ -15,11 +15,12 @@ public final class ParallaxFixtures {
         List<Map<String,Object>> layers=new ArrayList<>();
         for(int i=1;i<=count;i++) {
             files.put(String.format(Locale.ROOT,"layers/%02d.png",i),image("png",i<count,512));
-            layers.add(Map.of("index",i,"offsetPercent",i==count?3:8,"direction",i==count?"reverse":"follow",
+            layers.add(Map.of("index",i,"offsetXPercent",i==count?3:8,"offsetYPercent",i==count?2:6,
+                    "initialOffsetXPercent",0,"initialOffsetYPercent",0,"direction",i==count?"reverse":"follow",
                     "scale",i==count?1:1.18,"opacity",1,"blendMode","normal"));
         }
         files.put("config.json",new ObjectMapper().writeValueAsBytes(Map.of("formatVersion",2,"canvas",Map.of("width",512,"height",512),
-                "motion",Map.of("maxAngle",75),"layers",layers)));
+                "motion",Map.of("maxAngleX",75,"maxAngleY",75),"layers",layers)));
         return files;
     }
     public static byte[] image(String format,boolean alpha,int size) throws Exception {

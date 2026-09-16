@@ -36,7 +36,7 @@ class PreviewMediaReducerTest {
     @Test void allParallaxLayersShareReducedCanvasAndRetainTransparencyAndSensorConfiguration() throws Exception {
         byte[] background=png(768,1536,false),foreground=png(768,1536,true);
         byte[] config="""
-            {"formatVersion":2,"canvas":{"width":768,"height":1536},"motion":{"maxAngle":75},"layers":[{"index":1,"offsetPercent":8,"direction":"follow","scale":1.18,"opacity":1,"blendMode":"normal"},{"index":2,"offsetPercent":3,"direction":"reverse","scale":1,"opacity":1,"blendMode":"normal"}]}""".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            {"formatVersion":2,"canvas":{"width":768,"height":1536},"motion":{"maxAngleX":75,"maxAngleY":60},"layers":[{"index":1,"offsetXPercent":8,"offsetYPercent":6,"initialOffsetXPercent":10,"initialOffsetYPercent":-5,"direction":"follow","scale":1.18,"opacity":1,"blendMode":"normal"},{"index":2,"offsetXPercent":3,"offsetYPercent":2,"initialOffsetXPercent":0,"initialOffsetYPercent":0,"direction":"reverse","scale":1,"opacity":1,"blendMode":"normal"}]}""".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         var sources=List.of(new SecurePackageCodec.Payload("BACKGROUND",0,"image/png",background),new SecurePackageCodec.Payload("FOREGROUND",0,"image/png",foreground),new SecurePackageCodec.Payload("PARALLAX_CONFIG",0,"application/json",config));
         var result=reducer.reduce("LAYER_PARALLAX",sources,Map.of("BACKGROUND:0",new PackageMediaInspector.Media(768,1536,false),"FOREGROUND:0",new PackageMediaInspector.Media(768,1536,true)));
         assertThat(result).hasSize(3);
@@ -53,7 +53,7 @@ class PreviewMediaReducerTest {
         }
         var transformed=mapper.readTree(result.stream().filter(p->p.role().equals("PARALLAX_CONFIG")).findFirst().orElseThrow().content());
         assertThat(transformed.path("canvas").path("width").asInt()).isEqualTo(640);
-        assertThat(transformed.path("sensor")).isEqualTo(mapper.readTree(config).path("sensor"));
+        assertThat(transformed.path("motion")).isEqualTo(mapper.readTree(config).path("motion"));
         assertThat(transformed.path("layers")).isEqualTo(mapper.readTree(config).path("layers"));
     }
     @Test void extremeAspectRatiosStayBoundedAndInvalidDimensionsFail() {

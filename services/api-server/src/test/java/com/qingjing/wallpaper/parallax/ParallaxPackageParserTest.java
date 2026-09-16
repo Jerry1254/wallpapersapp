@@ -75,7 +75,7 @@ class ParallaxPackageParserTest {
     }
     @Test void passesThroughUnknownAlgorithmFieldsAndValues() throws Exception {
         var source=files(2);String config=new String(source.get("config.json"),StandardCharsets.UTF_8);
-        String extended=config.replace("\"offsetPercent\":8","\"offsetPercent\":999,\"futureCurve\":{\"name\":\"spring\"}")
+        String extended=config.replace("\"offsetXPercent\":8","\"offsetXPercent\":999,\"futureCurve\":{\"name\":\"spring\"}")
                 .replace("\"motion\":{","\"futureRoot\":true,\"motion\":{");
         source.put("config.json",extended.getBytes(StandardCharsets.UTF_8));
         assertThat(parser.parse(zip(source)).configBytes()).containsExactly(extended.getBytes(StandardCharsets.UTF_8));

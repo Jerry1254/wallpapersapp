@@ -46,9 +46,10 @@ def png(name, alpha=False, noise=False, pattern=False):
 
 png('static.png', noise=True); png('background.png'); png('foreground.png', alpha=True)
 png('parallax-background.png', pattern=True); png('parallax-foreground.png', alpha=True, pattern=True)
-config = {'canvas': {'width': 512, 'height': 512}, 'sensor': {'maxAngle': 10, 'smoothing': .2, 'strength': 1},
-          'layers': [{'role': role, 'ordinal': 0, 'depth': depth, 'scale': 1.1, 'opacity': 1, 'blendMode': 'normal'}
-                     for role, depth in [('BACKGROUND', 0), ('FOREGROUND', 1)]]}
+config = {'formatVersion': 2, 'canvas': {'width': 512, 'height': 512}, 'motion': {'maxAngleX': 75, 'maxAngleY': 75},
+          'layers': [
+              {'index': 1, 'offsetXPercent': 8, 'offsetYPercent': 6, 'initialOffsetXPercent': 0, 'initialOffsetYPercent': 0, 'direction': 'follow', 'scale': 1.18, 'opacity': 1, 'blendMode': 'normal'},
+              {'index': 2, 'offsetXPercent': 3, 'offsetYPercent': 2, 'initialOffsetXPercent': 0, 'initialOffsetYPercent': 0, 'direction': 'reverse', 'scale': 1, 'opacity': 1, 'blendMode': 'normal'}]}
 (root / 'parallax.json').write_text(json.dumps(config))
 local_ffmpeg = workspace / '.runtime/media-tools/ffmpeg'
 ffmpeg = os.environ.get('QJ_FFMPEG') or (str(local_ffmpeg) if local_ffmpeg.exists() else shutil.which('ffmpeg'))

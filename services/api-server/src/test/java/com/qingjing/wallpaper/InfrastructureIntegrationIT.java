@@ -1152,9 +1152,9 @@ class InfrastructureIntegrationIT {
                 else if (role.equals("PARALLAX_CONFIG")) {
                     extension = "json";
                     bytes = objectMapper.writeValueAsBytes(Map.of("formatVersion",2,"canvas",Map.of("width",512,"height",512),
-                            "motion",Map.of("maxAngle",75),"layers",List.of(
-                            Map.of("index",1,"offsetPercent",8,"direction","follow","scale",1.18,"opacity",1,"blendMode","normal"),
-                            Map.of("index",2,"offsetPercent",3,"direction","reverse","scale",1,"opacity",1,"blendMode","normal"))));
+                            "motion",Map.of("maxAngleX",75,"maxAngleY",75),"layers",List.of(
+                            Map.of("index",1,"offsetXPercent",8,"offsetYPercent",6,"initialOffsetXPercent",0,"initialOffsetYPercent",0,"direction","follow","scale",1.18,"opacity",1,"blendMode","normal"),
+                            Map.of("index",2,"offsetXPercent",3,"offsetYPercent",2,"initialOffsetXPercent",0,"initialOffsetYPercent",0,"direction","reverse","scale",1,"opacity",1,"blendMode","normal"))));
                 } else if (role.equals("FOREGROUND")) {
                     var output = new ByteArrayOutputStream(); ImageIO.write(new BufferedImage(512,512,BufferedImage.TYPE_INT_ARGB),"png",output); bytes=output.toByteArray();
                 } else bytes=png(512,512);
@@ -1217,7 +1217,7 @@ class InfrastructureIntegrationIT {
                     .isInstanceOf(com.qingjing.wallpaper.asset.application.FileStorageException.class);
             if (!type.equals("STATIC_IMAGE")) {
                 byte[] invalidBytes=type.equals("VIDEO") ? new byte[]{0,0,0,12,102,116,121,112,105,115,111,109} :
-                        "{\"formatVersion\":2,\"canvas\":{\"width\":512,\"height\":512},\"motion\":{\"maxAngle\":75},\"layers\":[{\"index\":1,\"futureField\":true},{\"index\":2}]}".getBytes(StandardCharsets.UTF_8);
+                        "{\"formatVersion\":2,\"canvas\":{\"width\":512,\"height\":512},\"motion\":{\"maxAngleX\":75,\"maxAngleY\":75},\"layers\":[{\"index\":1,\"futureField\":true},{\"index\":2}]}".getBytes(StandardCharsets.UTF_8);
                 String badRole=type.equals("VIDEO") ? "VIDEO" : "PARALLAX_CONFIG";
                 JsonNode badAsset=uploadAsset(admin,badRole,type.equals("VIDEO") ? "fake.mp4" : "bad.json",invalidBytes);
                 List<Map<String,Object>> invalidBindings=bindings.stream().map(binding -> binding.get("role").equals(badRole) ?

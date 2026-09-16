@@ -156,19 +156,20 @@ internal class SecurePackageVerifier(private val purpose: PackagePurpose = Packa
         val width=canvas["width"] as? Long ?: error("Invalid canvas")
         val height=canvas["height"] as? Long ?: error("Invalid canvas")
         require(width in 512..4096 && height in 512..4096)
-        val motion=fields(root["motion"],setOf("maxAngle"))
-        range(motion["maxAngle"],1.0,75.0)
+        val motion=fields(root["motion"],setOf("maxAngleX","maxAngleY"))
+        range(motion["maxAngleX"],1.0,75.0); range(motion["maxAngleY"],1.0,75.0)
         val layers=root["layers"] as? List<*> ?: error("Invalid layers")
         require(layers.size in 2..12 && layers.size==images.size)
         for((position,value) in layers.withIndex()) {
-            val layer=fields(value,setOf("index","offsetPercent","direction","scale","opacity","blendMode"))
+            val layer=fields(value,setOf("index","offsetXPercent","offsetYPercent","initialOffsetXPercent","initialOffsetYPercent","direction","scale","opacity","blendMode"))
             require(layer["index"]==(position+1).toLong())
             val background=position==layers.lastIndex
             val role=if(background) "BACKGROUND" else "FOREGROUND"
             val ordinal=if(background) 0 else position
             val image=images["$role:$ordinal"] ?: error("Missing layer")
             require(image.width.toLong()==width && image.height.toLong()==height && (background || image.alpha))
-            range(layer["offsetPercent"],0.0,Float.MAX_VALUE.toDouble())
+            range(layer["offsetXPercent"],0.0,Float.MAX_VALUE.toDouble()); range(layer["offsetYPercent"],0.0,Float.MAX_VALUE.toDouble())
+            range(layer["initialOffsetXPercent"],-Float.MAX_VALUE.toDouble(),Float.MAX_VALUE.toDouble()); range(layer["initialOffsetYPercent"],-Float.MAX_VALUE.toDouble(),Float.MAX_VALUE.toDouble())
             require(layer["direction"] in setOf("follow","reverse","fixed"))
             range(layer["scale"],1.0,1.5);range(layer["opacity"],0.0,1.0)
             require(layer["blendMode"] in setOf("normal","screen","add"))

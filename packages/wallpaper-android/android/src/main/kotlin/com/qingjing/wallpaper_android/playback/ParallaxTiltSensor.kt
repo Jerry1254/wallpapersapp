@@ -8,7 +8,7 @@ import android.hardware.SensorManager
 import android.os.Handler
 
 /** PoC game/rotation-vector selection and first-event calibration, now with screen rotation and configured angle. */
-internal class ParallaxTiltSensor(context: Context,private val maxAngle: Float,private val rotation: () -> Int,private val listener: (Float,Float) -> Unit) : SensorEventListener {
+internal class ParallaxTiltSensor(context: Context,private val maxAngleX: Float,private val maxAngleY: Float,private val rotation: () -> Int,private val listener: (Float,Float) -> Unit) : SensorEventListener {
     private val manager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val sensor = manager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR) ?: manager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
     private val matrix = FloatArray(9); private val remapped = FloatArray(9); private val orientation = FloatArray(3)
@@ -30,7 +30,7 @@ internal class ParallaxTiltSensor(context: Context,private val maxAngle: Float,p
         if (!calibrated || lastRotation != currentRotation) {
             basePitch = orientation[1]; baseRoll = orientation[2]; calibrated = true; lastRotation = currentRotation
         }
-        val (x,y) = ParallaxMotion.tilt(orientation[2],orientation[1],baseRoll,basePitch,maxAngle,currentRotation)
+        val (x,y) = ParallaxMotion.tilt(orientation[2],orientation[1],baseRoll,basePitch,maxAngleX,maxAngleY,currentRotation)
         listener(x,y)
     }
     override fun onAccuracyChanged(sensor: Sensor?,accuracy: Int) { }

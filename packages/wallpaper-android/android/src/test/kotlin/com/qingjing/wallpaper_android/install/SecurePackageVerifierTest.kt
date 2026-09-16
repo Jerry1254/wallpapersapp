@@ -28,7 +28,7 @@ class SecurePackageVerifierTest {
             "VIDEO" -> listOf(Triple("VIDEO", "video/mp4", byteArrayOf(4,5,6)))
             else -> listOf(Triple("BACKGROUND", "image/png", byteArrayOf(1)), Triple("FOREGROUND", "image/png", byteArrayOf(2)),
                 Triple("PARALLAX_CONFIG", "application/json",
-                    """{"formatVersion":2,"canvas":{"width":512,"height":512},"motion":{"maxAngle":$parallaxAngle},"layers":[{"index":1,"offsetPercent":300,"direction":"follow","scale":1.1,"opacity":1,"blendMode":"normal"},{"index":2,"offsetPercent":20,"direction":"reverse","scale":1,"opacity":1,"blendMode":"normal"}]}""".toByteArray()))
+                    """{"formatVersion":2,"canvas":{"width":512,"height":512},"motion":{"maxAngleX":$parallaxAngle,"maxAngleY":75},"layers":[{"index":1,"offsetXPercent":300,"offsetYPercent":150,"initialOffsetXPercent":0,"initialOffsetYPercent":0,"direction":"follow","scale":1.1,"opacity":1,"blendMode":"normal"},{"index":2,"offsetXPercent":20,"offsetYPercent":10,"initialOffsetXPercent":0,"initialOffsetYPercent":0,"direction":"reverse","scale":1,"opacity":1,"blendMode":"normal"}]}""".toByteArray()))
         }
         val paths = payloads.map { "payload/${it.first.lowercase()}-0.${when(it.second) { "image/png" -> "png"; "video/mp4" -> "mp4"; else -> "json" }}" }
         val files = payloads.mapIndexed { i,p -> """{"path":"${paths[i]}","role":"${p.first}","ordinal":0,"mimeType":"${p.second}","sizeBytes":${p.third.size},"sha256":"${SecurePackageVerifier.hash(p.third)}"}""" }.joinToString(",")

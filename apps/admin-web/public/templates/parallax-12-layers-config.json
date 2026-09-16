@@ -1,108 +1,19 @@
 {
   "formatVersion": 2,
-  "canvas": {
-    "width": 512,
-    "height": 1024
-  },
-  "motion": {
-    "maxAngle": 75
-  },
+  "canvas": { "width": 512, "height": 1024 },
+  "motion": { "maxAngleX": 75, "maxAngleY": 75 },
   "layers": [
-    {
-      "index": 1,
-      "offsetPercent": 8,
-      "direction": "follow",
-      "scale": 1.18,
-      "opacity": 1,
-      "blendMode": "normal"
-    },
-    {
-      "index": 2,
-      "offsetPercent": 7,
-      "direction": "follow",
-      "scale": 1.18,
-      "opacity": 1,
-      "blendMode": "normal"
-    },
-    {
-      "index": 3,
-      "offsetPercent": 6,
-      "direction": "follow",
-      "scale": 1.18,
-      "opacity": 1,
-      "blendMode": "normal"
-    },
-    {
-      "index": 4,
-      "offsetPercent": 5,
-      "direction": "follow",
-      "scale": 1.18,
-      "opacity": 1,
-      "blendMode": "normal"
-    },
-    {
-      "index": 5,
-      "offsetPercent": 4,
-      "direction": "follow",
-      "scale": 1.18,
-      "opacity": 1,
-      "blendMode": "normal"
-    },
-    {
-      "index": 6,
-      "offsetPercent": 3,
-      "direction": "follow",
-      "scale": 1.18,
-      "opacity": 1,
-      "blendMode": "normal"
-    },
-    {
-      "index": 7,
-      "offsetPercent": 2,
-      "direction": "follow",
-      "scale": 1.18,
-      "opacity": 1,
-      "blendMode": "normal"
-    },
-    {
-      "index": 8,
-      "offsetPercent": 1,
-      "direction": "follow",
-      "scale": 1.18,
-      "opacity": 1,
-      "blendMode": "normal"
-    },
-    {
-      "index": 9,
-      "offsetPercent": 1,
-      "direction": "follow",
-      "scale": 1.18,
-      "opacity": 1,
-      "blendMode": "normal"
-    },
-    {
-      "index": 10,
-      "offsetPercent": 1,
-      "direction": "follow",
-      "scale": 1.18,
-      "opacity": 1,
-      "blendMode": "normal"
-    },
-    {
-      "index": 11,
-      "offsetPercent": 1,
-      "direction": "follow",
-      "scale": 1.18,
-      "opacity": 1,
-      "blendMode": "normal"
-    },
-    {
-      "index": 12,
-      "offsetPercent": 3,
-      "direction": "reverse",
-      "scale": 1,
-      "opacity": 1,
-      "blendMode": "normal"
-    }
+    { "index": 1, "offsetXPercent": 8, "offsetYPercent": 7, "initialOffsetXPercent": 0, "initialOffsetYPercent": 0, "direction": "follow", "scale": 1.18, "opacity": 1, "blendMode": "normal" },
+    { "index": 2, "offsetXPercent": 7, "offsetYPercent": 6, "initialOffsetXPercent": 0, "initialOffsetYPercent": 0, "direction": "follow", "scale": 1.18, "opacity": 1, "blendMode": "normal" },
+    { "index": 3, "offsetXPercent": 6, "offsetYPercent": 5, "initialOffsetXPercent": 0, "initialOffsetYPercent": 0, "direction": "follow", "scale": 1.18, "opacity": 1, "blendMode": "normal" },
+    { "index": 4, "offsetXPercent": 5, "offsetYPercent": 4, "initialOffsetXPercent": 0, "initialOffsetYPercent": 0, "direction": "follow", "scale": 1.18, "opacity": 1, "blendMode": "normal" },
+    { "index": 5, "offsetXPercent": 4, "offsetYPercent": 3, "initialOffsetXPercent": 0, "initialOffsetYPercent": 0, "direction": "follow", "scale": 1.18, "opacity": 1, "blendMode": "normal" },
+    { "index": 6, "offsetXPercent": 3, "offsetYPercent": 2, "initialOffsetXPercent": 0, "initialOffsetYPercent": 0, "direction": "follow", "scale": 1.18, "opacity": 1, "blendMode": "normal" },
+    { "index": 7, "offsetXPercent": 2, "offsetYPercent": 1, "initialOffsetXPercent": 0, "initialOffsetYPercent": 0, "direction": "follow", "scale": 1.18, "opacity": 1, "blendMode": "normal" },
+    { "index": 8, "offsetXPercent": 1, "offsetYPercent": 1, "initialOffsetXPercent": 0, "initialOffsetYPercent": 0, "direction": "follow", "scale": 1.18, "opacity": 1, "blendMode": "normal" },
+    { "index": 9, "offsetXPercent": 1, "offsetYPercent": 1, "initialOffsetXPercent": 0, "initialOffsetYPercent": 0, "direction": "follow", "scale": 1.18, "opacity": 1, "blendMode": "normal" },
+    { "index": 10, "offsetXPercent": 1, "offsetYPercent": 1, "initialOffsetXPercent": 0, "initialOffsetYPercent": 0, "direction": "follow", "scale": 1.18, "opacity": 1, "blendMode": "normal" },
+    { "index": 11, "offsetXPercent": 1, "offsetYPercent": 1, "initialOffsetXPercent": 0, "initialOffsetYPercent": 0, "direction": "follow", "scale": 1.18, "opacity": 1, "blendMode": "normal" },
+    { "index": 12, "offsetXPercent": 3, "offsetYPercent": 2, "initialOffsetXPercent": 0, "initialOffsetYPercent": 0, "direction": "reverse", "scale": 1.00, "opacity": 1, "blendMode": "normal" }
   ]
 }

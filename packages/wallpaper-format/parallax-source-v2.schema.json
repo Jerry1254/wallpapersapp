@@ -19,9 +19,10 @@
     "motion": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["maxAngle"],
+      "required": ["maxAngleX", "maxAngleY"],
       "properties": {
-        "maxAngle": { "type": "number", "minimum": 1, "maximum": 75 }
+        "maxAngleX": { "type": "number", "minimum": 1, "maximum": 75 },
+        "maxAngleY": { "type": "number", "minimum": 1, "maximum": 75 }
       }
     },
     "layers": {
@@ -32,14 +33,21 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["index", "offsetPercent", "direction", "scale", "opacity", "blendMode"],
+        "required": ["index", "offsetXPercent", "offsetYPercent", "initialOffsetXPercent", "initialOffsetYPercent", "direction", "scale", "opacity", "blendMode"],
         "properties": {
           "index": { "type": "integer", "minimum": 1, "maximum": 12 },
-          "offsetPercent": {
+          "offsetXPercent": {
             "type": "number",
             "minimum": 0,
-            "description": "满幅角度下相对屏幕轴长的位移百分比。100 表示移动一整屏，200 表示移动两屏；不设置产品上限。"
+            "description": "满幅水平倾斜时相对屏幕宽度的位移百分比；不设置产品上限。"
           },
+          "offsetYPercent": {
+            "type": "number",
+            "minimum": 0,
+            "description": "满幅垂直倾斜时相对屏幕高度的位移百分比；不设置产品上限。"
+          },
+          "initialOffsetXPercent": { "type": "number", "description": "中立姿态的水平位置修正；负数向左，正数向右，100 为一屏宽。" },
+          "initialOffsetYPercent": { "type": "number", "description": "中立姿态的垂直位置修正；负数向上，正数向下，100 为一屏高。" },
           "direction": {
             "enum": ["follow", "reverse", "fixed"],
             "description": "follow 跟随、reverse 反向、fixed 固定；0% 强度也不会移动。"
