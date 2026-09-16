@@ -4,7 +4,7 @@
 
 ## 权限与用途
 
-未获得权益时允许三类 App 内 120 秒实际效果试用。试用不创建设备权益、不扣兑换额度，不进入系统壁纸设置，不导出正式资源。试用素材由服务端从已校验源生成：最长边不超过 1280，静态与背景 JPEG 质量 0.4，前景保留 PNG 透明度，视频静音 H.264、15 fps、最多 30 秒循环；各媒体层加入重复 QJ 标记，4D 配置保留合法传感器和深度参数并同步画布。极端比例作中心裁切；低尺寸源受合法画布/编码最小尺寸约束，不承诺所有源的派生文件字节数更小。试用标记与规格限制不能阻止用户截图或修改其控制的设备；不宣称 DRM 或绝对防复制。
+未获得权益时允许三类 App 内 120 秒实际效果试用。试用不创建设备权益、不扣兑换额度，不进入系统壁纸设置，不导出正式资源。本文最初规定的降分辨率、转码和水印媒体策略已被 1.0 产品决定替代：当前详情预览按 [API-010](../04-接口设计/API-010-1.0原资源详情预览Java交接说明.md) 使用正式版本绑定的原始 payload。APP_PREVIEW 的短时票据、用途隔离、独立加密包、临时存储和不授予权益等安全边界继续有效。原资源在用户控制的设备上解密显示后仍可能被专业逆向提取，不宣称 DRM 或绝对防复制。
 
 正式包继续使用 [SEC-003](SEC-003-Android安全资源交付协议.md) format 2，正式权益和兑换规则保持。已获得入口读取正式资源；服务端受限票据仍只允许受限字节，不具备正式授权。
 
@@ -26,7 +26,7 @@ QJ-PREVIEW-V1
 
 ## API 与数据
 
-`POST /device/wallpapers/{wallpaperId}/preview-tickets` 需要 Android 设备短期会话和精确正文持钥签名，含 timestamp、nonce、signature。平台、安装允许 scope、解密公钥、作品/版本发布状态和兼容变体来自服务端事实。响应模式和用途为 APP_PREVIEW，durationSeconds 为 120，package.formatVersion 为 3；resourceVersion.manifestSha256 对应试用清单。无兼容派生包返回 422 PREVIEW_RESOURCE_NOT_READY。
+`POST /device/wallpapers/{wallpaperId}/preview-tickets` 需要 Android 设备短期会话和精确正文持钥签名，含 timestamp、nonce、signature。平台、安装允许 scope、解密公钥、作品/版本发布状态和兼容变体来自服务端事实。响应模式和用途为 APP_PREVIEW，durationSeconds 为 120，package.formatVersion 为 3；resourceVersion.manifestSha256 对应预览清单。无兼容预览包返回 422 PREVIEW_RESOURCE_NOT_READY。
 
 `GET /preview/files` 固定路径，票据只在 Authorization Bearer 中，不进入查询参数。90 秒票据仅控制下载窗口，不等于预览计时；响应 application/octet-stream、长度、Digest、Cache-Control:no-store。Redis key 使用独立 `preview-ticket-v1:` 加 HMAC，禁止与 `download-ticket-v2:` 互用。创建限流 6 次/设备/分钟，读取限流 12 次/设备/分钟，活跃流最多 4。开始实际读取前再次判断票据、安装公钥/凭据、设备、scope 和发布状态；失效返回 401 PREVIEW_TICKET_INVALID。已开始的流可完成，客户端仍须按 120 秒限制使用。
 

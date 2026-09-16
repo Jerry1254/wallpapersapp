@@ -95,7 +95,7 @@ API 不应校验：
 
 - 正式资源包中的 `PARALLAX_CONFIG` 与上传 ZIP 内 `config.json` 必须字节一致，SHA-256 相同。
 - API 不排序 JSON、不格式化、不删除未知字段、不补算法默认值。
-- 预览包如果缩放图层，可仅改写派生预览配置的 `canvas.width/height`；正式配置保持不变。
+- 1.0 详情预览按 [API-010](API-010-1.0原资源详情预览Java交接说明.md) 使用原始图层和配置，不缩放图层，也不改写 `canvas.width/height`。
 
 ## 5. Java 自查与验收
 
