@@ -77,7 +77,7 @@ adb -s 手机序列号 reverse --list
 curl --fail --cacert 公共证书路径 https://127.0.0.1:8443/api/v1/public/categories
 ```
 
-`com.qingjing.qingjing_wallpaper.internal` 使用独立测试签名和安装身份，构建地址为 `https://127.0.0.1:8443/api/v1`。公共 TLS 证书同时配置到 Android 内测资源和 Dart 信任上下文；仅 internal flavor 使用，保留链/有效期/主机名检查。普通浏览器没有这个内测信任时会拒绝自签证书，这不能单独证明 API 不可达。原生下载及 Flutter 真实目录均已在红米验证，详细证据见 [A10](../06-测试与验收/WP-A10-Android全链路真机验收-2026-09-14.md)。
+`com.qingjing.bizhi.internal` 使用独立测试签名和安装身份，构建地址为 `https://127.0.0.1:8443/api/v1`；Lab 对应 `com.qingjing.bizhi.lab`。公共 TLS 证书同时配置到 Android 内测资源和 Dart 信任上下文；仅 internal/lab flavor 使用，保留链/有效期/主机名检查。普通浏览器没有这个内测信任时会拒绝自签证书，这不能单独证明 API 不可达。原生下载及 Flutter 真实目录均已在红米验证，详细证据见 [A10](../06-测试与验收/WP-A10-Android全链路真机验收-2026-09-14.md)。
 
 内测构建参数见 [App README](../../apps/mobile/README.md)。TLS 私钥、APK 签名 Keystore/密码、API 凭据和真实兑换码只保存到忽略的运行时目录；仅公共证书/资源验签公钥进入内测 APK。此环境依赖电脑和 ADB 通道持续运行，不是已部署的生产服务。
 

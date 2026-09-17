@@ -169,7 +169,7 @@ iOS 可使用 → 导出中 → 已保存至相册 → 设置教程
 ### 工具链与环境
 
 - 锁定 Flutter/Dart、Flutter-OH/Engine、JDK/Gradle、Xcode、DevEco/SDK、所有插件及生成器。提交应用 lockfile；两套 Flutter 入口分别解析依赖，共享包保持兼容约束。
-- `local / test / prod` 使用不同服务地址、数据库、凭据和平台应用标识；调试包与正式包可并存。具体 bundleId/applicationId 在开发者账号中确认后固定，不随版本改名。
+- `local / internal / lab / prod` 使用不同服务地址、数据、凭据和平台应用标识；调试包与正式包可并存。Android 正式 applicationId 已固定为 `com.qingjing.bizhi`，4D Lab 为 `com.qingjing.bizhi.lab`，详见 [OPS-004](../07-部署与运维/OPS-004-Android双包打包与命名规范.md)；后续版本不得改名。
 - 发布签名私钥、Apple API 私钥、描述文件中的秘密、密码和 Token 放入受控凭据系统；保护签名身份连续性与加密备份，避免换机器后无法更新已发布应用。
 - 当前 `.gitignore` 还需在工程创建时补齐 iOS/鸿蒙产物和凭据范围，例如 `.ipa`、`.hap`、`.app`、`.p12`、`.p8`、`.mobileprovision`，并采用路径/类型精确排除，不误排源代码。
 - 不提交运行时文件、用户数据、上传壁纸、依赖目录和安装包；签名包、符号表/混淆映射及报告保存到受控构建产物存储。用已验证的产物提审，不在发布动作中临时换依赖重建。

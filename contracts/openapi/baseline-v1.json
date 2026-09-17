@@ -55,7 +55,7 @@
     },
     {
       "path": "docs/05-安全与合规/SEC-002-Android安装身份协议.md",
-      "sha256": "00a2404d0b6486d77fe162260aa18d18b51e2eab4922d16643cc079b1b263cd3"
+      "sha256": "adc6c03ae41c7e246a59a903cb79cdc294690d24988d3b4e3784e235881abbfb"
     },
     {
       "path": "services/api-server/src/main/resources/db/migration/V2__secure_package_delivery.sql",
@@ -127,7 +127,7 @@
     },
     {
       "path": "docs/04-接口设计/API-011-4D真机调试配置保存实现说明.md",
-      "sha256": "d9fa04c747ec62327d6722e5f255da37bffe776e3c6123a7ed949ad073beb61e"
+      "sha256": "1240cc61d57127485d8a33c296a81c896d48385cd4b9cfdb662913802f327c72"
     },
     {
       "path": "docs/04-接口设计/API-012-免费壁纸获取方式接口交接说明.md",

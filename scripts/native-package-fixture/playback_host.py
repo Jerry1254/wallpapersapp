@@ -58,7 +58,7 @@ def main():
     marker("A07_HOST HOME_VISIBLE")
     adb("shell", "input", "keyevent", "KEYCODE_HOME")
     marker("A07_HOST REOPEN_APP")
-    adb("shell", "am", "start", "-n", "com.qingjing.qingjing_wallpaper.local/com.qingjing.qingjing_wallpaper.MainActivity")
+    adb("shell", "am", "start", "-n", "com.qingjing.bizhi.local/com.qingjing.qingjing_wallpaper.MainActivity")
     marker("A07_HOST APP_VIDEO_PREVIEW")
     ui("视频预览")
     adb("shell", "input", "keyevent", "KEYCODE_BACK")

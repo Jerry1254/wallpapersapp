@@ -50,7 +50,7 @@ python3 scripts/native-package-fixture/playback_host.py .runtime/android-evidenc
 ```sh
 flutter build apk --debug --flavor local --target tool/native_playback_probe.dart --target-platform android-arm64
 adb -s 手机序列号 install -r build/app/outputs/flutter-apk/app-local-debug.apk
-adb -s 手机序列号 shell am start -n com.qingjing.qingjing_wallpaper.local/com.qingjing.qingjing_wallpaper.MainActivity
+adb -s 手机序列号 shell am start -n com.qingjing.bizhi.local/com.qingjing.qingjing_wallpaper.MainActivity
 ```
 
 先点击“安装三类夹具”，依次执行静态预览、桌面/锁屏/两者；视频系统设置分别退出和确认，记录系统实际目标项。返回桌面时通过调试 QJPlayback 状态变化检查非预览 Engine 播放，返回 App 时检查已停止；独立视频预览结束后再次返回桌面确认同一已提交资源恢复，清理缓存后也必须保留视频。Android 13 的位置接口可能不可查询，unknown 属于预期的诚实结果，另记录系统实际选择及服务状态，不用打开页面冒充成功。

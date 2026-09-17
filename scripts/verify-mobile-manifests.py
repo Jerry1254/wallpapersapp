@@ -7,10 +7,11 @@ root = Path(__file__).resolve().parents[1]
 base = root / 'apps/mobile/build/app/intermediates/merged_manifests'
 android = '{http://schemas.android.com/apk/res/android}'
 for variant, package, cleartext in [
-    ('localDebug', 'com.qingjing.qingjing_wallpaper.local', 'true'),
-    ('localRelease', 'com.qingjing.qingjing_wallpaper.local', 'false'),
-    ('prodRelease', 'com.qingjing.qingjing_wallpaper', 'false'),
-    ('internalRelease', 'com.qingjing.qingjing_wallpaper.internal', 'false'),
+    ('localDebug', 'com.qingjing.bizhi.local', 'true'),
+    ('localRelease', 'com.qingjing.bizhi.local', 'false'),
+    ('prodRelease', 'com.qingjing.bizhi', 'false'),
+    ('internalRelease', 'com.qingjing.bizhi.internal', 'false'),
+    ('labRelease', 'com.qingjing.bizhi.lab', 'false'),
 ]:
     paths = list((base / variant).glob('*/AndroidManifest.xml'))
     if len(paths) != 1:
@@ -21,7 +22,7 @@ for variant, package, cleartext in [
     assert app is not None
     assert app.attrib[android + 'usesCleartextTraffic'] == cleartext, variant
     assert app.attrib[android + 'allowBackup'] == 'false', variant
-    if variant.startswith('internal'):
+    if variant.startswith(('internal', 'lab')):
         assert app.attrib[android + 'networkSecurityConfig'] == '@xml/internal_network_security', variant
         assert any(m.attrib.get(android + 'name') == 'qingjing.internalDiagnostics' and m.attrib.get(android + 'value') == 'true' for m in app.findall('meta-data')), variant
         policy = ET.parse(root / 'apps/mobile/android/app/src/internal/res/xml/internal_network_security.xml').getroot()

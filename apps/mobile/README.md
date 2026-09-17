@@ -21,15 +21,15 @@ flutter build apk --release --flavor local
 
 宿主机 API 由仓库 scripts/local-api.sh 启动；手机 loopback 依赖 adb reverse，不是电脑地址。只有 localDebug 开放明文；localRelease 验证优化编译，使用测试签名，联调需指定可信 HTTPS API。未指定地址时使用保留的 api.invalid 域名，避免意外访问真实服务。production flavor 为 prod，禁止明文，无生产签名配置，不是可提审包。
 
-internal flavor 使用独立 `.internal` 安装标识，供 A10 新装/卸载与候选版测试。仅允许 HTTPS localhost/127.0.0.1；构建时通过 `QJ_INTERNAL_TLS_CERT_FILE` 配置公共 PEM 证书，Dart 同一证书以 base64 写入 `INTERNAL_TLS_CERTIFICATE` dart-define。原生仅对 loopback 添加此信任，Dart 保留正常 TLS 校验；生产包不添加内测证书。内测签名使用 `QJ_INTERNAL_KEYSTORE_FILE`、`QJ_INTERNAL_KEYSTORE_PASSWORD`、`QJ_INTERNAL_KEY_PASSWORD`、`QJ_INTERNAL_KEY_ALIAS`；未配置时不会自动使用生产签名。资源签名根另用 `QJ_INTERNAL_PACKAGE_SIGNING_KEY_ID` / `QJ_INTERNAL_PACKAGE_PUBLIC_KEY_DER`，它与 APK/TLS 签名用途不同。
+internal flavor 使用独立 `com.qingjing.bizhi.internal` 安装标识，供新装/卸载与候选版测试。仅允许 HTTPS localhost/127.0.0.1；构建时通过 `QJ_INTERNAL_TLS_CERT_FILE` 配置公共 PEM 证书，Dart 同一证书以 base64 写入 `INTERNAL_TLS_CERTIFICATE` dart-define。原生仅对 loopback 添加此信任，Dart 保留正常 TLS 校验；生产包不添加内测证书。内测签名使用 `QJ_INTERNAL_KEYSTORE_FILE`、`QJ_INTERNAL_KEYSTORE_PASSWORD`、`QJ_INTERNAL_KEY_PASSWORD`、`QJ_INTERNAL_KEY_ALIAS`；未配置时不会自动使用生产签名。资源签名根另用 `QJ_INTERNAL_PACKAGE_SIGNING_KEY_ID` / `QJ_INTERNAL_PACKAGE_PUBLIC_KEY_DER`，它与 APK/TLS 签名用途不同。
 
 本机 HTTPS 代理使用 `scripts/internal-api-https.py --certificate 公共证书路径 --private-key 私钥路径 --api-port 本地API端口`，仅监听 127.0.0.1:8443，随后创建 `adb reverse tcp:8443 tcp:8443`。私钥、Keystore、密码、dart-define 配置和 API 运行时目录不得提交。internal release 可经已授权 ADB 的 `dumpsys activity service` 读取动态服务的帧数/绘制/传感器/解码字节状态，输出不含票据、安装 ID、密钥或文件路径；prod 不开启此内测诊断。
 
-为此独立本地 API 配置 `qingjing.device.allowed-android-scopes` 同时包含 `.local` 和 `.internal` 的完整安装标识；默认 local profile 只允许 `.local`，不要修改其他环境以同步测试身份。内测测量脚本 `scripts/measure-android-playback.py` 读取自己的系统壁纸服务和 PSS/CPU/电量状态，原固定 5+30+10 分钟测量为可选历史方案，用户已取消补测；运行时临时调整屏幕超时并在退出时恢复；不采集桌面或个人通知截图。
+为此独立本地 API 配置 `qingjing.device.allowed-android-scopes` 按需包含 `com.qingjing.bizhi.local`、`com.qingjing.bizhi.internal` 和 `com.qingjing.bizhi.lab`；默认 local profile 只允许 `.local`，不要修改其他环境以同步测试身份。内测测量脚本 `scripts/measure-android-playback.py` 读取自己的系统壁纸服务和 PSS/CPU/电量状态，原固定 5+30+10 分钟测量为可选历史方案，用户已取消补测；运行时临时调整屏幕超时并在退出时恢复；不采集桌面或个人通知截图。
 
 视频内测诊断仅提取当前自有 MediaPlayer 的 frames/droppedFrames/decodeErrors 整数计数，依据 API 26 的 [MediaPlayer MetricsConstants](https://developer.android.com/reference/android/media/MediaPlayer.MetricsConstants)。不导出整个媒体指标 Bundle；指标缺失时保留缺失状态，不将其写为零掉帧。生产环境不执行内测指标采集，播放生命周期保持一致。
 
-开发 applicationId 为 com.qingjing.qingjing_wallpaper.local，正式保留 com.qingjing.qingjing_wallpaper；尚未作商店账号注册确认。Android 最低 API 26 是工程基线，兼容性以真机矩阵为准。应用禁用自动备份，避免安装凭据恢复产生错误绑定。
+正式 applicationId 固定为 `com.qingjing.bizhi`，4D 真机测试包为 `com.qingjing.bizhi.lab`；开发和候选包分别使用 `.local`、`.internal` 后缀。显示名、图标、版本、签名和产物命名统一遵守 [OPS-004](../../docs/07-部署与运维/OPS-004-Android双包打包与命名规范.md)。Android 最低 API 26 是工程基线，兼容性以真机矩阵为准。应用禁用自动备份，避免安装凭据恢复产生错误绑定。
 
 ## 分层与后续迁移
 

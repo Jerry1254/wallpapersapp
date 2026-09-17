@@ -45,7 +45,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--adb', default='adb')
     parser.add_argument('--serial', required=True)
-    parser.add_argument('--package', default='com.qingjing.qingjing_wallpaper.internal')
+    parser.add_argument('--package', default='com.qingjing.bizhi.internal')
     parser.add_argument('--effect', choices=['video', 'parallax'], required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--hidden-only', action='store_true',

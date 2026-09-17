@@ -10,7 +10,7 @@ Android 通过 AndroidKeyStore 生成 RSA 2048 安装密钥，私钥不导出，
 
 ## 注册与签名
 
-现有 registrations 路由、PLATFORM_PUBLIC_KEY 类型和 publicKeyPem 字段复用，算法新增 RSA_SHA256（SHA256withRSA / PKCS#1 v1.5），挑战及签名请求现有载荷格式保持不变。Android scope 按环境允许列表固定；local 为 com.qingjing.qingjing_wallpaper.local，prod 配置另行启用，生产禁用 H5。scope 为协议命名空间，不将客户端传入的 scope 当作 APK 签名验证。
+现有 registrations 路由、PLATFORM_PUBLIC_KEY 类型和 publicKeyPem 字段复用，算法新增 RSA_SHA256（SHA256withRSA / PKCS#1 v1.5），挑战及签名请求现有载荷格式保持不变。Android scope 按环境允许列表固定：prod 为 `com.qingjing.bizhi`，Lab 为 `com.qingjing.bizhi.lab`，local/internal 分别为 `com.qingjing.bizhi.local`、`com.qingjing.bizhi.internal`；生产禁用 H5。scope 为协议命名空间，不将客户端传入的 scope 当作 APK 签名验证。
 
 publicKeyPem 为 X.509 SubjectPublicKeyInfo RSA 2048 / exponent 65537 公钥。evidenceToken 为 Base64URL 无填充 UTF-8 JSON，字段 timestamp（规范 UTC Instant）、nonce（UUID）、proof（Base64URL 无填充 RSA 签名）。注册签名 UTF-8 载荷：
 

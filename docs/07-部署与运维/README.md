@@ -11,3 +11,4 @@
 
 - [OPS-003 Android 内部候选版安装说明（1.0 已完成）](OPS-003-Android内部候选版安装说明.md)
 - [Android 内部候选版版本清单（1.0 已完成）](android-internal-candidate-1.0.0-10015.json)
+- [OPS-004 Android 双包打包与命名规范（当前生效）](OPS-004-Android双包打包与命名规范.md)

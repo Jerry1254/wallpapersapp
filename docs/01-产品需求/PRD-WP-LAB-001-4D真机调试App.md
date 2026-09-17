@@ -406,8 +406,8 @@ Y = 初始垂直位置 × 屏幕高度 + 方向符号 × 垂直倾斜进度 × �
 
 | 应用 | 应用名称 | 应用 ID | 版本规则 |
 |---|---|---|---|
-| 正式 App | 倾境壁纸 | `com.qingjing.qingjing_wallpaper` | 保持现有版本，不因 Lab 页面单独升级 |
-| Lab App | 倾境壁纸·4D调试 | `com.qingjing.qingjing_wallpaper.lab` | 独立从 `0.1.0+1` 递增 |
+| 正式 App | 倾境动态壁纸 | `com.qingjing.bizhi` | 正式版本独立递增，不因 Lab 页面单独升级 |
+| Lab App | 4D壁纸测试 | `com.qingjing.bizhi.lab` | 独立从 `0.1.0+1` 递增 |
 
 Lab 构建使用同一 Git 提交。正式 App 与 Lab App 的公共代码修改共享；Lab 详情页通过构建模式隔离，不复制目录或维护第二套业务代码。
 

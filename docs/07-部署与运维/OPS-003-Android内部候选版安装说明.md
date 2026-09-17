@@ -1,5 +1,7 @@
 # Android 内部候选版安装说明
 
+> 历史说明：本文记录 2026-09-14 的 10015 旧测试包，其 `com.qingjing.qingjing_wallpaper.internal` 标识不再用于新构建。当前名称、图标和 applicationId 统一以 [OPS-004](OPS-004-Android双包打包与命名规范.md) 为准。
+
 状态：Android 1.0 本轮功能范围已完成，最终 10015 已安装到红米，最后实际体验由用户验收。当前为连接本地 API 的内部安装包。
 
 ## 包与适用范围

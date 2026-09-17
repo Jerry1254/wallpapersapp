@@ -26,7 +26,7 @@ qingjing:
   device:
     android-enabled: true
     allowed-android-scopes:
-      - com.qingjing.qingjing_wallpaper.local
+      - com.qingjing.bizhi.local
     h5-test-enabled: true
     allowed-h5-scopes:
       - h5-local

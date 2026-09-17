@@ -11,7 +11,7 @@ import org.json.JSONObject
 internal object PlaybackDiagnostics {
     fun enabled(context: Context): Boolean {
         if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) return true
-        return context.packageName == "com.qingjing.qingjing_wallpaper.internal" &&
+        return context.packageName in setOf("com.qingjing.bizhi.internal", "com.qingjing.bizhi.lab") &&
             context.packageManager.getApplicationInfo(context.packageName,PackageManager.GET_META_DATA)
                 .metaData?.getBoolean("qingjing.internalDiagnostics",false) == true
     }

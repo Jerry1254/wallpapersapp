@@ -39,7 +39,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.qingjing.qingjing_wallpaper"
+        applicationId = "com.qingjing.bizhi"
         minSdk = 26
         targetSdk = 36
         versionCode = flutter.versionCode
@@ -51,27 +51,27 @@ android {
         create("local") {
             dimension = "environment"
             applicationIdSuffix = ".local"
-            resValue("string", "app_name", "倾境壁纸·内测")
+            resValue("string", "app_name", "倾境动态壁纸·本地")
             resValue("string", "qj_package_signing_key_id", System.getenv("QJ_LOCAL_PACKAGE_SIGNING_KEY_ID") ?: "")
             resValue("string", "qj_package_signing_public_key", System.getenv("QJ_LOCAL_PACKAGE_PUBLIC_KEY_DER") ?: "")
         }
         create("prod") {
             dimension = "environment"
-            resValue("string", "app_name", "倾境壁纸")
+            resValue("string", "app_name", "倾境动态壁纸")
             resValue("string", "qj_package_signing_key_id", System.getenv("QJ_PROD_PACKAGE_SIGNING_KEY_ID") ?: "")
             resValue("string", "qj_package_signing_public_key", System.getenv("QJ_PROD_PACKAGE_PUBLIC_KEY_DER") ?: "")
         }
         create("internal") {
             dimension = "environment"
             applicationIdSuffix = ".internal"
-            resValue("string", "app_name", "倾境壁纸·候选内测")
+            resValue("string", "app_name", "倾境动态壁纸")
             resValue("string", "qj_package_signing_key_id", System.getenv("QJ_INTERNAL_PACKAGE_SIGNING_KEY_ID") ?: "")
             resValue("string", "qj_package_signing_public_key", System.getenv("QJ_INTERNAL_PACKAGE_PUBLIC_KEY_DER") ?: "")
         }
         create("lab") {
             dimension = "environment"
             applicationIdSuffix = ".lab"
-            resValue("string", "app_name", "倾境壁纸·4D调试")
+            resValue("string", "app_name", "4D壁纸测试")
             resValue("string", "qj_package_signing_key_id", System.getenv("QJ_INTERNAL_PACKAGE_SIGNING_KEY_ID") ?: "")
             resValue("string", "qj_package_signing_public_key", System.getenv("QJ_INTERNAL_PACKAGE_PUBLIC_KEY_DER") ?: "")
         }
