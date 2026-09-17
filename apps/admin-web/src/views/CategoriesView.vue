@@ -82,7 +82,6 @@ const selectIcon = (event: Event) => {
 };
 const save = async () => {
   if (!form.name.trim()) { ElMessage.warning('请输入分类名称'); return; }
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.slug)) { ElMessage.warning('Slug 只能使用小写字母、数字和单个连字符'); return; }
   if (form.parentId === null && !form.icon) { ElMessage.warning('一级分类需要上传图标'); return; }
   if (form.parentId !== null) { form.iconUrl = ''; form.icon = undefined; }
   saving.value = true;
@@ -135,7 +134,6 @@ onMounted(load);
           <div class="category-node-hint">{{ form.parentId === null ? '将显示在 App 首页金刚区' : '将显示在所选一级分类的横向筛选栏' }}</div>
         </ElFormItem>
         <ElFormItem label="分类名称"><ElInput v-model="form.name" maxlength="20" show-word-limit placeholder="例如：萌宠" /></ElFormItem>
-        <ElFormItem label="Slug"><ElInput v-model="form.slug" maxlength="32" placeholder="例如：cute-pets" /><div class="category-node-hint">公开链接使用，仅支持小写字母、数字和连字符。</div></ElFormItem>
         <ElFormItem v-if="form.parentId === null" label="分类图标">
           <input ref="iconInput" hidden type="file" accept="image/png,image/jpeg,image/webp" @change="selectIcon" />
           <button class="category-icon-upload" type="button" @click="iconInput?.click()">

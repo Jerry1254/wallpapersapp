@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { Wallpaper } from '@/domain/admin';
+import type { Category, Wallpaper } from '@/domain/admin';
 import { ApiError, apiDownload, apiRequest, readableApiError, setCsrfToken } from '@/repositories/http/apiClient';
 import { adminRepository, WallpaperSaveError } from '@/repositories/http/adminRepository';
 
@@ -367,6 +367,26 @@ describe('adminRepository.saveWallpaper', () => {
 });
 
 describe('adminRepository.categories', () => {
+  it('新建分类时自动生成 Slug，运营端无需填写', async () => {
+    setCsrfToken('csrf-token');
+    const fetchMock = vi.fn().mockResolvedValue(json({
+      id: '22', parentId: '20', level: 2, name: '萌宠', slug: 'category-generated', icon: null,
+      sortOrder: 100, wallpaperCount: 0, children: [], version: 0
+    }, 201));
+    vi.stubGlobal('fetch', fetchMock);
+    const input: Category = {
+      id: '', parentId: '20', name: '萌宠', slug: '', iconUrl: '', sort: 100,
+      wallpaperCount: 0, version: 0
+    };
+
+    await adminRepository.saveCategory(input);
+
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(options.body))).toMatchObject({
+      parentId: '20', name: '萌宠', slug: expect.stringMatching(/^category-[a-f0-9]{20}$/)
+    });
+  });
+
   it('把服务端省略 parentId 的根分类归一化为根节点', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
       items: [{

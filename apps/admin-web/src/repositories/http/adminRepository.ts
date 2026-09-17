@@ -73,6 +73,12 @@ interface ApiCategory {
 
 interface ApiCategoryList { items: ApiCategory[] }
 
+const automaticCategorySlug = () => {
+  const bytes = crypto.getRandomValues(new Uint8Array(10));
+  const suffix = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+  return `category-${suffix}`;
+};
+
 interface ApiCategorySummary {
   id: string;
   name: string;
@@ -451,7 +457,7 @@ export const adminRepository = {
     const payload = jsonBody({
       parentId: input.parentId,
       name: input.name.trim(),
-      slug: input.slug.trim(),
+      slug: input.id ? input.slug.trim() : automaticCategorySlug(),
       iconAssetId,
       sortOrder: input.sort
     });
