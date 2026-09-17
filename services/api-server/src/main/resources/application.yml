@@ -33,6 +33,9 @@ management:
       probes:
         enabled: true
       show-details: when_authorized
+  info:
+    env:
+      enabled: true
   health:
     livenessstate:
       enabled: true
@@ -42,7 +45,13 @@ management:
 info:
   app:
     name: ${spring.application.name}
-    contract-version: 1.8.0
+    contract-version: ${QJ_API_CONTRACT_VERSION:2.1.0}
+    environment-id: ${QJ_ENVIRONMENT_ID:UNCONFIGURED}
+    deployment-stage: ${QJ_DEPLOYMENT_STAGE:UNCONFIGURED}
+    git-commit: ${QJ_DEPLOYMENT_GIT_COMMIT:unknown}
+    source-sha256: ${QJ_DEPLOYMENT_SOURCE_SHA256:unknown}
+    artifact-sha256: ${QJ_DEPLOYMENT_ARTIFACT_SHA256:unknown}
+    flyway-version: ${QJ_FLYWAY_VERSION:unknown}
 
 qingjing:
   delivery:

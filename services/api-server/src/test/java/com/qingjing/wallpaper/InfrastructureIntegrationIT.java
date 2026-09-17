@@ -308,6 +308,13 @@ class InfrastructureIntegrationIT {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody()).contains("\"status\":\"UP\"");
+
+        ResponseEntity<JsonNode> info = http.getForEntity("/actuator/info", JsonNode.class);
+        assertThat(info.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(info.getBody().path("app").path("contract-version").asText()).isEqualTo("2.1.0");
+        assertThat(info.getBody().path("app").path("environment-id").asText()).isEqualTo("UNCONFIGURED");
+        assertThat(info.getBody().path("app").path("source-sha256").asText()).isEqualTo("unknown");
+        assertThat(info.getBody().path("app").path("artifact-sha256").asText()).isEqualTo("unknown");
     }
 
     @Test

@@ -3,6 +3,15 @@ import { readFile, readdir } from 'node:fs/promises';
 import { parse } from 'yaml';
 
 const document = parse(await readFile(new URL('../openapi.yaml', import.meta.url), 'utf8'));
+const applicationConfiguration = await readFile(
+  new URL('../../../services/api-server/src/main/resources/application.yml', import.meta.url),
+  'utf8'
+);
+
+assert.ok(
+  applicationConfiguration.includes(`contract-version: \${QJ_API_CONTRACT_VERSION:${document.info.version}}`),
+  'runtime actuator contract version must default to the OpenAPI version'
+);
 
 const expectedOperations = {
   '/public/categories': ['get'],

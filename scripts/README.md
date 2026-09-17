@@ -3,5 +3,6 @@
 该目录保存可重复执行的本地和 CI 脚本，例如 Android 构建、资源包校验、测试、发布前检查和版本产物校验。
 
 - `local-api.sh`：启动、停止、查看本地栈和初始化单管理员。
+- `local-device-api.py`：LOCAL_DEVICE 的唯一 API 部署/状态核对入口；强制关联 Git、OpenAPI、不可变 Jar SHA-256、Flyway 和运行环境，见 [OPS-007](../docs/07-部署与运维/OPS-007-API制品版本一致性与发布门禁.md)。
 - `verify-local-api.sh`：检查 Flyway、16 张业务表、健康状态及重启持久化。
 - `verify-local-flow.py`：WP-P11 本地 4D 发布、H5 首次兑换、多设备并发、下线权益及整栈重启验收。分阶段使用方式和临时凭据清理见 [OPS-001](../docs/07-部署与运维/OPS-001-本地API开发环境.md)。脚本会新增本地验收数据、临时替换并恢复本地管理员密码哈希、重启本地 API/MySQL/Redis，只用于默认本地环境。

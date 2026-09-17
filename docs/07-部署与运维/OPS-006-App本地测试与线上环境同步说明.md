@@ -2,7 +2,7 @@
 
 **状态：** 已确认，自动环境握手待实施
 
-**版本：** 1.1
+**版本：** 1.2
 
 **日期：** 2026-09-17
 
@@ -98,12 +98,14 @@ LOCAL_DEVICE 真机桌面只保留两个易辨认的测试名称：`internal` �
 5. 使用 `staging` App 做线上短验收。
 6. 备份并清理明确标记的验收数据，切换为 `ONLINE_MAIN / PRODUCTION`，再发布 `prod` App。
 
+API 制品必须按 [OPS-007](OPS-007-API制品版本一致性与发布门禁.md) 同时核对 Git 提交、API 源码哈希、OpenAPI 版本、Jar SHA-256、Flyway 版本和环境 ID。只有健康检查 `UP` 不能证明运行的是新版 API。
+
 ## 7. “启动”的固定含义和标准提示词
 
 在本项目后续沟通中，“启动本地 App 联调环境”固定表示：
 
 1. 确保 MySQL 3311、Redis 6391 和资源目录可用。
-2. 启动或恢复 Java API 8083。
+2. 先执行 `python3 scripts/local-device-api.py status`；若运行制品与当前提交不一致，执行 `python3 scripts/local-device-api.py deploy` 重建、换包、重启并验证 Java API 8083。
 3. 启动或恢复本机 HTTPS 代理 8443 → 8083；设备已连接时核对 ADB reverse，但不启动 App。
 4. 启动或恢复管理后台 5176，并确认它代理到 8083。
 5. 只读核对实际数据库和 Redis 连接后回报。
@@ -147,6 +149,11 @@ LOCAL_DEVICE 真机桌面只保留两个易辨认的测试名称：`internal` �
 环境：LOCAL_DEVICE
 管理后台：5176 -> 8083
 API readiness：UP
+Git 提交：<40 位 commit>
+API 源码 SHA-256：<64 位 hash>
+OpenAPI：<version>
+运行 Jar SHA-256：<64 位 hash>
+Flyway：<Vn>
 MySQL：3311 / wallpaper_android
 Redis：6391
 资源目录：.runtime/android-api12/storage
@@ -156,7 +163,7 @@ Redis：6391
 
 ## 9. 待实施的自动防错
 
-- API 返回环境 ID 和 `VALIDATION/PRODUCTION` 阶段。
+- API 已在 `/actuator/info` 返回环境 ID、阶段、Git、OpenAPI、Jar SHA-256 和 Flyway 目标版本，LOCAL_DEVICE 部署脚本已强制回读核对。
 - 管理后台固定显示当前环境、API 和数据库标识，环境未知时禁止写入。
 - App 在请求前核对构建期环境与 API 返回环境。
 - 数据清理脚本必须先 `plan`，再对同一环境执行 `apply`。
