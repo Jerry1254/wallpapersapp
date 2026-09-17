@@ -11,7 +11,7 @@
 | 应用 | Android flavor | 显示名称 | applicationId | 图标源文件 | 用途 |
 |---|---|---|---|---|---|
 | 正式 App | `prod` | 倾境动态壁纸 | `com.qingjing.bizhi` | `apps/mobile/branding/android/qingjing-dynamic-wallpaper-1024.png` | 用户安装、商店发布 |
-| 4D 测试 App | `lab` | 4D壁纸测试 | `com.qingjing.bizhi.lab` | `apps/mobile/branding/android/4d-wallpaper-lab-512.png` | 真机查看并整体保存 4D 参数 |
+| 4D 本地测试 App | `lab` | 4D壁纸·本地测试 | `com.qingjing.bizhi.lab` | `apps/mobile/branding/android/4d-wallpaper-lab-512.png` | LOCAL_DEVICE 真机查看并整体保存 4D 参数 |
 
 两包使用同一 Git 提交和同一套公共源码。Lab 只通过 flavor 打开 4D 调参详情，不复制首页、目录、登录、下载、播放或设置代码。两个 applicationId 不同，可以同时安装；两者的本地数据、安装密钥、下载资源和设备身份完全隔离。
 
@@ -20,7 +20,7 @@
 | flavor | applicationId | 显示名称 | 用途 |
 |---|---|---|---|
 | `local` | `com.qingjing.bizhi.local` | 倾境动态壁纸·本地 | ADB reverse 与本地明文 API 调试 |
-| `internal` | `com.qingjing.bizhi.internal` | 倾境动态壁纸 | HTTPS 本地候选包和正式功能体验 |
+| `internal` | `com.qingjing.bizhi.internal` | 倾境动态壁纸·本地测试 | LOCAL_DEVICE 的正式功能体验 |
 
 Kotlin/Java namespace 继续使用 `com.qingjing.qingjing_wallpaper`。namespace 是源码类路径，不是安装包名，不能为了改 applicationId 批量移动原生类。
 
@@ -78,7 +78,7 @@ flutter build apk --release --flavor lab --target-platform android-arm64 \
 ```text
 倾境动态壁纸-android-{versionName}-{versionCode}-prod.aab
 倾境动态壁纸-android-{versionName}-{versionCode}-arm64.apk
-4D壁纸测试-android-{versionName}-{versionCode}-arm64.apk
+4D壁纸本地测试-android-{versionName}-{versionCode}-arm64.apk
 ```
 
 正式 APK 只用于已授权的侧载验收；商店发布以 AAB 为准。Lab 不生成 AAB，不提交商店。

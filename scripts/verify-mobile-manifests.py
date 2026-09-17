@@ -6,12 +6,12 @@ import xml.etree.ElementTree as ET
 root = Path(__file__).resolve().parents[1]
 base = root / 'apps/mobile/build/app/intermediates/merged_manifests'
 android = '{http://schemas.android.com/apk/res/android}'
-for variant, package, cleartext in [
-    ('localDebug', 'com.qingjing.bizhi.local', 'true'),
-    ('localRelease', 'com.qingjing.bizhi.local', 'false'),
-    ('prodRelease', 'com.qingjing.bizhi', 'false'),
-    ('internalRelease', 'com.qingjing.bizhi.internal', 'false'),
-    ('labRelease', 'com.qingjing.bizhi.lab', 'false'),
+for variant, flavor, build_type, package, cleartext, label in [
+    ('localDebug', 'local', 'debug', 'com.qingjing.bizhi.local', 'true', '倾境动态壁纸·本地'),
+    ('localRelease', 'local', 'release', 'com.qingjing.bizhi.local', 'false', '倾境动态壁纸·本地'),
+    ('prodRelease', 'prod', 'release', 'com.qingjing.bizhi', 'false', '倾境动态壁纸'),
+    ('internalRelease', 'internal', 'release', 'com.qingjing.bizhi.internal', 'false', '倾境动态壁纸·本地测试'),
+    ('labRelease', 'lab', 'release', 'com.qingjing.bizhi.lab', 'false', '4D壁纸·本地测试'),
 ]:
     paths = list((base / variant).glob('*/AndroidManifest.xml'))
     if len(paths) != 1:
@@ -19,6 +19,10 @@ for variant, package, cleartext in [
     manifest = ET.parse(paths[0]).getroot()
     app = manifest.find('application')
     assert manifest.attrib['package'] == package, variant
+    values_path = root / 'apps/mobile/build/app/generated/res/resValues' / flavor / build_type / 'values/gradleResValues.xml'
+    values = ET.parse(values_path).getroot()
+    app_name = values.find("string[@name='app_name']")
+    assert app_name is not None and app_name.text == label, variant
     assert app is not None
     assert app.attrib[android + 'usesCleartextTraffic'] == cleartext, variant
     assert app.attrib[android + 'allowBackup'] == 'false', variant

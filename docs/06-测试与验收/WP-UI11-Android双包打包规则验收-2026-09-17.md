@@ -9,11 +9,11 @@
 | 应用 | flavor | 显示名称 | applicationId | 图标 |
 |---|---|---|---|---|
 | 正式 App | `prod` | 倾境动态壁纸 | `com.qingjing.bizhi` | 紫蓝山景图 |
-| 4D 测试 App | `lab` | 4D壁纸测试 | `com.qingjing.bizhi.lab` | 蓝色“4D TEST”图 |
+| 4D 本地测试 App | `lab` | 4D壁纸·本地测试 | `com.qingjing.bizhi.lab` | 蓝色“4D TEST”图 |
 
 两包继续共用同一套业务源码，通过 flavor 切换 4D 调试详情和 Lab 图标。applicationId 不同，因此可以同时安装；本地数据、设备身份、下载资源和安装密钥分别隔离。
 
-工程调试标识同步为 `com.qingjing.bizhi.local` 和 `com.qingjing.bizhi.internal`。Kotlin/Java namespace 保持 `com.qingjing.qingjing_wallpaper`，只作为源码类路径使用。
+工程调试标识同步为 `com.qingjing.bizhi.local` 和 `com.qingjing.bizhi.internal`。其中 internal 桌面名称固定为“倾境动态壁纸·本地测试”，与 prod 正式名称明确区分。Kotlin/Java namespace 保持 `com.qingjing.qingjing_wallpaper`，只作为源码类路径使用。
 
 ## 2. 图标与资源结果
 
