@@ -124,7 +124,7 @@ class InfrastructureIntegrationIT {
                 """,
                 String.class);
 
-        assertThat(successfulMigrations).isEqualTo(8);
+        assertThat(successfulMigrations).isEqualTo(9);
         assertThat(tables).containsExactlyInAnyOrder(
                 "admin_account",
                 "anonymous_device",
@@ -148,7 +148,8 @@ class InfrastructureIntegrationIT {
                 "resource_version",
                 "wallpaper",
                 "wallpaper_setting_tutorial",
-                "wallpaper_variant");
+                "wallpaper_variant",
+                "device_capability_profile");
         assertThat(jdbc.queryForList("""
                 SELECT column_name FROM information_schema.columns
                 WHERE table_schema=DATABASE() AND table_name='parallax_source_layer'
@@ -204,8 +205,8 @@ class InfrastructureIntegrationIT {
 
         jdbc.update("""
                 INSERT INTO wallpaper
-                    (title, slug, kind, category_id, cover_asset_id, sort_order, copyright_note, status)
-                VALUES ('集成测试壁纸', 'integration-wallpaper', 'STATIC', ?, ?, 0, '集成测试素材', 'DRAFT')
+                    (title, slug, category_id, cover_asset_id, sort_order, copyright_note, status)
+                VALUES ('集成测试壁纸', 'integration-wallpaper', ?, ?, 0, '集成测试素材', 'DRAFT')
                 ON DUPLICATE KEY UPDATE slug = VALUES(slug)
                 """, categoryId, assetId);
         Long wallpaperId = jdbc.queryForObject(
@@ -410,7 +411,6 @@ class InfrastructureIntegrationIT {
         Map<String, Object> wallpaperRequest = new LinkedHashMap<>();
         wallpaperRequest.put("title", "API 集成静态壁纸");
         wallpaperRequest.put("slug", "api-integration-static-wallpaper");
-        wallpaperRequest.put("kind", "STATIC");
         wallpaperRequest.put("accessType", "REDEEM");
         wallpaperRequest.put("rootCategoryId", category.getBody().path("id").asText());
         wallpaperRequest.put("childCategoryId", childCategory.getBody().path("id").asText());
@@ -435,7 +435,8 @@ class InfrastructureIntegrationIT {
         assertThat(wallpaper.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         String wallpaperId = wallpaper.getBody().path("id").asText();
         String initialEtag = wallpaper.getHeaders().getETag();
-        assertThat(http.getForEntity("/api/v1/public/wallpapers/" + wallpaperId, JsonNode.class)
+        DeviceTestSession catalogDevice = registerAndCreateSession("catalog-" + UUID.randomUUID());
+        assertThat(deviceGet("/api/v1/public/wallpapers/" + wallpaperId, catalogDevice)
                 .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(http.getForEntity("/api/v1/public/assets/" + cover.path("id").asText() + "/content", byte[].class)
                 .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
@@ -445,7 +446,8 @@ class InfrastructureIntegrationIT {
         Map<String, Object> variantRequest = Map.of(
                 "platform", "UNIVERSAL",
                 "resourceType", "STATIC_IMAGE",
-                "capabilityRequirements", List.of());
+                "capabilityRequirements", List.of(),
+                "enabled", true);
         ResponseEntity<JsonNode> variant = jsonExchange(
                 "/api/v1/admin/wallpapers/" + wallpaperId + "/variants",
                 HttpMethod.POST,
@@ -487,7 +489,7 @@ class InfrastructureIntegrationIT {
 
         String rootId = category.getBody().path("id").asText();
         String childId = childCategory.getBody().path("id").asText();
-        JsonNode publicCategories = http.getForObject("/api/v1/public/categories", JsonNode.class);
+        JsonNode publicCategories = deviceGet("/api/v1/public/categories", catalogDevice).getBody();
         JsonNode publicRoot = null;
         for (JsonNode item : publicCategories.path("items")) {
             if (item.path("id").asText().equals(rootId)) publicRoot = item;
@@ -500,38 +502,34 @@ class InfrastructureIntegrationIT {
                 .isEqualTo("/api/v1/public/assets/" + icon.path("id").asText() + "/content");
 
         String publicList = "/api/v1/public/wallpapers?rootCategoryId=" + rootId
-                + "&childCategoryId=" + childId + "&view=STATIC&platform=ANDROID"
+                + "&childCategoryId=" + childId + "&view=STATIC"
                 + "&q=api-integration-static-wallpaper&pageSize=1";
-        JsonNode publicPage = http.getForObject(publicList, JsonNode.class);
+        JsonNode publicPage = deviceGet(publicList, catalogDevice).getBody();
         assertThat(publicPage.path("items")).hasSize(1);
         assertThat(publicPage.path("items").get(0).path("id").asText()).isEqualTo(wallpaperId);
         assertThat(publicPage.path("items").get(0).path("accessType").asText()).isEqualTo("REDEEM");
         assertThat(publicPage.path("page").path("totalItems").asLong()).isEqualTo(1);
         assertThat(publicPage.path("page").path("totalPages").asInt()).isEqualTo(1);
-        assertThat(http.getForObject("/api/v1/public/wallpapers?rootCategoryId=" + rootId + "&q=集成静态",
-                JsonNode.class).path("items").get(0).path("id").asText()).isEqualTo(wallpaperId);
-        assertThat(http.getForObject(publicList + "&page=2", JsonNode.class).path("items")).isEmpty();
-        assertThat(http.getForObject("/api/v1/public/wallpapers?rootCategoryId=" + rootId + "&view=FEATURED",
-                JsonNode.class).path("items").get(0).path("featured").asBoolean()).isTrue();
-        assertThat(http.getForObject("/api/v1/public/wallpapers?rootCategoryId=" + rootId + "&q=%25",
-                JsonNode.class).path("page").path("totalItems").asLong()).isZero();
-        assertThat(http.getForEntity("/api/v1/public/wallpapers?childCategoryId=" + childId,
-                JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(http.getForEntity("/api/v1/public/wallpapers?rootCategoryId=" + rootId + "&childCategoryId=" + rootId,
-                JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(http.getForEntity("/api/v1/public/wallpapers?pageSize=101",
-                JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(http.getForEntity("/api/v1/public/wallpapers?q= ",
-                JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(http.getForEntity("/api/v1/public/wallpapers?accessType=UNKNOWN",
-                JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(deviceGet("/api/v1/public/wallpapers?rootCategoryId=" + rootId + "&q=集成静态", catalogDevice)
+                .getBody().path("items").get(0).path("id").asText()).isEqualTo(wallpaperId);
+        assertThat(deviceGet(publicList + "&page=2", catalogDevice).getBody().path("items")).isEmpty();
+        assertThat(deviceGet("/api/v1/public/wallpapers?rootCategoryId=" + rootId + "&view=FEATURED", catalogDevice)
+                .getBody().path("items").get(0).path("featured").asBoolean()).isTrue();
+        assertThat(deviceGet("/api/v1/public/wallpapers?rootCategoryId=" + rootId + "&q=%25", catalogDevice)
+                .getBody().path("page").path("totalItems").asLong()).isZero();
+        assertThat(deviceGet("/api/v1/public/wallpapers?childCategoryId=" + childId, catalogDevice)
+                .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(deviceGet("/api/v1/public/wallpapers?rootCategoryId=" + rootId + "&childCategoryId=" + rootId, catalogDevice)
+                .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(deviceGet("/api/v1/public/wallpapers?pageSize=101", catalogDevice).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(deviceGet("/api/v1/public/wallpapers?q= ", catalogDevice).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(deviceGet("/api/v1/public/wallpapers?accessType=UNKNOWN", catalogDevice).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
 
-        JsonNode publicDetail = http.getForObject("/api/v1/public/wallpapers/" + wallpaperId + "?platform=ANDROID",
-                JsonNode.class);
+        JsonNode publicDetail = deviceGet("/api/v1/public/wallpapers/" + wallpaperId, catalogDevice).getBody();
         assertThat(publicDetail.path("copyrightNote").asText()).isEqualTo("API integration test asset");
         assertThat(publicDetail.path("accessType").asText()).isEqualTo("REDEEM");
         assertThat(publicDetail.path("publishedAt").asText()).isNotBlank();
-        assertThat(publicDetail.path("capabilities").get(0).path("platform").asText()).isEqualTo("UNIVERSAL");
+        assertThat(publicDetail.path("availableCapabilities").get(0).path("deliveryPlatform").asText()).isEqualTo("UNIVERSAL");
         assertThat(publicDetail.toString()).doesNotContain("storageKey", "storage_key", "password", "secret", "bindings");
         ResponseEntity<byte[]> publicCover = http.getForEntity(publicDetail.path("cover").path("contentUrl").asText(),
                 byte[].class);
@@ -556,13 +554,13 @@ class InfrastructureIntegrationIT {
                 publishedOne.getHeaders().getETag());
         assertThat(freeWallpaper.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(freeWallpaper.getBody().path("accessType").asText()).isEqualTo("FREE");
-        assertThat(http.getForObject("/api/v1/public/wallpapers/" + wallpaperId, JsonNode.class)
+        assertThat(deviceGet("/api/v1/public/wallpapers/" + wallpaperId, catalogDevice).getBody()
                 .path("accessType").asText()).isEqualTo("FREE");
-        assertThat(http.getForObject(publicList + "&accessType=FREE", JsonNode.class)
+        assertThat(deviceGet(publicList + "&accessType=FREE", catalogDevice).getBody()
                 .path("items").findValuesAsText("id")).contains(wallpaperId);
-        assertThat(http.getForObject("/api/v1/public/wallpapers?accessType=REDEEM&q=api-integration-static-wallpaper", JsonNode.class)
+        assertThat(deviceGet("/api/v1/public/wallpapers?accessType=REDEEM&q=api-integration-static-wallpaper", catalogDevice).getBody()
                 .path("items")).isEmpty();
-        assertThat(getJson("/api/v1/admin/wallpapers?accessType=FREE&status=PUBLISHED&kind=STATIC&categoryId=" + rootId, session)
+        assertThat(getJson("/api/v1/admin/wallpapers?accessType=FREE&status=PUBLISHED&categoryId=" + rootId, session)
                 .getBody().path("items").findValuesAsText("id")).contains(wallpaperId);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM resource_version rv JOIN wallpaper_variant v ON v.id=rv.variant_id WHERE v.wallpaper_id=?",
@@ -587,10 +585,15 @@ class InfrastructureIntegrationIT {
         assertThat(staleUpdate.getStatusCode()).isEqualTo(HttpStatus.PRECONDITION_FAILED);
         assertThat(staleUpdate.getBody().path("error").path("code").asText()).isEqualTo("VERSION_CONFLICT");
 
+        Map<String, Object> changedVariantPair = Map.of(
+                "platform", "IOS",
+                "resourceType", "LIVE_PHOTO",
+                "capabilityRequirements", List.of(),
+                "enabled", true);
         ResponseEntity<JsonNode> immutableVariant = jsonExchange(
                 "/api/v1/admin/variants/" + variantId,
                 HttpMethod.PATCH,
-                variantRequest,
+                changedVariantPair,
                 session,
                 "\"0\"");
         assertThat(immutableVariant.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
@@ -642,9 +645,9 @@ class InfrastructureIntegrationIT {
                 publishedTwo.getHeaders().getETag());
         assertThat(offline.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(offline.getBody().path("status").asText()).isEqualTo("OFFLINE");
-        assertThat(http.getForEntity("/api/v1/public/wallpapers/" + wallpaperId, JsonNode.class)
+        assertThat(deviceGet("/api/v1/public/wallpapers/" + wallpaperId, catalogDevice)
                 .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(http.getForObject(publicList, JsonNode.class).path("items")).isEmpty();
+        assertThat(deviceGet(publicList, catalogDevice).getBody().path("items")).isEmpty();
         assertThat(http.getForEntity("/api/v1/public/assets/" + cover.path("id").asText() + "/content", byte[].class)
                 .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(jdbc.queryForObject(
@@ -997,7 +1000,7 @@ class InfrastructureIntegrationIT {
 
         ResponseEntity<JsonNode> descriptor = signedPost(
                 "/api/v1/device/wallpapers/" + wallpaperId + "/download-tickets",
-                orderedMap("platform", "H5_TEST", "supportedResourceTypes", List.of("STATIC_IMAGE")),
+                orderedMap("deliveryPlatform", "UNIVERSAL", "resourceType", "STATIC_IMAGE"),
                 owner,
                 null);
         assertThat(descriptor.getStatusCode()).isEqualTo(HttpStatus.CREATED);
@@ -1008,7 +1011,7 @@ class InfrastructureIntegrationIT {
         jdbc.update("UPDATE wallpaper SET access_type='FREE', lock_version=lock_version+1 WHERE id=?", wallpaperId);
         ResponseEntity<JsonNode> freeDescriptor = signedPost(
                 "/api/v1/device/wallpapers/" + wallpaperId + "/download-tickets",
-                orderedMap("platform", "H5_TEST", "supportedResourceTypes", List.of("STATIC_IMAGE")),
+                orderedMap("deliveryPlatform", "UNIVERSAL", "resourceType", "STATIC_IMAGE"),
                 freeDevice,
                 null);
         assertThat(freeDescriptor.getStatusCode()).isEqualTo(HttpStatus.CREATED);
@@ -1056,14 +1059,14 @@ class InfrastructureIntegrationIT {
         jdbc.update("UPDATE wallpaper SET access_type='REDEEM', lock_version=lock_version+1 WHERE id=?", wallpaperId);
         ResponseEntity<JsonNode> newlyRestricted = signedPost(
                 "/api/v1/device/wallpapers/" + wallpaperId + "/download-tickets",
-                orderedMap("platform", "H5_TEST", "supportedResourceTypes", List.of("STATIC_IMAGE")),
+                orderedMap("deliveryPlatform", "UNIVERSAL", "resourceType", "STATIC_IMAGE"),
                 freeDevice,
                 null);
         assertThat(newlyRestricted.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(newlyRestricted.getBody().path("error").path("code").asText()).isEqualTo("ENTITLEMENT_REQUIRED");
         assertThat(signedPost(
                 "/api/v1/device/wallpapers/" + wallpaperId + "/download-tickets",
-                orderedMap("platform", "H5_TEST", "supportedResourceTypes", List.of("STATIC_IMAGE")),
+                orderedMap("deliveryPlatform", "UNIVERSAL", "resourceType", "STATIC_IMAGE"),
                 owner,
                 null).getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
@@ -1126,7 +1129,7 @@ class InfrastructureIntegrationIT {
         long wallpaper=createPublishedWallpaperFixture();
         long variant=jdbc.queryForObject("SELECT id FROM wallpaper_variant WHERE wallpaper_id=?",Long.class,wallpaper);
         jdbc.update("UPDATE wallpaper_variant SET platform='ANDROID',resource_type='LAYER_PARALLAX' WHERE id=?",variant);
-        jdbc.update("UPDATE wallpaper SET kind='PARALLAX_4D',status='DRAFT' WHERE id=?",wallpaper);
+        jdbc.update("UPDATE wallpaper SET status='DRAFT' WHERE id=?",wallpaper);
         long legacy=jdbc.queryForObject("SELECT id FROM resource_version WHERE variant_id=?",Long.class,variant);
         var legacyRead=getJson("/api/v1/admin/resource-versions/"+legacy,admin).getBody();
         assertThat(legacyRead.has("sourcePackage")).isTrue();assertThat(legacyRead.path("sourcePackage").isNull()).isTrue();
@@ -1285,7 +1288,6 @@ class InfrastructureIntegrationIT {
             long wallpaperId = createPublishedWallpaperFixture();
             long variantId = jdbc.queryForObject("SELECT id FROM wallpaper_variant WHERE wallpaper_id=?", Long.class, wallpaperId);
             jdbc.update("UPDATE wallpaper_variant SET platform=?,resource_type=? WHERE id=?", type.equals("STATIC_IMAGE") ? "UNIVERSAL" : "ANDROID",type,variantId);
-            jdbc.update("UPDATE wallpaper SET kind=? WHERE id=?", type.equals("VIDEO") ? "DYNAMIC" : type.equals("LAYER_PARALLAX") ? "PARALLAX_4D" : "STATIC",wallpaperId);
             List<Map<String,Object>> bindings = new ArrayList<>();
             List<String> roles = type.equals("LAYER_PARALLAX") ? List.of("BACKGROUND","FOREGROUND","PARALLAX_CONFIG") : List.of(type);
             for (String role : roles) {
@@ -1424,12 +1426,14 @@ class InfrastructureIntegrationIT {
         var session=http.postForEntity("/api/v1/device/sessions",Map.of("credentialKeyId",credential,"challengeId",challenge.path("challengeId").asText(),"clientTimestamp",timestamp,"proof",proof),JsonNode.class);
         assertThat(session.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         String token=session.getBody().path("accessToken").asText(); long deviceId=androidIdentity.requireSession(token).deviceId();
+        reportAndroidCapabilities(signing, token);
         String pem=new com.qingjing.wallpaper.device.AndroidCredentialProof(objectMapper).canonicalPem((java.security.interfaces.RSAPublicKey)encryption.getPublic());
         String bindPath="/api/v1/device/encryption-key";
         assertThat(http.exchange(bindPath,HttpMethod.PUT,androidSignedEntity(signing,token,"PUT",bindPath,objectMapper.writeValueAsString(Map.of("publicKeyPem",pem))),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
         var previewHeaders=verifyUnownedPreview(signing,encryption,token,deviceId,wallpaperId,versionId,type);
         String ticketPath="/api/v1/device/wallpapers/"+wallpaperId+"/download-tickets";
-        String body=objectMapper.writeValueAsString(Map.of("platform","ANDROID","osVersion","35","supportedResourceTypes",List.of(type)));
+        String deliveryPlatform = type.equals("STATIC_IMAGE") ? "UNIVERSAL" : "ANDROID";
+        String body=objectMapper.writeValueAsString(Map.of("deliveryPlatform",deliveryPlatform,"resourceType",type));
         if (type.equals("STATIC_IMAGE")) {
             jdbc.update("UPDATE wallpaper SET access_type='FREE',lock_version=lock_version+1 WHERE id=?",wallpaperId);
             var freeIssued=http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,body),JsonNode.class);
@@ -1451,10 +1455,10 @@ class InfrastructureIntegrationIT {
         byte[] csv=http.exchange("/api/v1/admin/code-batches/"+batch.path("batch").path("id").asText()+"/delivery",HttpMethod.GET,new HttpEntity<>(delivery),byte[].class).getBody();
         String code=new String(csv,StandardCharsets.UTF_8).lines().skip(1).findFirst().orElseThrow().split(",")[1];
         assertThat(androidRedemption(signing,token,UUID.randomUUID().toString(),Map.of("wallpaperId",Long.toString(wallpaperId),"code",code)).getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        String wrongPlatform=body.replace("ANDROID","IOS");
-        assertThat(http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,wrongPlatform),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        String wrongPlatform=body.replace(deliveryPlatform,"IOS");
+        assertThat(http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,wrongPlatform),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         jdbc.update("UPDATE wallpaper_variant SET minimum_os_version='36' WHERE wallpaper_id=?",wallpaperId);
-        assertThat(http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,body),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,body),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         jdbc.update("UPDATE wallpaper_variant SET minimum_os_version=NULL WHERE wallpaper_id=?",wallpaperId);
         var issued=http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,body),JsonNode.class);
         assertThat(issued.getStatusCode()).isEqualTo(HttpStatus.CREATED);
@@ -1524,7 +1528,8 @@ class InfrastructureIntegrationIT {
         int entitlementCount=jdbc.queryForObject("SELECT COUNT(*) FROM device_entitlement WHERE device_id=?",Integer.class,deviceId);
         int redemptionCount=jdbc.queryForObject("SELECT COUNT(*) FROM redemption_event WHERE device_id=?",Integer.class,deviceId);
         String path="/api/v1/device/wallpapers/"+wallpaperId+"/preview-tickets";
-        String json=objectMapper.writeValueAsString(Map.of("platform","ANDROID","osVersion","35","resourceType",type));
+        String deliveryPlatform = type.equals("STATIC_IMAGE") ? "UNIVERSAL" : "ANDROID";
+        String json=objectMapper.writeValueAsString(Map.of("deliveryPlatform",deliveryPlatform,"resourceType",type));
         HttpHeaders bearerOnly=new HttpHeaders();bearerOnly.setBearerAuth(token);bearerOnly.setContentType(MediaType.APPLICATION_JSON);
         assertThat(http.exchange(path,HttpMethod.POST,new HttpEntity<>(json,bearerOnly),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         var signed=androidSignedEntity(signing,token,"POST",path,json);
@@ -1603,9 +1608,9 @@ class InfrastructureIntegrationIT {
         jdbc.update(
                 """
                 INSERT INTO wallpaper
-                    (title, slug, kind, category_id, cover_asset_id, sort_order, copyright_note,
+                    (title, slug, category_id, cover_asset_id, sort_order, copyright_note,
                      status, published_at)
-                VALUES (?, ?, 'STATIC', ?, ?, 1, 'integration fixture', 'PUBLISHED', UTC_TIMESTAMP(6))
+                VALUES (?, ?, ?, ?, 1, 'integration fixture', 'PUBLISHED', UTC_TIMESTAMP(6))
                 """,
                 "P08 wallpaper " + token.substring(0, 6), "p08-wallpaper-" + token, categoryId, assetId);
         Long wallpaperId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
@@ -1645,6 +1650,18 @@ class InfrastructureIntegrationIT {
                 String.class,
                 credentialKeyId);
         assertThat(storedHash).hasSize(64).isNotEqualTo(credentialSecret);
+        Long deviceId = jdbc.queryForObject(
+                "SELECT device_id FROM device_credential WHERE credential_key_id = ?",
+                Long.class, credentialKeyId);
+        String capability = "[{\"deliveryPlatform\":\"UNIVERSAL\",\"resourceType\":\"STATIC_IMAGE\",\"runtimeOsVersion\":\"1\",\"placements\":[\"HOME\",\"LOCK\"]}]";
+        jdbc.update("""
+                INSERT INTO device_capability_profile
+                    (device_id, host_os_family, host_os_version, manufacturer, model, execution_mode,
+                     probe_version, feature_flags, reported_capabilities, effective_capabilities,
+                     profile_hash, probed_at, last_verified_at)
+                VALUES (?, 'ANDROID', '1', 'integration', 'h5-test', 'NATIVE', 1,
+                        JSON_ARRAY(), CAST(? AS JSON), CAST(? AS JSON), ?, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+                """, deviceId, capability, capability, securityCrypto.sha256Hex("profile-" + deviceId));
         return createSession(credentialKeyId, credentialSecret);
     }
 
@@ -1700,6 +1717,10 @@ class InfrastructureIntegrationIT {
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(device.accessToken());
         return headers;
+    }
+
+    private ResponseEntity<JsonNode> deviceGet(String path, DeviceTestSession device) {
+        return http.exchange(path, HttpMethod.GET, new HttpEntity<>(deviceHeaders(device)), JsonNode.class);
     }
 
     private static String hmac(String key, String value) throws Exception {
@@ -1830,6 +1851,54 @@ class InfrastructureIntegrationIT {
         assertThat(session.getBody().path("platform").asText()).isEqualTo("ANDROID");
         assertThat(http.postForEntity("/api/v1/device/sessions", sessionBody, JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         String token = session.getBody().path("accessToken").asText();
+        HttpHeaders capabilityAuth = new HttpHeaders(); capabilityAuth.setBearerAuth(token);
+        assertThat(http.exchange("/api/v1/public/categories", HttpMethod.GET,
+                new HttpEntity<>(capabilityAuth), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.PRECONDITION_REQUIRED);
+        String capabilityPath = "/api/v1/device/me/capabilities";
+        List<Map<String,Object>> reportedCapabilities = List.of(
+                orderedMap("deliveryPlatform","ANDROID","resourceType","LAYER_PARALLAX","runtimeOsVersion","35","placements",List.of("HOME"),"evidence","SYSTEM_PROBE"),
+                orderedMap("deliveryPlatform","ANDROID","resourceType","VIDEO","runtimeOsVersion","35","placements",List.of("HOME","LOCK"),"evidence","SUCCESSFUL_SET"),
+                orderedMap("deliveryPlatform","UNIVERSAL","resourceType","STATIC_IMAGE","runtimeOsVersion","35","placements",List.of("HOME","LOCK"),"evidence","SYSTEM_PROBE"));
+        Map<String,Object> classicProfile = orderedMap(
+                "hostOsFamily","HARMONY_CLASSIC","hostOsVersion","3.0","sdkInt",31,
+                "manufacturer","HUAWEI","model","classic-test","executionMode","ANDROID_COMPATIBLE",
+                "probeVersion",1,"probedAt",Instant.now().toString(),"featureFlags",List.of(),"capabilities",reportedCapabilities);
+        String classicJson = objectMapper.writeValueAsString(classicProfile);
+        JsonNode classicEffective = http.exchange(capabilityPath,HttpMethod.PUT,
+                androidSignedEntity(key,token,"PUT",capabilityPath,classicJson),JsonNode.class).getBody();
+        assertThat(classicEffective.path("effectiveCapabilities")).hasSize(3);
+
+        Map<String,Object> containerProfile = new LinkedHashMap<>(classicProfile);
+        containerProfile.put("hostOsFamily","HARMONY_NATIVE");
+        containerProfile.put("hostOsVersion","5.0");
+        containerProfile.put("executionMode","ANDROID_CONTAINER");
+        containerProfile.put("probeVersion",2);
+        containerProfile.put("probedAt",Instant.now().toString());
+        String containerJson = objectMapper.writeValueAsString(containerProfile);
+        JsonNode containerEffective = http.exchange(capabilityPath,HttpMethod.PUT,
+                androidSignedEntity(key,token,"PUT",capabilityPath,containerJson),JsonNode.class).getBody();
+        assertThat(containerEffective.path("effectiveCapabilities")).hasSize(1);
+        assertThat(containerEffective.path("effectiveCapabilities").get(0).path("deliveryPlatform").asText()).isEqualTo("UNIVERSAL");
+
+        Map<String,Object> containerWithoutSystemWallpaper = new LinkedHashMap<>(containerProfile);
+        containerWithoutSystemWallpaper.put("probeVersion",3);
+        containerWithoutSystemWallpaper.put("probedAt",Instant.now().toString());
+        containerWithoutSystemWallpaper.put("capabilities",List.of());
+        String emptyContainerJson = objectMapper.writeValueAsString(containerWithoutSystemWallpaper);
+        JsonNode emptyContainerEffective = http.exchange(capabilityPath,HttpMethod.PUT,
+                androidSignedEntity(key,token,"PUT",capabilityPath,emptyContainerJson),JsonNode.class).getBody();
+        assertThat(emptyContainerEffective.path("effectiveCapabilities")).isEmpty();
+
+        Map<String,Object> androidProfile = new LinkedHashMap<>(classicProfile);
+        androidProfile.put("hostOsFamily","ANDROID");
+        androidProfile.put("hostOsVersion","15");
+        androidProfile.put("executionMode","NATIVE");
+        androidProfile.put("probeVersion",4);
+        androidProfile.put("probedAt",Instant.now().toString());
+        String androidProfileJson = objectMapper.writeValueAsString(androidProfile);
+        JsonNode finalProfile = http.exchange(capabilityPath,HttpMethod.PUT,
+                androidSignedEntity(key,token,"PUT",capabilityPath,androidProfileJson),JsonNode.class).getBody();
+        assertThat(finalProfile.path("effectiveCapabilities")).hasSize(3);
         var principal = androidIdentity.requireSession(token);
         var boundPrincipal = new com.qingjing.wallpaper.device.DevicePrincipal(principal.deviceId(), principal.credentialKeyId(), principal.platform(), principal.credentialType());
         var encryptionPair = generator.generateKeyPair();
@@ -1880,6 +1949,8 @@ class InfrastructureIntegrationIT {
                 Map.of("versionNo",2,"bindings",List.of(Map.of("assetId",packageAsset.path("id").asText(),"role","STATIC_IMAGE","ordinal",0))),admin,null).getBody().path("id").asLong();
         assertThat(jsonExchange("/api/v1/admin/resource-versions/"+packageVersion+"/secure-package",HttpMethod.POST,Map.of(),admin,null).getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(jsonExchange("/api/v1/admin/wallpapers/"+wallpaperId+"/publish",HttpMethod.POST,Map.of("resourceVersionIds",List.of(Long.toString(packageVersion))),admin,"\"0\"").getStatusCode()).isEqualTo(HttpStatus.OK);
+        Long adminId = jdbc.queryForObject("SELECT id FROM admin_account WHERE singleton_key=1", Long.class);
+        redis.delete("rate:admin-code-batch:" + securityCrypto.sha256Hex(Long.toString(adminId)));
         HttpHeaders batchHeaders = headers(admin, true, null);
         batchHeaders.setContentType(MediaType.APPLICATION_JSON);
         batchHeaders.set("Idempotency-Key", UUID.randomUUID().toString());
@@ -1931,6 +2002,23 @@ class InfrastructureIntegrationIT {
         headers.set("X-Request-Timestamp", timestamp); headers.set("X-Request-Nonce", nonce);
         headers.set("X-Request-Signature", androidSign(key, "QJ-SIGNED-REQUEST-V1\n" + method + "\n" + path + "\n" + timestamp + "\n" + nonce + "\n" + hash));
         return new HttpEntity<>(json, headers);
+    }
+
+    private JsonNode reportAndroidCapabilities(java.security.KeyPair key, String token) throws Exception {
+        String path = "/api/v1/device/me/capabilities";
+        Map<String, Object> body = orderedMap(
+                "hostOsFamily", "ANDROID", "hostOsVersion", "15", "sdkInt", 35,
+                "manufacturer", "integration", "model", "android-test", "executionMode", "NATIVE",
+                "probeVersion", 1, "probedAt", Instant.now().toString(), "featureFlags", List.of(),
+                "capabilities", List.of(
+                        orderedMap("deliveryPlatform", "ANDROID", "resourceType", "LAYER_PARALLAX", "runtimeOsVersion", "35", "placements", List.of("HOME"), "evidence", "SYSTEM_PROBE"),
+                        orderedMap("deliveryPlatform", "ANDROID", "resourceType", "VIDEO", "runtimeOsVersion", "35", "placements", List.of("HOME", "LOCK"), "evidence", "SYSTEM_PROBE"),
+                        orderedMap("deliveryPlatform", "UNIVERSAL", "resourceType", "STATIC_IMAGE", "runtimeOsVersion", "35", "placements", List.of("HOME", "LOCK"), "evidence", "SYSTEM_PROBE")));
+        String json = objectMapper.writeValueAsString(body);
+        ResponseEntity<JsonNode> response = http.exchange(path, HttpMethod.PUT,
+                androidSignedEntity(key, token, "PUT", path, json), JsonNode.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return response.getBody();
     }
 
     private ResponseEntity<JsonNode> androidRedemption(java.security.KeyPair key, String token, String requestKey, Map<String, Object> body) throws Exception {

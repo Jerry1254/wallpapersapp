@@ -13,7 +13,6 @@ import static com.qingjing.wallpaper.catalog.AdminContentDtos.PageMetadata;
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.PublishWallpaperRequest;
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.ResourceType;
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.VariantWriteRequest;
-import static com.qingjing.wallpaper.catalog.AdminContentDtos.WallpaperKind;
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.WallpaperStatus;
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.WallpaperWriteRequest;
 
@@ -82,7 +81,6 @@ public class AdminWallpaperService {
             int page,
             int pageSize,
             WallpaperStatus status,
-            WallpaperKind kind,
             WallpaperAccessType accessType,
             String categoryId,
             String query) {
@@ -102,10 +100,6 @@ public class AdminWallpaperService {
         if (status != null) {
             where.append(" AND w.status = :status");
             parameters.addValue("status", status.name());
-        }
-        if (kind != null) {
-            where.append(" AND w.kind = :kind");
-            parameters.addValue("kind", kind.name());
         }
         if (accessType != null) {
             where.append(" AND w.access_type = :accessType");
@@ -165,18 +159,16 @@ public class AdminWallpaperService {
             throw stateConflict("An archived wallpaper cannot be edited");
         }
         WriteShape shape = validateWrite(request, existing);
-        validateExistingVariantsForKind(wallpaperId, request.kind());
         try {
             int updated = jdbc.update(
                     """
                     UPDATE wallpaper
-                    SET title = ?, slug = ?, kind = ?, access_type = ?, category_id = ?, cover_asset_id = ?,
+                    SET title = ?, slug = ?, access_type = ?, category_id = ?, cover_asset_id = ?,
                         featured_rank = ?, sort_order = ?, copyright_note = ?, lock_version = lock_version + 1
                     WHERE id = ? AND lock_version = ?
                     """,
                     request.title().strip(),
                     request.slug(),
-                    request.kind().name(),
                     accessType(request).name(),
                     shape.selectedCategoryId(),
                     shape.coverAssetId(),
@@ -226,7 +218,7 @@ public class AdminWallpaperService {
         if (wallpaper.status().equals("ARCHIVED")) {
             throw stateConflict("An archived wallpaper cannot receive variants");
         }
-        validateVariantForKind(WallpaperKind.valueOf(wallpaper.kind()), request.platform(), request.resourceType());
+        validateVariantPair(request.platform(), request.resourceType());
         List<String> requestedCapabilities = capabilities(request);
         ensureUniqueStrings(requestedCapabilities, "capabilityRequirements");
         String capabilities = writeJson(requestedCapabilities);
@@ -236,8 +228,8 @@ public class AdminWallpaperService {
                 PreparedStatement statement = connection.prepareStatement(
                         """
                         INSERT INTO wallpaper_variant
-                            (wallpaper_id, platform, resource_type, minimum_os_version, capability_requirements)
-                        VALUES (?, ?, ?, ?, CAST(? AS JSON))
+                            (wallpaper_id, platform, resource_type, minimum_os_version, capability_requirements, enabled)
+                        VALUES (?, ?, ?, ?, CAST(? AS JSON), ?)
                         """,
                         Statement.RETURN_GENERATED_KEYS);
                 statement.setLong(1, wallpaperId);
@@ -245,6 +237,7 @@ public class AdminWallpaperService {
                 statement.setString(3, request.resourceType().name());
                 statement.setString(4, normalizedNullable(request.minimumOsVersion()));
                 statement.setString(5, capabilities);
+                statement.setBoolean(6, request.enabled());
                 return statement;
             }, keyHolder);
             bumpWallpaper(wallpaperId, expectedWallpaperVersion);
@@ -272,13 +265,13 @@ public class AdminWallpaperService {
                 "SELECT COUNT(*) FROM resource_version WHERE variant_id = ?",
                 Long.class,
                 variantId);
-        if (versionCount != null && versionCount > 0) {
-            throw new ApiException(
-                    HttpStatus.CONFLICT,
-                    "RESOURCE_IN_USE",
-                    "A variant with resource history is immutable");
+        validateVariantPair(request.platform(), request.resourceType());
+        if (versionCount != null && versionCount > 0
+                && (!variant.platform().equals(request.platform().name())
+                    || !variant.resourceType().equals(request.resourceType().name()))) {
+            throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_IN_USE",
+                    "A variant with resource history cannot change its platform or resource type");
         }
-        validateVariantForKind(WallpaperKind.valueOf(wallpaper.kind()), request.platform(), request.resourceType());
         List<String> requestedCapabilities = capabilities(request);
         ensureUniqueStrings(requestedCapabilities, "capabilityRequirements");
         try {
@@ -286,13 +279,14 @@ public class AdminWallpaperService {
                     """
                     UPDATE wallpaper_variant
                     SET platform = ?, resource_type = ?, minimum_os_version = ?,
-                        capability_requirements = CAST(? AS JSON), lock_version = lock_version + 1
+                        capability_requirements = CAST(? AS JSON), enabled = ?, lock_version = lock_version + 1
                     WHERE id = ? AND lock_version = ?
                     """,
                     request.platform().name(),
                     request.resourceType().name(),
                     normalizedNullable(request.minimumOsVersion()),
                     writeJson(requestedCapabilities),
+                    request.enabled(),
                     variantId,
                     expectedVersion);
             if (updated == 0) {
@@ -404,6 +398,9 @@ public class AdminWallpaperService {
             if (variant.wallpaperId() != wallpaperId) {
                 throw domainViolation("Every selected resource version must belong to this wallpaper");
             }
+            if (!variant.enabled()) {
+                throw domainViolation("Disabled variants cannot be published");
+            }
             if (!version.status().equals("READY") && !version.status().equals("PUBLISHED")) {
                 throw new ApiException(
                         HttpStatus.UNPROCESSABLE_ENTITY,
@@ -413,8 +410,7 @@ public class AdminWallpaperService {
             if (versionsByVariant.putIfAbsent(variant.id(), version) != null) {
                 throw domainViolation("Only one resource version may be selected for each variant");
             }
-            validateVariantForKind(
-                    WallpaperKind.valueOf(wallpaper.kind()),
+            validateVariantPair(
                     DeliveryPlatform.valueOf(variant.platform()),
                     ResourceType.valueOf(variant.resourceType()));
         }
@@ -605,47 +601,14 @@ public class AdminWallpaperService {
         };
     }
 
-    private void validateExistingVariantsForKind(long wallpaperId, WallpaperKind kind) {
-        List<VariantRow> variants = jdbc.query(
-                """
-                SELECT id, wallpaper_id, platform, resource_type, minimum_os_version,
-                       capability_requirements, lock_version
-                FROM wallpaper_variant WHERE wallpaper_id = ?
-                """,
-                (resultSet, rowNumber) -> new VariantRow(
-                        resultSet.getLong("id"),
-                        resultSet.getLong("wallpaper_id"),
-                        resultSet.getString("platform"),
-                        resultSet.getString("resource_type"),
-                        resultSet.getString("minimum_os_version"),
-                        resultSet.getString("capability_requirements"),
-                        resultSet.getLong("lock_version")),
-                wallpaperId);
-        variants.forEach(variant -> validateVariantForKind(
-                kind,
-                DeliveryPlatform.valueOf(variant.platform()),
-                ResourceType.valueOf(variant.resourceType())));
-    }
-
-    private void validateVariantForKind(WallpaperKind kind, DeliveryPlatform platform, ResourceType resourceType) {
-        if (platform == DeliveryPlatform.UNIVERSAL && resourceType != ResourceType.STATIC_IMAGE) {
-            throw domainViolation("UNIVERSAL is only valid for static image delivery");
-        }
-        boolean accepted = switch (kind) {
-            case PARALLAX_4D -> platform == DeliveryPlatform.ANDROID && resourceType == ResourceType.LAYER_PARALLAX;
-            case STATIC -> platform == DeliveryPlatform.UNIVERSAL && resourceType == ResourceType.STATIC_IMAGE;
-            case DYNAMIC -> resourceType == ResourceType.VIDEO
-                    || resourceType == ResourceType.LIVE_PHOTO
-                    || resourceType == ResourceType.THEME_PACKAGE;
-        };
+    private void validateVariantPair(DeliveryPlatform platform, ResourceType resourceType) {
+        boolean accepted = (platform == DeliveryPlatform.ANDROID
+                && (resourceType == ResourceType.LAYER_PARALLAX || resourceType == ResourceType.VIDEO))
+                || (platform == DeliveryPlatform.IOS && resourceType == ResourceType.LIVE_PHOTO)
+                || (platform == DeliveryPlatform.HARMONYOS && resourceType == ResourceType.THEME_PACKAGE)
+                || (platform == DeliveryPlatform.UNIVERSAL && resourceType == ResourceType.STATIC_IMAGE);
         if (!accepted) {
-            throw domainViolation("The platform and resource type are incompatible with wallpaper kind " + kind);
-        }
-        if (resourceType == ResourceType.LIVE_PHOTO && platform != DeliveryPlatform.IOS) {
-            throw domainViolation("LIVE_PHOTO is only valid for IOS");
-        }
-        if (resourceType == ResourceType.THEME_PACKAGE && platform == DeliveryPlatform.UNIVERSAL) {
-            throw domainViolation("THEME_PACKAGE requires a concrete delivery platform");
+            throw domainViolation("The delivery platform and resource type pair is not supported");
         }
     }
 
@@ -690,24 +653,23 @@ public class AdminWallpaperService {
         PreparedStatement statement = connection.prepareStatement(
                 """
                 INSERT INTO wallpaper
-                    (title, slug, kind, access_type, category_id, cover_asset_id, featured_rank,
+                    (title, slug, access_type, category_id, cover_asset_id, featured_rank,
                      sort_order, copyright_note, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT')
                 """,
                 Statement.RETURN_GENERATED_KEYS);
         statement.setString(1, request.title().strip());
         statement.setString(2, request.slug());
-        statement.setString(3, request.kind().name());
-        statement.setString(4, accessType(request).name());
-        statement.setLong(5, shape.selectedCategoryId());
-        statement.setLong(6, shape.coverAssetId());
+        statement.setString(3, accessType(request).name());
+        statement.setLong(4, shape.selectedCategoryId());
+        statement.setLong(5, shape.coverAssetId());
         if (request.featuredRank() == null) {
-            statement.setNull(7, java.sql.Types.INTEGER);
+            statement.setNull(6, java.sql.Types.INTEGER);
         } else {
-            statement.setInt(7, request.featuredRank());
+            statement.setInt(6, request.featuredRank());
         }
-        statement.setInt(8, request.sortOrder());
-        statement.setString(9, request.copyrightNote().strip());
+        statement.setInt(7, request.sortOrder());
+        statement.setString(8, request.copyrightNote().strip());
         return statement;
     }
 

@@ -1,12 +1,12 @@
 # DB-001 MySQL 数据库设计
 
-**状态：** 已确认  
-**版本：** V1.8.0
+**状态：** 已确认
+**版本：** V2.0.0
 
-**日期：** 2026-09-16
-**数据库：** MySQL 8.4 LTS  
-**关联领域：** [DM-001 统一领域模型](DM-001-统一领域模型.md)  
-**适用阶段：** WP-P02 至 WP-P12
+**日期：** 2026-09-17
+**数据库：** MySQL 8.4 LTS
+**关联领域：** [DM-001 统一领域模型](DM-001-统一领域模型.md)
+**适用阶段：** WP-P02 至 WP-UI13
 
 ## 1. 设计结论
 
@@ -80,6 +80,7 @@ erDiagram
     asset ||--o{ wallpaper_setting_tutorial : tutorial_video
 
     anonymous_device ||--o{ device_credential : authenticates_with
+    anonymous_device ||--o| device_capability_profile : reports
     code_batch ||--|{ redemption_code : generates
     anonymous_device ||--o{ device_entitlement : owns
     wallpaper ||--o{ device_entitlement : grants
@@ -109,6 +110,7 @@ erDiagram
 | `wallpaper_setting_tutorial` | tutorial | 固定配置 | 不删除；通过停用或替换视频变更 |
 | `anonymous_device` | device | 安全主数据 | 不删除，可内部禁用 |
 | `device_credential` | device | 安全凭据 | 撤销，不删除 |
+| `device_capability_profile` | device | 最新设备能力事实 | 与设备一对一；设备删除时级联 |
 | `code_batch` | redemption | 业务事实 | 不删除 |
 | `redemption_code` | redemption | 额度事实 | 不删除 |
 | `device_entitlement` | entitlement | 权益事实 | 撤销，不删除 |
@@ -181,7 +183,6 @@ erDiagram
 | `id` | `BIGINT` | 否 | PK |
 | `title` | `VARCHAR(40)` | 否 | 作品名称 |
 | `slug` | `VARCHAR(64)` | 否 | 全局唯一，不复用 |
-| `kind` | `VARCHAR(20)` | 否 | `PARALLAX_4D/DYNAMIC/STATIC` |
 | `access_type` | `VARCHAR(16)` | 否 | `REDEEM/FREE`，默认 `REDEEM` |
 | `category_id` | `BIGINT` | 否 | FK，最深选中的分类节点 |
 | `cover_asset_id` | `BIGINT` | 否 | FK，必须是 READY 图片资源 |
@@ -193,7 +194,7 @@ erDiagram
 | `archived_at` | `DATETIME(6)` | 是 | 归档时间 |
 | `lock_version` | `BIGINT` | 否 | 乐观锁 |
 
-发布前服务必须确认分类未软删除、封面 READY、至少一个平台变体存在 PUBLISHED 资源版本。`access_type` 是作品级获取方式，不属于分类、变体或资源版本；修改它不创建新资源版本，也不改写历史权益。归档壁纸从公开查询移除，但仍可被历史权益和事件引用。
+发布前服务必须确认分类未软删除、封面 READY、至少一个启用的平台变体存在 PUBLISHED 资源版本。`access_type` 是作品级获取方式，不属于分类、变体或资源版本；修改它不创建新资源版本，也不改写历史权益。归档壁纸从公开查询移除，但仍可被历史权益和事件引用。
 
 搜索首版对 `title` 和受控关键词使用 `LIKE`，只扫描 `PUBLISHED` 小数据集并限制 `pageSize`。达到 1 万条内容或出现慢查询后，再通过新迁移增加 ngram FULLTEXT 或独立搜索 Adapter，避免在没有查询证据时提前引入搜索基础设施。
 
@@ -207,9 +208,10 @@ erDiagram
 | `resource_type` | `VARCHAR(24)` | 否 | `LAYER_PARALLAX/VIDEO/LIVE_PHOTO/STATIC_IMAGE/THEME_PACKAGE` |
 | `minimum_os_version` | `VARCHAR(32)` | 是 | 平台版本约束，保持原始规范形式 |
 | `capability_requirements` | `JSON` | 否 | 受控能力字符串数组；服务端按 OpenAPI 枚举校验，不作为任意扩展字段 |
+| `enabled` | `BOOLEAN` | 否 | V9 新增；控制该能力是否参与发布、目录和下载匹配 |
 | `lock_version` | `BIGINT` | 否 | 乐观锁 |
 
-唯一约束为 `(wallpaper_id, platform, resource_type)`。数据库 CHECK 要求 `capability_requirements` 为 JSON 数组；服务校验数组成员和允许的组合，例如 `PARALLAX_4D + ANDROID + LAYER_PARALLAX`。业务查询不依赖 JSON 内字段，兼容性由读取变体后在应用层计算。
+唯一约束为 `(wallpaper_id, platform, resource_type)`。数据库 CHECK 要求 `capability_requirements` 为 JSON 数组；服务只允许 `ANDROID/LAYER_PARALLAX`、`ANDROID/VIDEO`、`IOS/LIVE_PHOTO`、`HARMONYOS/THEME_PACKAGE`、`UNIVERSAL/STATIC_IMAGE` 五种精确组合。目录只读取已启用且已有 PUBLISHED 版本的变体。
 
 ### 5.6 `resource_version`
 
@@ -244,14 +246,14 @@ erDiagram
 |---|---|---|---|
 | `id` | `BIGINT` | 否 | PK，内部关联使用 |
 | `public_id` | `CHAR(36)` | 否 | 唯一、不透明 UUID，不在“我的”页面展示 |
-| `platform` | `VARCHAR(16)` | 否 | `ANDROID/IOS/HARMONYOS/H5_TEST` |
+| `platform` | `VARCHAR(16)` | 否 | 正式客户端为 `ANDROID/IOS/HARMONYOS` |
 | `app_install_scope` | `VARCHAR(64)` | 否 | 区分签名、渠道或测试 Provider 范围 |
 | `evidence_hash` | `CHAR(64)` | 否 | 设备证据 keyed hash，不保存原值 |
 | `status` | `VARCHAR(16)` | 否 | 内部安全状态 `ACTIVE/REVIEW/DISABLED` |
 | `last_seen_at` | `DATETIME(6)` | 否 | 最近成功会话时间 |
 | `lock_version` | `BIGINT` | 否 | 凭据轮换和内部状态变更 |
 
-唯一约束 `(platform, app_install_scope, evidence_hash)` 用于同一已验证证据关联；Android 仅限同安装公钥，不是卸载后的物理设备自动关联。H5 测试证据和正式 App 证据使用不同 `app_install_scope`，禁止把测试设备升级为生产设备。
+唯一约束 `(platform, app_install_scope, evidence_hash)` 用于同一已验证证据关联；Android 仅限同安装公钥，不是卸载后的物理设备自动关联。
 
 ### 5.9 `device_credential`
 
@@ -260,13 +262,33 @@ erDiagram
 | `id` | `BIGINT` | 否 | PK |
 | `device_id` | `BIGINT` | 否 | FK |
 | `credential_key_id` | `CHAR(36)` | 否 | 唯一，客户端选择凭据时使用 |
-| `credential_type` | `VARCHAR(24)` | 否 | `PLATFORM_PUBLIC_KEY/H5_TEST_SECRET` |
+| `credential_type` | `VARCHAR(24)` | 否 | 正式客户端使用 `PLATFORM_PUBLIC_KEY` |
 | `public_key_pem` | `TEXT` | 是 | 正式 App 安装公钥 |
-| `secret_hash` | `CHAR(64)` | 是 | H5 测试凭据摘要，不保存明文 |
+| `secret_hash` | `CHAR(64)` | 是 | 历史停用 Provider 保留列；正式客户端为空 |
 | `status` | `VARCHAR(16)` | 否 | `ACTIVE/REVOKED` |
 | `last_used_at` / `revoked_at` | `DATETIME(6)` | 是 | 使用与撤销时间 |
 
-`CHECK` 要求两种凭据只填写对应字段。增加生成列 `active_slot` 和唯一索引 `(device_id, credential_type, active_slot)`，确保每种凭据类型至多一个 ACTIVE 凭据。
+`CHECK` 保证凭据类型与公钥/摘要字段形状一致。增加生成列 `active_slot` 和唯一索引 `(device_id, credential_type, active_slot)`，确保每种凭据类型至多一个 ACTIVE 凭据。
+
+### 5.9.1 `device_capability_profile`
+
+| 字段 | 类型 | 空值 | 约束/说明 |
+|---|---|---|---|
+| `device_id` | `BIGINT` | 否 | PK/FK 到 `anonymous_device`，一台设备一份最新档案 |
+| `host_os_family` | `VARCHAR(24)` | 否 | `ANDROID/EMUI/HARMONY_CLASSIC/HARMONY_NATIVE/IOS` |
+| `host_os_version` | `VARCHAR(32)` | 否 | 宿主系统版本原文 |
+| `sdk_int` | `INT` | 是 | Android SDK；1～10000 |
+| `manufacturer` / `model` | `VARCHAR(64/96)` | 否 | 兼容性排查，不单独授予能力 |
+| `execution_mode` | `VARCHAR(24)` | 否 | `NATIVE/ANDROID_COMPATIBLE/ANDROID_CONTAINER` |
+| `probe_version` | `INT` | 否 | App 能力探测算法版本 |
+| `feature_flags` | `JSON` | 否 | 已规范化的稳定功能标记数组 |
+| `reported_capabilities` | `JSON` | 否 | App 原始能力数组 |
+| `effective_capabilities` | `JSON` | 否 | 服务端规则过滤后的有效能力数组 |
+| `profile_hash` | `CHAR(64)` | 否 | 规范档案 SHA-256，用于变更和缓存隔离 |
+| `probed_at` / `last_verified_at` | `DATETIME(6)` | 否/是 | 最近探测及真实设置验证时间 |
+| `lock_version` | `BIGINT` | 否 | 每次覆盖上报递增 |
+
+三个 JSON 字段均由 CHECK 约束为数组。服务端读取 `effective_capabilities` 作为目录和票据授权输入；Redis 只能按 `profile_hash` 缓存查询结果，不能反向覆盖 MySQL。
 
 ### 5.10 `code_batch`
 
@@ -400,7 +422,8 @@ erDiagram
 | 额度不超发 | CHECK + 行锁/条件 UPDATE | 权益、额度和事件同事务 |
 | 同一意图只执行一次 | UNIQUE(device_id, idempotency_key) | 同键异参冲突，同键同参复用结果 |
 | 码无明文 | 只有 code_hash 和 suffix 字段 | 日志脱敏、一次性交付文件短时保存 |
-| 平台变体不重复 | UNIQUE(wallpaper_id, platform, resource_type) | 校验 kind 与组合规则 |
+| 平台变体不重复 | UNIQUE(wallpaper_id, platform, resource_type) | 校验五种精确组合及 enabled |
+| 设备能力一对一且结构有效 | device_id PK/FK、JSON/CHECK、hash CHECK | 校验宿主、运行模式、组合、位置、版本与探测时间 |
 | 单变体最多一个发布版本 | 生成列唯一索引 | 退役旧版并发布新版的单事务 |
 | 资源路径不可穿越 | storage_key 唯一、数据库不存绝对路径 | FileStorage 规范化、根目录边界检查 |
 | 教程槽位固定且启用时有视频 | key CHECK，enabled/video 条件 CHECK | 只绑定 READY 的 TUTORIAL_VIDEO MP4，If-Match 防覆盖 |
@@ -414,11 +437,12 @@ erDiagram
 | `category(parent_id, deleted_at, sort_order, id)` | 一级/二级分类按顺序展示 |
 | `wallpaper(status, featured_rank, sort_order, id)` | 首页推荐和默认列表 |
 | `wallpaper(category_id, status, sort_order, id)` | 二级分类或指定节点列表 |
-| `wallpaper(status, kind, updated_at, id)` | 管理端按类型和状态筛选 |
 | `wallpaper(status, access_type, sort_order, id)` | 公开免费/需兑换列表 |
 | `wallpaper(updated_at, id)` | 管理端默认倒序分页 |
 | `asset(sha256)` | 上传重复检测和排障 |
-| `wallpaper_variant(wallpaper_id, platform)` | 按设备平台选择变体 |
+| `wallpaper_variant(wallpaper_id, platform)` | 按商品能力选择变体 |
+| `device_capability_profile(profile_hash)` | 能力档案变化与目录缓存隔离 |
+| `device_capability_profile(updated_at, device_id)` | 过期能力档案巡检 |
 | `resource_version(variant_id, status, version_no)` | 当前发布版本和版本历史 |
 | `device_entitlement(device_id, status, granted_at, id)` | “我的壁纸”游标分页 |
 | `redemption_code(batch_id, id)` | 批次明细与汇总 |
@@ -490,7 +514,7 @@ CodeBatch、RedemptionCode、RedemptionEvent 和 AuditEvent 是额度或审计�
 | 设备会话/挑战随机数 | Redis | 重新认证设备 |
 | 登录、兑换、下载限流 | Redis | 重建计数并记录监控事件 |
 | 下载票据 | Redis | 重新申请票据 |
-| 公开目录缓存 | Redis | 从 MySQL 回源 |
+| 设备个性化目录缓存 | Redis | 按 `profile_hash` 从 MySQL 回源 |
 | 兑换幂等最终结果 | MySQL | 不丢失，可重查 |
 | 权益、额度、发布状态 | MySQL | Redis 不得覆盖或独立修改 |
 
@@ -527,8 +551,8 @@ Flyway 迁移在 WP-P04 创建，空库按照以下依赖顺序建表：
 WP-P04 将使用空库迁移和集成测试验证以下查询：
 
 1. 按父节点返回未删除分类，排序稳定。
-2. 按推荐、一级分类、二级分类、类型和关键词分页查询已发布壁纸。
-3. 为指定平台选择唯一已发布资源版本及完整绑定。
+2. 按推荐、一级分类、二级分类、获取方式和关键词分页查询当前设备可见壁纸。
+3. 以设备有效能力与已发布变体交集选择精确资源版本及完整绑定。
 4. 按匿名设备分页查询有效权益，并关联仍可展示的作品摘要。
 5. 根据码 HMAC 唯一定位额度行，不通过尾号核销。
 6. 在 20 个并发请求争抢最后额度时，最终 `used_quota` 不超过 `total_quota`。
@@ -563,7 +587,7 @@ WP-P04 将使用空库迁移和集成测试验证以下查询：
 
 WP-A03 按 [SEC-002](../05-安全与合规/SEC-002-Android安装身份协议.md) 使用 Keystore RSA 2048 安装公钥持钥证明，挑战新增 RSA_SHA256。注册证据为签名时间/nonce/proof，同密钥新证明恢复同一 ACTIVE credential，禁用/撤销拒绝；不证明物理设备唯一性或 APK 来源。清数据/卸载丢失密钥后无自动权益迁移。Android evidence_hash 为 HMAC(scope + 公钥 DER 指纹)，公钥写入已有 public_key_pem，secret_hash 为空。
 
-数据库结构无变化，Flyway V1 字节保持；不创建无必要 V2。H5 HMAC 流程兼容，消费者枚举兼容新增算法但 H5 仍拒绝非 HMAC。历史 1.0.1 快照保留，当前 1.1.0 审核快照记录本次字段语义与 DTO 变更，验收结果见 WP-A03。
+数据库结构无变化，Flyway V1 字节保持；不创建无必要 V2。历史 1.0.1 快照保留，当前 1.1.0 审核快照记录本次字段语义与 DTO 变更，验收结果见 WP-A03。
 
 ## 1.2.0 / Flyway V2 安全资源交付
 
@@ -593,3 +617,14 @@ V1/V2/V3 原字节保留。`V4__wallpaper_setting_tutorial.sql` 给 `asset` 增�
 ## 1.8.0 / Flyway V8 免费壁纸获取方式
 
 V1～V7 原字节保留。`V8__wallpaper_access_type.sql` 为 `wallpaper` 增加非空 `access_type`，默认与旧行回填为 `REDEEM`，CHECK 只允许 `REDEEM/FREE`；增加公开获取方式索引，并把 `WALLPAPER_FREE` 加入 `redemption_event.result` 约束。不新增权益、兑换码或免费记录表。
+
+## 2.0.0 / Flyway V9 设备能力与单商品多形式
+
+V1～V8 原字节保留。`V9__device_capabilities_and_multi_format_wallpapers.sql`：
+
+1. 新增 `device_capability_profile`，通过 `device_id` 与匿名设备一对一，保存原始上报、服务端有效能力、宿主环境和档案 hash；
+2. 为 `wallpaper_variant` 增加非空 `enabled`，旧行默认 `TRUE`；
+3. 删除 `wallpaper.kind`、对应 CHECK 和类型索引，使商品能力完全由多个变体表达；
+4. 不迁移测试作品的互斥类型语义，不修改 V1～V8。
+
+空库 V1→V9 和既有库 V1→V9 均使用 MySQL 8.4 Testcontainers 验证；设备、凭据和既有权益结构保持。

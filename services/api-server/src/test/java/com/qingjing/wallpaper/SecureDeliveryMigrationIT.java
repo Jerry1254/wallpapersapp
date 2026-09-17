@@ -64,9 +64,9 @@ class SecureDeliveryMigrationIT {
                         FROM parallax_source_package p JOIN asset a ON a.storage_key='legacy-object-4'
                         """);
             }
-            var throughV8=Flyway.configure().dataSource(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword())
+            var throughV9=Flyway.configure().dataSource(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword())
                     .locations("classpath:db/migration").load().migrate();
-            assertThat(throughV8.migrationsExecuted).isEqualTo(3);
+            assertThat(throughV9.migrationsExecuted).isEqualTo(4);
             try(var connection=DriverManager.getConnection(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword());
                 var query=connection.createStatement()) {
                 try (var result=query.executeQuery("SELECT COUNT(*) FROM preview_resource_package")) {

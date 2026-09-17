@@ -49,7 +49,6 @@ public final class AdminContentDtos {
             @NotBlank @Size(max = 40) String title,
             @NotBlank @Size(min = 2, max = 64)
                     @Pattern(regexp = "[a-z0-9]+(?:-[a-z0-9]+)*") String slug,
-            @NotNull WallpaperKind kind,
             @NotNull WallpaperAccessType accessType,
             @NotBlank @Pattern(regexp = "[1-9][0-9]*") String rootCategoryId,
             @Pattern(regexp = "[1-9][0-9]*") String childCategoryId,
@@ -63,7 +62,8 @@ public final class AdminContentDtos {
             @NotNull DeliveryPlatform platform,
             @NotNull ResourceType resourceType,
             @Size(max = 32) String minimumOsVersion,
-            @Size(max = 20) List<@NotBlank @Size(max = 64) String> capabilityRequirements) {
+            @Size(max = 20) List<@NotBlank @Size(max = 64) String> capabilityRequirements,
+            @NotNull Boolean enabled) {
     }
 
     public record CreateResourceBindingRequest(
@@ -102,7 +102,6 @@ public final class AdminContentDtos {
             String id,
             String title,
             String slug,
-            WallpaperKind kind,
             WallpaperAccessType accessType,
             CategorySummary rootCategory,
             CategorySummary childCategory,
@@ -122,7 +121,6 @@ public final class AdminContentDtos {
             String id,
             String title,
             String slug,
-            WallpaperKind kind,
             WallpaperAccessType accessType,
             CategorySummary rootCategory,
             CategorySummary childCategory,
@@ -149,6 +147,7 @@ public final class AdminContentDtos {
             ResourceType resourceType,
             String minimumOsVersion,
             List<String> capabilityRequirements,
+            boolean enabled,
             List<AdminResourceVersion> resourceVersions,
             long version) {
     }
@@ -172,12 +171,6 @@ public final class AdminContentDtos {
     }
 
     public record AdminResourceBinding(String id, AssetRole role, int ordinal, AdminAssetView asset) {
-    }
-
-    public enum WallpaperKind {
-        PARALLAX_4D,
-        DYNAMIC,
-        STATIC
     }
 
     public enum WallpaperStatus {

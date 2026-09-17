@@ -6,7 +6,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import WallpaperEditorDrawer from '@/components/WallpaperEditorDrawer.vue';
-import { platformLabels, statusLabels, wallpaperKindLabels, type Category, type Platform, type ResourceFile, type Wallpaper, type WallpaperAccessType, type WallpaperKind } from '@/domain/admin';
+import { statusLabels, wallpaperCapabilityLabels, type Category, type ResourceFile, type Wallpaper, type WallpaperAccessType, type WallpaperCapability } from '@/domain/admin';
 import { readableApiError } from '@/repositories/http/apiClient';
 import { adminRepository, WallpaperSaveError } from '@/repositories/http/adminRepository';
 
@@ -15,7 +15,7 @@ const router = useRouter();
 const loading = ref(true);
 const loadError = ref('');
 const keywords = ref('');
-const kind = ref<WallpaperKind | ''>('');
+const capability = ref<WallpaperCapability | ''>('');
 const status = ref<Wallpaper['status'] | ''>('');
 const accessType = ref<WallpaperAccessType | ''>('');
 const categories = ref<Category[]>([]);
@@ -29,7 +29,7 @@ const categoryMap = computed(() => Object.fromEntries(categories.value.map((item
 const filtered = computed(() => wallpapers.value.filter((item) => {
   const keyword = keywords.value.trim().toLowerCase();
   return (!keyword || item.title.toLowerCase().includes(keyword) || (categoryMap.value[item.subcategoryId] || '').toLowerCase().includes(keyword))
-    && (!kind.value || item.kind === kind.value)
+    && (!capability.value || item.capabilities.includes(capability.value))
     && (!status.value || item.status === status.value);
 }));
 
@@ -102,14 +102,14 @@ const remove = async (value: Wallpaper) => {
 };
 
 const requiredResources = (value: Wallpaper) => {
-  if (value.kind === 'four_d') return [value.resources.parallaxPackage || (value.variants.some((variant) =>
-    variant.resourceType === 'LAYER_PARALLAX' && variant.resourceVersions.some((version) =>
-      ['READY', 'PUBLISHED'].includes(version.status))) ? '现有 4D 资源' : undefined)];
-  if (value.kind === 'static') return [value.resources.staticImage];
-  const result: (ResourceFile | string | undefined)[] = [value.resources.staticImage];
-  if (value.platforms.includes('android')) result.push(value.resources.androidVideo);
-  if (value.platforms.includes('ios')) result.push(value.resources.iosMov, value.resources.iosPhoto);
-  if (value.platforms.includes('harmony')) result.push(value.resources.harmonyPackage);
+  const result: (ResourceFile | string | undefined)[] = [];
+  const existing = (type: string) => value.variants.some((variant) => variant.resourceType === type
+    && variant.resourceVersions.some((version) => ['READY', 'PUBLISHED'].includes(version.status)));
+  if (value.capabilities.includes('android_parallax')) result.push(value.resources.parallaxPackage || (existing('LAYER_PARALLAX') ? '现有 4D 资源' : undefined));
+  if (value.capabilities.includes('android_video')) result.push(value.resources.androidVideo || (existing('VIDEO') ? '现有 Android 视频' : undefined));
+  if (value.capabilities.includes('ios_live_photo')) result.push(value.resources.iosMov || (existing('LIVE_PHOTO') ? '现有 iOS 视频' : undefined), value.resources.iosPhoto || (existing('LIVE_PHOTO') ? '现有 iOS 照片' : undefined));
+  if (value.capabilities.includes('harmony_theme')) result.push(value.resources.harmonyPackage || (existing('THEME_PACKAGE') ? '现有鸿蒙资源' : undefined));
+  if (value.capabilities.includes('universal_static')) result.push(value.resources.staticImage || (existing('STATIC_IMAGE') ? '现有静态原图' : undefined));
   return result;
 };
 const resourceSummary = (value: Wallpaper) => {
@@ -118,8 +118,7 @@ const resourceSummary = (value: Wallpaper) => {
 };
 const statusLabel = (value: Wallpaper['status']) => statusLabels[value];
 const statusType = (value: Wallpaper['status']) => ({ draft: 'info', published: 'success', offline: 'warning', archived: 'info' }[value] as 'info' | 'success' | 'warning');
-const kindLabel = (value: WallpaperKind) => wallpaperKindLabels[value];
-const platformLabel = (value: Platform) => platformLabels[value];
+const capabilityLabel = (value: WallpaperCapability) => wallpaperCapabilityLabels[value];
 const hasResourceHistory = (value: Wallpaper) => value.variants.some((variant) => variant.resourceVersions.length > 0);
 const removeIsArchive = (value: Wallpaper) => value.status === 'offline' || hasResourceHistory(value);
 
@@ -135,7 +134,7 @@ onMounted(load);
 <template>
   <section class="page-shell">
     <header class="page-heading">
-      <div><h1>壁纸管理</h1><p>上传、检查并发布 4D 分层、动态和静态壁纸。</p></div>
+      <div><h1>壁纸管理</h1><p>一个商品可独立组合 Android 4D、Android 动态、iOS 实况、鸿蒙动态和全平台静态。</p></div>
       <div class="page-actions"><ElButton type="primary" :icon="Plus" @click="create">上传壁纸</ElButton></div>
     </header>
     <AdminLoadNotice :error="loadError" :loading="loading" @retry="load" />
@@ -143,8 +142,8 @@ onMounted(load);
     <section class="surface toolbar">
       <div class="toolbar__filters">
         <ElInput v-model="keywords" :prefix-icon="Search" clearable placeholder="搜索名称或二级分类" style="width: 250px" />
-        <ElSelect v-model="kind" clearable placeholder="全部类型" style="width: 145px">
-          <ElOption v-for="(label, value) in wallpaperKindLabels" :key="value" :label="label" :value="value" />
+        <ElSelect v-model="capability" clearable placeholder="全部设置能力" style="width: 160px">
+          <ElOption v-for="(label, value) in wallpaperCapabilityLabels" :key="value" :label="label" :value="value" />
         </ElSelect>
         <ElSelect v-model="status" clearable placeholder="全部状态" style="width: 130px">
           <ElOption label="草稿" value="draft" /><ElOption label="已发布" value="published" /><ElOption label="已下架" value="offline" /><ElOption label="已归档" value="archived" />
@@ -167,7 +166,6 @@ onMounted(load);
           </template>
         </ElTableColumn>
         <ElTableColumn label="分类" min-width="120"><template #default="{ row }"><strong>{{ categoryMap[row.categoryId] || '未分类' }}</strong><br><small style="color:#817d77">{{ categoryMap[row.subcategoryId] || '—' }}</small></template></ElTableColumn>
-        <ElTableColumn label="类型" width="110"><template #default="{ row }"><ElTag effect="plain">{{ kindLabel(row.kind) }}</ElTag></template></ElTableColumn>
         <ElTableColumn label="获取方式" width="105"><template #default="{ row }"><ElTag :type="row.accessType === 'FREE' ? 'success' : 'info'" effect="plain">{{ row.accessType === 'FREE' ? '免费' : '需兑换' }}</ElTag></template></ElTableColumn>
         <ElTableColumn label="状态" width="95"><template #default="{ row }"><ElTag :type="statusType(row.status)">{{ statusLabel(row.status) }}</ElTag></template></ElTableColumn>
         <ElTableColumn label="资源" min-width="125">
@@ -175,8 +173,8 @@ onMounted(load);
             <div class="resource-status"><strong :class="resourceSummary(row).ready === resourceSummary(row).total ? 'success-text' : 'warning-text'">{{ resourceSummary(row).ready }}/{{ resourceSummary(row).total }} 已就绪</strong><small>{{ resourceSummary(row).ready === resourceSummary(row).total ? '可发布' : '需要补充资源' }}</small></div>
           </template>
         </ElTableColumn>
-        <ElTableColumn label="适用平台" min-width="145">
-          <template #default="{ row }"><div class="platform-stack"><ElTag v-for="platform in row.platforms" :key="platform" size="small" type="info" effect="plain">{{ platformLabel(platform) }}</ElTag></div></template>
+        <ElTableColumn label="设置能力" min-width="250">
+          <template #default="{ row }"><div class="platform-stack"><ElTag v-for="item in row.capabilities" :key="item" size="small" type="info" effect="plain">{{ capabilityLabel(item) }}</ElTag></div></template>
         </ElTableColumn>
         <ElTableColumn prop="updatedAt" label="更新时间" min-width="140" />
         <ElTableColumn label="操作" width="205" fixed="right">

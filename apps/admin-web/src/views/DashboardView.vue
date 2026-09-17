@@ -4,7 +4,7 @@ import { CollectionTag, Key, Picture, Promotion, TrendCharts } from '@element-pl
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
-import { statusLabels, wallpaperKindLabels, type AdminDashboard, type Category, type Wallpaper } from '@/domain/admin';
+import { statusLabels, wallpaperCapabilityLabels, type AdminDashboard, type Category, type Wallpaper } from '@/domain/admin';
 import { readableApiError } from '@/repositories/http/apiClient';
 import { adminRepository } from '@/repositories/http/adminRepository';
 
@@ -45,7 +45,8 @@ const load = async () => {
 
 const statusLabel = (value: Wallpaper['status']) => statusLabels[value];
 const statusType = (value: Wallpaper['status']) => ({ draft: 'info', published: 'success', offline: 'warning', archived: 'info' }[value] as 'info' | 'success' | 'warning');
-const kindLabel = (value: Wallpaper['kind']) => wallpaperKindLabels[value];
+const capabilitySummary = (value: Wallpaper) => value.capabilities
+  .map((item) => wallpaperCapabilityLabels[item]).join(' / ') || '未配置能力';
 const dataCategoryName = (id: string) => categories.value.find((item) => item.id === id)?.name || '—';
 
 onMounted(load);
@@ -83,7 +84,7 @@ onMounted(load);
             <template #default="{ row }">
               <div class="wallpaper-cell">
                 <img class="wallpaper-thumb" :src="row.coverUrl" :alt="row.title" />
-                <div class="wallpaper-cell__text"><strong>{{ row.title }}</strong><small>{{ kindLabel(row.kind) }}</small></div>
+                <div class="wallpaper-cell__text"><strong>{{ row.title }}</strong><small>{{ capabilitySummary(row) }}</small></div>
               </div>
             </template>
           </ElTableColumn>
@@ -100,7 +101,7 @@ onMounted(load);
           <header class="panel-heading"><div><h2>快速操作</h2><p>常用内容管理入口</p></div></header>
           <div class="quick-actions">
             <button class="quick-action" type="button" @click="router.push({ path: '/wallpapers', query: { create: '1' } })">
-              <span><ElIcon><Picture /></ElIcon></span><div><strong>上传新壁纸</strong><small>选择类型并上传对应平台资源</small></div><ElIcon><Promotion /></ElIcon>
+              <span><ElIcon><Picture /></ElIcon></span><div><strong>上传新壁纸</strong><small>勾选设置能力并上传对应资源</small></div><ElIcon><Promotion /></ElIcon>
             </button>
             <button class="quick-action" type="button" @click="router.push('/categories')">
               <span><ElIcon><CollectionTag /></ElIcon></span><div><strong>维护分类</strong><small>管理首页一级分类与排序</small></div><ElIcon><Promotion /></ElIcon>
@@ -111,11 +112,11 @@ onMounted(load);
           </div>
         </section>
         <section class="surface">
-          <header class="panel-heading"><div><h2>上传规则</h2><p>三种壁纸的资源组合</p></div></header>
+          <header class="panel-heading"><div><h2>上传规则</h2><p>五种设置能力可独立组合</p></div></header>
           <div class="kind-guide">
-            <article class="kind-guide__item"><header><strong>4D 分层</strong><ElTag size="small">Android</ElTag></header><p>在 Web 模拟器完成效果配置并导出完整 ZIP，后台负责校验、保存和发布。</p></article>
-            <article class="kind-guide__item"><header><strong>动态壁纸</strong><ElTag size="small" type="warning">多平台</ElTag></header><p>Android 上传 MP4；iOS 上传 MOV 与 JPEG；鸿蒙上传资源包。</p></article>
-            <article class="kind-guide__item"><header><strong>静态壁纸</strong><ElTag size="small" type="info">全平台</ElTag></header><p>封面 + 一张高清原图，客户端负责安全裁切。</p></article>
+            <article class="kind-guide__item"><header><strong>Android</strong><ElTag size="small">4D / 动态</ElTag></header><p>4D 上传模拟器导出的完整 ZIP；动态上传 MP4。两项能力可同时发布。</p></article>
+            <article class="kind-guide__item"><header><strong>iOS / HarmonyOS</strong><ElTag size="small" type="warning">平台原生</ElTag></header><p>iOS 上传 MOV 与 JPEG；鸿蒙上传主题资源包。</p></article>
+            <article class="kind-guide__item"><header><strong>全平台静态</strong><ElTag size="small" type="info">独立能力</ElTag></header><p>只有勾选并上传高清原图后，商品才具备静态设置能力。</p></article>
           </div>
         </section>
       </div>

@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.qingjing.wallpaper.delivery.DeviceDownloadController;
 import com.qingjing.wallpaper.delivery.DevicePreviewController;
+import com.qingjing.wallpaper.delivery.InstallationEncryptionKeyController;
 import com.qingjing.wallpaper.device.DeviceIdentityController;
+import com.qingjing.wallpaper.device.DeviceCapabilityController;
 import com.qingjing.wallpaper.redemption.AdminCodeBatchController;
 import com.qingjing.wallpaper.redemption.AdminRedemptionQueryController;
 import com.qingjing.wallpaper.redemption.DeviceRedemptionController;
@@ -30,14 +32,16 @@ class RedemptionOpenApiCoverageTest {
         Set<String> contractOperations = contractOperations();
         Set<String> controllerOperations = controllerOperations(List.of(
                 DeviceIdentityController.class,
+                DeviceCapabilityController.class,
                 DeviceRedemptionController.class,
                 DeviceDownloadController.class,
                 DevicePreviewController.class,
+                InstallationEncryptionKeyController.class,
                 AdminCodeBatchController.class,
                 AdminRedemptionQueryController.class));
 
         assertThat(controllerOperations).containsExactlyInAnyOrderElementsOf(contractOperations);
-        assertThat(contractOperations).hasSize(20);
+        assertThat(contractOperations).hasSize(23);
     }
 
     @SuppressWarnings("unchecked")
@@ -57,7 +61,7 @@ class RedemptionOpenApiCoverageTest {
                 return;
             }
             item.keySet().stream()
-                    .filter(method -> Set.of("get", "post", "patch", "delete").contains(method))
+                    .filter(method -> Set.of("get", "post", "put", "patch", "delete").contains(method))
                     .forEach(method -> operations.add(method.toUpperCase() + " /api/v1" + path));
         });
         return operations;

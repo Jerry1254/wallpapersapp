@@ -13,6 +13,7 @@ const expectedOperations = {
   '/device/registrations': ['post'],
   '/device/session-challenges': ['post'],
   '/device/sessions': ['post'],
+  '/device/me/capabilities': ['get', 'put'],
   '/device/me/entitlements': ['get'],
   '/device/encryption-key': ['put'],
   '/device/redemptions': ['post'],
@@ -100,6 +101,7 @@ for (const [path, method] of [
 }
 
 const sensitiveDeviceOperations = [
+  document.paths['/device/me/capabilities'].put,
   document.paths['/device/encryption-key'].put,
   document.paths['/device/redemptions'].post,
   document.paths['/device/wallpapers/{wallpaperId}/download-tickets'].post,
@@ -136,14 +138,10 @@ assert.ok(
   !document.components.schemas.AdminRedemptionCode.properties.code,
   'admin code history must never expose a complete redemption code'
 );
-assert.ok(
-  document.components.schemas.DownloadDescriptor.properties.deliveryMode.enum.includes('H5_PLACEHOLDER'),
-  'download contract must retain the H5 placeholder mode'
-);
-assert.ok(
-  document.components.schemas.DownloadDescriptor.properties.deliveryMode.enum.includes('SECURE_PACKAGE'),
-  'download contract must retain the future App secure package mode'
-);
+assert.deepEqual(document.components.schemas.DownloadDescriptor.properties.deliveryMode.enum, ['SECURE_PACKAGE']);
+assert.ok(!document.components.schemas.PublicWallpaperSummary.properties.kind, 'wallpaper kind must not remain exclusive');
+assert.ok(document.components.schemas.PublicWallpaperSummary.properties.availableCapabilities);
+assert.ok(document.components.schemas.DeviceCapabilityReportRequest);
 assert.deepEqual(document.components.schemas.PreviewDescriptor.properties.purpose.enum, ['APP_PREVIEW']);
 assert.deepEqual(document.components.schemas.PreviewDescriptor.properties.durationSeconds.enum, [120]);
 assert.deepEqual(document.components.schemas.PreviewPackageMetadata.properties.formatVersion.enum, [3]);

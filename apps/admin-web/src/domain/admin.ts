@@ -1,9 +1,8 @@
-export type WallpaperKind = 'four_d' | 'dynamic' | 'static';
 export type WallpaperAccessType = 'REDEEM' | 'FREE';
 export type PublishStatus = 'draft' | 'published' | 'offline' | 'archived';
-export type Platform = 'android' | 'ios' | 'harmony';
 export type ApiPlatform = 'ANDROID' | 'IOS' | 'HARMONYOS' | 'UNIVERSAL';
 export type ResourceType = 'LAYER_PARALLAX' | 'VIDEO' | 'LIVE_PHOTO' | 'STATIC_IMAGE' | 'THEME_PACKAGE';
+export type WallpaperCapability = 'android_parallax' | 'android_video' | 'ios_live_photo' | 'harmony_theme' | 'universal_static';
 export type ResourceVersionStatus = 'DRAFT' | 'VALIDATING' | 'READY' | 'PUBLISHED' | 'RETIRED' | 'REJECTED';
 
 export interface ResourceFile {
@@ -77,6 +76,7 @@ export interface WallpaperVariant {
   id: string;
   platform: ApiPlatform;
   resourceType: ResourceType;
+  enabled: boolean;
   resourceVersions: ResourceVersion[];
   version: number;
 }
@@ -87,9 +87,8 @@ export interface Wallpaper {
   slug: string;
   categoryId: string;
   subcategoryId: string;
-  kind: WallpaperKind;
   accessType: WallpaperAccessType;
-  platforms: Platform[];
+  capabilities: WallpaperCapability[];
   status: PublishStatus;
   sort: number;
   coverUrl: string;
@@ -217,16 +216,12 @@ export interface RedemptionDetail extends RedemptionSummary {
   entitlement?: AdminEntitlement | null;
 }
 
-export const wallpaperKindLabels: Record<WallpaperKind, string> = {
-  four_d: '4D 分层',
-  dynamic: '动态壁纸',
-  static: '静态壁纸'
-};
-
-export const platformLabels: Record<Platform, string> = {
-  android: 'Android',
-  ios: 'iOS',
-  harmony: 'HarmonyOS'
+export const wallpaperCapabilityLabels: Record<WallpaperCapability, string> = {
+  android_parallax: 'Android 4D',
+  android_video: 'Android 动态',
+  ios_live_photo: 'iOS 实况',
+  harmony_theme: '鸿蒙动态',
+  universal_static: '全平台静态'
 };
 
 export const statusLabels: Record<PublishStatus, string> = {

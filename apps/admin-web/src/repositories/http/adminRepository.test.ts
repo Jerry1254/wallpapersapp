@@ -8,7 +8,7 @@ afterEach(() => { vi.unstubAllGlobals(); });
 it('rejects a 4D wallpaper without the fixed ZIP before making a request', async () => {
   const fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
-  const wallpaper = { kind: 'four_d', resources: {} } as Wallpaper;
+  const wallpaper = { capabilities: ['android_parallax'], resources: {}, variants: [] } as unknown as Wallpaper;
   await expect(adminRepository.saveWallpaper(wallpaper, true)).rejects.toMatchObject({
     code: 'PARALLAX_PACKAGE_REQUIRED',
     message: '请上传 4D 固定资源包'

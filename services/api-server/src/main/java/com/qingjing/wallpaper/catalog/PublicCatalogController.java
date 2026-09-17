@@ -1,13 +1,14 @@
 package com.qingjing.wallpaper.catalog;
 
-import com.qingjing.wallpaper.catalog.PublicCatalogDtos.DeliveryPlatform;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.PublicCategoryList;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.PublicWallpaperDetail;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.PublicWallpaperPage;
-import com.qingjing.wallpaper.catalog.PublicCatalogDtos.WallpaperKind;
+import com.qingjing.wallpaper.device.DevicePrincipal;
 import com.qingjing.wallpaper.catalog.PublicCatalogService.CatalogSort;
 import com.qingjing.wallpaper.catalog.PublicCatalogService.CatalogView;
 import com.qingjing.wallpaper.shared.web.Ids;
+import com.qingjing.wallpaper.shared.web.RequestAttributes;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -25,8 +26,8 @@ public class PublicCatalogController {
     }
 
     @GetMapping("/categories")
-    PublicCategoryList categories() {
-        return catalog.categories();
+    PublicCategoryList categories(HttpServletRequest request) {
+        return catalog.categories(principal(request).deviceId());
     }
 
     @GetMapping("/wallpapers")
@@ -36,20 +37,18 @@ public class PublicCatalogController {
             @RequestParam(required = false) String rootCategoryId,
             @RequestParam(required = false) String childCategoryId,
             @RequestParam(required = false) CatalogView view,
-            @RequestParam(required = false) WallpaperKind kind,
             @RequestParam(required = false) WallpaperAccessType accessType,
-            @RequestParam(required = false) DeliveryPlatform platform,
             @RequestParam(name = "q", required = false) String query,
-            @RequestParam(defaultValue = "DEFAULT") CatalogSort sort) {
+            @RequestParam(defaultValue = "DEFAULT") CatalogSort sort,
+            HttpServletRequest request) {
         return catalog.wallpapers(
+                principal(request).deviceId(),
                 page,
                 pageSize,
                 optionalId(rootCategoryId, "rootCategoryId"),
                 optionalId(childCategoryId, "childCategoryId"),
                 view,
-                kind,
                 accessType,
-                platform,
                 query,
                 sort);
     }
@@ -57,11 +56,16 @@ public class PublicCatalogController {
     @GetMapping("/wallpapers/{wallpaperId}")
     PublicWallpaperDetail wallpaper(
             @PathVariable String wallpaperId,
-            @RequestParam(required = false) DeliveryPlatform platform) {
-        return catalog.wallpaper(Ids.parse(wallpaperId, "wallpaperId"), platform);
+            HttpServletRequest request) {
+        return catalog.wallpaper(
+                principal(request).deviceId(), Ids.parse(wallpaperId, "wallpaperId"));
     }
 
     private Long optionalId(String value, String field) {
         return value == null ? null : Ids.parse(value, field);
+    }
+
+    private DevicePrincipal principal(HttpServletRequest request) {
+        return (DevicePrincipal) request.getAttribute(RequestAttributes.DEVICE_PRINCIPAL);
     }
 }

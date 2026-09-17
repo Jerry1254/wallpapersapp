@@ -11,7 +11,6 @@ import static com.qingjing.wallpaper.catalog.AdminContentDtos.DeliveryCapability
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.DeliveryPlatform;
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.ResourceType;
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.ResourceVersionStatus;
-import static com.qingjing.wallpaper.catalog.AdminContentDtos.WallpaperKind;
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.WallpaperStatus;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -49,7 +48,6 @@ public class AdminContentViewReader {
                 summary.id(),
                 summary.title(),
                 summary.slug(),
-                summary.kind(),
                 summary.accessType(),
                 summary.rootCategory(),
                 summary.childCategory(),
@@ -78,7 +76,6 @@ public class AdminContentViewReader {
                 Long.toString(row.id()),
                 row.title(),
                 row.slug(),
-                WallpaperKind.valueOf(row.kind()),
                 WallpaperAccessType.valueOf(row.accessType()),
                 root,
                 child,
@@ -97,7 +94,7 @@ public class AdminContentViewReader {
     public WallpaperRow wallpaperRow(long wallpaperId) {
         List<WallpaperRow> rows = jdbc.query(
                 """
-                SELECT w.id, w.title, w.slug, w.kind, w.access_type, w.category_id, w.cover_asset_id,
+                SELECT w.id, w.title, w.slug, w.access_type, w.category_id, w.cover_asset_id,
                        w.featured_rank, w.sort_order, w.copyright_note, w.status,
                        w.published_at, w.archived_at, w.created_at, w.updated_at, w.lock_version,
                        CASE WHEN selected.level = 1 THEN selected.id ELSE root.id END AS root_id,
@@ -123,7 +120,7 @@ public class AdminContentViewReader {
         List<VariantRow> rows = jdbc.query(
                 """
                 SELECT id, wallpaper_id, platform, resource_type, minimum_os_version,
-                       capability_requirements, lock_version
+                       capability_requirements, enabled, lock_version
                 FROM wallpaper_variant WHERE id = ?
                 """,
                 this::mapVariant,
@@ -138,7 +135,7 @@ public class AdminContentViewReader {
         List<VariantRow> rows = jdbc.query(
                 """
                 SELECT id, wallpaper_id, platform, resource_type, minimum_os_version,
-                       capability_requirements, lock_version
+                       capability_requirements, enabled, lock_version
                 FROM wallpaper_variant WHERE id = ?
                 """,
                 this::mapVariant,
@@ -183,7 +180,7 @@ public class AdminContentViewReader {
         return jdbc.query(
                         """
                         SELECT id, wallpaper_id, platform, resource_type, minimum_os_version,
-                               capability_requirements, lock_version
+                               capability_requirements, enabled, lock_version
                         FROM wallpaper_variant
                         WHERE wallpaper_id = ?
                         ORDER BY id
@@ -211,6 +208,7 @@ public class AdminContentViewReader {
                 ResourceType.valueOf(row.resourceType()),
                 row.minimumOsVersion(),
                 readCapabilities(row.capabilityRequirements()),
+                row.enabled(),
                 versions,
                 row.lockVersion());
     }
@@ -265,7 +263,6 @@ public class AdminContentViewReader {
                 resultSet.getLong("id"),
                 resultSet.getString("title"),
                 resultSet.getString("slug"),
-                resultSet.getString("kind"),
                 resultSet.getString("access_type"),
                 resultSet.getLong("category_id"),
                 resultSet.getLong("cover_asset_id"),
@@ -294,6 +291,7 @@ public class AdminContentViewReader {
                 resultSet.getString("resource_type"),
                 resultSet.getString("minimum_os_version"),
                 resultSet.getString("capability_requirements"),
+                resultSet.getBoolean("enabled"),
                 resultSet.getLong("lock_version"));
     }
 
@@ -326,7 +324,6 @@ public class AdminContentViewReader {
             long id,
             String title,
             String slug,
-            String kind,
             String accessType,
             long categoryId,
             long coverAssetId,
@@ -354,6 +351,7 @@ public class AdminContentViewReader {
             String resourceType,
             String minimumOsVersion,
             String capabilityRequirements,
+            boolean enabled,
             long lockVersion) {
     }
 

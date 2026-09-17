@@ -8,8 +8,6 @@ public final class PublicCatalogDtos {
     private PublicCatalogDtos() {
     }
 
-    public enum WallpaperKind { PARALLAX_4D, DYNAMIC, STATIC }
-
     public enum DeliveryPlatform { ANDROID, IOS, HARMONYOS, UNIVERSAL }
 
     public enum ResourceType { LAYER_PARALLAX, VIDEO, LIVE_PHOTO, STATIC_IMAGE, THEME_PACKAGE }
@@ -47,38 +45,35 @@ public final class PublicCatalogDtos {
     }
 
     public record DeliveryCapability(
-            DeliveryPlatform platform,
+            DeliveryPlatform deliveryPlatform,
             ResourceType resourceType,
-            String minimumOsVersion,
-            List<String> capabilityRequirements) {
+            List<com.qingjing.wallpaper.device.DeviceCapabilityDtos.Placement> placements) {
     }
 
     public record PublicWallpaperSummary(
             String id,
             String title,
             String slug,
-            WallpaperKind kind,
             WallpaperAccessType accessType,
             CategorySummary rootCategory,
             CategorySummary childCategory,
             PublicMedia cover,
             boolean featured,
             int sortOrder,
-            List<DeliveryCapability> capabilities) {
+            List<DeliveryCapability> availableCapabilities) {
     }
 
     public record PublicWallpaperDetail(
             String id,
             String title,
             String slug,
-            WallpaperKind kind,
             WallpaperAccessType accessType,
             CategorySummary rootCategory,
             CategorySummary childCategory,
             PublicMedia cover,
             boolean featured,
             int sortOrder,
-            List<DeliveryCapability> capabilities,
+            List<DeliveryCapability> availableCapabilities,
             String copyrightNote,
             Instant publishedAt) {
 
@@ -90,14 +85,13 @@ public final class PublicCatalogDtos {
                     summary.id(),
                     summary.title(),
                     summary.slug(),
-                    summary.kind(),
                     summary.accessType(),
                     summary.rootCategory(),
                     summary.childCategory(),
                     summary.cover(),
                     summary.featured(),
                     summary.sortOrder(),
-                    summary.capabilities(),
+                    summary.availableCapabilities(),
                     copyrightNote,
                     publishedAt);
         }

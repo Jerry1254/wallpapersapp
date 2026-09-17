@@ -30,7 +30,6 @@ const detail = (
   id: '30',
   title: '晨雾山峦',
   slug: 'misty-mountains',
-  kind: 'STATIC',
   accessType: 'REDEEM',
   rootCategory: category,
   childCategory,
@@ -131,8 +130,8 @@ describe('adminRepository.saveWallpaper', () => {
       ]
     };
     const readyVersion = { id: '50', versionNo: 1, status: 'READY', bindings: [], sourcePackage };
-    const variant = { id: '40', platform: 'ANDROID', resourceType: 'LAYER_PARALLAX', version: 0, resourceVersions: [] };
-    const wallpaper = { ...detail('DRAFT', 1, [variant], sourcePackage.cover), kind: 'PARALLAX_4D' };
+    const variant = { id: '40', platform: 'ANDROID', resourceType: 'LAYER_PARALLAX', enabled: true, version: 0, resourceVersions: [] };
+    const wallpaper = { ...detail('DRAFT', 1, [variant], sourcePackage.cover) };
     const fetchMock = vi.fn(async (urlValue: string | URL | Request, options: RequestInit = {}) => {
       const url = String(urlValue);
       requests.push({ url, options });
@@ -154,7 +153,7 @@ describe('adminRepository.saveWallpaper', () => {
     const zip = new File(['zip'], 'wallpaper-4d.zip', { type: 'application/zip' });
     const input: Wallpaper = {
       id: '30', title: '4D 多层风景', slug: 'parallax-landscape', categoryId: '20', subcategoryId: '',
-      kind: 'four_d', accessType: 'REDEEM', platforms: ['android'], status: 'draft', sort: 1, featuredRank: null,
+      accessType: 'REDEEM', capabilities: ['android_parallax'], status: 'draft', sort: 1, featuredRank: null,
       coverUrl: '', copyrightNote: '本地测试', updatedAt: '', version: 0, variants: [], resources: {
         parallaxPackage: { name: zip.name, size: zip.size, mime: zip.type, nativeFile: zip }
       }
@@ -181,9 +180,9 @@ describe('adminRepository.saveWallpaper', () => {
     const staticAsset = asset('1', 'wallpaper.png');
     const staticVersion = { id: '50', versionNo: 1, status: 'READY', bindings: [{ id: '60', role: 'STATIC_IMAGE', ordinal: 0, asset: staticAsset }] };
     const liveVersion = { id: '51', versionNo: 1, status: 'READY', bindings: roles.map((role, index) => ({ id: String(61 + index), role, ordinal: 0, asset: asset(String(index + 2), 'resource') })) };
-    const staticVariant = { id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', version: 0, resourceVersions: [] };
-    const liveVariant = { id: '41', platform: 'IOS', resourceType: 'LIVE_PHOTO', version: 0, resourceVersions: [] };
-    const wallpaper = { ...detail('DRAFT', 0, [staticVariant, liveVariant], staticAsset), kind: 'DYNAMIC' };
+    const staticVariant = { id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', enabled: true, version: 0, resourceVersions: [] };
+    const liveVariant = { id: '41', platform: 'IOS', resourceType: 'LIVE_PHOTO', enabled: true, version: 0, resourceVersions: [] };
+    const wallpaper = { ...detail('DRAFT', 0, [staticVariant, liveVariant], staticAsset) };
     const fetchMock = vi.fn(async (url: string, options: RequestInit = {}) => {
       if (url.endsWith('/admin/variants/40/resource-versions')) {
         const body = JSON.parse(String(options.body));
@@ -211,7 +210,7 @@ describe('adminRepository.saveWallpaper', () => {
     vi.stubGlobal('fetch', fetchMock);
     const resources = Object.fromEntries(['iosPhoto', 'iosMov'].map((key, index) => [key, { name: key, assetId: String(index + 2), size: 68, mime: 'image/png' }]));
     const input: Wallpaper = { id: '30', title: '多角色发布', slug: 'multi-role', categoryId: '20', subcategoryId: '',
-      kind: 'dynamic', accessType: 'REDEEM', platforms: ['ios'], status: 'draft', sort: 1, featuredRank: null,
+      accessType: 'REDEEM', capabilities: ['universal_static', 'ios_live_photo'], status: 'draft', sort: 1, featuredRank: null,
       coverUrl: '', copyrightNote: '本地测试', updatedAt: '', version: 0, variants: [], resources: {
         ...resources, staticImage: { name: 'wallpaper.png', assetId: '1', size: 68, mime: 'image/png' }
       } };
@@ -228,9 +227,9 @@ describe('adminRepository.saveWallpaper', () => {
       sha256: 'a'.repeat(64), validationStatus: 'READY', cover: asset('1', 'cover.jpg'),
       canvas: { width: 1080, height: 2160 }, layers: [{ index: 1 }, { index: 2 }]
     } : null;
-    const variant = { id: '40', platform: 'ANDROID', resourceType: 'LAYER_PARALLAX', version: 0,
+    const variant = { id: '40', platform: 'ANDROID', resourceType: 'LAYER_PARALLAX', enabled: true, version: 0,
       resourceVersions: [{ id: '50', versionNo: 1, status: 'PUBLISHED', sourcePackage, bindings: [] }] };
-    const saved = { ...detail('PUBLISHED', 2, [variant]), kind: 'PARALLAX_4D' };
+    const saved = { ...detail('PUBLISHED', 2, [variant]) };
     const fetchMock = vi.fn(async (url: string, options: RequestInit = {}) => {
       if (url.includes('/admin/wallpapers?')) return json({ items: [saved], page: { totalPages: 1 } });
       if (url.endsWith('/admin/wallpapers/30')) return json(saved);
@@ -247,7 +246,7 @@ describe('adminRepository.saveWallpaper', () => {
   });
   it('草稿创建后上传失败保留作品 ID 和最新版本，再次保存继续同一作品', async () => {
     setCsrfToken('csrf-token');
-    const variant = { id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', version: 0, resourceVersions: [] };
+    const variant = { id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', enabled: true, version: 0, resourceVersions: [] };
     let created = false;
     let versionFails = true;
     const fetchMock = vi.fn(async (url: string, options: RequestInit = {}) => {
@@ -268,7 +267,7 @@ describe('adminRepository.saveWallpaper', () => {
     vi.stubGlobal('fetch', fetchMock);
     const file = new File(['invalid'], 'image.png', { type: 'image/png' });
     const input: Wallpaper = { id: '', title: '恢复草稿', slug: 'recover', categoryId: '20', subcategoryId: '',
-      kind: 'static', accessType: 'REDEEM', platforms: ['android', 'ios', 'harmony'], status: 'draft', sort: 1, featuredRank: null,
+      accessType: 'REDEEM', capabilities: ['universal_static'], status: 'draft', sort: 1, featuredRank: null,
       coverUrl: '', copyrightNote: '本地测试', updatedAt: '', version: 0, variants: [], resources: {
         staticImage: { name: file.name, size: file.size, mime: file.type, nativeFile: file }
       } };
@@ -285,7 +284,7 @@ describe('adminRepository.saveWallpaper', () => {
   });
   it('重新读取并保存壁纸时保留服务器的精选排序和可空二级分类', async () => {
     setCsrfToken('csrf-token');
-    const variant = { id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', version: 0,
+    const variant = { id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', enabled: true, version: 0,
       resourceVersions: [{ id: '50', versionNo: 1, status: 'PUBLISHED', bindings: [
         { id: '60', role: 'STATIC_IMAGE', ordinal: 0, asset: asset('2', 'wallpaper.png') }
       ] }] };
@@ -306,7 +305,7 @@ describe('adminRepository.saveWallpaper', () => {
     setCsrfToken('csrf-token');
     const requests: { url: string; options: RequestInit }[] = [];
     const variantWithoutVersion = {
-      id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE',
+      id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', enabled: true,
       minimumOsVersion: null, capabilityRequirements: [], resourceVersions: [], version: 0
     };
     const staticAsset = asset('2', 'wallpaper.png');
@@ -337,7 +336,7 @@ describe('adminRepository.saveWallpaper', () => {
     const png = new File([new Uint8Array([137, 80, 78, 71])], 'image.png', { type: 'image/png' });
     const input: Wallpaper = {
       id: '', title: '晨雾山峦', slug: 'misty-mountains', categoryId: '20', subcategoryId: '21',
-      kind: 'static', accessType: 'FREE', platforms: ['android', 'ios', 'harmony'], status: 'published', sort: 10,
+      accessType: 'FREE', capabilities: ['universal_static'], status: 'published', sort: 10,
       coverUrl: '', featuredRank: 2, copyrightNote: '已获得授权', updatedAt: '', version: 0, variants: [],
       resources: {
         staticImage: { name: 'wallpaper.png', size: png.size, mime: png.type, nativeFile: png }
@@ -441,7 +440,7 @@ describe('adminRepository code delivery', () => {
 
 it('安全包制作失败时不会继续发布 READY Android 兼容版本', async () => {
   setCsrfToken('csrf-token');
-  const variant = { id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', resourceVersions: [
+  const variant = { id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', enabled: true, resourceVersions: [
     { id: '50', status: 'READY', versionNo: 1, bindings: [] }
   ] };
   const fetchMock = vi.fn(async (url: string) => {

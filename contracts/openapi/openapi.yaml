@@ -1,12 +1,12 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 1.8.0
+  version: 2.0.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
   description: |
-    倾境壁纸 H5、正式 App 与管理后台共用的 V1 契约。
+    倾境壁纸正式 App 与管理后台共用的 V1 契约。
 
     所有 Long ID 在 JSON 中使用字符串；所有时间均为带时区的 ISO 8601 字符串。
     公开目录仅返回封面和能力描述，不返回存储键、绝对路径、内容密钥或正式资源永久地址。
@@ -16,7 +16,7 @@ servers:
 security: []
 tags:
   - name: Public Catalog
-    description: 无需设备会话的公开目录与封面读取
+    description: 按已认证设备的有效设置能力返回目录与封面
   - name: Public Tutorial
     description: 无需设备会话的壁纸设置教程与视频流
   - name: Device Identity
@@ -40,6 +40,8 @@ paths:
       tags: [Public Catalog]
       operationId: listPublicCategories
       summary: 查询公开两级分类树
+      security:
+        - deviceBearer: []
       responses:
         '200':
           description: 已发布内容对应的分类树
@@ -53,6 +55,10 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/PublicRootCategory'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '500':
@@ -63,6 +69,8 @@ paths:
       tags: [Public Catalog]
       operationId: listPublicWallpapers
       summary: 查询、筛选或搜索已发布壁纸
+      security:
+        - deviceBearer: []
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -81,18 +89,10 @@ paths:
           schema:
             type: string
             enum: [FEATURED, STATIC]
-        - name: kind
-          in: query
-          schema:
-            $ref: '#/components/schemas/WallpaperKind'
         - name: accessType
           in: query
           schema:
             $ref: '#/components/schemas/WallpaperAccessType'
-        - name: platform
-          in: query
-          schema:
-            $ref: '#/components/schemas/DeliveryPlatform'
         - name: q
           in: query
           description: 壁纸标题或受控关键词；去除首尾空格后长度为 1 至 40。
@@ -115,6 +115,10 @@ paths:
                 $ref: '#/components/schemas/PublicWallpaperPage'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -123,13 +127,10 @@ paths:
       tags: [Public Catalog]
       operationId: getPublicWallpaper
       summary: 查询已发布壁纸详情
+      security:
+        - deviceBearer: []
       parameters:
         - $ref: '#/components/parameters/WallpaperId'
-        - name: platform
-          in: query
-          description: 提供后服务端优先返回该平台的能力描述。
-          schema:
-            $ref: '#/components/schemas/DeliveryPlatform'
       responses:
         '200':
           description: 壁纸详情
@@ -139,6 +140,10 @@ paths:
                 $ref: '#/components/schemas/PublicWallpaperDetail'
         '404':
           $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -303,9 +308,8 @@ paths:
       operationId: registerDevice
       summary: 注册或重新关联匿名设备凭据
       description: |
-        正式 App 提交平台公钥和设备证明；H5 联调只允许在启用测试 Provider 的环境提交 H5_TEST_SECRET。
-        返回的 H5 测试 secret 只出现一次，服务端不保存其明文。
-        Android 1.1.0 使用 SEC-002 安装级 RSA 2048 持钥证明；同公钥新证明恢复原 ACTIVE 凭据，撤销后不可重建。
+        正式 App 提交平台公钥和设备证明。
+        Android 使用 SEC-002 安装级 RSA 2048 持钥证明；同公钥新证明恢复原 ACTIVE 凭据，撤销后不可重建。
         证明不等同硬件或 APK 来源认证，清数据/卸载后不自动恢复旧权益。
       parameters:
         - $ref: '#/components/parameters/RequestId'
@@ -446,6 +450,57 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalError'
+
+  /device/me/capabilities:
+    get:
+      tags: [Device Identity]
+      operationId: getDeviceCapabilityProfile
+      summary: 查询当前设备的有效设置能力档案
+      security:
+        - deviceBearer: []
+      responses:
+        '200':
+          description: 当前设备能力档案
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceCapabilityProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    put:
+      tags: [Device Identity]
+      operationId: reportDeviceCapabilityProfile
+      summary: 上报系统探测所得的精确设置能力
+      description: 服务端按宿主系统、运行方式和稳定策略收敛 reported capabilities；应用运行在 Android 容器中不等于具备 Android 系统壁纸能力。
+      security:
+        - deviceBearer: []
+      parameters:
+        - $ref: '#/components/parameters/RequestTimestamp'
+        - $ref: '#/components/parameters/RequestNonce'
+        - $ref: '#/components/parameters/RequestSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceCapabilityReportRequest'
+      responses:
+        '200':
+          description: 已保存并返回服务端生效能力
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceCapabilityProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /device/me/entitlements:
     get:
@@ -597,8 +652,8 @@ paths:
       operationId: createDownloadTicket
       summary: 为已获得壁纸签发短时下载描述
       description: |
-        H5_TEST 设备返回 H5_PLACEHOLDER 描述；正式 App 可返回 SECURE_PACKAGE 描述。
-        二者复用相同端点和稳定字段，客户端按 deliveryMode 选择实现。
+        客户端必须选择详情 availableCapabilities 中的精确 deliveryPlatform/resourceType 组合。
+        服务端不做跨平台或资源类型回退。
       security:
         - deviceBearer: []
       parameters:
@@ -1270,10 +1325,6 @@ paths:
           in: query
           schema:
             $ref: '#/components/schemas/WallpaperStatus'
-        - name: kind
-          in: query
-          schema:
-            $ref: '#/components/schemas/WallpaperKind'
         - name: accessType
           in: query
           schema:
@@ -2383,6 +2434,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorEnvelope'
+    PreconditionRequired:
+      description: 当前设备尚未上报有效设置能力档案
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
     UnprocessableEntity:
       description: 请求格式正确但不满足领域或安全校验规则
       content:
@@ -2543,6 +2600,8 @@ components:
         - PARALLAX_PACKAGE_INVALID
         - PARALLAX_PACKAGE_IN_USE
         - CONFIG_INVALID
+        - DEVICE_CAPABILITY_PROFILE_REQUIRED
+        - WALLPAPER_NOT_AVAILABLE_FOR_DEVICE
 
     WallpaperKind:
       type: string
@@ -2567,7 +2626,7 @@ components:
 
     DevicePlatform:
       type: string
-      enum: [ANDROID, IOS, HARMONYOS, H5_TEST]
+      enum: [ANDROID, IOS, HARMONYOS]
 
     ResourceType:
       type: string
@@ -2693,6 +2752,26 @@ components:
             type: string
             maxLength: 64
 
+    Placement:
+      type: string
+      enum: [HOME, LOCK]
+
+    AvailableCapability:
+      type: object
+      required: [deliveryPlatform, resourceType, placements]
+      properties:
+        deliveryPlatform:
+          $ref: '#/components/schemas/DeliveryPlatform'
+        resourceType:
+          $ref: '#/components/schemas/ResourceType'
+        placements:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/Placement'
+
     PublicWallpaperSummary:
       type: object
       required:
@@ -2700,13 +2779,12 @@ components:
           id,
           title,
           slug,
-          kind,
           accessType,
           rootCategory,
           cover,
           featured,
           sortOrder,
-          capabilities
+          availableCapabilities
         ]
       properties:
         id:
@@ -2720,8 +2798,6 @@ components:
           minLength: 2
           maxLength: 64
           pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
-        kind:
-          $ref: '#/components/schemas/WallpaperKind'
         accessType:
           $ref: '#/components/schemas/WallpaperAccessType'
         rootCategory:
@@ -2739,11 +2815,11 @@ components:
           type: integer
           minimum: 0
           maximum: 999999
-        capabilities:
+        availableCapabilities:
           type: array
           minItems: 1
           items:
-            $ref: '#/components/schemas/DeliveryCapability'
+            $ref: '#/components/schemas/AvailableCapability'
 
     PublicWallpaperDetail:
       allOf:
@@ -2779,23 +2855,23 @@ components:
           type: string
           minLength: 1
           maxLength: 64
-          description: 应用签名、渠道或测试 Provider 的服务端允许值。
+          description: 应用签名和发行渠道的服务端允许值。
         credentialType:
           type: string
-          enum: [PLATFORM_PUBLIC_KEY, H5_TEST_SECRET]
+          enum: [PLATFORM_PUBLIC_KEY]
         publicKeyPem:
           type: string
           minLength: 64
           maxLength: 8192
           nullable: true
-          description: PLATFORM_PUBLIC_KEY 必填；H5_TEST_SECRET 必须为空。
+          description: 正式客户端必填的平台安装公钥。
         evidenceToken:
           type: string
           minLength: 16
           maxLength: 8192
           writeOnly: true
           description: Android 为 Base64URL 无填充 JSON(timestamp, nonce, proof)，签名载荷见
-            SEC-002；H5 为测试安装证据。服务端只保留身份 keyed hash，不持久化完整证明。
+            SEC-002。服务端只保留身份 keyed hash，不持久化完整证明。
 
     DeviceRegistrationResponse:
       type: object
@@ -2806,14 +2882,7 @@ components:
           format: uuid
         credentialType:
           type: string
-          enum: [PLATFORM_PUBLIC_KEY, H5_TEST_SECRET]
-        credentialSecret:
-          type: string
-          minLength: 32
-          maxLength: 512
-          nullable: true
-          readOnly: true
-          description: 仅创建 H5_TEST_SECRET 时一次性返回。
+          enum: [PLATFORM_PUBLIC_KEY]
         createdAt:
           $ref: '#/components/schemas/Timestamp'
 
@@ -2869,6 +2938,144 @@ components:
           $ref: '#/components/schemas/Timestamp'
         platform:
           $ref: '#/components/schemas/DevicePlatform'
+
+    HostOsFamily:
+      type: string
+      enum: [ANDROID, EMUI, HARMONY_CLASSIC, HARMONY_NATIVE, IOS]
+
+    ExecutionMode:
+      type: string
+      enum: [NATIVE, ANDROID_COMPATIBLE, ANDROID_CONTAINER]
+
+    ReportedDeviceCapability:
+      type: object
+      required: [deliveryPlatform, resourceType, runtimeOsVersion, placements, evidence]
+      properties:
+        deliveryPlatform:
+          $ref: '#/components/schemas/DeliveryPlatform'
+        resourceType:
+          $ref: '#/components/schemas/ResourceType'
+        runtimeOsVersion:
+          type: string
+          pattern: '^[0-9]{1,6}(?:\.[0-9]{1,6}){0,3}$'
+          maxLength: 32
+          description: 执行该设置能力的运行时版本。早期鸿蒙兼容 Android 能力时填写 Android 兼容层版本。
+        placements:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/Placement'
+        evidence:
+          type: string
+          enum: [SYSTEM_PROBE, SUCCESSFUL_SET]
+
+    EffectiveDeviceCapability:
+      type: object
+      required: [deliveryPlatform, resourceType, runtimeOsVersion, placements]
+      properties:
+        deliveryPlatform:
+          $ref: '#/components/schemas/DeliveryPlatform'
+        resourceType:
+          $ref: '#/components/schemas/ResourceType'
+        runtimeOsVersion:
+          type: string
+          maxLength: 32
+        placements:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/Placement'
+
+    DeviceCapabilityReportRequest:
+      type: object
+      required: [hostOsFamily, hostOsVersion, manufacturer, model, executionMode, probeVersion, probedAt, capabilities]
+      properties:
+        hostOsFamily:
+          $ref: '#/components/schemas/HostOsFamily'
+        hostOsVersion:
+          type: string
+          minLength: 1
+          maxLength: 32
+        sdkInt:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          nullable: true
+        manufacturer:
+          type: string
+          minLength: 1
+          maxLength: 64
+        model:
+          type: string
+          minLength: 1
+          maxLength: 96
+        executionMode:
+          $ref: '#/components/schemas/ExecutionMode'
+        probeVersion:
+          type: integer
+          minimum: 1
+        probedAt:
+          $ref: '#/components/schemas/Timestamp'
+        featureFlags:
+          type: array
+          maxItems: 64
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+        capabilities:
+          type: array
+          maxItems: 16
+          items:
+            $ref: '#/components/schemas/ReportedDeviceCapability'
+
+    DeviceCapabilityProfile:
+      type: object
+      required: [version, profileHash, hostOsFamily, hostOsVersion, manufacturer, model, executionMode, probeVersion, probedAt, featureFlags, effectiveCapabilities, recheckRequired]
+      properties:
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+        profileHash:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        hostOsFamily:
+          $ref: '#/components/schemas/HostOsFamily'
+        hostOsVersion:
+          type: string
+          maxLength: 32
+        sdkInt:
+          type: integer
+          nullable: true
+        manufacturer:
+          type: string
+          maxLength: 64
+        model:
+          type: string
+          maxLength: 96
+        executionMode:
+          $ref: '#/components/schemas/ExecutionMode'
+        probeVersion:
+          type: integer
+          minimum: 1
+        probedAt:
+          $ref: '#/components/schemas/Timestamp'
+        featureFlags:
+          type: array
+          items:
+            type: string
+        effectiveCapabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/EffectiveDeviceCapability'
+        recheckRequired:
+          type: boolean
 
     EntitlementSummary:
       type: object
@@ -2945,21 +3152,12 @@ components:
 
     CreateDownloadTicketRequest:
       type: object
-      required: [platform, supportedResourceTypes]
+      required: [deliveryPlatform, resourceType]
       properties:
-        platform:
-          $ref: '#/components/schemas/DevicePlatform'
-        osVersion:
-          type: string
-          maxLength: 32
-          nullable: true
-        supportedResourceTypes:
-          type: array
-          maxItems: 8
-          minItems: 1
-          uniqueItems: true
-          items:
-            $ref: '#/components/schemas/ResourceType'
+        deliveryPlatform:
+          $ref: '#/components/schemas/DeliveryPlatform'
+        resourceType:
+          $ref: '#/components/schemas/ResourceType'
         installedVersionNo:
           type: integer
           minimum: 1
@@ -2971,7 +3169,7 @@ components:
       properties:
         deliveryMode:
           type: string
-          enum: [H5_PLACEHOLDER, SECURE_PACKAGE]
+          enum: [SECURE_PACKAGE]
         wallpaperId:
           $ref: '#/components/schemas/LongId'
         cover:
@@ -2982,7 +3180,7 @@ components:
           maxLength: 2048
           nullable: true
           readOnly: true
-          description: SECURE_PACKAGE 时存在，H5_PLACEHOLDER 时为空。
+          description: 90 秒有效的受控下载票据。
         downloadUrl:
           type: string
           format: uri-reference
@@ -3455,7 +3653,6 @@ components:
         [
           title,
           slug,
-          kind,
           accessType,
           rootCategoryId,
           coverAssetId,
@@ -3472,8 +3669,6 @@ components:
           minLength: 2
           maxLength: 64
           pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
-        kind:
-          $ref: '#/components/schemas/WallpaperKind'
         accessType:
           $ref: '#/components/schemas/WallpaperAccessType'
         rootCategoryId:
@@ -3507,7 +3702,6 @@ components:
           id,
           title,
           slug,
-          kind,
           accessType,
           rootCategory,
           cover,
@@ -3528,8 +3722,6 @@ components:
         slug:
           type: string
           maxLength: 64
-        kind:
-          $ref: '#/components/schemas/WallpaperKind'
         accessType:
           $ref: '#/components/schemas/WallpaperAccessType'
         rootCategory:
@@ -3599,7 +3791,7 @@ components:
 
     VariantWriteRequest:
       type: object
-      required: [platform, resourceType]
+      required: [platform, resourceType, enabled]
       properties:
         platform:
           $ref: '#/components/schemas/DeliveryPlatform'
@@ -3616,6 +3808,9 @@ components:
           items:
             type: string
             maxLength: 64
+        enabled:
+          type: boolean
+          description: 管理端是否将该变体纳入下一次发布；已发布内容只在执行发布动作时切换。
 
     AdminWallpaperVariant:
       type: object
@@ -3625,6 +3820,7 @@ components:
           platform,
           resourceType,
           capabilityRequirements,
+          enabled,
           resourceVersions,
           version
         ]
@@ -3644,6 +3840,8 @@ components:
           items:
             type: string
             maxLength: 64
+        enabled:
+          type: boolean
         resourceVersions:
           type: array
           items:
@@ -4212,7 +4410,7 @@ components:
           format: uuid
         credentialType:
           type: string
-          enum: [PLATFORM_PUBLIC_KEY, H5_TEST_SECRET]
+          enum: [PLATFORM_PUBLIC_KEY]
         status:
           type: string
           enum: [ACTIVE, REVOKED]
@@ -4259,22 +4457,13 @@ components:
     CreatePreviewTicketRequest:
       type: object
       required:
-        - platform
+        - deliveryPlatform
         - resourceType
       properties:
-        platform:
-          type: string
-          enum:
-            - ANDROID
-        osVersion:
-          type: string
-          maxLength: 32
+        deliveryPlatform:
+          $ref: '#/components/schemas/DeliveryPlatform'
         resourceType:
-          type: string
-          enum:
-            - STATIC_IMAGE
-            - VIDEO
-            - LAYER_PARALLAX
+          $ref: '#/components/schemas/ResourceType'
     PreviewPackageMetadata:
       type: object
       required:

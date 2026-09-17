@@ -8,7 +8,6 @@ import static com.qingjing.wallpaper.catalog.AdminContentDtos.CreateResourceVers
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.PublishWallpaperRequest;
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.StateChangeReasonRequest;
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.VariantWriteRequest;
-import static com.qingjing.wallpaper.catalog.AdminContentDtos.WallpaperKind;
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.WallpaperStatus;
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.WallpaperWriteRequest;
 
@@ -50,11 +49,10 @@ public class AdminWallpaperController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize,
             @RequestParam(required = false) WallpaperStatus status,
-            @RequestParam(required = false) WallpaperKind kind,
             @RequestParam(required = false) WallpaperAccessType accessType,
             @RequestParam(required = false) String categoryId,
             @RequestParam(required = false) String q) {
-        return wallpapers.list(page, pageSize, status, kind, accessType, categoryId, q);
+        return wallpapers.list(page, pageSize, status, accessType, categoryId, q);
     }
 
     @PostMapping("/wallpapers")

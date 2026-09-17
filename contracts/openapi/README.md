@@ -1,39 +1,41 @@
 # OpenAPI 契约
 
-客户端、管理后台与 Java API 共用的 OpenAPI 定义目录。接口字段、错误码和版本在这里冻结，再生成或实现各端调用层。
+正式 App、管理后台与 Java API 共用的机器契约。接口字段、错误码和版本先在这里冻结，再由各端实现。
+
+## 当前版本
+
+**2.0.0，61 个操作 / 97 个 Schema。**
+
+本版完成单商品多设置能力与设备能力协商：
+
+- 删除商品单一 `kind`；
+- 管理端支持 Android 4D、Android 动态、iOS 动态、鸿蒙原生动态和通用静态五项独立能力；
+- 新增签名设备能力上报与有效档案读取；
+- 分类、列表、详情和已获得列表按当前设备能力交集返回；
+- 预览和正式下载按精确 `deliveryPlatform + resourceType` 选择，不跨形式回退；
+- V9 新增设备能力档案、变体启停，并移除 `wallpaper.kind`。
+
+App 对接流程见 [API-015](../../docs/04-接口设计/API-015-设备能力目录与多形式交付App对接说明.md)，完整产品和服务端规则见 [API-014](../../docs/04-接口设计/API-014-单商品多设置能力与设备能力协商全链路整改方案.md)。
 
 ## 文件
 
-当前契约为 **1.8.0，59 操作 / 89 Schema**：包含 4D Lab 整体配置保存，以及作品级 `REDEEM/FREE` 获取方式。算法字段继续原样透传；管理 DTO 不展开算法字段。源包制作说明见 [4D 源包制作说明](../../packages/wallpaper-format/4D源包制作说明.md)。
-
-- `openapi.yaml`：V1 唯一机器契约。
-- `scripts/check-contract.mjs`：项目边界与敏感字段专项检查。
-- `package.json` / `package-lock.json`：固定契约校验工具版本。
-- `baseline-v1.json`：当前 App 契约冻结快照；历史版本逐字节归档在对应版本号的 baseline 文件中。
-- `scripts/check-baseline.mjs`：只读核对快照 SHA-256、版本和数量；字段变更须同步语义、实现、测试并显式更新版本/快照。
+- `openapi.yaml`：当前唯一机器契约。
+- `scripts/check-contract.mjs`：项目边界、关键操作和敏感字段专项检查。
+- `package.json` / `package-lock.json`：固定校验工具版本。
+- `baseline-v1.json`：当前契约冻结入口。
+- `baseline-v2.0.0.json`：2.0.0 逐版本归档。
+- `baseline-v1.*.json`：历史版本归档，只用于历史核验。
+- `scripts/check-baseline.mjs`：只读核对 SHA-256、版本和操作/Schema 数量。
 
 ## 验证
 
-~~~bash
+```bash
 npm ci
 npm test
+npm run bundle
 npm run baseline:check
-~~~
+```
 
-生成单文件 bundle 时执行 `npm run bundle`，产物写入已被 Git 忽略的 `dist/`。
+`npm test` 使用 Redocly 校验 OpenAPI，并检查 operationId、字符串 Long ID、幂等头、乐观锁、设备签名头、敏感字段和 Java 直接 `ApiException` 错误码。它不代替 Java MySQL/Redis 集成测试或 App 真机设置验收。
 
-`npm test` 同时检查直接 Java ApiException 字面量错误码是否在 ErrorCode 中；它不证明动态错误或所有运行时响应均满足契约。Android 安装持钥证明、SECURE_PACKAGE 和 APP_PREVIEW 已实现；鸿蒙/iOS Provider 与平台交付须按 [PM-005](../../docs/10-项目管理/PM-005-App分平台实施开发计划.md) 独立接入验收。
-
-WP-A03 当前兼容扩展为 1.1.0：Android 安装 RSA 持钥证明、RSA_SHA256 挑战算法与注册 401 响应；仍为 47 操作/72 Schema。当前 baseline-v1.json 包含原九文件和 SEC-002 共十项，六个原文件的计划变更已审阅；V1 SQL/Token 字节未改。baseline-v1.0.1.json 为原快照逐字节归档，可在 78cb4c0 历史树验证，不能用当前树假装旧快照通过。检查脚本不生成或重写摘要。
-
-后续版本记录：A05 1.2.0 增加安全交付与 V2，49 操作/74 Schema/14 冻结文件，其字节快照归档在 baseline-v1.2.0.json，对应接受输入可在 95a168e 历史树核验。A09 1.3.0 增加独立试用票据/流、三个 Schema、V3 和 SEC-004；当前为 51 操作/77 Schema，正式 format 2 与 H5 行为保留。当前树通过新冻结不代表旧冻结通过；升级检查包括 V1/V2 原字节保持、MySQL 事实保留和票据/包用途隔离。端侧真机验收状态以 A09 记录为准。
-
-A10 1.3.1 修正二进制客户端的 JSON 错误响应及下架响应说明，与 A05 的既有授权规则对齐；操作、Schema、DTO 和资源格式不变。1.3.0 原快照可在 83b3cae 历史树核验，当前冻结只更新明确审阅的 OpenAPI/API-001 两项，DM/DB 及迁移字节保持 1.3.0。
-
-WP-UI04 1.4.0 增加五个固定设置教程槽位、`TUTORIAL_VIDEO` 上传用途、管理查询/更新、公开列表和 Range/HEAD MP4 视频流，当前为 56 操作/83 Schema。V4 只增加 asset purpose 和教程配置表；V1/V2/V3 与 1.3.1 快照保留。
-
-WP-UI05 1.5.0 增加固定 4D ZIP 导入、来源关联版本和 V5。WP-UI07 1.6.0 保持端点与 Schema 数量不变，将 4D 配置改为模拟器 v2 原始字节透传；V6 清理未上线测试数据和旧算法列，V5 字节保持不变。
-
-WP-UI08 1.7.0 保持端点与 Schema 数量不变，移除正式发布算法字段白名单，将 `configFormatVersion` 改为不低于 2 的客户端数据；V7 仅放宽版本约束，上传与发布共用稳定外壳校验。
-
-WP-UI08/WP-UI10 1.8.0 增加 4D Lab 保存操作与免费获取方式 Schema；V8 为旧作品回填 `REDEEM`，免费交付免权益但不改变设备、签名、资源和限流边界。
+`npm run bundle` 生成 `dist/openapi.yaml`；`dist/` 不提交 Git。升级契约时必须同步语义文档、Java、管理后台、测试和冻结基线。

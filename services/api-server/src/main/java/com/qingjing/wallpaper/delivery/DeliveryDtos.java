@@ -4,13 +4,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.DeliveryPlatform;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.PublicMedia;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.ResourceType;
-import com.qingjing.wallpaper.device.DeviceDtos.DevicePlatform;
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
-import jakarta.validation.constraints.Size;
 import java.time.Instant;
-import java.util.List;
 
 public final class DeliveryDtos {
 
@@ -20,9 +16,8 @@ public final class DeliveryDtos {
     public enum DeliveryMode { H5_PLACEHOLDER, SECURE_PACKAGE }
 
     public record CreateDownloadTicketRequest(
-            @NotNull DevicePlatform platform,
-            @Size(max = 32) String osVersion,
-            @NotEmpty @Size(max = 8) List<@NotNull ResourceType> supportedResourceTypes,
+            @NotNull DeliveryPlatform deliveryPlatform,
+            @NotNull ResourceType resourceType,
             @Positive Integer installedVersionNo) {
     }
 

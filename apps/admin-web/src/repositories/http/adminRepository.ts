@@ -12,7 +12,6 @@ import type {
   ApiPlatform,
   Category,
   PageMetadata,
-  Platform,
   ParallaxPackageFile,
   PublishStatus,
   RedemptionCode,
@@ -25,7 +24,7 @@ import type {
   ResourceVersionStatus,
   Wallpaper,
   WallpaperAccessType,
-  WallpaperKind,
+  WallpaperCapability,
   WallpaperResources,
   WallpaperTutorial,
   WallpaperTutorialKey,
@@ -118,6 +117,7 @@ interface ApiWallpaperVariant {
   platform: ApiPlatform;
   resourceType: ResourceType;
   resourceVersions: ApiResourceVersion[];
+  enabled: boolean;
   version: number;
 }
 
@@ -125,7 +125,6 @@ interface ApiWallpaperSummary {
   id: string;
   title: string;
   slug: string;
-  kind: 'PARALLAX_4D' | 'DYNAMIC' | 'STATIC';
   accessType: WallpaperAccessType;
   rootCategory: ApiCategorySummary;
   childCategory: ApiCategorySummary | null;
@@ -165,16 +164,6 @@ interface VariantSpec {
   parallaxPackage?: ParallaxPackageFile;
 }
 
-const kindToApi: Record<WallpaperKind, ApiWallpaperSummary['kind']> = {
-  four_d: 'PARALLAX_4D',
-  dynamic: 'DYNAMIC',
-  static: 'STATIC'
-};
-const kindFromApi: Record<ApiWallpaperSummary['kind'], WallpaperKind> = {
-  PARALLAX_4D: 'four_d',
-  DYNAMIC: 'dynamic',
-  STATIC: 'static'
-};
 const statusFromApi: Record<ApiWallpaperSummary['status'], PublishStatus> = {
   DRAFT: 'draft',
   PUBLISHED: 'published',
@@ -250,13 +239,18 @@ const preferredVersion = (variant: ApiWallpaperVariant) => (
   || variant.resourceVersions[0]
 );
 
-const platformsFromVariants = (kind: WallpaperKind, variants: ApiWallpaperVariant[]): Platform[] => {
-  if (kind === 'static' || variants.some((item) => item.platform === 'UNIVERSAL')) return ['android', 'ios', 'harmony'];
-  const result: Platform[] = [];
-  if (variants.some((item) => item.platform === 'ANDROID')) result.push('android');
-  if (variants.some((item) => item.platform === 'IOS')) result.push('ios');
-  if (variants.some((item) => item.platform === 'HARMONYOS')) result.push('harmony');
-  return result;
+const capabilityForVariant = (variant: Pick<ApiWallpaperVariant, 'platform' | 'resourceType'>): WallpaperCapability => {
+  const key = `${variant.platform}/${variant.resourceType}`;
+  const values: Record<string, WallpaperCapability> = {
+    'ANDROID/LAYER_PARALLAX': 'android_parallax',
+    'ANDROID/VIDEO': 'android_video',
+    'IOS/LIVE_PHOTO': 'ios_live_photo',
+    'HARMONYOS/THEME_PACKAGE': 'harmony_theme',
+    'UNIVERSAL/STATIC_IMAGE': 'universal_static'
+  };
+  const value = values[key];
+  if (!value) throw new ApiError(500, 'INVALID_VARIANT', `服务端返回了不支持的资源能力：${key}`);
+  return value;
 };
 
 const resourcesFromApi = (value: ApiWallpaperDetail): WallpaperResources => {
@@ -278,16 +272,14 @@ const resourcesFromApi = (value: ApiWallpaperDetail): WallpaperResources => {
 };
 
 const wallpaperFromApi = (value: ApiWallpaperDetail): Wallpaper => {
-  const kind = kindFromApi[value.kind];
   return {
     id: value.id,
     title: value.title,
     slug: value.slug,
     categoryId: value.rootCategory.id,
     subcategoryId: value.childCategory?.id || '',
-    kind,
     accessType: value.accessType,
-    platforms: platformsFromVariants(kind, value.variants),
+    capabilities: value.variants.filter((item) => item.enabled).map(capabilityForVariant),
     status: statusFromApi[value.status],
     sort: value.sortOrder,
     featuredRank: value.featuredRank ?? null,
@@ -300,6 +292,7 @@ const wallpaperFromApi = (value: ApiWallpaperDetail): Wallpaper => {
       id: item.id,
       platform: item.platform,
       resourceType: item.resourceType,
+      enabled: item.enabled,
       resourceVersions: item.resourceVersions.map((version) => ({
         id: version.id,
         versionNo: version.versionNo,
@@ -311,37 +304,29 @@ const wallpaperFromApi = (value: ApiWallpaperDetail): Wallpaper => {
 };
 
 const variantSpecs = (value: Wallpaper): VariantSpec[] => {
-  if (value.kind === 'four_d') {
-    return [{
+  const result: VariantSpec[] = [];
+  if (value.capabilities.includes('android_parallax')) result.push({
       platform: 'ANDROID',
       resourceType: 'LAYER_PARALLAX',
       bindings: [],
       parallaxPackage: value.resources.parallaxPackage
-    }];
-  }
-  if (value.kind === 'static') {
-    return [{
+    });
+  if (value.capabilities.includes('universal_static')) result.push({
       platform: 'UNIVERSAL',
       resourceType: 'STATIC_IMAGE',
       bindings: [{ role: 'STATIC_IMAGE', purpose: 'STATIC_IMAGE', resource: value.resources.staticImage }]
-    }];
-  }
-  const result: VariantSpec[] = [{
-    platform: 'UNIVERSAL',
-    resourceType: 'STATIC_IMAGE',
-    bindings: [{ role: 'STATIC_IMAGE', purpose: 'STATIC_IMAGE', resource: value.resources.staticImage }]
-  }];
-  if (value.platforms.includes('android')) result.push({
+    });
+  if (value.capabilities.includes('android_video')) result.push({
     platform: 'ANDROID', resourceType: 'VIDEO',
     bindings: [{ role: 'VIDEO', purpose: 'VIDEO', resource: value.resources.androidVideo }]
   });
-  if (value.platforms.includes('ios')) result.push({
+  if (value.capabilities.includes('ios_live_photo')) result.push({
     platform: 'IOS', resourceType: 'LIVE_PHOTO', bindings: [
       { role: 'LIVE_PHOTO_IMAGE', purpose: 'LIVE_PHOTO_IMAGE', resource: value.resources.iosPhoto },
       { role: 'LIVE_PHOTO_VIDEO', purpose: 'LIVE_PHOTO_VIDEO', resource: value.resources.iosMov }
     ]
   });
-  if (value.platforms.includes('harmony')) result.push({
+  if (value.capabilities.includes('harmony_theme')) result.push({
     platform: 'HARMONYOS', resourceType: 'THEME_PACKAGE',
     bindings: [{ role: 'THEME_PACKAGE', purpose: 'THEME_PACKAGE', resource: value.resources.harmonyPackage }]
   });
@@ -386,8 +371,10 @@ const fetchWallpaper = async (id: string) => (
 ).data;
 
 const eligibleVersion = (variant: ApiWallpaperVariant) => (
-  variant.resourceVersions.find((item) => item.status === 'READY')
-  || variant.resourceVersions.find((item) => item.status === 'PUBLISHED')
+  variant.enabled
+    ? (variant.resourceVersions.find((item) => item.status === 'READY')
+      || variant.resourceVersions.find((item) => item.status === 'PUBLISHED'))
+    : undefined
 );
 
 const listAllSummaries = async (accessType?: WallpaperAccessType | '') => {
@@ -483,29 +470,29 @@ export const adminRepository = {
   },
 
   async saveWallpaper(input: Wallpaper, publish: boolean) {
+    if (input.capabilities.includes('android_parallax') && !input.resources.parallaxPackage
+        && !input.variants.some((variant) => variant.platform === 'ANDROID'
+          && variant.resourceType === 'LAYER_PARALLAX'
+          && variant.resourceVersions.some((version) => ['READY', 'PUBLISHED'].includes(version.status)))) {
+      throw new ApiError(422, 'PARALLAX_PACKAGE_REQUIRED', '请上传 4D 固定资源包');
+    }
     let coverAssetId: string;
-    if (input.kind === 'four_d') {
-      const sourcePackage = input.resources.parallaxPackage;
-      if (sourcePackage) {
-        coverAssetId = (await prepareParallaxPackage(sourcePackage)).coverAssetId;
-      } else if (input.id && input.resources.cover?.assetId && input.variants.some((variant) =>
-        variant.resourceType === 'LAYER_PARALLAX' && variant.resourceVersions.some((version) =>
-          ['READY', 'PUBLISHED'].includes(version.status)))) {
-        coverAssetId = input.resources.cover.assetId;
-      } else {
-        throw new ApiError(422, 'PARALLAX_PACKAGE_REQUIRED', '请上传 4D 固定资源包');
-      }
+    if (input.resources.cover?.nativeFile) {
+      coverAssetId = await uploadAsset(input.resources.cover, 'WALLPAPER_COVER');
+    } else if (input.capabilities.includes('universal_static') && input.resources.staticImage) {
+      coverAssetId = await uploadAsset(input.resources.staticImage, 'STATIC_IMAGE');
+    } else if (input.capabilities.includes('android_parallax') && input.resources.parallaxPackage) {
+      coverAssetId = (await prepareParallaxPackage(input.resources.parallaxPackage)).coverAssetId;
+    } else if (input.capabilities.includes('ios_live_photo') && input.resources.iosPhoto) {
+      coverAssetId = await uploadAsset(input.resources.iosPhoto, 'LIVE_PHOTO_IMAGE');
+    } else if (input.resources.cover?.assetId) {
+      coverAssetId = input.resources.cover.assetId;
     } else {
-      const staticImage = input.resources.staticImage;
-      if (!staticImage) throw new ApiError(422, 'ASSET_NOT_READY', '请上传高清静态原图');
-      // 非 4D 类型只上传一张静态原图：同一 asset 既是封面，
-      // 也是 UNIVERSAL / STATIC_IMAGE 正式资源，避免重复存储与两份内容不一致。
-      coverAssetId = await uploadAsset(staticImage, 'STATIC_IMAGE');
+      throw new ApiError(422, 'ASSET_NOT_READY', '请上传列表封面，或提供可复用的静态原图、4D 封面或 iOS 实况照片');
     }
     const payload = jsonBody({
       title: input.title.trim(),
       slug: input.slug.trim(),
-      kind: kindToApi[input.kind],
       accessType: input.accessType,
       rootCategoryId: input.categoryId,
       childCategoryId: input.subcategoryId || null,
@@ -523,13 +510,34 @@ export const adminRepository = {
         : (await apiRequest<ApiWallpaperDetail>('/admin/wallpapers', { method: 'POST', body: payload, csrf: true })).data;
 
       const selectedVersions: string[] = [];
-      for (const spec of variantSpecs(input)) {
+      const specs = variantSpecs(input);
+      const selectedKeys = new Set(specs.map((item) => `${item.platform}/${item.resourceType}`));
+      let variantsUpdated = false;
+      for (const existing of detail.variants) {
+        const shouldEnable = selectedKeys.has(`${existing.platform}/${existing.resourceType}`);
+        if (existing.enabled === shouldEnable) continue;
+        await apiRequest<ApiWallpaperVariant>(`/admin/variants/${existing.id}`, {
+          method: 'PATCH',
+          headers: { 'If-Match': ifMatch(existing.version) },
+          body: jsonBody({
+            platform: existing.platform,
+            resourceType: existing.resourceType,
+            minimumOsVersion: null,
+            capabilityRequirements: [],
+            enabled: shouldEnable
+          }),
+          csrf: true
+        });
+        variantsUpdated = true;
+      }
+      if (variantsUpdated) detail = await fetchWallpaper(detail.id);
+      for (const spec of specs) {
         let variant = detail.variants.find((item) => item.platform === spec.platform && item.resourceType === spec.resourceType);
         if (!variant) {
           await apiRequest<ApiWallpaperVariant>(`/admin/wallpapers/${detail.id}/variants`, {
             method: 'POST',
             headers: { 'If-Match': ifMatch(detail.version) },
-            body: jsonBody({ platform: spec.platform, resourceType: spec.resourceType, minimumOsVersion: null, capabilityRequirements: [] }),
+            body: jsonBody({ platform: spec.platform, resourceType: spec.resourceType, minimumOsVersion: null, capabilityRequirements: [], enabled: true }),
             csrf: true
           });
           detail = await fetchWallpaper(detail.id);
