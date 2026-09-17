@@ -9,7 +9,7 @@ import { ApiError, readableApiError } from '@/repositories/http/apiClient';
 const auth = useAuthStore();
 const route = useRoute();
 const router = useRouter();
-const form = reactive({ username: 'admin', password: '' });
+const form = reactive({ username: import.meta.env.VITE_ADMIN_USERNAME?.trim() || '', password: '' });
 const busy = ref(false);
 const error = ref(route.query.api === 'unavailable' ? '本地 API 暂时不可用，请检查服务是否已启动' : '');
 
