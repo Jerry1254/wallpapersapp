@@ -16,6 +16,7 @@ class DetailPreview extends StatefulWidget {
     super.key,
     required this.manager,
     required this.wallpaperId,
+    required this.deliveryPlatform,
     required this.resourceType,
     required this.cover,
     this.active = true,
@@ -26,7 +27,7 @@ class DetailPreview extends StatefulWidget {
     this.onReady,
   });
   final DownloadManager manager;
-  final String wallpaperId, resourceType;
+  final String wallpaperId, deliveryPlatform, resourceType;
   final Widget cover;
   final bool active;
   final bool preferPreview, fill;
@@ -151,15 +152,12 @@ class _DetailPreviewState extends State<DetailPreview>
       }
       final binding = await widget.manager.sessions.ensureEncryptionKey();
       if (cancelled()) return;
-      final info = await widget.manager.installer.information();
-      if (cancelled()) return;
       final descriptor = await widget.manager.sessions.authenticated(
         '/device/wallpapers/${widget.wallpaperId}/preview-tickets',
         method: 'POST',
         signed: true,
         body: jsonEncode({
-          'platform': 'ANDROID',
-          'osVersion': info['osVersion'],
+          'deliveryPlatform': widget.deliveryPlatform,
           'resourceType': widget.resourceType,
         }),
       );
@@ -171,6 +169,8 @@ class _DetailPreviewState extends State<DetailPreview>
           descriptor['downloadUrl'] != '/api/v1/preview/files' ||
           (descriptor['package'] as Map?)?['formatVersion'] != 3 ||
           (descriptor['package'] as Map?)?['encryptionKeySha256'] != binding ||
+          (descriptor['resourceVersion'] as Map?)?['platform'] !=
+              widget.deliveryPlatform ||
           (descriptor['resourceVersion'] as Map?)?['resourceType'] !=
               widget.resourceType) {
         throw const FormatException('Invalid preview descriptor');

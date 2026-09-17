@@ -295,6 +295,7 @@ class _ParallaxLabScreenState extends State<ParallaxLabScreen> {
               DetailPreview(
                 manager: widget.downloads,
                 wallpaperId: item.id,
+                deliveryPlatform: 'ANDROID',
                 resourceType: 'LAYER_PARALLAX',
                 cover: CatalogImage(
                   repository: widget.repository,

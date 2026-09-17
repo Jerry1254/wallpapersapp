@@ -7,13 +7,12 @@ import 'package:qingjing_wallpaper/downloads/download_panel.dart';
 import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
 import 'catalog_test.dart' show FakeCatalog;
 
-Wallpaper wallpaper(List<Map<String, String>> capabilities) =>
+Wallpaper wallpaper(List<Map<String, dynamic>> capabilities) =>
     Wallpaper.fromJson({
       'id': '1',
       'title': '静态测试',
-      'kind': 'STATIC',
       'cover': {'contentUrl': '/image'},
-      'capabilities': capabilities,
+      'availableCapabilities': capabilities,
     });
 
 class DetailCatalog extends FakeCatalog {
@@ -24,7 +23,11 @@ class DetailCatalog extends FakeCatalog {
     attempts++;
     if (fail) throw const ApiFailure(404, 'WALLPAPER_NOT_FOUND');
     return wallpaper([
-      {'platform': 'ANDROID', 'resourceType': 'STATIC_IMAGE'},
+      {
+        'deliveryPlatform': 'UNIVERSAL',
+        'resourceType': 'STATIC_IMAGE',
+        'placements': ['HOME'],
+      },
     ]);
   }
 }
@@ -32,10 +35,26 @@ class DetailCatalog extends FakeCatalog {
 void main() {
   test('交付变体按平台及资源过滤，不从作品类型推导系统能力', () {
     final item = wallpaper([
-      {'platform': 'IOS', 'resourceType': 'LIVE_PHOTO'},
-      {'platform': 'ANDROID', 'resourceType': 'VIDEO'},
-      {'platform': 'UNIVERSAL', 'resourceType': 'STATIC_IMAGE'},
-      {'platform': 'ANDROID', 'resourceType': 'FUTURE'},
+      {
+        'deliveryPlatform': 'IOS',
+        'resourceType': 'LIVE_PHOTO',
+        'placements': ['HOME'],
+      },
+      {
+        'deliveryPlatform': 'ANDROID',
+        'resourceType': 'VIDEO',
+        'placements': ['HOME'],
+      },
+      {
+        'deliveryPlatform': 'UNIVERSAL',
+        'resourceType': 'STATIC_IMAGE',
+        'placements': ['HOME', 'LOCK'],
+      },
+      {
+        'deliveryPlatform': 'ANDROID',
+        'resourceType': 'FUTURE',
+        'placements': ['HOME'],
+      },
     ]);
     expect(deliveryEffects(item, ClientPlatform.android), [
       WallpaperEffect.video,
@@ -49,6 +68,7 @@ void main() {
       capabilities.canApply(WallpaperEffect.video, WallpaperTarget.lock),
       false,
     );
+    expect(item.capabilityLabels, ['动态', '静态']);
   });
   testWidgets('详情缺失提示且可恢复，不显示假预览或可兑换操作', (tester) async {
     tester.view.physicalSize = const Size(390, 844);

@@ -55,7 +55,11 @@ class TrialManager extends ValueNotifier<TrialState> {
     }
   }
 
-  Future<void> start(String wallpaper, String type) async {
+  Future<void> start(
+    String wallpaper,
+    String deliveryPlatform,
+    String type,
+  ) async {
     if (value.busy || _disposed) return;
     final requestId = requestUuid();
     String? trialId;
@@ -81,15 +85,13 @@ class TrialManager extends ValueNotifier<TrialState> {
         }
       }, onError: (_) {});
       final binding = await sessions.ensureEncryptionKey();
-      final info = await installer.information();
       if (_cancelled) return;
       final descriptor = await sessions.authenticated(
         '/device/wallpapers/$wallpaper/preview-tickets',
         method: 'POST',
         signed: true,
         body: jsonEncode({
-          'platform': 'ANDROID',
-          'osVersion': info['osVersion'],
+          'deliveryPlatform': deliveryPlatform,
           'resourceType': type,
         }),
       );
@@ -101,6 +103,8 @@ class TrialManager extends ValueNotifier<TrialState> {
           descriptor['downloadUrl'] != '/api/v1/preview/files' ||
           (descriptor['package'] as Map?)?['formatVersion'] != 3 ||
           (descriptor['package'] as Map?)?['encryptionKeySha256'] != binding ||
+          (descriptor['resourceVersion'] as Map?)?['platform'] !=
+              deliveryPlatform ||
           (descriptor['resourceVersion'] as Map?)?['resourceType'] != type) {
         throw const FormatException();
       }

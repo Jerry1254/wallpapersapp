@@ -20,11 +20,14 @@ class PreviewCatalog extends FakeCatalog {
   Future<Wallpaper> detail(String id) async => Wallpaper.fromJson({
     'id': id,
     'title': '试用入口测试',
-    'kind': 'STATIC',
     'accessType': accessType,
     'cover': {'contentUrl': '/image'},
-    'capabilities': [
-      {'platform': 'UNIVERSAL', 'resourceType': 'STATIC_IMAGE'},
+    'availableCapabilities': [
+      {
+        'deliveryPlatform': 'UNIVERSAL',
+        'resourceType': 'STATIC_IMAGE',
+        'placements': ['HOME'],
+      },
     ],
   });
 }
@@ -64,7 +67,7 @@ class PreviewSessions extends DeviceSessionManager {
     'wallpaperId': '10',
     'downloadUrl': '/api/v1/preview/files',
     'package': {'formatVersion': 3, 'encryptionKeySha256': 'binding'},
-    'resourceVersion': {'resourceType': 'VIDEO'},
+    'resourceVersion': {'platform': 'ANDROID', 'resourceType': 'VIDEO'},
   };
   @override
   Future<String> ensureEncryptionKey() async {
@@ -98,8 +101,7 @@ class PreviewSessions extends DeviceSessionManager {
     expect(method, 'POST');
     expect(signed, true);
     expect(jsonDecode(body!), {
-      'platform': 'ANDROID',
-      'osVersion': '13',
+      'deliveryPlatform': 'ANDROID',
       'resourceType': 'VIDEO',
     });
     issuances++;
@@ -179,7 +181,15 @@ void main() {
             downloads: downloads,
             playback: PreviewCapabilities(),
             detailPreviewBuilder:
-                (manager, wallpaperId, resourceType, cover, active) {
+                (
+                  manager,
+                  wallpaperId,
+                  deliveryPlatform,
+                  resourceType,
+                  cover,
+                  active,
+                ) {
+                  expect(deliveryPlatform, 'UNIVERSAL');
                   previewType = resourceType;
                   return cover;
                 },
@@ -242,7 +252,7 @@ void main() {
       installer,
       native: native,
     );
-    await manager.start('10', 'VIDEO');
+    await manager.start('10', 'ANDROID', 'VIDEO');
     expect(
       native.request!.url.toString(),
       'https://example.test/api/v1/preview/files',
@@ -265,7 +275,7 @@ void main() {
       installer,
       native: native,
     );
-    await manager.start('10', 'VIDEO');
+    await manager.start('10', 'ANDROID', 'VIDEO');
     expect(manager.value.status, 'owned');
     expect(sessions.issuances, 0);
     expect(sessions.bindings, 0);
@@ -292,7 +302,7 @@ void main() {
         installer,
         native: native,
       );
-      await manager.start('10', 'VIDEO');
+      await manager.start('10', 'ANDROID', 'VIDEO');
       expect(manager.value.status, 'failed');
       expect(native.preparations, 0);
       manager.dispose();
@@ -311,7 +321,7 @@ void main() {
       installer,
       native: native,
     );
-    final operation = manager.start('10', 'VIDEO');
+    final operation = manager.start('10', 'ANDROID', 'VIDEO');
     await Future<void>.delayed(Duration.zero);
     await manager.cancel();
     binding.complete('binding');
@@ -321,7 +331,7 @@ void main() {
     final prepared = Completer<String>();
     sessions.binding = null;
     native.prepared = prepared.future;
-    final second = manager.start('10', 'VIDEO');
+    final second = manager.start('10', 'ANDROID', 'VIDEO');
     await Future<void>.delayed(Duration.zero);
     await manager.cancel();
     prepared.complete('trial-handle');
@@ -341,7 +351,7 @@ void main() {
       installer,
       native: native,
     );
-    await manager.start('10', 'VIDEO');
+    await manager.start('10', 'ANDROID', 'VIDEO');
     expect(manager.value.status, 'failed');
     expect(native.discards, 1);
     manager.dispose();

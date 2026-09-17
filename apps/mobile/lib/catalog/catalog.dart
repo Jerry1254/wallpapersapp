@@ -2,16 +2,20 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import '../device/device_capabilities.dart';
+import '../device/device_session.dart';
 
 class ApiFailure implements Exception {
   const ApiFailure(this.status, this.code);
   final int status;
   final String code;
-  String get message => status == 404
-      ? '内容不存在或已经下线'
-      : status == 400
-      ? '查询参数无效，请调整后重试'
-      : '暂时无法加载，请检查网络后重试';
+  String get message => switch ((status, code)) {
+    (404, 'WALLPAPER_NOT_AVAILABLE_FOR_DEVICE') => '此内容已不适用于当前手机',
+    (404, _) => '内容不存在或已经下线',
+    (428, _) => '正在重新检测手机的壁纸设置能力',
+    (400, _) => '查询参数无效，请调整后重试',
+    _ => '暂时无法加载，请检查网络后重试',
+  };
 }
 
 String _id(dynamic value) {
@@ -38,22 +42,52 @@ class Wallpaper {
   Wallpaper.fromJson(Map<String, dynamic> json)
     : id = _id(json['id']),
       title = json['title'] as String,
-      kind = json['kind'] as String,
       accessType = json['accessType'] == 'FREE' ? 'FREE' : 'REDEEM',
       cover = (json['cover'] as Map<String, dynamic>)['contentUrl'] as String,
-      capabilities = List<Map<String, dynamic>>.from(
-        json['capabilities'] as List,
-      ),
+      availableCapabilities = ((json['availableCapabilities'] as List?) ?? [])
+          .map(
+            (item) => AvailableCapability.fromJson(
+              Map<String, dynamic>.from(item as Map),
+            ),
+          )
+          .toList(growable: false),
       copyright = json['copyrightNote'] as String?;
-  final String id, title, kind, accessType, cover;
-  final List<Map<String, dynamic>> capabilities;
+  final String id, title, accessType, cover;
+  final List<AvailableCapability> availableCapabilities;
   final String? copyright;
   bool get isFree => accessType == 'FREE';
-  String get kindLabel => switch (kind) {
-    'PARALLAX_4D' => '4D动态',
-    'DYNAMIC' => '动态',
-    'STATIC' => '静态',
-    _ => '未知类型',
+  List<String> get capabilityLabels {
+    final labels = availableCapabilities.map((item) => item.label).toSet();
+    const order = ['4D动态', '动态', '静态'];
+    return order.where(labels.contains).toList(growable: false);
+  }
+
+  String get kindLabel =>
+      capabilityLabels.isEmpty ? '暂不可用' : capabilityLabels.join(' · ');
+  bool hasCapability(String platform, String type) => availableCapabilities.any(
+    (item) => item.deliveryPlatform == platform && item.resourceType == type,
+  );
+}
+
+class AvailableCapability {
+  const AvailableCapability({
+    required this.deliveryPlatform,
+    required this.resourceType,
+    required this.placements,
+  });
+  factory AvailableCapability.fromJson(Map<String, dynamic> json) =>
+      AvailableCapability(
+        deliveryPlatform: json['deliveryPlatform'] as String,
+        resourceType: json['resourceType'] as String,
+        placements: Set<String>.from(json['placements'] as List),
+      );
+  final String deliveryPlatform, resourceType;
+  final Set<String> placements;
+  String get label => switch (resourceType) {
+    'LAYER_PARALLAX' => '4D动态',
+    'VIDEO' || 'LIVE_PHOTO' || 'THEME_PACKAGE' => '动态',
+    'STATIC_IMAGE' => '静态',
+    _ => '未知形式',
   };
 }
 
@@ -102,6 +136,28 @@ String? tutorialKeyFor(String platform, String wallpaperKind) {
   return null;
 }
 
+String? tutorialKeyForCapability(String platform, String resourceType) =>
+    switch ((platform, resourceType)) {
+      ('ANDROID', 'LAYER_PARALLAX') => 'ANDROID_PARALLAX_4D',
+      ('ANDROID', 'VIDEO') => 'ANDROID_DYNAMIC',
+      ('HARMONYOS', 'THEME_PACKAGE') => 'HARMONYOS_DYNAMIC',
+      ('IOS', 'LIVE_PHOTO') => 'IOS_DYNAMIC',
+      ('UNIVERSAL', 'STATIC_IMAGE') => 'STATIC',
+      _ => null,
+    };
+
+WallpaperTutorial? tutorialForCapability(
+  List<WallpaperTutorial> tutorials,
+  AvailableCapability capability,
+) {
+  final key = tutorialKeyForCapability(
+    capability.deliveryPlatform,
+    capability.resourceType,
+  );
+  if (key == null) return null;
+  return tutorials.where((item) => item.key == key).firstOrNull;
+}
+
 WallpaperTutorial? tutorialFor(
   List<WallpaperTutorial> tutorials,
   String platform,
@@ -121,12 +177,29 @@ abstract interface class CatalogRepository {
 }
 
 class HttpCatalogRepository implements CatalogRepository {
-  HttpCatalogRepository(this.base);
+  HttpCatalogRepository(this.base, {this.sessions, this.deviceCapabilities});
   final Uri base;
+  final DeviceSessionManager? sessions;
+  final DeviceCapabilityManager? deviceCapabilities;
   Future<Map<String, dynamic>> _get(
     String path, [
     Map<String, String>? query,
+    bool authenticated = true,
   ]) async {
+    if (authenticated && sessions != null) {
+      final uri = Uri(path: path, queryParameters: query);
+      Future<Map<String, dynamic>> request() =>
+          sessions!.authenticated(uri.toString());
+      try {
+        return deviceCapabilities == null
+            ? await request()
+            : await deviceCapabilities!.withProfile(request);
+      } on DeviceApiError catch (error) {
+        throw ApiFailure(error.status, error.code);
+      } catch (_) {
+        throw const ApiFailure(0, 'NETWORK_OR_RESPONSE_ERROR');
+      }
+    }
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 15);
     try {
@@ -170,13 +243,12 @@ class HttpCatalogRepository implements CatalogRepository {
       WallpaperPage.fromJson(await _get('/public/wallpapers', query));
   @override
   Future<Wallpaper> detail(String id) async => Wallpaper.fromJson(
-    await _get('/public/wallpapers/${Uri.encodeComponent(_id(id))}', {
-      'platform': 'ANDROID',
-    }),
+    await _get('/public/wallpapers/${Uri.encodeComponent(_id(id))}'),
   );
   @override
   Future<List<WallpaperTutorial>> tutorials() async =>
-      ((await _get('/public/wallpaper-tutorials'))['items'] as List)
+      ((await _get('/public/wallpaper-tutorials', null, false))['items']
+              as List)
           .map((e) => WallpaperTutorial.fromJson(e as Map<String, dynamic>))
           .toList()
         ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
@@ -223,7 +295,6 @@ class CatalogController extends ChangeNotifier {
         ...query,
         'page': '1',
         'pageSize': '20',
-        'platform': 'ANDROID',
       });
       if (_disposed || generation != _generation) return;
       items = page.items;
@@ -252,7 +323,6 @@ class CatalogController extends ChangeNotifier {
         ...query,
         'page': '${_page + 1}',
         'pageSize': '20',
-        'platform': 'ANDROID',
       });
       if (_disposed || generation != _generation) return;
       final merged = {for (final item in items) item.id: item};

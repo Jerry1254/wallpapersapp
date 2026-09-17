@@ -74,20 +74,25 @@ void main() {
       );
     }
   });
-  test('兑换前按操作系统版本及尚不可证明的附加要求过滤变体', () {
+  test('服务端能力交集只转换当前平台支持的资源形式', () {
     expect(supportsMinimumOs('15', '15.0.0'), true);
     expect(supportsMinimumOs('14.9', '15'), false);
     expect(supportsMinimumOs(null, '15'), false);
     expect(supportsMinimumOs('15-beta', '15'), false);
     final item = wallpaper([
-      {'platform': 'ANDROID', 'resourceType': 'VIDEO', 'minOsVersion': '16'},
       {
-        'platform': 'ANDROID',
+        'deliveryPlatform': 'ANDROID',
+        'resourceType': 'VIDEO',
+        'placements': ['HOME'],
+      },
+      {
+        'deliveryPlatform': 'UNIVERSAL',
         'resourceType': 'STATIC_IMAGE',
-        'minOsVersion': '12',
+        'placements': ['HOME', 'LOCK'],
       },
     ]);
     expect(deliveryEffects(item, ClientPlatform.android, osVersion: '15'), [
+      WallpaperEffect.video,
       WallpaperEffect.staticImage,
     ]);
   });

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
 import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
@@ -5,6 +7,7 @@ import '../catalog/catalog.dart';
 import '../catalog/catalog_image.dart';
 import '../design_system/qj_components.dart';
 import '../design_system/qj_theme.dart';
+import '../device/device_capabilities.dart';
 import '../downloads/download_manager.dart';
 import '../downloads/download_panel.dart';
 import '../entitlements/redemption.dart';
@@ -18,6 +21,7 @@ typedef DetailPreviewBuilder =
     Widget Function(
       DownloadManager manager,
       String wallpaperId,
+      String deliveryPlatform,
       String resourceType,
       Widget cover,
       bool active,
@@ -35,6 +39,7 @@ class DetailScreen extends StatefulWidget {
     ),
     this.playback,
     this.trials,
+    this.deviceCapabilities,
     this.detailPreviewBuilder,
   });
   final CatalogRepository repository;
@@ -44,6 +49,7 @@ class DetailScreen extends StatefulWidget {
   final WallpaperCapabilities capabilities;
   final AndroidWallpaperPlayback? playback;
   final TrialManager? trials;
+  final DeviceCapabilityManager? deviceCapabilities;
   final DetailPreviewBuilder? detailPreviewBuilder;
   @override
   State<DetailScreen> createState() => _DetailScreenState();
@@ -132,7 +138,7 @@ class _DetailScreenState extends State<DetailScreen> {
         .whenComplete(() => _checkingInstalled.remove(effect));
   }
 
-  Future<void> _openDownload(WallpaperEffect effect) async {
+  Future<void> _openDownload(WallpaperDeliveryOption option) async {
     final manager = widget.downloads;
     if (manager == null) return;
     await showModalBottomSheet<void>(
@@ -143,24 +149,27 @@ class _DetailScreenState extends State<DetailScreen> {
       builder: (sheetContext) => DownloadPanel(
         manager: manager,
         wallpaperId: widget.id,
-        resourceType: AndroidWallpaperPlayback.resourceType(effect),
+        deliveryPlatform: option.deliveryPlatform,
+        resourceType: option.resourceType,
         autoStart: true,
         onReady: (id) {
           Navigator.pop(sheetContext);
-          setState(() => installedIds[effect] = id);
+          setState(() => installedIds[option.effect] = id);
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _openTarget(effect, id);
+            if (mounted) _openTarget(option, id);
           });
         },
       ),
     );
   }
 
-  Future<void> _openTarget(WallpaperEffect effect, String id) async {
+  Future<void> _openTarget(WallpaperDeliveryOption option, String id) async {
     final playback = widget.playback;
     if (playback == null) return;
+    final effect = option.effect;
+    final targetCapabilities = capabilitiesForOption(capabilities, option);
     PlatformResult<void>? initialResult;
-    if (capabilities.systemChoosesLiveTarget &&
+    if (targetCapabilities.systemChoosesLiveTarget &&
         effect != WallpaperEffect.staticImage) {
       try {
         initialResult = await playback.apply(id, effect, WallpaperTarget.home);
@@ -171,6 +180,7 @@ class _DetailScreenState extends State<DetailScreen> {
         );
       }
       if (!mounted) return;
+      unawaited(_recordResult(option, WallpaperTarget.home, initialResult));
     }
     await showModalBottomSheet<void>(
       context: context,
@@ -181,15 +191,41 @@ class _DetailScreenState extends State<DetailScreen> {
         installedId: id,
         effect: effect,
         playback: playback,
-        capabilities: capabilities,
+        capabilities: targetCapabilities,
         initialResult: initialResult,
+        onResult: (target, result) => _recordResult(option, target, result),
       ),
     );
   }
 
+  Future<void> _recordResult(
+    WallpaperDeliveryOption option,
+    WallpaperTarget target,
+    PlatformResult<void> result,
+  ) async {
+    final manager = widget.deviceCapabilities;
+    if (manager == null) return;
+    try {
+      if (result.status == OperationStatus.completed) {
+        await manager.recordSuccessfulSet(
+          option.deliveryPlatform,
+          option.resourceType,
+        );
+      } else if (result.status == OperationStatus.unsupported) {
+        await manager.recordUnsupported(
+          option.deliveryPlatform,
+          option.resourceType,
+        );
+        if (mounted) {
+          setState(() => future = widget.repository.detail(widget.id));
+        }
+      }
+    } catch (_) {}
+  }
+
   Future<void> _action(
     Wallpaper wallpaper,
-    List<WallpaperEffect> effects,
+    List<WallpaperDeliveryOption> options,
   ) async {
     if (!wallpaper.isFree && owned == null && trials != null) {
       await _ownership();
@@ -211,8 +247,12 @@ class _DetailScreenState extends State<DetailScreen> {
       if (mounted) setState(() => owned = true);
     }
     if (!mounted) return;
-    final effect = await showWallpaperEffectPicker(context, effects);
+    final effect = await showWallpaperEffectPicker(
+      context,
+      options.map((item) => item.effect).toList(growable: false),
+    );
     if (effect == null || !mounted) return;
+    final option = options.firstWhere((item) => item.effect == effect);
     final manager = widget.downloads;
     if (manager == null) return;
     String? installed = installedIds[effect];
@@ -227,9 +267,9 @@ class _DetailScreenState extends State<DetailScreen> {
     }
     if (!mounted) return;
     if (installed != null) {
-      await _openTarget(effect, installed);
+      await _openTarget(option, installed);
     } else {
-      await _openDownload(effect);
+      await _openDownload(option);
     }
   }
 
@@ -237,7 +277,13 @@ class _DetailScreenState extends State<DetailScreen> {
     try {
       final tutorials = tutorialCache ?? await widget.repository.tutorials();
       tutorialCache = tutorials;
-      final tutorial = tutorialFor(tutorials, 'ANDROID', wallpaper.kind);
+      final options = deliveryOptions(wallpaper, capabilities);
+      final capability =
+          options.firstOrNull?.capability ??
+          wallpaper.availableCapabilities.firstOrNull;
+      final tutorial = capability == null
+          ? null
+          : tutorialForCapability(tutorials, capability);
       if (!mounted) return;
       if (tutorial == null) {
         ScaffoldMessenger.of(
@@ -255,20 +301,26 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
-  Widget _preview(Wallpaper wallpaper, WallpaperEffect effect, Widget cover) {
+  Widget _preview(
+    Wallpaper wallpaper,
+    WallpaperDeliveryOption option,
+    Widget cover,
+  ) {
     final manager = widget.downloads!;
-    final type = AndroidWallpaperPlayback.resourceType(effect);
+    final type = option.resourceType;
     return widget.detailPreviewBuilder?.call(
           manager,
           wallpaper.id,
+          option.deliveryPlatform,
           type,
           cover,
           previewActive,
         ) ??
         DetailPreview(
-          key: ValueKey('${wallpaper.id}-${effect.name}'),
+          key: ValueKey('${wallpaper.id}-${option.effect.name}'),
           manager: manager,
           wallpaperId: wallpaper.id,
+          deliveryPlatform: option.deliveryPlatform,
           resourceType: type,
           active: previewActive,
           cover: cover,
@@ -295,6 +347,11 @@ class _DetailScreenState extends State<DetailScreen> {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snapshot.hasError) {
+                final failure = snapshot.error is ApiFailure
+                    ? snapshot.error! as ApiFailure
+                    : null;
+                final unavailable =
+                    failure?.code == 'WALLPAPER_NOT_AVAILABLE_FOR_DEVICE';
                 return ListView(
                   padding: const EdgeInsets.symmetric(horizontal: T.space5),
                   children: [
@@ -302,10 +359,14 @@ class _DetailScreenState extends State<DetailScreen> {
                     const SizedBox(height: T.space6),
                     QjStatePanel(
                       kind: QjStateKind.error,
-                      description: snapshot.error is ApiFailure
-                          ? (snapshot.error! as ApiFailure).message
+                      description: failure != null
+                          ? failure.message
                           : '详情加载失败，请重试',
                       onPressed: () {
+                        if (unavailable) {
+                          Navigator.maybePop(context);
+                          return;
+                        }
                         setState(() {
                           owned = null;
                           ownershipError = null;
@@ -313,37 +374,25 @@ class _DetailScreenState extends State<DetailScreen> {
                           future = widget.repository.detail(widget.id);
                         });
                       },
+                      actionLabel: unavailable ? '返回列表' : '重新加载',
                     ),
                   ],
                 );
               }
               final wallpaper = snapshot.requireData;
               _loadOwnership(wallpaper);
-              final effects =
-                  deliveryEffects(
-                        wallpaper,
-                        capabilities.platform,
-                        osVersion: capabilities.osVersion,
-                      )
-                      .where(
-                        (effect) =>
-                            capabilities.previewEffects.contains(effect) &&
-                            WallpaperTarget.values.any(
-                              (target) => capabilities.canApply(effect, target),
-                            ),
-                      )
-                      .toList();
-              final previewEffect = effects.firstOrNull;
-              if (effects.isNotEmpty) {
+              final options = deliveryOptions(wallpaper, capabilities);
+              final previewOption = options.firstOrNull;
+              if (options.isNotEmpty) {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   if (mounted) {
-                    for (final effect in effects) {
-                      _installed(effect);
+                    for (final option in options) {
+                      _installed(option.effect);
                     }
                   }
                 });
               }
-              final usable = effects.isNotEmpty;
+              final usable = options.isNotEmpty;
               final waitsForOwnership =
                   !wallpaper.isFree && trials != null && owned == null;
               final hasAccess = wallpaper.isFree || owned == true;
@@ -352,7 +401,9 @@ class _DetailScreenState extends State<DetailScreen> {
                   : waitsForOwnership
                   ? '正在确认权益'
                   : hasAccess &&
-                        effects.any((effect) => installedIds[effect] != null)
+                        options.any(
+                          (option) => installedIds[option.effect] != null,
+                        )
                   ? '设置壁纸'
                   : '下载壁纸';
               return ListView(
@@ -385,10 +436,10 @@ class _DetailScreenState extends State<DetailScreen> {
                             if (widget.downloads != null &&
                                 capabilities.platform ==
                                     ClientPlatform.android &&
-                                previewEffect != null)
+                                previewOption != null)
                               _preview(
                                 wallpaper,
-                                previewEffect,
+                                previewOption,
                                 CatalogImage(
                                   repository: widget.repository,
                                   path: wallpaper.cover,
@@ -432,7 +483,7 @@ class _DetailScreenState extends State<DetailScreen> {
                                         !waitsForOwnership &&
                                         (wallpaper.isFree ||
                                             ownershipError == null)
-                                    ? () => _action(wallpaper, effects)
+                                    ? () => _action(wallpaper, options)
                                     : null,
                               ),
                             ),

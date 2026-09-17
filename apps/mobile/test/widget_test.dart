@@ -19,6 +19,7 @@ void main() {
         ),
       ),
     );
+    await tester.pump();
     repository.pending.single.complete(WallpaperPage([], 1, 0));
     await tester.pumpAndSettle();
     expect(find.text('倾境'), findsOneWidget);
@@ -46,6 +47,7 @@ void main() {
         ),
       ),
     );
+    await tester.pump();
     repository.pending.single.complete(WallpaperPage([], 1, 0));
     await tester.pumpAndSettle();
     await tester.tap(find.text('免费壁纸'));
@@ -53,6 +55,35 @@ void main() {
     expect(repository.queries.last['accessType'], 'FREE');
     repository.pending.last.complete(WallpaperPage([], 1, 0));
     await tester.pumpAndSettle();
+  });
+  testWidgets('首页形式标签使用精确设备交付能力筛选', (tester) async {
+    final repository = FakeCatalog();
+    await tester.pumpWidget(
+      QingjingApp(
+        repository: repository,
+        config: AppConfig(
+          environment: 'local',
+          apiBase: Uri.parse('http://127.0.0.1:8080/api/v1'),
+          debug: true,
+        ),
+      ),
+    );
+    await tester.pump();
+    repository.pending.single.complete(WallpaperPage([], 1, 0));
+    await tester.pumpAndSettle();
+
+    for (final entry in const [
+      ('4D动态', 'ANDROID', 'LAYER_PARALLAX'),
+      ('动态壁纸', 'ANDROID', 'VIDEO'),
+      ('静态壁纸', 'UNIVERSAL', 'STATIC_IMAGE'),
+    ]) {
+      await tester.tap(find.text(entry.$1));
+      await tester.pump();
+      expect(repository.queries.last['deliveryPlatform'], entry.$2);
+      expect(repository.queries.last['resourceType'], entry.$3);
+      repository.pending.last.complete(WallpaperPage([], 1, 0));
+      await tester.pumpAndSettle();
+    }
   });
   test('正式包和非调试包拒绝明文地址', () {
     for (final env in ['local', 'prod']) {

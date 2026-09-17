@@ -22,6 +22,12 @@ class WallpaperCapabilities {
     this.previewEffects = const {},
     this.targets = const {},
     this.osVersion,
+    this.sdkInt,
+    this.manufacturer,
+    this.model,
+    this.hostOsFamily = 'ANDROID',
+    this.executionMode = 'NATIVE',
+    this.parallaxSensorAvailable = false,
     this.systemChoosesLiveTarget = false,
     this.setupMessage,
   });
@@ -29,6 +35,10 @@ class WallpaperCapabilities {
   final Set<WallpaperEffect> previewEffects;
   final Map<WallpaperEffect, Set<WallpaperTarget>> targets;
   final String? osVersion;
+  final int? sdkInt;
+  final String? manufacturer, model;
+  final String hostOsFamily, executionMode;
+  final bool parallaxSensorAvailable;
   final bool systemChoosesLiveTarget;
   final String? setupMessage;
   bool canApply(WallpaperEffect effect, WallpaperTarget target) =>

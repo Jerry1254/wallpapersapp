@@ -813,10 +813,8 @@ class QjCatalogCard extends StatelessWidget {
                       spacing: 6,
                       runSpacing: 6,
                       children: [
-                        QjTypeBadge(
-                          wallpaper.kindLabel,
-                          tone: QjBadgeTone.light,
-                        ),
+                        for (final label in wallpaper.capabilityLabels)
+                          QjTypeBadge(label, tone: QjBadgeTone.light),
                         if (wallpaper.isFree)
                           const QjTypeBadge('免费', tone: QjBadgeTone.amber),
                       ],
@@ -880,7 +878,14 @@ class QjOwnedRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                QjTypeBadge(wallpaper.kindLabel, tone: QjBadgeTone.light),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final label in wallpaper.capabilityLabels)
+                      QjTypeBadge(label, tone: QjBadgeTone.light),
+                  ],
+                ),
                 const SizedBox(height: 5),
                 Text(
                   wallpaper.title,

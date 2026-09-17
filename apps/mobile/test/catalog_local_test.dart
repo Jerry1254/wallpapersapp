@@ -9,31 +9,19 @@ void main() {
       final repo = HttpCatalogRepository(Uri.parse(local));
       final categories = await repo.categories();
       expect(categories, isNotEmpty);
-      final first = await repo.list({
-        'page': '1',
-        'pageSize': '1',
-        'platform': 'ANDROID',
-      });
+      final first = await repo.list({'page': '1', 'pageSize': '1'});
       expect(first.page, 1);
       expect(first.items, isNotEmpty);
       final detail = await repo.detail(first.items.single.id);
       expect(detail.id, first.items.single.id);
-      final search = await repo.list({
-        'q': detail.title,
-        'platform': 'ANDROID',
-      });
+      final search = await repo.list({'q': detail.title});
       expect(search.items.map((item) => item.id), contains(detail.id));
       final categorized = await repo.list({
         'rootCategoryId': categories.first.id,
-        'platform': 'ANDROID',
       });
       expect(categorized.page, 1);
       if (first.totalPages > 1) {
-        final second = await repo.list({
-          'page': '2',
-          'pageSize': '1',
-          'platform': 'ANDROID',
-        });
+        final second = await repo.list({'page': '2', 'pageSize': '1'});
         expect(second.page, 2);
         expect(second.items.single.id, isNot(detail.id));
       }

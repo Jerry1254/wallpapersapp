@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
 import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
@@ -26,7 +27,10 @@ class Sessions extends DeviceSessionManager {
     'wallpaperId': '10',
     'downloadUrl': '/api/v1/delivery/files',
     'package': {'encryptionKeySha256': 'key-hash'},
-    'resourceVersion': {'resourceType': 'STATIC_IMAGE'},
+    'resourceVersion': {
+      'platform': 'UNIVERSAL',
+      'resourceType': 'STATIC_IMAGE',
+    },
   };
   @override
   Future<String> ensureEncryptionKey() async =>
@@ -42,8 +46,10 @@ class Sessions extends DeviceSessionManager {
   }) async {
     expect(signed, true);
     expect(method, 'POST');
-    expect(body, contains('"osVersion":"15"'));
-    expect(body, contains('"supportedResourceTypes":["STATIC_IMAGE"]'));
+    expect(jsonDecode(body!), {
+      'deliveryPlatform': 'UNIVERSAL',
+      'resourceType': 'STATIC_IMAGE',
+    });
     calls++;
     if (error != null) throw error!;
     return descriptor;
@@ -85,7 +91,7 @@ void main() {
       Uri.parse('https://example.test/api/v1'),
       installer: installer,
     );
-    final operation = manager.download('10', 'STATIC_IMAGE');
+    final operation = manager.download('10', 'UNIVERSAL', 'STATIC_IMAGE');
     await Future<void>.delayed(Duration.zero);
     expect(
       installer.prepared?.url.toString(),
@@ -129,7 +135,7 @@ void main() {
       Uri.parse('https://example.test/api/v1'),
       installer: installer,
     );
-    final operation = manager.download('10', 'STATIC_IMAGE');
+    final operation = manager.download('10', 'UNIVERSAL', 'STATIC_IMAGE');
     await manager.cancel();
     binding.complete('key-hash');
     await operation;
@@ -156,7 +162,7 @@ void main() {
         Uri.parse('https://example.test/api/v1'),
         installer: installer,
       );
-      await manager.download('10', 'STATIC_IMAGE');
+      await manager.download('10', 'UNIVERSAL', 'STATIC_IMAGE');
       expect(installer.prepared, isNull);
       expect(manager.value.status, 'failed');
       manager.dispose();
@@ -171,14 +177,14 @@ void main() {
       Uri.parse('https://example.test/api/v1'),
       installer: installer,
     );
-    await manager.download('10', 'STATIC_IMAGE');
+    await manager.download('10', 'UNIVERSAL', 'STATIC_IMAGE');
     expect(manager.value.message, contains('权益'));
     expect(installer.prepared, isNull);
     sessions.error = null;
     installer.installed.complete(
       const PlatformResult(OperationStatus.unknown, message: '空间不足'),
     );
-    await manager.download('10', 'STATIC_IMAGE');
+    await manager.download('10', 'UNIVERSAL', 'STATIC_IMAGE');
     expect(sessions.calls, 2);
     expect(manager.value.installedId, isNull);
     expect(manager.value.message, '空间不足');

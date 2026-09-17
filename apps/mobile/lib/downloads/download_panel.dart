@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
 import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
@@ -114,6 +115,7 @@ class DownloadPanel extends StatefulWidget {
     super.key,
     required this.manager,
     required this.wallpaperId,
+    required this.deliveryPlatform,
     required this.resourceType,
     this.playback,
     this.capabilities = const WallpaperCapabilities(
@@ -123,7 +125,7 @@ class DownloadPanel extends StatefulWidget {
     this.onReady,
   });
   final DownloadManager manager;
-  final String wallpaperId, resourceType;
+  final String wallpaperId, deliveryPlatform, resourceType;
   final AndroidWallpaperPlayback? playback;
   final WallpaperCapabilities capabilities;
   final bool autoStart;
@@ -154,7 +156,11 @@ class _DownloadPanelState extends State<DownloadPanel> {
         checked = true;
       });
       if (value == null && widget.autoStart && !widget.manager.value.busy) {
-        widget.manager.download(widget.wallpaperId, widget.resourceType);
+        widget.manager.download(
+          widget.wallpaperId,
+          widget.deliveryPlatform,
+          widget.resourceType,
+        );
       }
     } catch (_) {
       if (mounted) setState(() => checked = true);
@@ -267,6 +273,7 @@ class _DownloadPanelState extends State<DownloadPanel> {
                 label: '重新尝试',
                 onPressed: () => widget.manager.download(
                   widget.wallpaperId,
+                  widget.deliveryPlatform,
                   widget.resourceType,
                 ),
               ),
@@ -285,12 +292,18 @@ class WallpaperTargetSheet extends StatefulWidget {
     required this.playback,
     required this.capabilities,
     this.initialResult,
+    this.onResult,
   });
   final String installedId;
   final WallpaperEffect effect;
   final AndroidWallpaperPlayback playback;
   final WallpaperCapabilities capabilities;
   final PlatformResult<void>? initialResult;
+  final Future<void> Function(
+    WallpaperTarget target,
+    PlatformResult<void> result,
+  )?
+  onResult;
   @override
   State<WallpaperTargetSheet> createState() => _WallpaperTargetSheetState();
 }
@@ -306,7 +319,18 @@ class _WallpaperTargetSheetState extends State<WallpaperTargetSheet> {
 
   List<(WallpaperTarget, String, String, String)> get options {
     if (systemChoosesTarget) {
-      return [(WallpaperTarget.home, '桌面和锁屏', '设置位置由手机系统选择', 'smartphone')];
+      final supportsLock = widget.capabilities.canApply(
+        widget.effect,
+        WallpaperTarget.lock,
+      );
+      return [
+        (
+          WallpaperTarget.home,
+          supportsLock ? '桌面和锁屏' : '桌面壁纸',
+          '最终设置位置由手机系统确认',
+          'smartphone',
+        ),
+      ];
     }
     return [
           (WallpaperTarget.home, '桌面壁纸', '显示在手机桌面', 'panels-top-left'),
@@ -357,6 +381,8 @@ class _WallpaperTargetSheetState extends State<WallpaperTargetSheet> {
       widget.effect,
       target!,
     );
+    final report = widget.onResult?.call(target!, result);
+    if (report != null) unawaited(report);
     if (!mounted) return;
     setState(() {
       busy = false;

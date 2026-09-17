@@ -4,6 +4,7 @@ import '../design_system/qj_components.dart';
 import '../design_system/qj_theme.dart';
 import '../detail/detail_screen.dart';
 import '../detail/help_screen.dart';
+import '../device/device_capabilities.dart';
 import '../downloads/download_manager.dart';
 import '../entitlements/redemption.dart';
 import '../lab/parallax_lab_screen.dart';
@@ -17,6 +18,7 @@ class CatalogScreen extends StatefulWidget {
     this.redemptions,
     this.downloads,
     this.playback,
+    this.deviceCapabilities,
     this.onTab,
     this.category,
     this.search,
@@ -26,6 +28,7 @@ class CatalogScreen extends StatefulWidget {
   final RedemptionCoordinator? redemptions;
   final DownloadManager? downloads;
   final AndroidWallpaperPlayback? playback;
+  final DeviceCapabilityManager? deviceCapabilities;
   final ValueChanged<int>? onTab;
   final Category? category;
   final String? search;
@@ -65,9 +68,15 @@ class _CatalogScreenState extends State<CatalogScreen> {
     }
     return switch (view) {
       '免费壁纸' => {'accessType': 'FREE'},
-      '4D动态' => {'kind': 'PARALLAX_4D'},
-      '动态壁纸' => {'kind': 'DYNAMIC'},
-      '静态壁纸' => {'view': 'STATIC'},
+      '4D动态' => {
+        'deliveryPlatform': 'ANDROID',
+        'resourceType': 'LAYER_PARALLAX',
+      },
+      '动态壁纸' => {'deliveryPlatform': 'ANDROID', 'resourceType': 'VIDEO'},
+      '静态壁纸' => {
+        'deliveryPlatform': 'UNIVERSAL',
+        'resourceType': 'STATIC_IMAGE',
+      },
       _ => {'view': 'FEATURED'},
     };
   }
@@ -100,6 +109,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
           redemptions: widget.redemptions,
           downloads: widget.downloads,
           playback: widget.playback,
+          deviceCapabilities: widget.deviceCapabilities,
           onTab: widget.onTab,
           labMode: widget.labMode,
         ),
@@ -107,28 +117,33 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
-  void _detail(Wallpaper item) => Navigator.push(
-    context,
-    MaterialPageRoute<void>(
-      builder: (_) =>
-          widget.labMode &&
-              item.kind == 'PARALLAX_4D' &&
-              widget.downloads != null
-          ? ParallaxLabScreen(
-              repository: widget.repository,
-              downloads: widget.downloads!,
-              id: item.id,
-              apiBase: widget.downloads!.apiBase,
-            )
-          : DetailScreen(
-              repository: widget.repository,
-              id: item.id,
-              redemptions: widget.redemptions,
-              downloads: widget.downloads,
-              playback: widget.playback,
-            ),
-    ),
-  );
+  Future<void> _detail(Wallpaper item) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            widget.labMode &&
+                item.hasCapability('ANDROID', 'LAYER_PARALLAX') &&
+                widget.downloads != null
+            ? ParallaxLabScreen(
+                repository: widget.repository,
+                downloads: widget.downloads!,
+                id: item.id,
+                apiBase: widget.downloads!.apiBase,
+              )
+            : DetailScreen(
+                repository: widget.repository,
+                id: item.id,
+                redemptions: widget.redemptions,
+                downloads: widget.downloads,
+                playback: widget.playback,
+                deviceCapabilities: widget.deviceCapabilities,
+              ),
+      ),
+    );
+    if (mounted) await _reload();
+  }
+
   void _category(Category item) => Navigator.push(
     context,
     MaterialPageRoute<void>(
@@ -138,6 +153,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
         redemptions: widget.redemptions,
         downloads: widget.downloads,
         playback: widget.playback,
+        deviceCapabilities: widget.deviceCapabilities,
         onTab: widget.onTab,
         labMode: widget.labMode,
       ),

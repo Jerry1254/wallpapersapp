@@ -52,6 +52,12 @@ class AndroidWallpaperPlayback implements Preview, WallpaperApply {
     return WallpaperCapabilities(
       platform: ClientPlatform.android,
       osVersion: data['osVersion'] as String?,
+      sdkInt: data['sdkInt'] as int?,
+      manufacturer: data['manufacturer'] as String?,
+      model: data['model'] as String?,
+      hostOsFamily: data['hostOsFamily'] as String? ?? 'ANDROID',
+      executionMode: data['executionMode'] as String? ?? 'NATIVE',
+      parallaxSensorAvailable: data['parallaxSensorAvailable'] == true,
       systemChoosesLiveTarget: data['systemChoosesLiveTarget'] == true,
       setupMessage: data['setupMessage'] as String?,
       previewEffects: ((data['previewEffects'] as List?) ?? [])

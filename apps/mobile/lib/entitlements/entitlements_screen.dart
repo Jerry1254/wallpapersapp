@@ -5,6 +5,7 @@ import '../design_system/qj_components.dart';
 import '../design_system/qj_theme.dart';
 import '../detail/detail_screen.dart';
 import '../detail/help_screen.dart';
+import '../device/device_capabilities.dart';
 import '../device/device_session.dart';
 import '../downloads/download_manager.dart';
 import 'redemption.dart';
@@ -17,6 +18,7 @@ class EntitlementsScreen extends StatefulWidget {
     required this.redemptions,
     this.downloads,
     this.playback,
+    this.deviceCapabilities,
     this.active = true,
     this.onHome,
   });
@@ -25,6 +27,7 @@ class EntitlementsScreen extends StatefulWidget {
   final RedemptionCoordinator redemptions;
   final DownloadManager? downloads;
   final AndroidWallpaperPlayback? playback;
+  final DeviceCapabilityManager? deviceCapabilities;
   final bool active;
   final VoidCallback? onHome;
   @override
@@ -129,6 +132,7 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
         id: item.id,
         downloads: widget.downloads,
         playback: widget.playback,
+        deviceCapabilities: widget.deviceCapabilities,
         redemptions: widget.redemptions,
       ),
     ),

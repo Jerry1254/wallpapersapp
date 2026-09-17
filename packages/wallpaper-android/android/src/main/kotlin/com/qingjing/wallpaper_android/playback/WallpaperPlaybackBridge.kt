@@ -24,10 +24,28 @@ internal class WallpaperPlaybackBridge(private val context: Context) : PluginReg
         val picker = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,ComponentName(context,VideoWallpaperService::class.java))
         val setup = LiveWallpaperPolicy.blockedMessage(context)
         val live = allowed && setup == null && context.packageManager.hasSystemFeature(PackageManager.FEATURE_LIVE_WALLPAPER) && picker.resolveActivity(context.packageManager) != null
-        return mapOf("osVersion" to Build.VERSION.RELEASE,"previewEffects" to (listOf("STATIC_IMAGE","LAYER_PARALLAX") + if(video) listOf("VIDEO") else emptyList()),
+        val environment = hostEnvironment()
+        return mapOf("osVersion" to Build.VERSION.RELEASE,"sdkInt" to Build.VERSION.SDK_INT,
+            "manufacturer" to Build.MANUFACTURER.ifBlank { "UNKNOWN" },"model" to Build.MODEL.ifBlank { "UNKNOWN" },
+            "hostOsFamily" to environment.first,"executionMode" to environment.second,
+            "previewEffects" to (listOf("STATIC_IMAGE","LAYER_PARALLAX") + if(video) listOf("VIDEO") else emptyList()),
             "targets" to mapOf("STATIC_IMAGE" to if(allowed) listOf("home","lock","both") else emptyList(),"VIDEO" to if(live && video) listOf("home") else emptyList(),"LAYER_PARALLAX" to if(live) listOf("home") else emptyList()),
             "systemChoosesLiveTarget" to live,"setupMessage" to (setup ?: ""),"parallaxSensorAvailable" to ParallaxTiltSensor.available(context))
     }
+    private fun hostEnvironment(): Pair<String,String> {
+        val manufacturer = Build.MANUFACTURER.lowercase(java.util.Locale.ROOT)
+        val harmony = systemProperty("hw_sc.build.platform.version")
+        val emui = systemProperty("ro.build.version.emui")
+        return when {
+            harmony.isNotBlank() -> "HARMONY_CLASSIC" to "ANDROID_COMPATIBLE"
+            manufacturer.contains("huawei") || manufacturer.contains("honor") || emui.isNotBlank() -> "EMUI" to "NATIVE"
+            else -> "ANDROID" to "NATIVE"
+        }
+    }
+    private fun systemProperty(name: String): String = try {
+        val type = Class.forName("android.os.SystemProperties")
+        type.getMethod("get",String::class.java,String::class.java).invoke(null,name,"") as? String ?: ""
+    } catch (_: Exception) { "" }
     fun debugState(): Map<String,Any?> {
         require(context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0)
         val manager = WallpaperManager.getInstance(context); val component = ComponentName(context,VideoWallpaperService::class.java)

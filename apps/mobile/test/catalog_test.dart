@@ -5,9 +5,14 @@ import 'package:qingjing_wallpaper/catalog/catalog.dart';
 Wallpaper sample(String id) => Wallpaper.fromJson({
   'id': id,
   'title': '景深 $id',
-  'kind': 'PARALLAX_4D',
   'cover': {'contentUrl': '/api/v1/public/assets/1/content'},
-  'capabilities': [],
+  'availableCapabilities': [
+    {
+      'deliveryPlatform': 'ANDROID',
+      'resourceType': 'LAYER_PARALLAX',
+      'placements': ['HOME'],
+    },
+  ],
 });
 
 class FakeCatalog implements CatalogRepository {
@@ -43,7 +48,7 @@ void main() {
     await first;
     expect(state.items.single.id, '2');
     expect(repo.queries[1]['q'], '山水');
-    expect(repo.queries[1]['platform'], 'ANDROID');
+    expect(repo.queries[1].containsKey('platform'), false);
     state.dispose();
   });
   test('翻页失败与刷新断网保留已有列表，重试从原页继续且去重', () async {
@@ -86,7 +91,7 @@ void main() {
     expect(state.items.single.id, '2');
     state.dispose();
   });
-  test('销毁后晚响应不通知，未知类型不会伪装为静态', () async {
+  test('销毁后晚响应不通知，空能力不会伪装为静态', () async {
     final repo = FakeCatalog();
     final state = CatalogController(repo);
     final request = state.load({});
@@ -96,21 +101,25 @@ void main() {
     final item = Wallpaper.fromJson({
       'id': '1',
       'title': '未来格式',
-      'kind': 'FUTURE',
       'cover': {'contentUrl': '/x'},
-      'capabilities': [],
+      'availableCapabilities': [],
     });
-    expect(item.kindLabel, '未知类型');
+    expect(item.kindLabel, '暂不可用');
   });
   test('只有明确 FREE 才免兑换，缺失或未知值保持需要兑换', () {
     Map<String, dynamic> json([String? accessType]) {
       return <String, dynamic>{
         'id': '1',
         'title': '获取方式',
-        'kind': 'STATIC',
         'accessType': ?accessType,
         'cover': {'contentUrl': '/x'},
-        'capabilities': [],
+        'availableCapabilities': [
+          {
+            'deliveryPlatform': 'UNIVERSAL',
+            'resourceType': 'STATIC_IMAGE',
+            'placements': ['HOME'],
+          },
+        ],
       };
     }
 

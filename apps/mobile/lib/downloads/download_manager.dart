@@ -38,7 +38,11 @@ class DownloadManager extends ValueNotifier<DownloadState> {
   StreamSubscription<PackageDownloadProgress>? _progress;
   Future<String?> current(String wallpaper, String type) =>
       installer.current(wallpaper, type);
-  Future<void> download(String wallpaper, String type) async {
+  Future<void> download(
+    String wallpaper,
+    String deliveryPlatform,
+    String type,
+  ) async {
     if (value.busy || _operationActive) return;
     _operationActive = true;
     final requestId = requestUuid();
@@ -64,16 +68,14 @@ class DownloadManager extends ValueNotifier<DownloadState> {
         );
       }, onError: (_) {});
       final binding = await sessions.ensureEncryptionKey();
-      final info = await installer.information();
       if (_cancelRequested) return;
       final descriptor = await sessions.authenticated(
         '/device/wallpapers/$wallpaper/download-tickets',
         method: 'POST',
         signed: true,
         body: jsonEncode({
-          'platform': 'ANDROID',
-          'osVersion': info['osVersion'],
-          'supportedResourceTypes': [type],
+          'deliveryPlatform': deliveryPlatform,
+          'resourceType': type,
         }),
       );
       if (_cancelRequested) return;
@@ -81,6 +83,8 @@ class DownloadManager extends ValueNotifier<DownloadState> {
           descriptor['wallpaperId'] != wallpaper ||
           descriptor['downloadUrl'] != '/api/v1/delivery/files' ||
           (descriptor['package'] as Map?)?['encryptionKeySha256'] != binding ||
+          (descriptor['resourceVersion'] as Map?)?['platform'] !=
+              deliveryPlatform ||
           (descriptor['resourceVersion'] as Map?)?['resourceType'] != type) {
         throw const FormatException('Invalid delivery descriptor');
       }
