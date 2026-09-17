@@ -175,23 +175,37 @@ describe('adminRepository.saveWallpaper', () => {
     expect(JSON.parse(String(requests[2].options.body))).toEqual({ versionNo: 1, sourcePackageId: '90' });
   });
 
-  it('iOS 动态壁纸的多角色版本分别使用 ordinal 0 发布', async () => {
+  it('iOS 动态壁纸一次发布静态原图与动态多角色资源', async () => {
     setCsrfToken('csrf-token');
     const roles = ['LIVE_PHOTO_IMAGE', 'LIVE_PHOTO_VIDEO'];
-    const bindings = roles.map((role, index) => ({ id: String(60 + index), role, ordinal: 0, asset: asset(String(index + 2), 'resource') }));
-    const version = { id: '50', versionNo: 1, status: 'READY', bindings };
-    const variant = { id: '40', platform: 'IOS', resourceType: 'LIVE_PHOTO', version: 0, resourceVersions: [] };
-    const wallpaper = { ...detail('DRAFT', 0, [variant]), kind: 'DYNAMIC' };
+    const staticAsset = asset('1', 'wallpaper.png');
+    const staticVersion = { id: '50', versionNo: 1, status: 'READY', bindings: [{ id: '60', role: 'STATIC_IMAGE', ordinal: 0, asset: staticAsset }] };
+    const liveVersion = { id: '51', versionNo: 1, status: 'READY', bindings: roles.map((role, index) => ({ id: String(61 + index), role, ordinal: 0, asset: asset(String(index + 2), 'resource') })) };
+    const staticVariant = { id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', version: 0, resourceVersions: [] };
+    const liveVariant = { id: '41', platform: 'IOS', resourceType: 'LIVE_PHOTO', version: 0, resourceVersions: [] };
+    const wallpaper = { ...detail('DRAFT', 0, [staticVariant, liveVariant], staticAsset), kind: 'DYNAMIC' };
     const fetchMock = vi.fn(async (url: string, options: RequestInit = {}) => {
-      if (url.endsWith('/resource-versions')) {
+      if (url.endsWith('/admin/variants/40/resource-versions')) {
+        const body = JSON.parse(String(options.body));
+        expect(body.bindings).toEqual([{ assetId: '1', role: 'STATIC_IMAGE', ordinal: 0 }]);
+        return json(staticVersion, 201);
+      }
+      if (url.endsWith('/admin/variants/41/resource-versions')) {
         const body = JSON.parse(String(options.body));
         if (body.bindings.some((binding: { ordinal: number }) => binding.ordinal !== 0)) {
           return json({ error: { code: 'DOMAIN_RULE_VIOLATION', message: 'Every role must use ordinal zero' } }, 422);
         }
-        return json(version, 201);
+        return json(liveVersion, 201);
       }
-      if (url.endsWith('/secure-package')) return json(version);
-      if (url.endsWith('/publish')) return json({ ...wallpaper, status: 'PUBLISHED', variants: [{ ...variant, resourceVersions: [{ ...version, status: 'PUBLISHED' }] }] });
+      if (url.endsWith('/admin/resource-versions/50/secure-package')) return json(staticVersion);
+      if (url.endsWith('/publish')) return json({
+        ...wallpaper,
+        status: 'PUBLISHED',
+        variants: [
+          { ...staticVariant, resourceVersions: [{ ...staticVersion, status: 'PUBLISHED' }] },
+          { ...liveVariant, resourceVersions: [{ ...liveVersion, status: 'PUBLISHED' }] }
+        ]
+      });
       return json(wallpaper);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -199,11 +213,13 @@ describe('adminRepository.saveWallpaper', () => {
     const input: Wallpaper = { id: '30', title: '多角色发布', slug: 'multi-role', categoryId: '20', subcategoryId: '',
       kind: 'dynamic', accessType: 'REDEEM', platforms: ['ios'], status: 'draft', sort: 1, featuredRank: null,
       coverUrl: '', copyrightNote: '本地测试', updatedAt: '', version: 0, variants: [], resources: {
-        ...resources, cover: { name: 'cover.png', assetId: '1', size: 68, mime: 'image/png' }
+        ...resources, staticImage: { name: 'wallpaper.png', assetId: '1', size: 68, mime: 'image/png' }
       } };
     expect((await adminRepository.saveWallpaper(input, true)).status).toBe('published');
-    const created = fetchMock.mock.calls.find(([url]) => url.endsWith('/resource-versions'));
+    const created = fetchMock.mock.calls.find(([url]) => url.endsWith('/admin/variants/41/resource-versions'));
     expect(JSON.parse(String(created?.[1]?.body)).bindings).toEqual(roles.map((role, index) => ({ role, ordinal: 0, assetId: String(index + 2) })));
+    const publish = fetchMock.mock.calls.find(([url]) => url.endsWith('/publish'));
+    expect(JSON.parse(String(publish?.[1]?.body))).toEqual({ resourceVersionIds: ['50', '51'] });
   });
   it.each([false, true])('4D 编辑保留现有素材，不重复上传或创建版本（含源包：%s）', async (withSource) => {
     setCsrfToken('csrf-token');
@@ -233,20 +249,20 @@ describe('adminRepository.saveWallpaper', () => {
     setCsrfToken('csrf-token');
     const variant = { id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', version: 0, resourceVersions: [] };
     let created = false;
-    let uploadFails = true;
+    let versionFails = true;
     const fetchMock = vi.fn(async (url: string, options: RequestInit = {}) => {
       if (url.endsWith('/admin/assets')) {
-        if ((options.body as FormData).get('purpose') === 'STATIC_IMAGE' && uploadFails) {
-          return json({ error: { code: 'ASSET_VALIDATION_FAILED', message: 'Invalid image' } }, 422);
-        }
-        return json(asset('1', 'cover.png'), 201);
+        return json(asset('1', 'wallpaper.png'), 201);
       }
       if (url.endsWith('/admin/wallpapers') && options.method === 'POST') {
         created = true;
         return json(detail('DRAFT', 0, []), 201);
       }
       if (url.endsWith('/variants')) return json(variant, 201);
-      if (url.endsWith('/resource-versions')) return json({ id: '50', status: 'READY', versionNo: 1 }, 201);
+      if (url.endsWith('/resource-versions')) {
+        if (versionFails) return json({ error: { code: 'ASSET_VALIDATION_FAILED', message: 'Invalid image' } }, 422);
+        return json({ id: '50', status: 'READY', versionNo: 1 }, 201);
+      }
       return json(detail('DRAFT', created ? 1 : 0, [variant]));
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -254,7 +270,6 @@ describe('adminRepository.saveWallpaper', () => {
     const input: Wallpaper = { id: '', title: '恢复草稿', slug: 'recover', categoryId: '20', subcategoryId: '',
       kind: 'static', accessType: 'REDEEM', platforms: ['android', 'ios', 'harmony'], status: 'draft', sort: 1, featuredRank: null,
       coverUrl: '', copyrightNote: '本地测试', updatedAt: '', version: 0, variants: [], resources: {
-        cover: { name: file.name, size: file.size, mime: file.type, nativeFile: file },
         staticImage: { name: file.name, size: file.size, mime: file.type, nativeFile: file }
       } };
     const failure = await adminRepository.saveWallpaper(input, false).catch((cause: unknown) => cause);
@@ -262,7 +277,7 @@ describe('adminRepository.saveWallpaper', () => {
     const recovery = (failure as WallpaperSaveError).wallpaper;
     expect(recovery).toMatchObject({ id: '30', version: 1 });
     expect(recovery.resources.staticImage?.nativeFile).toBe(file);
-    uploadFails = false;
+    versionFails = false;
     await adminRepository.saveWallpaper(recovery, false);
     expect(fetchMock.mock.calls.filter(([url, options]) => url.endsWith('/admin/wallpapers') && options?.method === 'POST')).toHaveLength(1);
     const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
@@ -305,17 +320,15 @@ describe('adminRepository.saveWallpaper', () => {
       const url = String(urlValue);
       requests.push({ url, options });
       if (url.endsWith('/admin/assets')) {
-        const form = options.body as FormData;
-        const purpose = String(form.get('purpose'));
-        return json(purpose === 'WALLPAPER_COVER' ? asset('1', 'cover.png') : staticAsset, 201);
+        return json(staticAsset, 201);
       }
-      if (url.endsWith('/admin/wallpapers') && options.method === 'POST') return json(detail('DRAFT', 0, []), 201, { ETag: '"0"' });
+      if (url.endsWith('/admin/wallpapers') && options.method === 'POST') return json(detail('DRAFT', 0, [], staticAsset), 201, { ETag: '"0"' });
       if (url.endsWith('/admin/wallpapers/30/variants')) return json(variantWithoutVersion, 201);
-      if (url.endsWith('/admin/wallpapers/30') && !options.method) return json(detail('DRAFT', 1, [variantWithoutVersion]), 200, { ETag: '"1"' });
+      if (url.endsWith('/admin/wallpapers/30') && !options.method) return json(detail('DRAFT', 1, [variantWithoutVersion], staticAsset), 200, { ETag: '"1"' });
       if (url.endsWith('/admin/variants/40/resource-versions')) return json({ ...publishedVersion, status: 'READY', version: 0 }, 201);
       if (url.endsWith('/admin/resource-versions/50/secure-package')) return json({ ...publishedVersion, status: 'READY' });
       if (url.endsWith('/admin/wallpapers/30/publish')) {
-        return json(detail('PUBLISHED', 2, [{ ...variantWithoutVersion, resourceVersions: [publishedVersion] }]), 200, { ETag: '"2"' });
+        return json(detail('PUBLISHED', 2, [{ ...variantWithoutVersion, resourceVersions: [publishedVersion] }], staticAsset), 200, { ETag: '"2"' });
       }
       throw new Error(`unexpected request: ${options.method || 'GET'} ${url}`);
     });
@@ -327,7 +340,6 @@ describe('adminRepository.saveWallpaper', () => {
       kind: 'static', accessType: 'FREE', platforms: ['android', 'ios', 'harmony'], status: 'published', sort: 10,
       coverUrl: '', featuredRank: 2, copyrightNote: '已获得授权', updatedAt: '', version: 0, variants: [],
       resources: {
-        cover: { name: 'cover.png', size: png.size, mime: png.type, nativeFile: png },
         staticImage: { name: 'wallpaper.png', size: png.size, mime: png.type, nativeFile: png }
       }
     };
@@ -340,18 +352,18 @@ describe('adminRepository.saveWallpaper', () => {
       'POST /admin/wallpapers',
       'POST /admin/wallpapers/30/variants',
       'GET /admin/wallpapers/30',
-      'POST /admin/assets',
       'POST /admin/variants/40/resource-versions',
       'POST /admin/resource-versions/50/secure-package',
       'POST /admin/wallpapers/30/publish'
     ]);
     const variantRequest = requests[2].options.headers as Headers;
-    expect(JSON.parse(String(requests[1].options.body))).toMatchObject({ featuredRank: 2, accessType: 'FREE' });
+    expect((requests[0].options.body as FormData).get('purpose')).toBe('STATIC_IMAGE');
+    expect(JSON.parse(String(requests[1].options.body))).toMatchObject({ featuredRank: 2, accessType: 'FREE', coverAssetId: '2' });
     expect(variantRequest.get('If-Match')).toBe('"0"');
     expect(variantRequest.get('Content-Type')).toBe('application/json');
-    const publishRequest = requests[7].options.headers as Headers;
+    const publishRequest = requests[6].options.headers as Headers;
     expect(publishRequest.get('If-Match')).toBe('"1"');
-    expect(JSON.parse(String(requests[7].options.body))).toEqual({ resourceVersionIds: ['50'] });
+    expect(JSON.parse(String(requests[6].options.body))).toEqual({ resourceVersionIds: ['50'] });
   });
 });
 

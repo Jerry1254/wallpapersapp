@@ -61,7 +61,7 @@ const dynamicPreviewSrc = computed(() => form.resources.androidVideo?.url || for
 const staticPreviewSrc = computed(() => form.resources.staticImage?.url || coverPreviewSrc.value);
 const previewHasContent = computed(() => {
   if (form.kind === 'four_d') return Boolean(coverPreviewSrc.value);
-  if (form.kind === 'dynamic') return Boolean(dynamicPreviewSrc.value || coverPreviewSrc.value);
+  if (form.kind === 'dynamic') return Boolean(dynamicPreviewSrc.value || staticPreviewSrc.value);
   return Boolean(staticPreviewSrc.value);
 });
 const primaryCategories = computed(() => props.categories.filter((category) => category.parentId === null).sort((a, b) => a.sort - b.sort));
@@ -107,19 +107,19 @@ const validate = () => {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.slug)) next.slug = '请输入小写字母、数字和连字符组成的 Slug';
   if (!form.categoryId) next.categoryId = '请选择一级分类';
   if (!['REDEEM', 'FREE'].includes(form.accessType)) next.accessType = '请选择获取方式';
-  if (form.kind !== 'four_d' && !form.resources.cover && !form.coverUrl) next.cover = '请上传列表封面';
   if (form.platforms.length === 0) next.platforms = '请至少选择一个平台';
 
   if (form.kind === 'four_d') {
     if (!form.resources.parallaxPackage && !hasExistingParallax.value) next.parallaxPackage = '请上传固定格式的 4D ZIP 资源包';
   }
   if (form.kind === 'dynamic') {
+    if (!form.resources.staticImage) next.staticImage = '请上传高清静态原图';
     if (hasPlatform('android') && !form.resources.androidVideo) next.androidVideo = 'Android 需要 MP4 视频';
     if (hasPlatform('ios') && !form.resources.iosMov) next.iosMov = 'iOS 需要 MOV 视频';
     if (hasPlatform('ios') && !form.resources.iosPhoto) next.iosPhoto = 'iOS 需要配套 JPEG 照片';
     if (hasPlatform('harmony') && !form.resources.harmonyPackage) next.harmonyPackage = 'HarmonyOS 需要平台资源包';
   }
-  if (form.kind === 'static' && !form.resources.staticImage) next.staticImage = '请上传高清原图';
+  if (form.kind === 'static' && !form.resources.staticImage) next.staticImage = '请上传高清静态原图';
   if (!form.copyrightNote.trim()) next.copyrightNote = '请输入版权说明';
   errors.value = next;
   return Object.keys(next).length === 0;
@@ -136,7 +136,7 @@ const resourceRows = computed(() => {
   if (form.kind === 'four_d') {
     rows.push({ label: '4D 资源', ready: Boolean(form.resources.parallaxPackage || hasExistingParallax.value) });
   } else if (form.kind === 'dynamic') {
-    rows.push({ label: '列表封面', ready: Boolean(form.resources.cover || form.coverUrl) });
+    rows.push({ label: '静态原图 / 封面', ready: Boolean(form.resources.staticImage) });
     if (hasPlatform('android')) rows.push({ label: 'Android MP4', ready: Boolean(form.resources.androidVideo) });
     if (hasPlatform('ios')) rows.push(
       { label: 'iOS MOV', ready: Boolean(form.resources.iosMov) },
@@ -144,8 +144,7 @@ const resourceRows = computed(() => {
     );
     if (hasPlatform('harmony')) rows.push({ label: 'HarmonyOS 资源包', ready: Boolean(form.resources.harmonyPackage) });
   } else {
-    rows.push({ label: '列表封面', ready: Boolean(form.resources.cover || form.coverUrl) });
-    rows.push({ label: '高清原图', ready: Boolean(form.resources.staticImage) });
+    rows.push({ label: '静态原图 / 封面', ready: Boolean(form.resources.staticImage) });
   }
   return rows;
 });
@@ -235,25 +234,12 @@ const resourceRows = computed(() => {
           <p v-if="errors.platforms" class="field-error">{{ errors.platforms }}</p>
         </section>
 
-        <section v-if="form.kind !== 'four_d'" class="editor-section">
-          <div class="editor-section__heading">
-            <h3>列表资源</h3>
-            <p>封面只用于首页和列表展示；详情页直接使用下方的正式壁纸资源呈现效果，无需额外上传预览视频。</p>
-          </div>
-          <div class="resource-grid">
-            <div class="resource-grid__item span-2">
-              <ResourceFileField :model-value="form.resources.cover" label="列表封面" hint="JPG / PNG / WebP，建议 1080 × 2160" accept="image/jpeg,image/png,image/webp" required @update:model-value="setResource('cover', $event)" />
-              <p v-if="errors.cover" class="field-error">{{ errors.cover }}</p>
-            </div>
-          </div>
-        </section>
-
         <section class="editor-section">
           <div class="editor-section__heading">
             <h3>{{ wallpaperKindLabels[form.kind] }}资源</h3>
             <p v-if="form.kind === 'four_d'">上传 Web 模拟器导出的完整 ZIP；动画参数请返回模拟器调整后重新导出。</p>
-            <p v-else-if="form.kind === 'dynamic'">每个平台的动态壁纸格式不同，请补齐已选平台的全部必填资源。</p>
-            <p v-else>上传无文字水印的高清原图，客户端按屏幕比例安全裁切。</p>
+            <p v-else-if="form.kind === 'dynamic'">高清静态原图同时用作列表/详情封面和正式静态壁纸；再补齐已选平台的动态原资源。</p>
+            <p v-else>上传一张无文字水印的高清静态原图，同时用作封面和正式设置资源。</p>
           </div>
           <div v-if="form.kind === 'four_d'" class="resource-grid">
             <div class="resource-grid__item span-2">
@@ -277,6 +263,11 @@ const resourceRows = computed(() => {
           </div>
 
           <div v-else-if="form.kind === 'dynamic'" class="resource-grid">
+            <div class="resource-grid__item span-2">
+              <ResourceFileField :model-value="form.resources.staticImage" label="高清静态原图（封面 / 静态壁纸）" hint="JPG / PNG / WebP，建议 1440 × 2880 或更高" accept="image/jpeg,image/png,image/webp" required @update:model-value="setResource('staticImage', $event)" />
+              <p v-if="errors.staticImage" class="field-error">{{ errors.staticImage }}</p>
+              <p class="resource-help">只上传一次；后台直接将该原图用于封面展示和用户选择“静态壁纸”时的正式交付。</p>
+            </div>
             <div v-if="hasPlatform('android')" class="resource-grid__item span-2">
               <ResourceFileField :model-value="form.resources.androidVideo" label="Android 动态视频" hint="MP4，H.264，建议 1080 × 2160" accept="video/mp4" required @update:model-value="setResource('androidVideo', $event)" />
               <p v-if="errors.androidVideo" class="field-error">{{ errors.androidVideo }}</p>
@@ -297,7 +288,7 @@ const resourceRows = computed(() => {
 
           <div v-else class="resource-grid">
             <div class="resource-grid__item span-2">
-              <ResourceFileField :model-value="form.resources.staticImage" label="静态高清原图" hint="JPG / PNG / WebP，建议 1440 × 2880 或更高" accept="image/jpeg,image/png,image/webp" required @update:model-value="setResource('staticImage', $event)" />
+              <ResourceFileField :model-value="form.resources.staticImage" label="高清静态原图（封面 / 静态壁纸）" hint="JPG / PNG / WebP，建议 1440 × 2880 或更高" accept="image/jpeg,image/png,image/webp" required @update:model-value="setResource('staticImage', $event)" />
               <p v-if="errors.staticImage" class="field-error">{{ errors.staticImage }}</p>
             </div>
           </div>
@@ -311,7 +302,7 @@ const resourceRows = computed(() => {
             <div class="preview-phone__screen">
               <img v-if="form.kind === 'four_d' && coverPreviewSrc" :src="coverPreviewSrc" alt="4D 列表封面预览" />
               <video v-else-if="form.kind === 'dynamic' && dynamicPreviewSrc" :src="dynamicPreviewSrc" autoplay loop muted playsinline aria-label="动态壁纸资源预览"></video>
-              <img v-else-if="form.kind === 'dynamic' && coverPreviewSrc" :src="coverPreviewSrc" alt="动态壁纸封面预览" />
+              <img v-else-if="form.kind === 'dynamic' && staticPreviewSrc" :src="staticPreviewSrc" alt="动态壁纸静态封面预览" />
               <img v-else-if="form.kind === 'static' && staticPreviewSrc" :src="staticPreviewSrc" alt="静态壁纸预览" />
               <ElIcon v-if="!previewHasContent" :size="42" style="position:absolute;inset:42% auto auto 40%;color:rgba(255,255,255,.7)"><PictureFilled /></ElIcon>
               <div class="preview-phone__meta">

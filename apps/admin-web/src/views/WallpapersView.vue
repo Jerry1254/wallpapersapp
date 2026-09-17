@@ -105,8 +105,8 @@ const requiredResources = (value: Wallpaper) => {
   if (value.kind === 'four_d') return [value.resources.parallaxPackage || (value.variants.some((variant) =>
     variant.resourceType === 'LAYER_PARALLAX' && variant.resourceVersions.some((version) =>
       ['READY', 'PUBLISHED'].includes(version.status))) ? '现有 4D 资源' : undefined)];
-  if (value.kind === 'static') return [value.resources.cover || value.coverUrl, value.resources.staticImage];
-  const result: (ResourceFile | string | undefined)[] = [value.resources.cover || value.coverUrl];
+  if (value.kind === 'static') return [value.resources.staticImage];
+  const result: (ResourceFile | string | undefined)[] = [value.resources.staticImage];
   if (value.platforms.includes('android')) result.push(value.resources.androidVideo);
   if (value.platforms.includes('ios')) result.push(value.resources.iosMov, value.resources.iosPhoto);
   if (value.platforms.includes('harmony')) result.push(value.resources.harmonyPackage);

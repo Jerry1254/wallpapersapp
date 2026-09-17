@@ -5,6 +5,110 @@ import '../design_system/qj_components.dart';
 import '../design_system/qj_theme.dart';
 import 'download_manager.dart';
 
+Future<WallpaperEffect?> showWallpaperEffectPicker(
+  BuildContext context,
+  List<WallpaperEffect> effects,
+) {
+  if (effects.length == 1) return Future.value(effects.first);
+  return showModalBottomSheet<WallpaperEffect>(
+    context: context,
+    useSafeArea: true,
+    constraints: const BoxConstraints(maxWidth: T.sizeContentMax),
+    builder: (sheetContext) => QjSheet(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('选择设置方式', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 7),
+          Text(
+            '同一份壁纸权益包含动态和静态形式，本次只下载你选择的资源。',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: T.space4),
+          for (final effect in effects)
+            Padding(
+              padding: const EdgeInsets.only(bottom: T.space2),
+              child: Semantics(
+                button: true,
+                label: _effectTitle(effect),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(T.radiusControl),
+                  onTap: () => Navigator.pop(sheetContext, effect),
+                  child: Container(
+                    constraints: const BoxConstraints(minHeight: 72),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: T.space4,
+                      vertical: T.space3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: T.colorSurfaceMuted,
+                      border: Border.all(color: T.colorOutline),
+                      borderRadius: BorderRadius.circular(T.radiusControl),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: T.colorSurfaceStrong,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Center(
+                            child: QjIcon(
+                              _effectIcon(effect),
+                              color: T.colorInkSoft,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: T.space3),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _effectTitle(effect),
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              Text(
+                                _effectDescription(effect),
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const QjIcon('chevron-right', color: T.colorMutedInk),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+String _effectTitle(WallpaperEffect effect) => switch (effect) {
+  WallpaperEffect.video => '动态壁纸',
+  WallpaperEffect.staticImage => '静态壁纸',
+  WallpaperEffect.parallax => '4D 壁纸',
+};
+
+String _effectDescription(WallpaperEffect effect) => switch (effect) {
+  WallpaperEffect.video => '播放上传的动态原资源',
+  WallpaperEffect.staticImage => '使用高清静态原图',
+  WallpaperEffect.parallax => '随手机倾斜产生分层视差',
+};
+
+String _effectIcon(WallpaperEffect effect) => switch (effect) {
+  WallpaperEffect.video => 'play-square',
+  WallpaperEffect.staticImage => 'image',
+  WallpaperEffect.parallax => 'layers-3',
+};
+
 class DownloadPanel extends StatefulWidget {
   const DownloadPanel({
     super.key,

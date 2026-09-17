@@ -326,7 +326,11 @@ const variantSpecs = (value: Wallpaper): VariantSpec[] => {
       bindings: [{ role: 'STATIC_IMAGE', purpose: 'STATIC_IMAGE', resource: value.resources.staticImage }]
     }];
   }
-  const result: VariantSpec[] = [];
+  const result: VariantSpec[] = [{
+    platform: 'UNIVERSAL',
+    resourceType: 'STATIC_IMAGE',
+    bindings: [{ role: 'STATIC_IMAGE', purpose: 'STATIC_IMAGE', resource: value.resources.staticImage }]
+  }];
   if (value.platforms.includes('android')) result.push({
     platform: 'ANDROID', resourceType: 'VIDEO',
     bindings: [{ role: 'VIDEO', purpose: 'VIDEO', resource: value.resources.androidVideo }]
@@ -492,9 +496,11 @@ export const adminRepository = {
         throw new ApiError(422, 'PARALLAX_PACKAGE_REQUIRED', '请上传 4D 固定资源包');
       }
     } else {
-      const cover = input.resources.cover;
-      if (!cover) throw new ApiError(422, 'ASSET_NOT_READY', '请上传列表封面');
-      coverAssetId = await uploadAsset(cover, 'WALLPAPER_COVER');
+      const staticImage = input.resources.staticImage;
+      if (!staticImage) throw new ApiError(422, 'ASSET_NOT_READY', '请上传高清静态原图');
+      // 非 4D 类型只上传一张静态原图：同一 asset 既是封面，
+      // 也是 UNIVERSAL / STATIC_IMAGE 正式资源，避免重复存储与两份内容不一致。
+      coverAssetId = await uploadAsset(staticImage, 'STATIC_IMAGE');
     }
     const payload = jsonBody({
       title: input.title.trim(),

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:qingjing_wallpaper/catalog/catalog.dart';
 import 'package:qingjing_wallpaper/detail/delivery.dart';
 import 'package:qingjing_wallpaper/detail/detail_screen.dart';
+import 'package:qingjing_wallpaper/downloads/download_panel.dart';
 import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
 import 'catalog_test.dart' show FakeCatalog;
 
@@ -72,5 +73,36 @@ void main() {
     final button = tester.widget<FilledButton>(find.byType(FilledButton));
     expect(button.onPressed, isNull);
     expect(find.text('当前设备不支持'), findsOneWidget);
+  });
+
+  testWidgets('动态作品设置前可选动态或静态，选择结果只返回一种资源形式', (tester) async {
+    WallpaperEffect? selected;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => FilledButton(
+              onPressed: () async {
+                selected = await showWallpaperEffectPicker(context, const [
+                  WallpaperEffect.video,
+                  WallpaperEffect.staticImage,
+                ]);
+              },
+              child: const Text('设置壁纸'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('设置壁纸'));
+    await tester.pumpAndSettle();
+    expect(find.text('选择设置方式'), findsOneWidget);
+    expect(find.text('动态壁纸'), findsOneWidget);
+    expect(find.text('静态壁纸'), findsOneWidget);
+
+    await tester.tap(find.text('静态壁纸'));
+    await tester.pumpAndSettle();
+    expect(selected, WallpaperEffect.staticImage);
   });
 }

@@ -9,8 +9,8 @@ WallpaperEffect? effectForResource(String type) => switch (type) {
 };
 String effectLabel(WallpaperEffect effect) => switch (effect) {
   WallpaperEffect.staticImage => '静态壁纸',
-  WallpaperEffect.video => '视频动态',
-  WallpaperEffect.parallax => '4D 姿态视差',
+  WallpaperEffect.video => '动态壁纸',
+  WallpaperEffect.parallax => '4D 壁纸',
 };
 String targetLabel(WallpaperTarget target) => switch (target) {
   WallpaperTarget.home => '桌面',
@@ -31,7 +31,7 @@ List<WallpaperEffect> deliveryEffects(
     _ => '',
   };
   if (platformName.isEmpty) return [];
-  return wallpaper.capabilities
+  final effects = wallpaper.capabilities
       .where(
         (cap) =>
             (cap['platform'] == platformName ||
@@ -43,6 +43,13 @@ List<WallpaperEffect> deliveryEffects(
       .whereType<WallpaperEffect>()
       .toSet()
       .toList();
+  const priority = {
+    WallpaperEffect.parallax: 0,
+    WallpaperEffect.video: 1,
+    WallpaperEffect.staticImage: 2,
+  };
+  effects.sort((left, right) => priority[left]!.compareTo(priority[right]!));
+  return effects;
 }
 
 bool supportsMinimumOs(String? current, String? minimum) {
