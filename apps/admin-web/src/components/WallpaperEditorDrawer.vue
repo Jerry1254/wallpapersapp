@@ -112,7 +112,6 @@ const validate = () => {
   const reusableCover = form.resources.cover || form.resources.staticImage
     || form.resources.parallaxPackage?.coverAssetId || form.resources.iosPhoto || form.coverUrl;
   if (!reusableCover) next.cover = '请上传列表封面';
-  if (!form.copyrightNote.trim()) next.copyrightNote = '请输入版权说明';
   errors.value = next;
   return Object.keys(next).length === 0;
 };
@@ -157,7 +156,6 @@ const resourceRows = computed(() => {
               <ElFormItem label="排序值"><ElInputNumber v-model="form.sort" :min="0" :max="999999" controls-position="right" style="width:100%" /></ElFormItem>
               <ElFormItem label="精选推荐"><div class="featured-controls"><ElCheckbox :model-value="form.featuredRank !== null" @change="form.featuredRank = $event ? 1 : null">加入首页精选</ElCheckbox><ElInputNumber v-if="form.featuredRank !== null" v-model="form.featuredRank" :min="0" :max="999999" /></div></ElFormItem>
               <ElFormItem label="获取方式" :error="errors.accessType"><ElRadioGroup v-model="form.accessType"><ElRadio value="REDEEM">需要兑换</ElRadio><ElRadio value="FREE">免费</ElRadio></ElRadioGroup></ElFormItem>
-              <ElFormItem class="span-all" label="版权说明" :error="errors.copyrightNote"><ElInput v-model="form.copyrightNote" type="textarea" :rows="2" maxlength="500" show-word-limit /></ElFormItem>
             </div>
           </ElForm>
         </section>

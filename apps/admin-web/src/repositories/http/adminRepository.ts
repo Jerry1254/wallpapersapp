@@ -505,7 +505,7 @@ export const adminRepository = {
       coverAssetId,
       featuredRank: input.featuredRank ?? null,
       sortOrder: input.sort,
-      copyrightNote: input.copyrightNote.trim()
+      copyrightNote: input.copyrightNote.trim() || '平台内容'
     });
     let detail: ApiWallpaperDetail | undefined;
     try {

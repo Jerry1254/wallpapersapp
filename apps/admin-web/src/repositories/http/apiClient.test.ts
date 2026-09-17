@@ -337,7 +337,7 @@ describe('adminRepository.saveWallpaper', () => {
     const input: Wallpaper = {
       id: '', title: '晨雾山峦', slug: '', categoryId: '20', subcategoryId: '21',
       accessType: 'FREE', capabilities: ['universal_static'], status: 'published', sort: 10,
-      coverUrl: '', featuredRank: 2, copyrightNote: '已获得授权', updatedAt: '', version: 0, variants: [],
+      coverUrl: '', featuredRank: 2, copyrightNote: '', updatedAt: '', version: 0, variants: [],
       resources: {
         staticImage: { name: 'wallpaper.png', size: png.size, mime: png.type, nativeFile: png }
       }
@@ -361,7 +361,8 @@ describe('adminRepository.saveWallpaper', () => {
       slug: expect.stringMatching(/^wallpaper-[a-f0-9]{20}$/),
       featuredRank: 2,
       accessType: 'FREE',
-      coverAssetId: '2'
+      coverAssetId: '2',
+      copyrightNote: '平台内容'
     });
     expect(variantRequest.get('If-Match')).toBe('"0"');
     expect(variantRequest.get('Content-Type')).toBe('application/json');
