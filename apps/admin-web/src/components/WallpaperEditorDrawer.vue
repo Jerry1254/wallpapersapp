@@ -92,7 +92,6 @@ const changePrimaryCategory = () => {
 const validate = () => {
   const next: Record<string, string> = {};
   if (!form.title.trim()) next.title = '请输入壁纸名称';
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.slug)) next.slug = '请输入小写字母、数字和连字符组成的 Slug';
   if (!form.categoryId) next.categoryId = '请选择一级分类';
   if (!['REDEEM', 'FREE'].includes(form.accessType)) next.accessType = '请选择获取方式';
   if (form.capabilities.length === 0) next.capabilities = '请至少选择一种设置能力';
@@ -138,7 +137,7 @@ const resourceRows = computed(() => {
 </script>
 
 <template>
-  <ElDrawer v-model="visible" class="wallpaper-drawer" size="min(980px, 96vw)" destroy-on-close>
+  <ElDrawer v-model="visible" class="wallpaper-drawer" size="min(1400px, 98vw)" destroy-on-close>
     <template #header>
       <div class="drawer-title">
         <strong>{{ isEditing ? '编辑壁纸' : '上传新壁纸' }}</strong>
@@ -153,13 +152,12 @@ const resourceRows = computed(() => {
           <ElForm label-position="top">
             <div class="form-grid">
               <ElFormItem label="壁纸名称" :error="errors.title"><ElInput v-model="form.title" maxlength="40" show-word-limit @input="delete errors.title" /></ElFormItem>
-              <ElFormItem label="Slug" :error="errors.slug"><ElInput v-model="form.slug" maxlength="64" placeholder="twilight-mountains" @input="delete errors.slug" /></ElFormItem>
               <ElFormItem label="一级分类" :error="errors.categoryId"><ElSelect v-model="form.categoryId" style="width:100%" @change="changePrimaryCategory"><ElOption v-for="item in primaryCategories" :key="item.id" :label="item.name" :value="item.id" /></ElSelect></ElFormItem>
               <ElFormItem label="二级分类（可选）"><ElSelect v-model="form.subcategoryId" clearable :disabled="!form.categoryId || secondaryCategories.length === 0" style="width:100%"><ElOption v-for="item in secondaryCategories" :key="item.id" :label="item.name" :value="item.id" /></ElSelect></ElFormItem>
               <ElFormItem label="排序值"><ElInputNumber v-model="form.sort" :min="0" :max="999999" controls-position="right" style="width:100%" /></ElFormItem>
               <ElFormItem label="精选推荐"><div class="featured-controls"><ElCheckbox :model-value="form.featuredRank !== null" @change="form.featuredRank = $event ? 1 : null">加入首页精选</ElCheckbox><ElInputNumber v-if="form.featuredRank !== null" v-model="form.featuredRank" :min="0" :max="999999" /></div></ElFormItem>
-              <ElFormItem class="span-2" label="获取方式" :error="errors.accessType"><ElRadioGroup v-model="form.accessType"><ElRadio value="REDEEM">需要兑换</ElRadio><ElRadio value="FREE">免费</ElRadio></ElRadioGroup></ElFormItem>
-              <ElFormItem class="span-2" label="版权说明" :error="errors.copyrightNote"><ElInput v-model="form.copyrightNote" type="textarea" :rows="2" maxlength="500" show-word-limit /></ElFormItem>
+              <ElFormItem label="获取方式" :error="errors.accessType"><ElRadioGroup v-model="form.accessType"><ElRadio value="REDEEM">需要兑换</ElRadio><ElRadio value="FREE">免费</ElRadio></ElRadioGroup></ElFormItem>
+              <ElFormItem class="span-all" label="版权说明" :error="errors.copyrightNote"><ElInput v-model="form.copyrightNote" type="textarea" :rows="2" maxlength="500" show-word-limit /></ElFormItem>
             </div>
           </ElForm>
         </section>
@@ -167,9 +165,9 @@ const resourceRows = computed(() => {
         <section class="editor-section">
           <div class="editor-section__heading"><h3>设置能力</h3><p>按实际上传资源独立勾选，可任意组合；封面不会自动增加静态能力。</p></div>
           <ElCheckboxGroup v-model="form.capabilities" class="kind-picker" @change="delete errors.capabilities">
-            <ElCheckboxButton v-for="item in capabilityOptions" :key="item.value" :value="item.value" class="kind-option">
-              <strong>{{ item.title }}</strong><small>{{ item.text }}</small>
-            </ElCheckboxButton>
+            <ElCheckbox v-for="item in capabilityOptions" :key="item.value" :value="item.value" class="capability-card">
+              <span class="capability-card__copy"><strong>{{ item.title }}</strong><small>{{ item.text }}</small></span>
+            </ElCheckbox>
           </ElCheckboxGroup>
           <p v-if="errors.capabilities" class="field-error">{{ errors.capabilities }}</p>
         </section>

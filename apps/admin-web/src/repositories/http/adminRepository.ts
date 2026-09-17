@@ -73,10 +73,10 @@ interface ApiCategory {
 
 interface ApiCategoryList { items: ApiCategory[] }
 
-const automaticCategorySlug = () => {
+const automaticSlug = (prefix: 'category' | 'wallpaper') => {
   const bytes = crypto.getRandomValues(new Uint8Array(10));
   const suffix = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
-  return `category-${suffix}`;
+  return `${prefix}-${suffix}`;
 };
 
 interface ApiCategorySummary {
@@ -457,7 +457,7 @@ export const adminRepository = {
     const payload = jsonBody({
       parentId: input.parentId,
       name: input.name.trim(),
-      slug: input.id ? input.slug.trim() : automaticCategorySlug(),
+      slug: input.id ? input.slug.trim() : automaticSlug('category'),
       iconAssetId,
       sortOrder: input.sort
     });
@@ -498,7 +498,7 @@ export const adminRepository = {
     }
     const payload = jsonBody({
       title: input.title.trim(),
-      slug: input.slug.trim(),
+      slug: input.id ? input.slug.trim() : automaticSlug('wallpaper'),
       accessType: input.accessType,
       rootCategoryId: input.categoryId,
       childCategoryId: input.subcategoryId || null,

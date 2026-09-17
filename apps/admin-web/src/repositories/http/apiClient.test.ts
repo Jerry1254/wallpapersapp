@@ -335,7 +335,7 @@ describe('adminRepository.saveWallpaper', () => {
 
     const png = new File([new Uint8Array([137, 80, 78, 71])], 'image.png', { type: 'image/png' });
     const input: Wallpaper = {
-      id: '', title: '晨雾山峦', slug: 'misty-mountains', categoryId: '20', subcategoryId: '21',
+      id: '', title: '晨雾山峦', slug: '', categoryId: '20', subcategoryId: '21',
       accessType: 'FREE', capabilities: ['universal_static'], status: 'published', sort: 10,
       coverUrl: '', featuredRank: 2, copyrightNote: '已获得授权', updatedAt: '', version: 0, variants: [],
       resources: {
@@ -357,7 +357,12 @@ describe('adminRepository.saveWallpaper', () => {
     ]);
     const variantRequest = requests[2].options.headers as Headers;
     expect((requests[0].options.body as FormData).get('purpose')).toBe('STATIC_IMAGE');
-    expect(JSON.parse(String(requests[1].options.body))).toMatchObject({ featuredRank: 2, accessType: 'FREE', coverAssetId: '2' });
+    expect(JSON.parse(String(requests[1].options.body))).toMatchObject({
+      slug: expect.stringMatching(/^wallpaper-[a-f0-9]{20}$/),
+      featuredRank: 2,
+      accessType: 'FREE',
+      coverAssetId: '2'
+    });
     expect(variantRequest.get('If-Match')).toBe('"0"');
     expect(variantRequest.get('Content-Type')).toBe('application/json');
     const publishRequest = requests[6].options.headers as Headers;
