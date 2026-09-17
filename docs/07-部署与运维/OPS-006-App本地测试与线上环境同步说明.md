@@ -1,0 +1,143 @@
+# OPS-006 App 本地测试与线上环境同步说明
+
+**状态：** 已确认，自动环境握手待实施
+
+**版本：** 1.0
+
+**日期：** 2026-09-17
+
+**接收方：** App 开发、Java API、管理后台和部署人员
+
+## 1. 一句话结论
+
+当前管理后台和真机使用 `LOCAL_DEVICE` 本地测试环境；未来服务器只部署一套 `ONLINE_MAIN` 线上数据库。两者保持代码、数据库结构和接口契约一致，但业务数据、资源文件、Redis、账号和密钥不自动同步。
+
+## 2. 当前本地测试环境
+
+### 2.1 固定链路
+
+```text
+管理后台 http://127.0.0.1:5176
+    ↓ VITE_API_PROXY_TARGET
+Java API http://127.0.0.1:8083
+    ↓
+MySQL 127.0.0.1:3311 / wallpaper_android
+Redis 127.0.0.1:6391
+资源目录 .runtime/android-api12/storage
+    ↑
+手机 App https://127.0.0.1:8443/api/v1（ADB reverse 到电脑）
+```
+
+环境 ID 固定为 `LOCAL_DEVICE`。当前已经核对：5176 代理到 8083，8083 Java 进程实际连接 3311 和 6391。
+
+### 2.2 现在从管理后台新增数据会写到哪里
+
+| 操作 | 数据落点 |
+|---|---|
+| 新建分类、壁纸、资源版本、教程配置、免费/兑换配置 | MySQL `3311/wallpaper_android` |
+| 上传图片、MP4、4D ZIP、教程视频 | `.runtime/android-api12/storage`，同时在 3311 保存资源元数据 |
+| 管理员会话、缓存、限流、短时票据 | Redis 6391 |
+| 真机读取目录、详情、权益和下载 | 8443 → 8083 → 同一套 3311 数据 |
+
+这些数据不会写入 `LOCAL_DEV（8080/3307/wallpaper_app）`，也不会自动上传到未来服务器。
+
+## 3. 本地测试和线上环境的关系
+
+### 3.1 必须一致
+
+- Git 提交。
+- Java API 制品。
+- Flyway 迁移版本和最终 schema。
+- OpenAPI 版本、接口路由和 DTO。
+- App 使用的资源包、签名协议和校验规则。
+- 环境变量名称和部署结构。
+
+### 3.2 必须隔离
+
+- MySQL 业务数据和自增编号。
+- Redis 数据。
+- 实际资源文件和存储路径。
+- 管理员账号、设备身份、权益、兑换码和审计记录。
+- 数据库密码、加密主密钥、资源签名私钥、TLS 私钥和 APK 签名材料。
+
+“环境同步”只表示软件基线一致，不表示复制本地数据库到服务器。
+
+## 4. 唯一线上环境
+
+服务器只部署一个环境 ID：`ONLINE_MAIN`，只使用一套线上 MySQL、Redis 和资源存储。
+
+| 阶段 | 用途 | App 构建 | 数据库 |
+|---|---|---|---|
+| `ONLINE_MAIN / VALIDATION` | 上线前服务器验证 | 后续新增 `staging` | 唯一线上数据库 |
+| `ONLINE_MAIN / PRODUCTION` | 正式运营 | `prod` / `com.qingjing.bizhi` | 同一套线上数据库 |
+
+正式上线时不换库，通过受控流程把服务器阶段从 `VALIDATION` 切换为 `PRODUCTION`。服务器不额外建立“测试数据库”。
+
+## 5. App 开发需要遵守的绑定
+
+| App flavor | 允许连接 | 禁止连接 |
+|---|---|---|
+| `local` | `LOCAL_DEV` | `LOCAL_DEVICE`、`ONLINE_MAIN` |
+| `internal` | `LOCAL_DEVICE` | `LOCAL_DEV`、`ONLINE_MAIN` |
+| `lab` | `LOCAL_DEVICE` | `LOCAL_DEV`、`ONLINE_MAIN` |
+| `staging`（待新增） | `ONLINE_MAIN / VALIDATION` | 两套本地环境、生产阶段 |
+| `prod` | `ONLINE_MAIN / PRODUCTION` | 两套本地环境、验证阶段 |
+
+App 内不提供可编辑的 API 地址。构建时固定 API 地址、环境 ID 和允许阶段；运行时环境不匹配时应拒绝继续。
+
+## 6. 标准发布顺序
+
+1. 在 `LOCAL_DEVICE` 使用目标 Git 提交、Java 制品和 Flyway 版本完成真机验收。
+2. 把同一个已验收制品部署到 `ONLINE_MAIN / VALIDATION`，不在服务器修改源码。
+3. 线上 API 对唯一线上数据库执行对应 Flyway 迁移。
+4. 正式内容通过管理 API 或受控导入进入线上，核对资源校验值；不复制整个本地数据库。
+5. 使用 `staging` App 做线上短验收。
+6. 备份并清理明确标记的验收数据，切换为 `ONLINE_MAIN / PRODUCTION`，再发布 `prod` App。
+
+## 7. 下次启动时使用的标准提示词
+
+### 7.1 推荐完整提示词
+
+复制以下内容即可：
+
+> 启动 `LOCAL_DEVICE` 本地真机测试环境。固定链路为：管理后台 5176 → API 8083 → MySQL 3311/`wallpaper_android` → Redis 6391，资源目录 `.runtime/android-api12/storage`；手机使用 8443 ADB reverse。不要连接或修改 `LOCAL_DEV` 的 8080/3307。启动后先只读核对并回报实际链路、API readiness 和数据库连接，不清理数据。
+
+### 7.2 推荐短提示词
+
+> 启动 `LOCAL_DEVICE`，核对环境后打开管理后台。
+
+短提示词中的 `LOCAL_DEVICE` 已固定代表 8083/3311/6391 这一整套链路，不能根据空闲端口自动切换。
+
+### 7.3 不再使用的模糊说法
+
+- “启动项目”
+- “启动管理后台”
+- “启动本地”
+- “连测试库”
+
+这些说法没有指定环境。收到模糊启动请求时，只能先只读列出候选环境和当前连接，不能自行选择数据库。
+
+## 8. 启动完成后的强制回报
+
+启动完成后必须回报以下内容，缺一项不能宣称环境已就绪：
+
+```text
+环境：LOCAL_DEVICE
+管理后台：5176 -> 8083
+API readiness：UP
+MySQL：3311 / wallpaper_android
+Redis：6391
+资源目录：.runtime/android-api12/storage
+手机入口：8443 -> 8083
+本次是否执行数据写入/清理：否
+```
+
+## 9. 待实施的自动防错
+
+- API 返回环境 ID 和 `VALIDATION/PRODUCTION` 阶段。
+- 管理后台固定显示当前环境、API 和数据库标识，环境未知时禁止写入。
+- App 在请求前核对构建期环境与 API 返回环境。
+- 数据清理脚本必须先 `plan`，再对同一环境执行 `apply`。
+
+完整数据清理、备份和生产切换规则见 [OPS-005 环境与联调管理规范](OPS-005-环境与联调管理规范.md)。
+
