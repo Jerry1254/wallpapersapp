@@ -1,8 +1,10 @@
 package com.qingjing.wallpaper.catalog;
 
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.PublicCategoryList;
+import com.qingjing.wallpaper.catalog.PublicCatalogDtos.DeliveryPlatform;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.PublicWallpaperDetail;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.PublicWallpaperPage;
+import com.qingjing.wallpaper.catalog.PublicCatalogDtos.ResourceType;
 import com.qingjing.wallpaper.device.DevicePrincipal;
 import com.qingjing.wallpaper.catalog.PublicCatalogService.CatalogSort;
 import com.qingjing.wallpaper.catalog.PublicCatalogService.CatalogView;
@@ -36,6 +38,8 @@ public class PublicCatalogController {
             @RequestParam(defaultValue = "20") int pageSize,
             @RequestParam(required = false) String rootCategoryId,
             @RequestParam(required = false) String childCategoryId,
+            @RequestParam(required = false) DeliveryPlatform deliveryPlatform,
+            @RequestParam(required = false) ResourceType resourceType,
             @RequestParam(required = false) CatalogView view,
             @RequestParam(required = false) WallpaperAccessType accessType,
             @RequestParam(name = "q", required = false) String query,
@@ -47,6 +51,8 @@ public class PublicCatalogController {
                 pageSize,
                 optionalId(rootCategoryId, "rootCategoryId"),
                 optionalId(childCategoryId, "childCategoryId"),
+                deliveryPlatform,
+                resourceType,
                 view,
                 accessType,
                 query,

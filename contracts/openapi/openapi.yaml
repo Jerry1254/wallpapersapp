@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.0.0
+  version: 2.1.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -83,12 +83,22 @@ paths:
           description: 提供时必须属于 rootCategoryId；未提供 rootCategoryId 时请求无效。
           schema:
             $ref: '#/components/schemas/LongId'
+        - name: deliveryPlatform
+          in: query
+          description: 必须与 resourceType 同时提供，按当前设备可见的精确设置能力在计数和分页前筛选商品。
+          schema:
+            $ref: '#/components/schemas/DeliveryPlatform'
+        - name: resourceType
+          in: query
+          description: 必须与 deliveryPlatform 同时提供，只接受契约定义的五种平台/资源组合。
+          schema:
+            $ref: '#/components/schemas/ResourceType'
         - name: view
           in: query
-          description: 系统视图。FEATURED 由 featuredRank 计算；STATIC 由已发布静态变体计算。
+          description: 系统视图。FEATURED 由 featuredRank 计算，可与精确能力筛选叠加。
           schema:
             type: string
-            enum: [FEATURED, STATIC]
+            enum: [FEATURED]
         - name: accessType
           in: query
           schema:

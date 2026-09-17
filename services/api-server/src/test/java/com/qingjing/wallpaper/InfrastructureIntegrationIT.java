@@ -502,7 +502,8 @@ class InfrastructureIntegrationIT {
                 .isEqualTo("/api/v1/public/assets/" + icon.path("id").asText() + "/content");
 
         String publicList = "/api/v1/public/wallpapers?rootCategoryId=" + rootId
-                + "&childCategoryId=" + childId + "&view=STATIC"
+                + "&childCategoryId=" + childId
+                + "&deliveryPlatform=UNIVERSAL&resourceType=STATIC_IMAGE"
                 + "&q=api-integration-static-wallpaper&pageSize=1";
         JsonNode publicPage = deviceGet(publicList, catalogDevice).getBody();
         assertThat(publicPage.path("items")).hasSize(1);
@@ -677,6 +678,97 @@ class InfrastructureIntegrationIT {
                         "SELECT COUNT(*) FROM asset WHERE storage_key LIKE '/%' OR storage_key LIKE '%..%'",
                         Long.class))
                 .isZero();
+    }
+
+    @Test
+    void publicCatalogFiltersByExactVisibleCapabilityBeforeCountingAndPaging() throws Exception {
+        ensureAdmin();
+        long multiCapabilityWallpaper = createPublishedWallpaperFixture();
+        long staticOnlyWallpaper = createPublishedWallpaperFixture();
+        Long adminId = jdbc.queryForObject("SELECT id FROM admin_account WHERE singleton_key=1", Long.class);
+        Long categoryId = jdbc.queryForObject(
+                "SELECT category_id FROM wallpaper WHERE id=?", Long.class, multiCapabilityWallpaper);
+        jdbc.update("UPDATE wallpaper SET category_id=? WHERE id=?", categoryId, staticOnlyWallpaper);
+        jdbc.update("UPDATE wallpaper SET access_type='FREE', featured_rank=1 WHERE id=?", multiCapabilityWallpaper);
+        jdbc.update("""
+                INSERT INTO wallpaper_variant
+                    (wallpaper_id, platform, resource_type, capability_requirements, enabled)
+                VALUES (?, 'ANDROID', 'VIDEO', JSON_ARRAY(), TRUE)
+                """, multiCapabilityWallpaper);
+        Long videoVariantId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("""
+                INSERT INTO resource_version
+                    (variant_id, version_no, status, manifest_sha256, published_at, created_by_admin_id)
+                VALUES (?, 1, 'PUBLISHED', ?, UTC_TIMESTAMP(6), ?)
+                """, videoVariantId, securityCrypto.sha256Hex("catalog-video-" + multiCapabilityWallpaper), adminId);
+
+        DeviceTestSession device = registerAndCreateSession("capability-filter-" + UUID.randomUUID());
+        Long deviceId = jdbc.queryForObject(
+                "SELECT device_id FROM device_credential WHERE credential_key_id=?",
+                Long.class, device.credentialKeyId());
+        String capabilities = objectMapper.writeValueAsString(List.of(
+                Map.of(
+                        "deliveryPlatform", "ANDROID",
+                        "resourceType", "VIDEO",
+                        "runtimeOsVersion", "35",
+                        "placements", List.of("HOME")),
+                Map.of(
+                        "deliveryPlatform", "UNIVERSAL",
+                        "resourceType", "STATIC_IMAGE",
+                        "runtimeOsVersion", "35",
+                        "placements", List.of("HOME", "LOCK"))));
+        jdbc.update("""
+                UPDATE device_capability_profile
+                SET reported_capabilities=CAST(? AS JSON), effective_capabilities=CAST(? AS JSON),
+                    profile_hash=?, lock_version=lock_version+1
+                WHERE device_id=?
+                """, capabilities, capabilities,
+                securityCrypto.sha256Hex("capability-filter-profile-" + deviceId), deviceId);
+
+        String base = "/api/v1/public/wallpapers?rootCategoryId=" + categoryId;
+        JsonNode videoPage = deviceGet(base
+                + "&deliveryPlatform=ANDROID&resourceType=VIDEO&pageSize=1", device).getBody();
+        assertThat(videoPage.path("items")).hasSize(1);
+        assertThat(videoPage.path("items").get(0).path("id").asLong()).isEqualTo(multiCapabilityWallpaper);
+        assertThat(videoPage.path("items").get(0).path("availableCapabilities")).hasSize(2);
+        assertThat(videoPage.path("page").path("totalItems").asLong()).isEqualTo(1);
+        assertThat(videoPage.path("page").path("totalPages").asInt()).isEqualTo(1);
+
+        JsonNode staticFirstPage = deviceGet(base
+                + "&deliveryPlatform=UNIVERSAL&resourceType=STATIC_IMAGE&pageSize=1", device).getBody();
+        JsonNode staticSecondPage = deviceGet(base
+                + "&deliveryPlatform=UNIVERSAL&resourceType=STATIC_IMAGE&pageSize=1&page=2", device).getBody();
+        assertThat(staticFirstPage.path("page").path("totalItems").asLong()).isEqualTo(2);
+        assertThat(staticFirstPage.path("page").path("totalPages").asInt()).isEqualTo(2);
+        assertThat(staticSecondPage.path("page").path("totalItems").asLong()).isEqualTo(2);
+        assertThat(staticSecondPage.path("items")).hasSize(1);
+        assertThat(List.of(
+                staticFirstPage.path("items").get(0).path("id").asLong(),
+                staticSecondPage.path("items").get(0).path("id").asLong()))
+                .containsExactlyInAnyOrder(multiCapabilityWallpaper, staticOnlyWallpaper);
+
+        JsonNode noParallax = deviceGet(base
+                + "&deliveryPlatform=ANDROID&resourceType=LAYER_PARALLAX", device).getBody();
+        assertThat(noParallax.path("items")).isEmpty();
+        assertThat(noParallax.path("page").path("totalItems").asLong()).isZero();
+        String slug = jdbc.queryForObject(
+                "SELECT slug FROM wallpaper WHERE id=?", String.class, multiCapabilityWallpaper);
+        JsonNode combined = deviceGet(base
+                + "&deliveryPlatform=ANDROID&resourceType=VIDEO"
+                + "&view=FEATURED&accessType=FREE&q=" + slug, device).getBody();
+        assertThat(combined.path("items")).hasSize(1);
+        assertThat(combined.path("items").get(0).path("id").asLong()).isEqualTo(multiCapabilityWallpaper);
+
+        for (String invalidQuery : List.of(
+                "&deliveryPlatform=ANDROID",
+                "&resourceType=VIDEO",
+                "&deliveryPlatform=ANDROID&resourceType=STATIC_IMAGE",
+                "&view=STATIC")) {
+            ResponseEntity<JsonNode> invalid = deviceGet(base + invalidQuery, device);
+            assertThat(invalid.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(invalid.getBody().path("error").path("code").asText())
+                    .isEqualTo("VALIDATION_FAILED");
+        }
     }
 
     @Test

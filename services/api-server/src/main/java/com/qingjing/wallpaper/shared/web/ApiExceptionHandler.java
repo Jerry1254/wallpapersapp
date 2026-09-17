@@ -53,12 +53,23 @@ public class ApiExceptionHandler {
                 request);
     }
 
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    ResponseEntity<ErrorEnvelope> handleParameterValidation(
+            MethodArgumentTypeMismatchException exception,
+            HttpServletRequest request) {
+        return response(
+                HttpStatus.BAD_REQUEST,
+                "VALIDATION_FAILED",
+                "The request contains invalid parameters",
+                List.of(new ApiException.ErrorDetail(exception.getName(), "has an invalid value")),
+                request);
+    }
+
     @ExceptionHandler({
         HttpMessageNotReadableException.class,
         MissingRequestHeaderException.class,
         MissingServletRequestParameterException.class,
-        MissingServletRequestPartException.class,
-        MethodArgumentTypeMismatchException.class
+        MissingServletRequestPartException.class
     })
     ResponseEntity<ErrorEnvelope> handleMalformedRequest(Exception exception, HttpServletRequest request) {
         return response(

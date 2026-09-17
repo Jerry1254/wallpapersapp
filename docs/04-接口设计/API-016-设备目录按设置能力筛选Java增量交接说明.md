@@ -1,9 +1,9 @@
 # API-016 设备目录按设置能力筛选 Java 增量交接说明
 
-**版本：** 1.0.0  
-**日期：** 2026-09-17  
-**对应任务：** WP-UI13  
-**状态：** 待 Java API 与 OpenAPI 实施
+**版本：** 1.1.0
+**日期：** 2026-09-17
+**对应任务：** WP-UI13
+**状态：** 已实施 Java API 与 OpenAPI 2.1.0；App 确认说明见 [API-017](API-017-设备目录精确能力筛选App交接确认说明.md)
 
 本文只补充 [API-014](API-014-单商品多设置能力与设备能力协商全链路整改方案.md) 和 [API-015](API-015-设备能力目录与多形式交付App对接说明.md) 中遗漏的“目录按精确设置能力筛选”。设备能力上报、设备个性化目录、单商品多能力、权益复用、预览票据、下载票据和管理后台不在本次重复修改。
 
@@ -77,7 +77,7 @@ code: VALIDATION_FAILED
 - `sort`
 - `page` / `pageSize`
 
-本次不删除 `view=STATIC`。已有调用仍可继续使用；App 新代码优先使用精确能力组合。
+项目尚未上线，本次同步删除重复的 `view=STATIC` 语义。静态入口统一使用 `UNIVERSAL + STATIC_IMAGE`；`view` 只保留 `FEATURED`，并可与精确能力组合叠加。
 
 ## 3. 服务端过滤语义
 
@@ -169,7 +169,7 @@ List<Long> capabilityIds = visible.capabilitiesByWallpaper().entrySet().stream()
     $ref: '#/components/schemas/ResourceType'
 ```
 
-这是向后兼容的可选参数增量，建议 OpenAPI 版本从 `2.0.0` 升为 `2.1.0`，并更新契约基线及覆盖测试。
+OpenAPI 版本已从 `2.0.0` 升为 `2.1.0`，契约基线及覆盖测试同步更新。因项目尚未上线，旧的 `view=STATIC` 不保留兼容。
 
 ## 6. Java 修改位置
 
@@ -213,6 +213,7 @@ List<Long> capabilityIds = visible.capabilitiesByWallpaper().entrySet().stream()
 10. 翻页时不出现空页、漏项或同一商品重复。
 11. `view=FEATURED` 与精确能力同时提供时，只返回同时满足精选和能力条件的商品。
 12. 不提供两个新增参数时，现有目录行为和排序保持不变。
+13. `view=STATIC` 返回 `400 VALIDATION_FAILED`，静态入口必须使用精确能力组合。
 
 ## 8. App 对接约定
 

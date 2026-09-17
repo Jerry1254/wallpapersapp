@@ -9,6 +9,7 @@ import com.qingjing.wallpaper.catalog.PublicCatalogDtos.PublicRootCategory;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.PublicWallpaperDetail;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.PublicWallpaperPage;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.PublicWallpaperSummary;
+import com.qingjing.wallpaper.catalog.PublicCatalogDtos.DeliveryPlatform;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.ResourceType;
 import com.qingjing.wallpaper.shared.web.ApiException;
 import java.sql.Timestamp;
@@ -27,7 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class PublicCatalogService {
 
-    public enum CatalogView { FEATURED, STATIC }
+    public enum CatalogView { FEATURED }
 
     public enum CatalogSort { DEFAULT, NEWEST }
 
@@ -96,20 +97,31 @@ public class PublicCatalogService {
             int pageSize,
             Long rootCategoryId,
             Long childCategoryId,
+            DeliveryPlatform deliveryPlatform,
+            ResourceType resourceType,
             CatalogView view,
             WallpaperAccessType accessType,
             String query,
             CatalogSort sort) {
         validatePage(page, pageSize);
         validateCategories(rootCategoryId, childCategoryId);
+        validateCapabilityFilter(deliveryPlatform, resourceType);
         String normalizedQuery = normalizeQuery(query);
         VisibleCatalog visible = visibility.resolve(deviceId);
-        if (visible.wallpaperIds().isEmpty()) {
+        List<Long> scopedWallpaperIds = deliveryPlatform == null
+                ? List.copyOf(visible.wallpaperIds())
+                : visible.capabilitiesByWallpaper().entrySet().stream()
+                        .filter(entry -> entry.getValue().stream().anyMatch(capability ->
+                                capability.deliveryPlatform() == deliveryPlatform
+                                        && capability.resourceType() == resourceType))
+                        .map(Map.Entry::getKey)
+                        .toList();
+        if (scopedWallpaperIds.isEmpty()) {
             return new PublicWallpaperPage(List.of(), new PageMetadata(page, pageSize, 0, 0));
         }
 
         StringBuilder where = new StringBuilder(" WHERE w.status = 'PUBLISHED' AND w.id IN (:wallpaperIds)");
-        MapSqlParameterSource parameters = new MapSqlParameterSource("wallpaperIds", visible.wallpaperIds());
+        MapSqlParameterSource parameters = new MapSqlParameterSource("wallpaperIds", scopedWallpaperIds);
         if (rootCategoryId != null) {
             where.append(" AND (selected.id = :rootCategoryId OR selected.parent_id = :rootCategoryId)");
             parameters.addValue("rootCategoryId", rootCategoryId);
@@ -120,16 +132,6 @@ public class PublicCatalogService {
         }
         if (view == CatalogView.FEATURED) {
             where.append(" AND w.featured_rank IS NOT NULL");
-        } else if (view == CatalogView.STATIC) {
-            List<Long> staticIds = visible.capabilitiesByWallpaper().entrySet().stream()
-                    .filter(entry -> entry.getValue().stream()
-                            .anyMatch(capability -> capability.resourceType() == ResourceType.STATIC_IMAGE))
-                    .map(Map.Entry::getKey).toList();
-            if (staticIds.isEmpty()) {
-                return new PublicWallpaperPage(List.of(), new PageMetadata(page, pageSize, 0, 0));
-            }
-            where.append(" AND w.id IN (:staticIds)");
-            parameters.addValue("staticIds", staticIds);
         }
         if (accessType != null) {
             where.append(" AND w.access_type = :accessType");
@@ -210,6 +212,19 @@ public class PublicCatalogService {
                     """, Integer.class, childCategoryId, rootCategoryId);
             if (child == null || child == 0) throw validation("childCategoryId does not belong to rootCategoryId");
         }
+    }
+
+    private void validateCapabilityFilter(DeliveryPlatform platform, ResourceType resourceType) {
+        if ((platform == null) != (resourceType == null)) {
+            throw validation("deliveryPlatform and resourceType must be provided together");
+        }
+        if (platform == null) return;
+        boolean valid = (platform == DeliveryPlatform.ANDROID
+                && (resourceType == ResourceType.LAYER_PARALLAX || resourceType == ResourceType.VIDEO))
+                || (platform == DeliveryPlatform.IOS && resourceType == ResourceType.LIVE_PHOTO)
+                || (platform == DeliveryPlatform.HARMONYOS && resourceType == ResourceType.THEME_PACKAGE)
+                || (platform == DeliveryPlatform.UNIVERSAL && resourceType == ResourceType.STATIC_IMAGE);
+        if (!valid) throw validation("Unsupported deliveryPlatform/resourceType pair");
     }
 
     private void validatePage(int page, int pageSize) {

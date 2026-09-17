@@ -66,6 +66,26 @@ for (const [path, schema] of [
   assert.ok(document.paths[path].get.parameters.some(parameter => parameter.name === 'accessType'));
   assert.equal(document.components.schemas[schema].properties.accessType.$ref, '#/components/schemas/WallpaperAccessType');
 }
+const publicWallpaperParameters = Object.fromEntries(
+  document.paths['/public/wallpapers'].get.parameters
+    .filter((parameter) => parameter.name)
+    .map((parameter) => [parameter.name, parameter])
+);
+assert.equal(
+  publicWallpaperParameters.deliveryPlatform.schema.$ref,
+  '#/components/schemas/DeliveryPlatform',
+  'public catalog must expose the exact delivery platform filter'
+);
+assert.equal(
+  publicWallpaperParameters.resourceType.schema.$ref,
+  '#/components/schemas/ResourceType',
+  'public catalog must expose the exact resource type filter'
+);
+assert.deepEqual(
+  publicWallpaperParameters.view.schema.enum,
+  ['FEATURED'],
+  'static capability must use deliveryPlatform/resourceType instead of a duplicate view'
+);
 assert.equal(
   document.components.schemas.WallpaperWriteRequest.properties.accessType.$ref,
   '#/components/schemas/WallpaperAccessType'

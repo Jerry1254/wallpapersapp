@@ -1,6 +1,6 @@
 # API-015 设备能力目录与多形式交付 App 对接说明
 
-**版本：** 2.0.0
+**版本：** 2.1.0
 **日期：** 2026-09-17
 **对应任务：** WP-UI13
 **状态：** Java API、V9、OpenAPI 和管理后台已实施；App 待按本文联调
@@ -142,7 +142,15 @@ App 只能用响应中的 `effectiveCapabilities`，不得继续使用被服务�
 - `GET /api/v1/public/wallpapers/{wallpaperId}`
 - `GET /api/v1/device/me/entitlements`
 
-列表不再接受 `kind` 或 `platform` 来决定设备可见性。每个商品返回当前设备的可用交集：
+列表不再接受 `kind` 或单独的 `platform` 来决定设备可见性。首页设置能力入口使用成对的 `deliveryPlatform + resourceType` 查询参数，API 在计数和分页前按当前设备可见交集进行精确筛选：
+
+```text
+4D动态  → ANDROID / LAYER_PARALLAX
+动态壁纸 → ANDROID / VIDEO
+静态壁纸 → UNIVERSAL / STATIC_IMAGE
+```
+
+`view` 只保留 `FEATURED`；项目尚未上线，不保留 `view=STATIC`。完整增量调用说明见 [API-017](API-017-设备目录精确能力筛选App交接确认说明.md)。每个商品返回当前设备的完整可用交集：
 
 ```json
 {
@@ -247,3 +255,5 @@ wallpaperId + deliveryPlatform + resourceType + resourceVersionId
 8. 同一商品在不同形式间切换不重复兑换。
 9. 能力档案变化后目录、分类数量和已获得列表同步变化。
 10. 预览可用但系统设置接口不可用时，App 不上报对应设置能力。
+11. 4D、动态和静态入口在分页前按精确能力过滤，总数、页数与列表一致。
+12. 从任一能力入口返回的多能力商品仍保留完整 `availableCapabilities`。

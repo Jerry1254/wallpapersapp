@@ -1,14 +1,14 @@
 # API-001 OpenAPI 契约说明
 
 **状态：** 已确认
-**版本：** 2.0.0
+**版本：** 2.1.0
 **日期：** 2026-09-17
 **机器契约：** [`contracts/openapi/openapi.yaml`](../../contracts/openapi/openapi.yaml)
 **语义基线：** DM-001、DB-001、API-014、SEC-001 至 SEC-004
 
 ## 1. 当前契约结论
 
-OpenAPI 2.0.0 使用 OpenAPI 3.0.3 描述，共 61 个操作、97 个 Schema。本次是破坏性升级：删除商品单一 `kind`，新增设备能力档案，公开目录改为设备个性化目录，下载和预览改为精确选择 `deliveryPlatform + resourceType`。
+OpenAPI 2.1.0 使用 OpenAPI 3.0.3 描述，共 61 个操作、97 个 Schema。2.0.0 删除商品单一 `kind`、新增设备能力档案并将公开目录改为设备个性化目录；2.1.0 新增分页前精确能力筛选，并统一移除重复的 `view=STATIC`。
 
 | 边界 | 路径前缀 | 身份 | 负责内容 |
 |---|---|---|---|
@@ -52,9 +52,13 @@ OpenAPI 2.0.0 使用 OpenAPI 3.0.3 描述，共 61 个操作、97 个 Schema。�
 
 可见性条件为：存在启用且已发布的变体，其精确平台/资源组合命中设备有效能力，并满足最低系统版本、能力要求和至少一个 `HOME/LOCK` 设置位置。
 
-公开壁纸使用 `availableCapabilities` 返回当前设备交集，不再返回单一 `kind`。列表不接受 `kind` 或 `platform` 作为设备兼容性替代条件。直接访问当前设备不可用的商品返回 404 `WALLPAPER_NOT_AVAILABLE_FOR_DEVICE`。
+公开壁纸使用 `availableCapabilities` 返回当前设备交集，不再返回单一 `kind`。列表不接受 `kind` 或单独 `platform` 作为设备兼容性替代条件；可以使用成对的 `deliveryPlatform + resourceType` 按当前设备已生效能力精确筛选。直接访问当前设备不可用的商品返回 404 `WALLPAPER_NOT_AVAILABLE_FOR_DEVICE`。
 
-### 2.4 精确预览和下载
+### 2.4 目录精确能力筛选
+
+`GET /public/wallpapers` 的 `deliveryPlatform` 和 `resourceType` 必须同时提供或同时省略。精确能力与分类、`view=FEATURED`、获取方式、搜索和排序按 AND 关系叠加，服务端在 `COUNT` 和分页前完成筛选。详细对接见 [API-017](API-017-设备目录精确能力筛选App交接确认说明.md)。
+
+### 2.5 精确预览和下载
 
 以下请求正文统一为：
 
@@ -175,4 +179,4 @@ npm run baseline:check
 
 `npm test` 使用 Redocly 校验结构和引用，再检查关键端点、operationId、字符串 Long ID、幂等/乐观锁/设备签名头、敏感字段和 Java 直接错误码覆盖。当前基线为 61 个操作、97 个 Schema。
 
-App 对接步骤、示例和跨系统验收矩阵见 [API-015](API-015-设备能力目录与多形式交付App对接说明.md)。
+App 完整对接步骤和跨系统验收矩阵见 [API-015](API-015-设备能力目录与多形式交付App对接说明.md)，目录精确能力筛选增量见 [API-017](API-017-设备目录精确能力筛选App交接确认说明.md)。
