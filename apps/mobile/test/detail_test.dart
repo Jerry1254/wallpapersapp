@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:qingjing_wallpaper/catalog/catalog.dart';
 import 'package:qingjing_wallpaper/detail/delivery.dart';
 import 'package:qingjing_wallpaper/detail/detail_screen.dart';
+import 'package:qingjing_wallpaper/design_system/qj_components.dart';
 import 'package:qingjing_wallpaper/downloads/download_panel.dart';
 import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
 import 'catalog_test.dart' show FakeCatalog;
@@ -30,6 +31,22 @@ class DetailCatalog extends FakeCatalog {
       },
     ]);
   }
+}
+
+class DualEffectDetailCatalog extends FakeCatalog {
+  @override
+  Future<Wallpaper> detail(String id) async => wallpaper([
+    {
+      'deliveryPlatform': 'ANDROID',
+      'resourceType': 'LAYER_PARALLAX',
+      'placements': ['HOME'],
+    },
+    {
+      'deliveryPlatform': 'ANDROID',
+      'resourceType': 'VIDEO',
+      'placements': ['HOME'],
+    },
+  ]);
 }
 
 void main() {
@@ -124,5 +141,39 @@ void main() {
     await tester.tap(find.text('静态壁纸'));
     await tester.pumpAndSettle();
     expect(selected, WallpaperEffect.staticImage);
+  });
+
+  testWidgets('同时包含4D和视频时默认预览4D并可切换', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DetailScreen(
+          repository: DualEffectDetailCatalog(),
+          id: '1',
+          capabilities: const WallpaperCapabilities(
+            platform: ClientPlatform.android,
+            previewEffects: {WallpaperEffect.parallax, WallpaperEffect.video},
+            targets: {
+              WallpaperEffect.parallax: {WallpaperTarget.home},
+              WallpaperEffect.video: {WallpaperTarget.home},
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    QjFilterChip chip(String label) =>
+        tester.widget<QjFilterChip>(find.widgetWithText(QjFilterChip, label));
+    expect(chip('4D动态').selected, isTrue);
+    expect(chip('动态壁纸').selected, isFalse);
+
+    await tester.tap(find.text('动态壁纸').first);
+    await tester.pump();
+    expect(chip('4D动态').selected, isFalse);
+    expect(chip('动态壁纸').selected, isTrue);
   });
 }

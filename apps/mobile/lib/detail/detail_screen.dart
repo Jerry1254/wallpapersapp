@@ -73,6 +73,7 @@ class _DetailScreenState extends State<DetailScreen> {
   final Set<WallpaperEffect> _checkingInstalled = {};
   final scroll = ScrollController();
   bool previewActive = true;
+  WallpaperEffect? selectedPreviewEffect;
   List<WallpaperTutorial>? tutorialCache;
   @override
   void initState() {
@@ -211,14 +212,6 @@ class _DetailScreenState extends State<DetailScreen> {
           option.deliveryPlatform,
           option.resourceType,
         );
-      } else if (result.status == OperationStatus.unsupported) {
-        await manager.recordUnsupported(
-          option.deliveryPlatform,
-          option.resourceType,
-        );
-        if (mounted) {
-          setState(() => future = widget.repository.detail(widget.id));
-        }
       }
     } catch (_) {}
   }
@@ -279,6 +272,10 @@ class _DetailScreenState extends State<DetailScreen> {
       tutorialCache = tutorials;
       final options = deliveryOptions(wallpaper, capabilities);
       final capability =
+          options
+              .where((option) => option.effect == selectedPreviewEffect)
+              .firstOrNull
+              ?.capability ??
           options.firstOrNull?.capability ??
           wallpaper.availableCapabilities.firstOrNull;
       final tutorial = capability == null
@@ -382,7 +379,25 @@ class _DetailScreenState extends State<DetailScreen> {
               final wallpaper = snapshot.requireData;
               _loadOwnership(wallpaper);
               final options = deliveryOptions(wallpaper, capabilities);
-              final previewOption = options.firstOrNull;
+              final previewOption =
+                  options
+                      .where((option) => option.effect == selectedPreviewEffect)
+                      .firstOrNull ??
+                  options.firstOrNull;
+              final previewTabs = options
+                  .where(
+                    (option) =>
+                        option.effect == WallpaperEffect.parallax ||
+                        option.effect == WallpaperEffect.video,
+                  )
+                  .toList(growable: false);
+              final showsPreviewTabs =
+                  previewTabs.any(
+                    (option) => option.effect == WallpaperEffect.parallax,
+                  ) &&
+                  previewTabs.any(
+                    (option) => option.effect == WallpaperEffect.video,
+                  );
               if (options.isNotEmpty) {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   if (mounted) {
@@ -421,6 +436,35 @@ class _DetailScreenState extends State<DetailScreen> {
                     onAction: () => _openTutorial(wallpaper),
                   ),
                   const SizedBox(height: T.space4),
+                  if (showsPreviewTabs) ...[
+                    Row(
+                      children: previewTabs
+                          .map(
+                            (option) => Expanded(
+                              child: Padding(
+                                padding: EdgeInsets.only(
+                                  right: option == previewTabs.last
+                                      ? 0
+                                      : T.space2,
+                                ),
+                                child: QjFilterChip(
+                                  label:
+                                      option.effect == WallpaperEffect.parallax
+                                      ? '4D动态'
+                                      : '动态壁纸',
+                                  selected:
+                                      option.effect == previewOption?.effect,
+                                  onPressed: () => setState(
+                                    () => selectedPreviewEffect = option.effect,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+                    ),
+                    const SizedBox(height: T.space3),
+                  ],
                   Container(
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(T.radiusCard),

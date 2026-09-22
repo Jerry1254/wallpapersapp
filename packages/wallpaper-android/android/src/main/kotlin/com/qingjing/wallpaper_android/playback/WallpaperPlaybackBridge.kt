@@ -19,17 +19,20 @@ internal class WallpaperPlaybackBridge(private val context: Context) : PluginReg
     private var pending: MethodChannel.Result? = null
     fun information(): Map<String,Any> {
         val manager = WallpaperManager.getInstance(context)
-        val allowed = manager.isWallpaperSupported && manager.isSetWallpaperAllowed
+        val supported = manager.isWallpaperSupported
         val video = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.any { !it.isEncoder && it.supportedTypes.any { mime -> mime == "video/avc" } }
         val picker = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,ComponentName(context,VideoWallpaperService::class.java))
         val setup = LiveWallpaperPolicy.blockedMessage(context)
-        val live = allowed && setup == null && context.packageManager.hasSystemFeature(PackageManager.FEATURE_LIVE_WALLPAPER) && picker.resolveActivity(context.packageManager) != null
+        // Catalog capability is a stable device capability. A transient OEM permission
+        // must only block the final apply action, otherwise supported content disappears
+        // from the catalog before the user has a chance to grant that permission.
+        val live = supported && context.packageManager.hasSystemFeature(PackageManager.FEATURE_LIVE_WALLPAPER) && picker.resolveActivity(context.packageManager) != null
         val environment = hostEnvironment()
         return mapOf("osVersion" to Build.VERSION.RELEASE,"sdkInt" to Build.VERSION.SDK_INT,
             "manufacturer" to Build.MANUFACTURER.ifBlank { "UNKNOWN" },"model" to Build.MODEL.ifBlank { "UNKNOWN" },
             "hostOsFamily" to environment.first,"executionMode" to environment.second,
             "previewEffects" to (listOf("STATIC_IMAGE","LAYER_PARALLAX") + if(video) listOf("VIDEO") else emptyList()),
-            "targets" to mapOf("STATIC_IMAGE" to if(allowed) listOf("home","lock","both") else emptyList(),"VIDEO" to if(live && video) listOf("home") else emptyList(),"LAYER_PARALLAX" to if(live) listOf("home") else emptyList()),
+            "targets" to mapOf("STATIC_IMAGE" to if(supported) listOf("home","lock","both") else emptyList(),"VIDEO" to if(live && video) listOf("home") else emptyList(),"LAYER_PARALLAX" to if(live) listOf("home") else emptyList()),
             "systemChoosesLiveTarget" to live,"setupMessage" to (setup ?: ""),"parallaxSensorAvailable" to ParallaxTiltSensor.available(context))
     }
     private fun hostEnvironment(): Pair<String,String> {
