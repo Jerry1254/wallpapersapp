@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.1.0
+  version: 2.2.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -888,7 +888,7 @@ paths:
       tags: [Admin Asset]
       operationId: importAdminParallaxPackage
       summary: 导入固定格式 4D ZIP 源包
-      description: 同步校验根目录 cover.jpg、config.json、连续编号的 2～12 层图片及配置稳定外壳，并原样保存格式版本不低于 2 的配置。ZIP 最大 100 MiB、解压总量 85 MiB、64 条目、图层与配置 64 MiB。相同 SHA-256 的可用源包复用；不返回原始 ZIP 地址。详见 API-007/API-008/API-009。
+      description: 同步校验根目录 config.json、连续编号的 2～12 层图片及配置稳定外壳，并原样保存格式版本不低于 2 的配置。兼容并忽略旧包中的根目录 cover.jpg，不再生成或返回包内封面资产。ZIP 最大 100 MiB、解压总量 85 MiB、64 条目、图层与配置 64 MiB。相同 SHA-256 的可用源包复用；不返回原始 ZIP 地址。
       security:
         - adminCookie: []
           adminCsrf: []
@@ -3954,7 +3954,7 @@ components:
 
     AdminParallaxSourcePackage:
       type: object
-      required: [id, originalFilename, mimeType, sizeBytes, sha256, validationStatus, cover, configFormatVersion, canvas, layers]
+      required: [id, originalFilename, mimeType, sizeBytes, sha256, validationStatus, configFormatVersion, canvas, layers]
       properties:
         id:
           $ref: '#/components/schemas/LongId'
@@ -3975,8 +3975,6 @@ components:
         validationStatus:
           type: string
           enum: [READY]
-        cover:
-          $ref: '#/components/schemas/AdminAsset'
         configFormatVersion:
           type: integer
           format: int32

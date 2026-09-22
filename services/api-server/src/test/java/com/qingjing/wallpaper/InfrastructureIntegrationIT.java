@@ -124,7 +124,7 @@ class InfrastructureIntegrationIT {
                 """,
                 String.class);
 
-        assertThat(successfulMigrations).isEqualTo(9);
+        assertThat(successfulMigrations).isEqualTo(10);
         assertThat(tables).containsExactlyInAnyOrder(
                 "admin_account",
                 "anonymous_device",
@@ -311,7 +311,7 @@ class InfrastructureIntegrationIT {
 
         ResponseEntity<JsonNode> info = http.getForEntity("/actuator/info", JsonNode.class);
         assertThat(info.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(info.getBody().path("app").path("contract-version").asText()).isEqualTo("2.1.0");
+        assertThat(info.getBody().path("app").path("contract-version").asText()).isEqualTo("2.2.0");
         assertThat(info.getBody().path("app").path("environment-id").asText()).isEqualTo("UNCONFIGURED");
         assertThat(info.getBody().path("app").path("source-sha256").asText()).isEqualTo("unknown");
         assertThat(info.getBody().path("app").path("artifact-sha256").asText()).isEqualTo("unknown");
@@ -1267,6 +1267,7 @@ class InfrastructureIntegrationIT {
             assertThat(source.path("layers").size()).isEqualTo(count);
             assertThat(source.path("configFormatVersion").asInt()).isEqualTo(2);
             assertThat(source.path("validationStatus").asText()).isEqualTo("READY");
+            assertThat(source.has("cover")).isFalse();
             assertThat(source.has("storageKey")).isFalse();assertThat(source.has("url")).isFalse();
             var again=importParallax(admin,zip,true);assertThat(again.getStatusCode()).isEqualTo(HttpStatus.OK);assertThat(again.getBody()).isEqualTo(source);
             var body=Map.of("versionNo",versionNo,"sourcePackageId",sourceId);
@@ -1282,7 +1283,6 @@ class InfrastructureIntegrationIT {
             assertThat(built.getStatusCode()).as(built.getBody().toString()).isEqualTo(HttpStatus.OK);
             assertThat(built.getBody().path("sourcePackage")).isEqualTo(source);
             assertThat(formalParallaxConfig(id,wallpaper,variant,versionNo)).containsExactly(sourceConfig);
-            jdbc.update("UPDATE wallpaper SET cover_asset_id=? WHERE id=?",source.path("cover").path("id").asLong(),wallpaper);
             var detail=getJson("/api/v1/admin/wallpapers/"+wallpaper,admin);
             var published=jsonExchange("/api/v1/admin/wallpapers/"+wallpaper+"/publish",HttpMethod.POST,Map.of("resourceVersionIds",List.of(Long.toString(id))),admin,detail.getHeaders().getETag());
             assertThat(published.getStatusCode()).as(published.getBody().toString()).isEqualTo(HttpStatus.OK);
@@ -1365,10 +1365,10 @@ class InfrastructureIntegrationIT {
             assertThat(failed.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM parallax_source_package",Long.class)).isEqualTo(sourceCount);
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM asset",Long.class)).isEqualTo(assetCount);
-            assertThat(created).hasSize(6);
-            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM parallax_storage_cleanup",Long.class)).isEqualTo(6);
+            assertThat(created).hasSize(5);
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM parallax_storage_cleanup",Long.class)).isEqualTo(5);
         }finally{jdbc.execute("DROP TRIGGER reject_parallax_audit");org.mockito.Mockito.reset(packageStorage);}
-        assertThat(parallaxCleanup.retryPending()).isEqualTo(6);
+        assertThat(parallaxCleanup.retryPending()).isEqualTo(5);
         for(var object:created)assertThatThrownBy(()->packageStorage.open(object.storageKey())).isInstanceOf(com.qingjing.wallpaper.asset.application.FileStorageException.class);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM parallax_storage_cleanup",Long.class)).isZero();
     }

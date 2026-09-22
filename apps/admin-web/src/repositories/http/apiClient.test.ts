@@ -121,7 +121,6 @@ describe('adminRepository.saveWallpaper', () => {
       sizeBytes: 2048,
       sha256: 'a'.repeat(64),
       validationStatus: 'READY',
-      cover: { ...asset('1', 'cover.jpg'), mimeType: 'image/jpeg' },
       configFormatVersion: 2,
       canvas: { width: 1080, height: 2160 },
       layers: [
@@ -131,10 +130,12 @@ describe('adminRepository.saveWallpaper', () => {
     };
     const readyVersion = { id: '50', versionNo: 1, status: 'READY', bindings: [], sourcePackage };
     const variant = { id: '40', platform: 'ANDROID', resourceType: 'LAYER_PARALLAX', enabled: true, version: 0, resourceVersions: [] };
-    const wallpaper = { ...detail('DRAFT', 1, [variant], sourcePackage.cover) };
+    const listCover = asset('1', 'list-cover.png');
+    const wallpaper = { ...detail('DRAFT', 1, [variant], listCover) };
     const fetchMock = vi.fn(async (urlValue: string | URL | Request, options: RequestInit = {}) => {
       const url = String(urlValue);
       requests.push({ url, options });
+      if (url.endsWith('/admin/assets')) return json(listCover, 201);
       if (url.endsWith('/admin/parallax-packages')) return json(sourcePackage, 201);
       if (url.endsWith('/admin/wallpapers/30') && options.method === 'PATCH') return json(wallpaper);
       if (url.endsWith('/admin/variants/40/parallax-resource-versions')) return json(readyVersion, 201);
@@ -151,27 +152,31 @@ describe('adminRepository.saveWallpaper', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     const zip = new File(['zip'], 'wallpaper-4d.zip', { type: 'application/zip' });
+    const cover = new File(['cover'], 'list-cover.png', { type: 'image/png' });
     const input: Wallpaper = {
       id: '30', title: '4D 多层风景', slug: 'parallax-landscape', categoryId: '20', subcategoryId: '',
       accessType: 'REDEEM', capabilities: ['android_parallax'], status: 'draft', sort: 1, featuredRank: null,
       coverUrl: '', copyrightNote: '本地测试', updatedAt: '', version: 0, variants: [], resources: {
+        cover: { name: cover.name, size: cover.size, mime: cover.type, nativeFile: cover },
         parallaxPackage: { name: zip.name, size: zip.size, mime: zip.type, nativeFile: zip }
       }
     };
 
     expect((await adminRepository.saveWallpaper(input, true)).status).toBe('published');
     expect(requests.map((item) => `${item.options.method || 'GET'} ${item.url.split('/api/v1')[1]}`)).toEqual([
+      'POST /admin/assets',
       'POST /admin/parallax-packages',
       'PATCH /admin/wallpapers/30',
       'POST /admin/variants/40/parallax-resource-versions',
       'POST /admin/resource-versions/50/secure-package',
       'POST /admin/wallpapers/30/publish'
     ]);
-    const uploaded = (requests[0].options.body as FormData).get('file') as File;
+    const uploaded = (requests[1].options.body as FormData).get('file') as File;
     expect(uploaded.name).toBe(zip.name);
     expect(await uploaded.text()).toBe(await zip.text());
-    expect(JSON.parse(String(requests[1].options.body)).coverAssetId).toBe('1');
-    expect(JSON.parse(String(requests[2].options.body))).toEqual({ versionNo: 1, sourcePackageId: '90' });
+    expect((requests[0].options.body as FormData).get('purpose')).toBe('WALLPAPER_COVER');
+    expect(JSON.parse(String(requests[2].options.body)).coverAssetId).toBe('1');
+    expect(JSON.parse(String(requests[3].options.body))).toEqual({ versionNo: 1, sourcePackageId: '90' });
   });
 
   it('iOS 动态壁纸一次发布静态原图与动态多角色资源', async () => {
@@ -182,7 +187,8 @@ describe('adminRepository.saveWallpaper', () => {
     const liveVersion = { id: '51', versionNo: 1, status: 'READY', bindings: roles.map((role, index) => ({ id: String(61 + index), role, ordinal: 0, asset: asset(String(index + 2), 'resource') })) };
     const staticVariant = { id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', enabled: true, version: 0, resourceVersions: [] };
     const liveVariant = { id: '41', platform: 'IOS', resourceType: 'LIVE_PHOTO', enabled: true, version: 0, resourceVersions: [] };
-    const wallpaper = { ...detail('DRAFT', 0, [staticVariant, liveVariant], staticAsset) };
+    const listCover = asset('9', 'list-cover.png');
+    const wallpaper = { ...detail('DRAFT', 0, [staticVariant, liveVariant], listCover) };
     const fetchMock = vi.fn(async (url: string, options: RequestInit = {}) => {
       if (url.endsWith('/admin/variants/40/resource-versions')) {
         const body = JSON.parse(String(options.body));
@@ -212,7 +218,9 @@ describe('adminRepository.saveWallpaper', () => {
     const input: Wallpaper = { id: '30', title: '多角色发布', slug: 'multi-role', categoryId: '20', subcategoryId: '',
       accessType: 'REDEEM', capabilities: ['universal_static', 'ios_live_photo'], status: 'draft', sort: 1, featuredRank: null,
       coverUrl: '', copyrightNote: '本地测试', updatedAt: '', version: 0, variants: [], resources: {
-        ...resources, staticImage: { name: 'wallpaper.png', assetId: '1', size: 68, mime: 'image/png' }
+        ...resources,
+        cover: { name: 'list-cover.png', assetId: '9', size: 68, mime: 'image/png' },
+        staticImage: { name: 'wallpaper.png', assetId: '1', size: 68, mime: 'image/png' }
       } };
     expect((await adminRepository.saveWallpaper(input, true)).status).toBe('published');
     const created = fetchMock.mock.calls.find(([url]) => url.endsWith('/admin/variants/41/resource-versions'));
@@ -224,7 +232,7 @@ describe('adminRepository.saveWallpaper', () => {
     setCsrfToken('csrf-token');
     const sourcePackage = withSource ? {
       id: '90', originalFilename: 'wallpaper.zip', mimeType: 'application/zip', sizeBytes: 100,
-      sha256: 'a'.repeat(64), validationStatus: 'READY', cover: asset('1', 'cover.jpg'),
+      sha256: 'a'.repeat(64), validationStatus: 'READY',
       canvas: { width: 1080, height: 2160 }, layers: [{ index: 1 }, { index: 2 }]
     } : null;
     const variant = { id: '40', platform: 'ANDROID', resourceType: 'LAYER_PARALLAX', enabled: true, version: 0,
@@ -249,9 +257,11 @@ describe('adminRepository.saveWallpaper', () => {
     const variant = { id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', enabled: true, version: 0, resourceVersions: [] };
     let created = false;
     let versionFails = true;
+    let assetUploads = 0;
     const fetchMock = vi.fn(async (url: string, options: RequestInit = {}) => {
       if (url.endsWith('/admin/assets')) {
-        return json(asset('1', 'wallpaper.png'), 201);
+        assetUploads += 1;
+        return json(asset(String(assetUploads), assetUploads === 1 ? 'list-cover.png' : 'wallpaper.png'), 201);
       }
       if (url.endsWith('/admin/wallpapers') && options.method === 'POST') {
         created = true;
@@ -266,9 +276,11 @@ describe('adminRepository.saveWallpaper', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     const file = new File(['invalid'], 'image.png', { type: 'image/png' });
+    const cover = new File(['cover'], 'list-cover.png', { type: 'image/png' });
     const input: Wallpaper = { id: '', title: '恢复草稿', slug: 'recover', categoryId: '20', subcategoryId: '',
       accessType: 'REDEEM', capabilities: ['universal_static'], status: 'draft', sort: 1, featuredRank: null,
       coverUrl: '', copyrightNote: '本地测试', updatedAt: '', version: 0, variants: [], resources: {
+        cover: { name: cover.name, size: cover.size, mime: cover.type, nativeFile: cover },
         staticImage: { name: file.name, size: file.size, mime: file.type, nativeFile: file }
       } };
     const failure = await adminRepository.saveWallpaper(input, false).catch((cause: unknown) => cause);
@@ -319,7 +331,8 @@ describe('adminRepository.saveWallpaper', () => {
       const url = String(urlValue);
       requests.push({ url, options });
       if (url.endsWith('/admin/assets')) {
-        return json(staticAsset, 201);
+        const purpose = (options.body as FormData).get('purpose');
+        return json(purpose === 'WALLPAPER_COVER' ? asset('1', 'list-cover.png') : staticAsset, 201);
       }
       if (url.endsWith('/admin/wallpapers') && options.method === 'POST') return json(detail('DRAFT', 0, [], staticAsset), 201, { ETag: '"0"' });
       if (url.endsWith('/admin/wallpapers/30/variants')) return json(variantWithoutVersion, 201);
@@ -334,11 +347,13 @@ describe('adminRepository.saveWallpaper', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const png = new File([new Uint8Array([137, 80, 78, 71])], 'image.png', { type: 'image/png' });
+    const cover = new File([new Uint8Array([137, 80, 78, 71])], 'list-cover.png', { type: 'image/png' });
     const input: Wallpaper = {
       id: '', title: '晨雾山峦', slug: '', categoryId: '20', subcategoryId: '21',
       accessType: 'FREE', capabilities: ['universal_static'], status: 'published', sort: 10,
       coverUrl: '', featuredRank: 2, copyrightNote: '', updatedAt: '', version: 0, variants: [],
       resources: {
+        cover: { name: cover.name, size: cover.size, mime: cover.type, nativeFile: cover },
         staticImage: { name: 'wallpaper.png', size: png.size, mime: png.type, nativeFile: png }
       }
     };
@@ -351,24 +366,26 @@ describe('adminRepository.saveWallpaper', () => {
       'POST /admin/wallpapers',
       'POST /admin/wallpapers/30/variants',
       'GET /admin/wallpapers/30',
+      'POST /admin/assets',
       'POST /admin/variants/40/resource-versions',
       'POST /admin/resource-versions/50/secure-package',
       'POST /admin/wallpapers/30/publish'
     ]);
     const variantRequest = requests[2].options.headers as Headers;
-    expect((requests[0].options.body as FormData).get('purpose')).toBe('STATIC_IMAGE');
+    expect((requests[0].options.body as FormData).get('purpose')).toBe('WALLPAPER_COVER');
+    expect((requests[4].options.body as FormData).get('purpose')).toBe('STATIC_IMAGE');
     expect(JSON.parse(String(requests[1].options.body))).toMatchObject({
       slug: expect.stringMatching(/^wallpaper-[a-f0-9]{20}$/),
       featuredRank: 2,
       accessType: 'FREE',
-      coverAssetId: '2',
+      coverAssetId: '1',
       copyrightNote: '平台内容'
     });
     expect(variantRequest.get('If-Match')).toBe('"0"');
     expect(variantRequest.get('Content-Type')).toBe('application/json');
-    const publishRequest = requests[6].options.headers as Headers;
+    const publishRequest = requests[7].options.headers as Headers;
     expect(publishRequest.get('If-Match')).toBe('"1"');
-    expect(JSON.parse(String(requests[6].options.body))).toEqual({ resourceVersionIds: ['50'] });
+    expect(JSON.parse(String(requests[7].options.body))).toEqual({ resourceVersionIds: ['50'] });
   });
 });
 

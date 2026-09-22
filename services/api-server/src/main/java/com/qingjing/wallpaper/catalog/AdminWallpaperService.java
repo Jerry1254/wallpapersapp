@@ -525,6 +525,12 @@ public class AdminWallpaperService {
         if (!cover.validationStatus().equals("READY") || !cover.mimeType().startsWith("image/")) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "ASSET_NOT_READY", "The cover asset is not a ready image");
         }
+        boolean keepsExistingCover = existing != null && existing.coverAssetId() == coverId;
+        String coverPurpose = jdbc.queryForObject("SELECT purpose FROM asset WHERE id=?", String.class, coverId);
+        if (!keepsExistingCover && !"WALLPAPER_COVER".equals(coverPurpose)) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "ASSET_NOT_READY",
+                    "The list cover must be uploaded as a WALLPAPER_COVER asset");
+        }
         return new WriteShape(selectedCategory, coverId);
     }
 

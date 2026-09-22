@@ -19,13 +19,13 @@ public class ParallaxPackageParser {
     private final ParallaxImageInspector images;
     public ParallaxPackageParser(ParallaxConfigEnvelopeValidator configs,ParallaxImageInspector images){this.configs=configs;this.images=images;}
     public record Asset(String name,byte[] bytes,ParallaxImageInspector.Image image) {}
-    public record Parsed(Asset cover,List<Asset> images,List<ParallaxPackageDtos.Layer> layers,
+    public record Parsed(List<Asset> images,List<ParallaxPackageDtos.Layer> layers,
                          int width,int height,int formatVersion,byte[] configBytes) {}
 
     public Parsed parse(byte[] zip) {
         if(zip.length>ZIP_LIMIT)throw size("ZIP");
         Map<String,byte[]> files=unzip(zip);
-        if(!files.containsKey("cover.jpg")||!files.containsKey("config.json"))throw invalid("ZIP","STRUCTURE_INVALID","ZIP 根目录必须包含 cover.jpg 和 config.json");
+        if(!files.containsKey("config.json"))throw invalid("ZIP","STRUCTURE_INVALID","ZIP 根目录必须包含 config.json");
         List<String> names=files.keySet().stream().filter(n->n.startsWith("layers/")).sorted().toList();
         int count=names.size();
         if(count<2||count>12)throw invalid("layers/","LAYER_COUNT_INVALID","图层数量必须为 2～12 层");
@@ -49,8 +49,7 @@ public class ParallaxPackageParser {
             payloadSize+=content.length;
         }
         if(payloadSize+configBytes.length>PAYLOAD_LIMIT)throw size("图层与 config.json");
-        byte[] cover=files.get("cover.jpg");var coverImage=images.inspect("cover.jpg",cover);
-        return new Parsed(new Asset("cover.jpg",cover,coverImage),List.copyOf(assets),List.copyOf(layers),width,height,envelope.formatVersion(),configBytes);
+        return new Parsed(List.copyOf(assets),List.copyOf(layers),width,height,envelope.formatVersion(),configBytes);
     }
 
     private Map<String,byte[]> unzip(byte[] zip) {
@@ -64,16 +63,17 @@ public class ParallaxPackageParser {
                 String name=entry.getName();Entry expected=directory.get(name);
                 if(expected==null||!seen.add(name)||entry.getMethod()!=expected.method())throw structure();
                 boolean ignored=name.startsWith("__MACOSX/")||name.equals(".DS_Store")||name.endsWith("/.DS_Store");
-                boolean valid=name.equals("cover.jpg")||name.equals("config.json")||name.matches("layers/(0[1-9]|1[0-2])\\.(png|jpg|webp)");
-                if(!ignored&&!valid&&!name.equals("layers/"))throw invalid(name,"STRUCTURE_INVALID","ZIP 包含不允许的文件："+name);
+                boolean legacyCover=name.equals("cover.jpg");
+                boolean valid=name.equals("config.json")||name.matches("layers/(0[1-9]|1[0-2])\\.(png|jpg|webp)");
+                if(!ignored&&!legacyCover&&!valid&&!name.equals("layers/"))throw invalid(name,"STRUCTURE_INVALID","ZIP 包含不允许的文件："+name);
                 long limit=name.equals("config.json")?65536:name.equals("cover.jpg")?20L*1024*1024:50L*1024*1024;
                 if(ignored)limit=EXPANDED_LIMIT;
-                ByteArrayOutputStream output=new ByteArrayOutputStream();long entryBytes=0;int read;
+                ByteArrayOutputStream output=valid?new ByteArrayOutputStream():null;long entryBytes=0;int read;
                 while((read=input.read(buffer))!=-1) {
                     expanded+=read;entryBytes+=read;
                     if(expanded>EXPANDED_LIMIT||entryBytes>limit)throw size(name);
                     if(entry.isDirectory()&&entryBytes>0)throw structure();
-                    if(!ignored&&!entry.isDirectory())output.write(buffer,0,read);
+                    if(valid&&!entry.isDirectory())output.write(buffer,0,read);
                 }
                 input.closeEntry(); // ZipInputStream checks CRC and data descriptors here.
                 if(entryBytes!=expected.size()||entry.getCrc()!=expected.crc()||entry.getCompressedSize()!=expected.compressed())throw structure();

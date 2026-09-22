@@ -58,7 +58,6 @@ public class ParallaxPackageService {
                             VALUES(?,?,?,?,?,?,?,'VALIDATING',?)
                             """,archive.sha256(),safeFilename(filename),archive.sizeBytes(),archive.storageKey().value(),parsed.width(),parsed.height(),parsed.formatVersion(),adminId);
                     long id=jdbc.queryForObject("SELECT LAST_INSERT_ID()",Long.class);
-                    long cover=asset(parsed.cover().name(),parsed.cover().bytes(),parsed.cover().image().mime(),"WALLPAPER_COVER",parsed.cover().image().width(),parsed.cover().image().height(),adminId,created);
                     long config=asset("config.json",parsed.configBytes(),"application/json","PARALLAX_CONFIG",null,null,adminId,created);
                     for(int i=0;i<parsed.layers().size();i++) {
                         var layer=parsed.layers().get(i);var image=parsed.images().get(i);
@@ -68,7 +67,7 @@ public class ParallaxPackageService {
                                 VALUES(?,?,?,?,?,?)
                                 """,id,layer.index(),asset,layer.originalFilename(),layer.role(),layer.ordinal());
                     }
-                    jdbc.update("UPDATE parallax_source_package SET cover_asset_id=?,config_asset_id=?,status='READY' WHERE id=?",cover,config,id);
+                    jdbc.update("UPDATE parallax_source_package SET config_asset_id=?,status='READY' WHERE id=?",config,id);
                     audit(adminId,requestId,"IMPORT_PARALLAX_SOURCE",Long.toString(id),Map.of("sourcePackageId",Long.toString(id),"layerCount",parsed.layers().size()));
                     return new Result<>(reader.get(id),true);
                 });
@@ -113,10 +112,9 @@ public class ParallaxPackageService {
             long invalidAssets=jdbc.queryForObject("""
                     SELECT COUNT(*) FROM asset WHERE id IN (
                         SELECT asset_id FROM parallax_source_layer WHERE source_package_id=?
-                        UNION SELECT config_asset_id FROM parallax_source_package WHERE id=?
-                        UNION SELECT cover_asset_id FROM parallax_source_package WHERE id=?)
+                        UNION SELECT config_asset_id FROM parallax_source_package WHERE id=?)
                     AND (deleted_at IS NOT NULL OR validation_status<>'READY')
-                    """,Long.class,sourceId,sourceId,sourceId);
+                    """,Long.class,sourceId,sourceId);
             if(invalidAssets!=0)throw new ApiException(HttpStatus.CONFLICT,"STATE_CONFLICT","源包资产不可用，请重新导入");
             var version=wallpapers.createResourceVersion(variantId,new CreateResourceVersionRequest(versionNo,null,bindings),adminId);
             jdbc.update("UPDATE resource_version SET source_package_id=? WHERE id=?",sourceId,Long.parseLong(version.id()));
@@ -131,10 +129,9 @@ public class ParallaxPackageService {
                 SELECT storage_key,size_bytes,status AS validation_status FROM parallax_source_package WHERE id=?
                 UNION ALL
                 SELECT storage_key,size_bytes,IF(deleted_at IS NULL,validation_status,'DELETED') FROM asset WHERE id IN (
-                    SELECT cover_asset_id FROM parallax_source_package WHERE id=?
-                    UNION SELECT config_asset_id FROM parallax_source_package WHERE id=?
+                    SELECT config_asset_id FROM parallax_source_package WHERE id=?
                     UNION SELECT asset_id FROM parallax_source_layer WHERE source_package_id=?)
-                """,id,id,id,id);
+                """,id,id,id);
         try {
             for(var object:objects) {
                 if(!"READY".equals(object.get("validation_status")))throw new IllegalStateException();

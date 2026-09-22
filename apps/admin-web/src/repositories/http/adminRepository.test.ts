@@ -16,6 +16,21 @@ it('rejects a 4D wallpaper without the fixed ZIP before making a request', async
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
+it('rejects a 4D wallpaper without an independent list cover before making a request', async () => {
+  const fetchMock = vi.fn();
+  vi.stubGlobal('fetch', fetchMock);
+  const wallpaper = {
+    capabilities: ['android_parallax'],
+    resources: { parallaxPackage: { name: 'wallpaper.zip', size: 3, mime: 'application/zip', nativeFile: new File(['zip'], 'wallpaper.zip') } },
+    variants: []
+  } as unknown as Wallpaper;
+  await expect(adminRepository.saveWallpaper(wallpaper, true)).rejects.toMatchObject({
+    code: 'ASSET_NOT_READY',
+    message: '请单独上传列表封面'
+  });
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
 it('requests only free wallpapers when the management filter is selected', async () => {
   const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
     items: [], page: { page: 1, pageSize: 100, totalItems: 0, totalPages: 0 }

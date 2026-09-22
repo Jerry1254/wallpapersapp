@@ -11,7 +11,6 @@ public final class ParallaxFixtures {
     private ParallaxFixtures() {}
     public static Map<String, byte[]> files(int count) throws Exception {
         Map<String,byte[]> files=new LinkedHashMap<>();
-        files.put("cover.jpg",image("jpg",false,512));
         List<Map<String,Object>> layers=new ArrayList<>();
         for(int i=1;i<=count;i++) {
             files.put(String.format(Locale.ROOT,"layers/%02d.png",i),image("png",i<count,512));

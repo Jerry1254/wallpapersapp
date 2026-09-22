@@ -35,6 +35,11 @@ class ParallaxPackageParserTest {
         var files=files(2);files.put("layers/",new byte[0]);files.put("__MACOSX/._cover.jpg",new byte[]{1});files.put("layers/.DS_Store",new byte[]{2});
         assertThat(parser.parse(zip(files,true)).layers()).hasSize(2);
     }
+    @Test void acceptsPackagesWithoutCoverAndIgnoresLegacyCoverBytes() throws Exception {
+        assertThat(parser.parse(zip(files(2))).layers()).hasSize(2);
+        var legacy=files(2);legacy.put("cover.jpg",new byte[]{1,2,3});
+        assertThat(parser.parse(zip(legacy)).layers()).hasSize(2);
+    }
     @Test void decodesStaticAlphaAndOpaqueWebp() throws Exception {
         var directory=java.nio.file.Files.createTempDirectory("qj-webp-test-");
         try {
@@ -56,7 +61,7 @@ class ParallaxPackageParserTest {
     }
     @Test void rejectsMissingGapsDuplicateNumbersAndLayerCount() throws Exception {
         for(int count:List.of(1,13)) reject(files(count));
-        var files=files(2);files.remove("cover.jpg");reject(files);
+        var files=files(2);files.remove("config.json");reject(files);
         files=files(3);files.remove("layers/02.png");reject(files);
         files=files(2);files.put("layers/01.webp",files.get("layers/01.png"));reject(files);
     }
@@ -64,7 +69,6 @@ class ParallaxPackageParserTest {
         var files=files(2);files.put("layers/01.png",image("png",true,513));reject(files);
         files=files(2);files.put("layers/01.png",image("png",false,512));reject(files);
         files=files(2);files.put("layers/02.png",image("png",true,512));reject(files);
-        files=files(2);files.put("cover.jpg",image("png",false,512));reject(files);
     }
     @Test void passesThroughUnknownAlgorithmFieldsAndValues() throws Exception {
         var source=files(2);String config=new String(source.get("config.json"),StandardCharsets.UTF_8);

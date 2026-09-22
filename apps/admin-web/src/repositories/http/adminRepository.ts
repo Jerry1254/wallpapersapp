@@ -107,7 +107,6 @@ interface ApiParallaxPackage {
   sizeBytes: number;
   sha256: string;
   validationStatus: 'READY';
-  cover: ApiAsset;
   configFormatVersion: number;
   canvas: { width: number; height: number };
   layers: Array<{
@@ -201,8 +200,6 @@ const toParallaxPackage = (value: ApiParallaxPackage): ParallaxPackageFile => ({
   size: value.sizeBytes,
   mime: value.mimeType,
   packageId: value.id,
-  coverAssetId: value.cover.id,
-  coverUrl: apiResourceUrl(value.cover.previewUrl),
   sha256: value.sha256,
   configFormatVersion: value.configFormatVersion,
   layerCount: value.layers.length,
@@ -353,9 +350,7 @@ const uploadAsset = async (resource: ResourceFile, purpose: AssetPurpose) => {
 };
 
 const prepareParallaxPackage = async (resource: ParallaxPackageFile) => {
-  if (resource.packageId && resource.coverAssetId) {
-    return { packageId: resource.packageId, coverAssetId: resource.coverAssetId };
-  }
+  if (resource.packageId) return resource.packageId;
   if (!resource.nativeFile) throw new ApiError(422, 'PARALLAX_PACKAGE_REQUIRED', '缺少 4D 固定资源包');
   const form = new FormData();
   form.set('file', resource.nativeFile, resource.name);
@@ -369,7 +364,7 @@ const prepareParallaxPackage = async (resource: ParallaxPackageFile) => {
   }
   const parsed = toParallaxPackage(data);
   Object.assign(resource, parsed, { nativeFile: resource.nativeFile });
-  return { packageId: data.id, coverAssetId: data.cover.id };
+  return data.id;
 };
 
 const fetchWallpaper = async (id: string) => (
@@ -483,18 +478,13 @@ export const adminRepository = {
       throw new ApiError(422, 'PARALLAX_PACKAGE_REQUIRED', '请上传 4D 固定资源包');
     }
     let coverAssetId: string;
-    if (input.resources.cover?.nativeFile) {
+    if (input.resources.cover) {
       coverAssetId = await uploadAsset(input.resources.cover, 'WALLPAPER_COVER');
-    } else if (input.capabilities.includes('universal_static') && input.resources.staticImage) {
-      coverAssetId = await uploadAsset(input.resources.staticImage, 'STATIC_IMAGE');
-    } else if (input.capabilities.includes('android_parallax') && input.resources.parallaxPackage) {
-      coverAssetId = (await prepareParallaxPackage(input.resources.parallaxPackage)).coverAssetId;
-    } else if (input.capabilities.includes('ios_live_photo') && input.resources.iosPhoto) {
-      coverAssetId = await uploadAsset(input.resources.iosPhoto, 'LIVE_PHOTO_IMAGE');
-    } else if (input.resources.cover?.assetId) {
-      coverAssetId = input.resources.cover.assetId;
     } else {
-      throw new ApiError(422, 'ASSET_NOT_READY', '请上传列表封面，或提供可复用的静态原图、4D 封面或 iOS 实况照片');
+      throw new ApiError(422, 'ASSET_NOT_READY', '请单独上传列表封面');
+    }
+    if (input.capabilities.includes('android_parallax') && input.resources.parallaxPackage) {
+      await prepareParallaxPackage(input.resources.parallaxPackage);
     }
     const payload = jsonBody({
       title: input.title.trim(),

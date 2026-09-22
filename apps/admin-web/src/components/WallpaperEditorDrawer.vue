@@ -65,7 +65,6 @@ const hasExisting = (value: WallpaperCapability) => {
 
 const coverPreviewSrc = computed(() => form.resources.cover?.url
   || form.resources.staticImage?.url
-  || form.resources.parallaxPackage?.coverUrl
   || form.resources.iosPhoto?.url
   || form.coverUrl);
 const dynamicPreviewSrc = computed(() => form.resources.androidVideo?.url || form.resources.iosMov?.url);
@@ -109,9 +108,7 @@ const validate = () => {
   if (hasCapability('universal_static') && !form.resources.staticImage && !hasExisting('universal_static')) {
     next.staticImage = '请上传高清静态原图';
   }
-  const reusableCover = form.resources.cover || form.resources.staticImage
-    || form.resources.parallaxPackage?.coverAssetId || form.resources.iosPhoto || form.coverUrl;
-  if (!reusableCover) next.cover = '请上传列表封面';
+  if (!form.resources.cover && !form.coverUrl) next.cover = '请单独上传列表封面';
   errors.value = next;
   return Object.keys(next).length === 0;
 };
@@ -171,9 +168,9 @@ const resourceRows = computed(() => {
         </section>
 
         <section class="editor-section">
-          <div class="editor-section__heading"><h3>列表封面</h3><p>可单独上传；未上传时依次复用静态原图、4D 包封面或 iOS 实况照片。</p></div>
+          <div class="editor-section__heading"><h3>列表封面</h3><p>必填，用于 App 列表和详情入口；4D ZIP 不再包含或提供封面。</p></div>
           <div class="resource-grid"><div class="resource-grid__item span-2">
-            <ResourceFileField :model-value="form.resources.cover" label="独立列表封面（可选）" hint="JPG / PNG / WebP" accept="image/jpeg,image/png,image/webp" @update:model-value="setResource('cover', $event)" />
+            <ResourceFileField :model-value="form.resources.cover" label="列表封面（必填）" hint="JPG / PNG / WebP" accept="image/jpeg,image/png,image/webp" required @update:model-value="setResource('cover', $event)" />
             <p v-if="errors.cover" class="field-error">{{ errors.cover }}</p>
           </div></div>
         </section>
@@ -182,7 +179,7 @@ const resourceRows = computed(() => {
           <div class="editor-section__heading"><h3>能力资源</h3><p>只需补齐已勾选能力对应的正式原资源。</p></div>
           <div class="resource-grid">
             <div v-if="hasCapability('android_parallax')" class="resource-grid__item span-2">
-              <ResourceFileField :model-value="form.resources.parallaxPackage" label="Android 4D 固定资源包" hint="模拟器导出的完整 ZIP，包含 cover.jpg、config.json 和 1–12 层图" accept="application/zip,.zip" required @update:model-value="setResource('parallaxPackage', $event)" />
+              <ResourceFileField :model-value="form.resources.parallaxPackage" label="Android 4D 固定资源包" hint="模拟器导出的完整 ZIP，包含 config.json 和 2–12 层图，不包含封面" accept="application/zip,.zip" required @update:model-value="setResource('parallaxPackage', $event)" />
               <p v-if="errors.parallaxPackage" class="field-error">{{ errors.parallaxPackage }}</p>
               <small v-if="hasExisting('android_parallax')">不选择新 ZIP 时保留当前可用版本。</small>
             </div>
