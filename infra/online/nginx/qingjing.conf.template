@@ -1,0 +1,63 @@
+upstream qingjing_api {
+    include /opt/qingjing/runtime/api-upstream.conf;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{PUBLIC_HOST}};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+        default_type text/plain;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name {{PUBLIC_HOST}};
+
+    ssl_certificate /etc/letsencrypt/live/{{PUBLIC_HOST}}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{PUBLIC_HOST}}/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    root /opt/qingjing/current-admin;
+    index index.html;
+    client_max_body_size 261m;
+
+    add_header Strict-Transport-Security "max-age=15552000" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    location /api/ {
+        proxy_pass http://qingjing_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 900s;
+        proxy_read_timeout 900s;
+        proxy_request_buffering off;
+    }
+
+    location /assets/ {
+        try_files $uri =404;
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-store";
+    }
+}

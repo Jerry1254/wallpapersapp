@@ -21,6 +21,7 @@ admin-web/build/
 admin-web/dist/
 wallpaper-tools/output/
 infra/secrets/
+config/online-deployment.local.json
 .runtime/
 __pycache__/
 uploads/

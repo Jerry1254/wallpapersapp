@@ -1,0 +1,15 @@
+labels:
+  platform: linux/amd64
+skip_clone: true
+when:
+  - event: push
+    branch: main
+
+steps:
+  - name: register precise deployment commit
+    image: shuquantong-ci-builder:node24-java21
+    pull: false
+    commands:
+      - |
+        set -eu
+        printf 'Commit %s synchronized for precise deployment.\n' "$${CI_COMMIT_SHA}"

@@ -54,6 +54,7 @@ info:
     flyway-version: ${QJ_FLYWAY_VERSION:unknown}
 
 qingjing:
+  scheduling-enabled: ${QJ_SCHEDULING_ENABLED:true}
   delivery:
     ffprobe: ${QJ_FFPROBE:ffprobe}
     ffmpeg: ${QJ_FFMPEG:ffmpeg}

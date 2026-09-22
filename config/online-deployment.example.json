@@ -1,0 +1,9 @@
+{
+  "environment": "ONLINE_MAIN",
+  "serverHost": "server.example.invalid",
+  "sshUser": "ubuntu",
+  "sshIdentityFile": "~/.ssh/example-server-key",
+  "deploymentRoot": "/opt/qingjing",
+  "serviceEnvironmentFile": "/opt/qingjing/shared/env/api.env",
+  "publicHost": "wallpaper.example.invalid"
+}
