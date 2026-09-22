@@ -3,12 +3,15 @@ package com.qingjing.wallpaper.delivery.infrastructure;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qingjing.wallpaper.shared.web.ApiException;
+import java.io.ByteArrayInputStream;
+import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import javax.imageio.ImageIO;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -52,6 +55,14 @@ public final class PackageMediaInspector {
                     "-threads", "1", "-i", input.toString(), "-map", "0:v:0", "-an", "-f", "null", "-"));
             run(decode, output, Duration.ofSeconds(45));
             boolean alpha = pixels.contains("rgba") || pixels.contains("bgra") || pixels.startsWith("yuva") || pixels.equals("argb");
+            // ffprobe reports indexed PNGs as pal8 even when their palette has a tRNS alpha table.
+            // Read the decoded PNG color model so valid exported foregrounds keep their alpha capability.
+            if (!video && codec.equals("png")) {
+                BufferedImage image = ImageIO.read(new ByteArrayInputStream(content));
+                if (image == null) throw invalid();
+                try { alpha = image.getColorModel().hasAlpha(); }
+                finally { image.flush(); }
+            }
             return new Media(width, height, alpha);
         } catch (ApiException exception) { throw exception; }
         catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw invalid(); }

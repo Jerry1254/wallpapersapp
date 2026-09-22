@@ -2,6 +2,7 @@ package com.qingjing.wallpaper.parallax;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.awt.image.BufferedImage;
+import java.awt.image.IndexColorModel;
 import java.io.ByteArrayOutputStream;
 import java.util.*;
 import java.util.zip.*;
@@ -23,7 +24,12 @@ public final class ParallaxFixtures {
         return files;
     }
     public static byte[] image(String format,boolean alpha,int size) throws Exception {
-        var image=new BufferedImage(size,size,alpha?BufferedImage.TYPE_INT_ARGB:BufferedImage.TYPE_INT_RGB);
+        BufferedImage image;
+        if(alpha && format.equals("png")) {
+            byte[] red={0,(byte)255},green={0,(byte)165},blue={0,0},opacity={0,(byte)255};
+            image=new BufferedImage(size,size,BufferedImage.TYPE_BYTE_INDEXED,
+                    new IndexColorModel(8,2,red,green,blue,opacity));
+        } else image=new BufferedImage(size,size,alpha?BufferedImage.TYPE_INT_ARGB:BufferedImage.TYPE_INT_RGB);
         var graphics=image.createGraphics();graphics.setColor(java.awt.Color.ORANGE);graphics.fillOval(80,80,180,180);graphics.dispose();
         try(var out=new ByteArrayOutputStream()){ImageIO.write(image,format,out);return out.toByteArray();}
         finally{image.flush();}

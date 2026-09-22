@@ -124,7 +124,7 @@ class InfrastructureIntegrationIT {
                 """,
                 String.class);
 
-        assertThat(successfulMigrations).isEqualTo(10);
+        assertThat(successfulMigrations).isEqualTo(11);
         assertThat(tables).containsExactlyInAnyOrder(
                 "admin_account",
                 "anonymous_device",
@@ -1311,6 +1311,19 @@ class InfrastructureIntegrationIT {
         jdbc.update("UPDATE wallpaper SET status='ARCHIVED',archived_at=UTC_TIMESTAMP(6) WHERE id=?",wallpaper);
         assertThat(jsonExchange("/api/v1/admin/variants/"+variant+"/parallax-resource-versions",HttpMethod.POST,
                 Map.of("versionNo",5,"sourcePackageId",earlierSource),admin,null).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void draftWithResourceHistoryCanBeArchivedBeforeItsFirstPublish() throws Exception {
+        ensureAdmin();var admin=login();
+        long wallpaper=createPublishedWallpaperFixture();
+        jdbc.update("UPDATE wallpaper SET status='DRAFT',published_at=NULL WHERE id=?",wallpaper);
+        var detail=getJson("/api/v1/admin/wallpapers/"+wallpaper,admin);
+        var archived=jsonExchange("/api/v1/admin/wallpapers/"+wallpaper+"/archive",HttpMethod.POST,
+                Map.of("reason","discard failed draft"),admin,detail.getHeaders().getETag());
+        assertThat(archived.getStatusCode()).as(archived.getBody().toString()).isEqualTo(HttpStatus.OK);
+        assertThat(archived.getBody().path("status").asText()).isEqualTo("ARCHIVED");
+        assertThat(jdbc.queryForObject("SELECT published_at FROM wallpaper WHERE id=?",java.sql.Timestamp.class,wallpaper)).isNull();
     }
 
     private byte[] formalParallaxConfig(long versionId,long wallpaperId,long variantId,int versionNo) throws Exception {
