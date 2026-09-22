@@ -458,7 +458,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     width: T.sizeCategoryIcon,
                     height: T.sizeCategoryIcon,
                     decoration: BoxDecoration(
-                      color: tone.$1,
+                      color: item.icon == null ? tone.$1 : Colors.transparent,
                       borderRadius: BorderRadius.circular(19),
                     ),
                     child: item.icon == null
