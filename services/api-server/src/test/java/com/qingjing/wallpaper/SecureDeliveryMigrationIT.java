@@ -66,7 +66,7 @@ class SecureDeliveryMigrationIT {
             }
             var throughLatest=Flyway.configure().dataSource(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword())
                     .locations("classpath:db/migration").load().migrate();
-            assertThat(throughLatest.migrationsExecuted).isEqualTo(6);
+            assertThat(throughLatest.migrationsExecuted).isEqualTo(7);
             try(var connection=DriverManager.getConnection(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword());
                 var query=connection.createStatement()) {
                 try (var result=query.executeQuery("SELECT COUNT(*) FROM preview_resource_package")) {
@@ -83,6 +83,12 @@ class SecureDeliveryMigrationIT {
                 }
                 try (var result=query.executeQuery("SELECT COUNT(*) FROM parallax_storage_cleanup")) {
                     assertThat(result.next()).isTrue();assertThat(result.getInt(1)).isEqualTo(5);
+                }
+                try (var result=query.executeQuery("""
+                        SELECT is_nullable FROM information_schema.columns
+                        WHERE table_schema=DATABASE() AND table_name='redemption_code' AND column_name='code_ciphertext'
+                        """)) {
+                    assertThat(result.next()).isTrue();assertThat(result.getString(1)).isEqualTo("YES");
                 }
                 try (var result=query.executeQuery("""
                         SELECT column_default FROM information_schema.columns

@@ -124,7 +124,7 @@ class InfrastructureIntegrationIT {
                 """,
                 String.class);
 
-        assertThat(successfulMigrations).isEqualTo(11);
+        assertThat(successfulMigrations).isEqualTo(12);
         assertThat(tables).containsExactlyInAnyOrder(
                 "admin_account",
                 "anonymous_device",
@@ -311,7 +311,7 @@ class InfrastructureIntegrationIT {
 
         ResponseEntity<JsonNode> info = http.getForEntity("/actuator/info", JsonNode.class);
         assertThat(info.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(info.getBody().path("app").path("contract-version").asText()).isEqualTo("2.2.0");
+        assertThat(info.getBody().path("app").path("contract-version").asText()).isEqualTo("2.3.0");
         assertThat(info.getBody().path("app").path("environment-id").asText()).isEqualTo("UNCONFIGURED");
         assertThat(info.getBody().path("app").path("source-sha256").asText()).isEqualTo("unknown");
         assertThat(info.getBody().path("app").path("artifact-sha256").asText()).isEqualTo("unknown");
@@ -932,6 +932,14 @@ class InfrastructureIntegrationIT {
         String normalizedCode = code.replace("-", "");
         assertThat(normalizedCode).matches("^[A-Z0-9]{20}$");
 
+        ResponseEntity<JsonNode> visibleCodes = http.exchange(
+                "/api/v1/admin/code-batches/" + batchId + "/codes?page=1&pageSize=20",
+                HttpMethod.GET,
+                new HttpEntity<>(headers(admin, false, null)),
+                JsonNode.class);
+        assertThat(visibleCodes.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(visibleCodes.getBody().path("items").get(0).path("code").asText()).isEqualTo(code);
+
         ResponseEntity<JsonNode> batchRetry = http.exchange(
                 "/api/v1/admin/code-batches",
                 HttpMethod.POST,
@@ -997,15 +1005,36 @@ class InfrastructureIntegrationIT {
                 JsonNode.class);
         assertThat(expiredDelivery.getStatusCode()).isEqualTo(HttpStatus.GONE);
 
+        ResponseEntity<JsonNode> visibleCodesAfterConfirmation = http.exchange(
+                "/api/v1/admin/code-batches/" + batchId + "/codes?page=1&pageSize=20",
+                HttpMethod.GET,
+                new HttpEntity<>(headers(admin, false, null)),
+                JsonNode.class);
+        assertThat(visibleCodesAfterConfirmation.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(visibleCodesAfterConfirmation.getBody().path("items").get(0).path("code").asText())
+                .isEqualTo(code);
+
         Map<String, Object> storedCode = jdbc.queryForMap(
-                "SELECT code_hash, code_suffix, total_quota, used_quota FROM redemption_code WHERE batch_id = ?",
+                "SELECT code_hash, code_ciphertext, code_suffix, total_quota, used_quota FROM redemption_code WHERE batch_id = ?",
                 Long.parseLong(batchId));
         assertThat(storedCode.get("code_hash").toString()).hasSize(64).isNotEqualTo(normalizedCode);
+        assertThat(storedCode.get("code_ciphertext").toString()).doesNotContain(normalizedCode).isNotEqualTo(normalizedCode);
         assertThat(storedCode.get("code_suffix").toString()).isEqualTo(normalizedCode.substring(15));
         assertThat(jdbc.queryForObject(
                         "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'redemption_code' AND column_name IN ('code', 'plaintext_code')",
                         Long.class))
                 .isZero();
+
+        jdbc.update("UPDATE redemption_code SET code_ciphertext = NULL WHERE batch_id = ?", Long.parseLong(batchId));
+        ResponseEntity<JsonNode> legacyCodes = http.exchange(
+                "/api/v1/admin/code-batches/" + batchId + "/codes?page=1&pageSize=20",
+                HttpMethod.GET,
+                new HttpEntity<>(headers(admin, false, null)),
+                JsonNode.class);
+        assertThat(legacyCodes.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(legacyCodes.getBody().path("items").get(0).has("code")).isFalse();
+        assertThat(legacyCodes.getBody().path("items").get(0).path("maskedCode").asText())
+                .isEqualTo("*****-*****-*****-" + normalizedCode.substring(15));
 
         DeviceTestSession owner = registerAndCreateSession("integration-owner-" + UUID.randomUUID());
         String missingWallpaperKey = UUID.randomUUID().toString();

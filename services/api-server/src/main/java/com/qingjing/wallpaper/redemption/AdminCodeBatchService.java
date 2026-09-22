@@ -138,16 +138,20 @@ public class AdminCodeBatchService {
             jdbc.batchUpdate(
                     """
                     INSERT INTO redemption_code
-                        (batch_id, code_hash, code_key_version, code_suffix, total_quota)
-                    VALUES (?, ?, 1, ?, ?)
+                        (batch_id, code_hash, code_key_version, code_ciphertext, code_suffix, total_quota)
+                    VALUES (?, ?, 1, ?, ?, ?)
                     """,
                     codes,
                     500,
                     (statement, code) -> {
+                        String codeHash = crypto.hmacHex("redemption-code-v1", code.value());
                         statement.setLong(1, batchId);
-                        statement.setString(2, crypto.hmacHex("redemption-code-v1", code.value()));
-                        statement.setString(3, code.value().substring(15));
-                        statement.setInt(4, request.quotaPerCode());
+                        statement.setString(2, codeHash);
+                        statement.setString(3, crypto.encrypt(
+                                codeEncryptionPurpose(batchId, codeHash),
+                                code.value().getBytes(StandardCharsets.US_ASCII)));
+                        statement.setString(4, code.value().substring(15));
+                        statement.setInt(5, request.quotaPerCode());
                     });
         } catch (DataIntegrityViolationException exception) {
             throw new ApiException(HttpStatus.CONFLICT, "CODE_GENERATION_CONFLICT", "The code batch could not be generated safely");
@@ -194,15 +198,17 @@ public class AdminCodeBatchService {
         arguments.add((long) (page - 1) * pageSize);
         List<AdminRedemptionCode> items = jdbc.query(
                 """
-                SELECT id, code_suffix, total_quota, used_quota
+                SELECT id, code_hash, code_ciphertext, code_suffix, total_quota, used_quota
                 FROM redemption_code
                 """ + predicate + " ORDER BY id ASC LIMIT ? OFFSET ?",
                 (resultSet, rowNumber) -> {
                     int totalQuota = resultSet.getInt("total_quota");
                     int usedQuota = resultSet.getInt("used_quota");
                     String codeSuffix = resultSet.getString("code_suffix");
+                    String ciphertext = resultSet.getString("code_ciphertext");
                     return new AdminRedemptionCode(
                             Long.toString(resultSet.getLong("id")),
+                            decryptCode(batchId, resultSet.getString("code_hash"), ciphertext),
                             "*****-*****-*****-" + codeSuffix,
                             codeSuffix,
                             totalQuota,
@@ -377,6 +383,23 @@ public class AdminCodeBatchService {
     private String group(String code) {
         return code.substring(0, 5) + "-" + code.substring(5, 10) + "-"
                 + code.substring(10, 15) + "-" + code.substring(15, 20);
+    }
+
+    private String codeEncryptionPurpose(long batchId, String codeHash) {
+        return "redemption-code-admin-v1:" + batchId + ":" + codeHash;
+    }
+
+    private String decryptCode(long batchId, String codeHash, String ciphertext) {
+        if (ciphertext == null) {
+            return null;
+        }
+        String value = new String(
+                crypto.decrypt(codeEncryptionPurpose(batchId, codeHash), ciphertext),
+                StandardCharsets.US_ASCII);
+        if (!value.matches("^[A-HJ-NP-Z2-9]{20}$")) {
+            throw new IllegalStateException("Stored redemption code has an invalid format");
+        }
+        return group(value);
     }
 
     private String deterministicBatchNo(long adminId, String idempotencyKey) {

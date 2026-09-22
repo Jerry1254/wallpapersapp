@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AdminLoadNotice from '@/components/AdminLoadNotice.vue';
-import { Download, Plus, Search, View } from '@element-plus/icons-vue';
+import { CopyDocument, Download, Plus, Search, View } from '@element-plus/icons-vue';
 import dayjs from 'dayjs';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { onMounted, reactive, ref } from 'vue';
@@ -36,6 +36,14 @@ const deliveryTag = { AVAILABLE: 'warning', CONFIRMED: 'success', EXPIRED: 'info
 const deliveryLabel = (status: DeliveryStatus) => deliveryLabels[status];
 const deliveryTagType = (status: DeliveryStatus) => deliveryTag[status];
 const date = (value?: string | null) => value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '—';
+const copyCode = async (code: string) => {
+  try {
+    await navigator.clipboard.writeText(code);
+    ElMessage.success('兑换码已复制');
+  } catch {
+    ElMessage.error('复制失败，请手动选择兑换码');
+  }
+};
 
 const load = async () => {
   loading.value = true;
@@ -92,7 +100,7 @@ const downloadDelivery = async () => {
     saveBlob(file.data, file.filename);
     await adminRepository.confirmCodeBatchDelivery(delivery.value.batch.id);
     delivery.value = undefined;
-    ElMessage.success('已发起 CSV 下载，服务端明文交付材料已销毁，请检查浏览器下载记录');
+    ElMessage.success('已下载 CSV，兑换码仍可在批次详情中查看');
     await load();
   } catch (cause) {
     ElMessage.error(readableApiError(cause, '兑换码交付失败'));
@@ -103,8 +111,8 @@ const downloadDelivery = async () => {
 const discardDelivery = async () => {
   if (!delivery.value) return;
   try {
-    await ElMessageBox.confirm('放弃后服务端会立即销毁本批次的明文交付材料，之后只能查看掩码和额度。', '放弃明文交付', {
-      confirmButtonText: '确认销毁', cancelButtonText: '继续下载', type: 'warning'
+    await ElMessageBox.confirm('暂不下载 CSV 后，仍可在批次详情中查看和复制兑换码。', '暂不下载', {
+      confirmButtonText: '确认', cancelButtonText: '继续下载', type: 'info'
     });
     await adminRepository.confirmCodeBatchDelivery(delivery.value.batch.id);
     delivery.value = undefined;
@@ -159,12 +167,12 @@ onMounted(load);
 <template>
   <section class="page-shell">
     <header class="page-heading">
-      <div><h1>兑换码</h1><p>生成兑换码批次，只在创建后交付一次明文 CSV；日常查询仅显示掩码与额度。</p></div>
+      <div><h1>兑换码</h1><p>生成兑换码批次，可在批次详情中查看、复制完整兑换码，也可下载 CSV。</p></div>
       <div class="page-actions"><ElButton type="primary" :icon="Plus" @click="openCreate">生成批次</ElButton></div>
     </header>
     <AdminLoadNotice :error="loadError" :loading="loading" @retry="load" />
 
-    <ElAlert title="明文只交付一次" description="点击下载后系统确认交付并销毁临时明文材料；请保管浏览器下载的 CSV。数据库仅保存不可逆摘要与末五位。" type="warning" show-icon :closable="false" />
+    <ElAlert title="兑换码可长期查看" description="新生成的兑换码会加密保存，可在批次详情中查看和复制；历史批次若未保存原文，仍显示掩码。" type="success" show-icon :closable="false" />
     <section class="surface toolbar">
       <div class="toolbar__filters">
         <ElInput v-model="query" :prefix-icon="Search" clearable placeholder="搜索批次号或名称" style="width:280px" @keyup.enter="search" />
@@ -196,16 +204,16 @@ onMounted(load);
       <template #footer><div class="dialog-actions"><ElButton @click="createOpen=false">取消</ElButton><ElButton type="primary" :loading="creating" @click="createBatch">生成并进入交付</ElButton></div></template>
     </ElDialog>
 
-    <ElDialog :model-value="Boolean(delivery)" title="下载一次性兑换码" width="min(560px, 92vw)" :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false">
+    <ElDialog :model-value="Boolean(delivery)" title="下载兑换码 CSV" width="min(560px, 92vw)" :show-close="false" :close-on-click-modal="false" :close-on-press-escape="false">
       <div v-if="delivery" class="code-result">
-        <div class="code-result__notice">批次 {{ delivery.batch.batchNo }} 已生成，共 {{ delivery.batch.generatedCount }} 个兑换码。明文材料将在 {{ date(delivery.deliveryExpiresAt) }} 前可下载。</div>
+        <div class="code-result__notice">批次 {{ delivery.batch.batchNo }} 已生成，共 {{ delivery.batch.generatedCount }} 个兑换码。本次 CSV 在 {{ date(delivery.deliveryExpiresAt) }} 前可下载。</div>
         <ElDescriptions :column="2" border>
           <ElDescriptionsItem label="批次名称">{{ delivery.batch.name }}</ElDescriptionsItem>
           <ElDescriptionsItem label="总额度">{{ delivery.batch.totalQuota }}</ElDescriptionsItem>
         </ElDescriptions>
-        <p class="delivery-copy">点击下载后，浏览器会保存 CSV，服务端随即确认交付并销毁临时明文。</p>
+        <p class="delivery-copy">下载窗口关闭后，完整兑换码仍可在批次详情中查看和复制。</p>
       </div>
-      <template #footer><div class="dialog-actions"><ElButton :disabled="delivering" @click="discardDelivery">放弃并销毁</ElButton><ElButton type="primary" :icon="Download" :loading="delivering" @click="downloadDelivery">下载 CSV</ElButton></div></template>
+      <template #footer><div class="dialog-actions"><ElButton :disabled="delivering" @click="discardDelivery">暂不下载</ElButton><ElButton type="primary" :icon="Download" :loading="delivering" @click="downloadDelivery">下载 CSV</ElButton></div></template>
     </ElDialog>
 
     <ElDrawer v-model="detailOpen" title="批次详情" size="min(820px, 96vw)">
@@ -229,7 +237,14 @@ onMounted(load);
           </div>
           <AdminLoadNotice :error="codesError" :loading="detailLoading" @retry="loadCodes" />
           <ElTable v-if="!codesError" v-loading="detailLoading" :data="codes" empty-text="没有符合条件的兑换码">
-            <ElTableColumn prop="maskedCode" label="兑换码掩码" min-width="220" />
+            <ElTableColumn label="兑换码" min-width="290">
+              <template #default="{ row }">
+                <span class="code-cell">
+                  <code>{{ row.code || row.maskedCode }}</code>
+                  <ElButton v-if="row.code" link type="primary" :icon="CopyDocument" @click="copyCode(row.code)">复制</ElButton>
+                </span>
+              </template>
+            </ElTableColumn>
             <ElTableColumn label="额度" width="120"><template #default="{ row }">{{ row.usedQuota }} / {{ row.totalQuota }}</template></ElTableColumn>
             <ElTableColumn prop="remainingQuota" label="剩余" width="90" />
             <ElTableColumn label="状态" width="100"><template #default="{ row }"><ElTag :type="row.status === 'AVAILABLE' ? 'success' : 'info'" effect="plain">{{ row.status === 'AVAILABLE' ? '可用' : '已耗尽' }}</ElTag></template></ElTableColumn>
@@ -240,3 +255,17 @@ onMounted(load);
     </ElDrawer>
   </section>
 </template>
+
+<style scoped>
+.code-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.code-cell code {
+  color: var(--el-text-color-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: 0.04em;
+}
+</style>

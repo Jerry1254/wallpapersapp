@@ -4,7 +4,7 @@
 
 ## 当前版本
 
-**2.2.0，61 个操作 / 97 个 Schema。**
+**2.3.0，61 个操作 / 97 个 Schema。**
 
 本版完成单商品多设置能力与设备能力协商：
 
@@ -28,6 +28,7 @@ App 对接流程见 [API-015](../../docs/04-接口设计/API-015-设备能力目
 - `baseline-v1.json`：当前契约冻结入口。
 - `baseline-v2.1.0.json`：2.1.0 逐版本归档。
 - `baseline-v2.2.0.json`：2.2.0 逐版本归档。
+- `baseline-v2.3.0.json`：2.3.0 逐版本归档。
 - `baseline-v2.0.0.json`：2.0.0 逐版本归档。
 - `baseline-v1.*.json`：历史版本归档，只用于历史核验。
 - `scripts/check-baseline.mjs`：只读核对 SHA-256、版本和操作/Schema 数量。

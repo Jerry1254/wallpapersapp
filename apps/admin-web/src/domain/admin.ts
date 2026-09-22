@@ -149,6 +149,7 @@ export interface CreateCodeBatchResponse {
 
 export interface RedemptionCode {
   id: string;
+  code?: string | null;
   maskedCode: string;
   codeSuffix: string;
   totalQuota: number;

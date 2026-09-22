@@ -67,6 +67,7 @@ public final class AdminRedemptionDtos {
 
     public record AdminRedemptionCode(
             String id,
+            String code,
             String maskedCode,
             String codeSuffix,
             int totalQuota,

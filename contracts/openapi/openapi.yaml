@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.2.0
+  version: 2.3.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -1937,8 +1937,8 @@ paths:
     get:
       tags: [Admin Redemption]
       operationId: listAdminRedemptionCodes
-      summary: 查询批次内兑换码掩码和额度
-      description: 永远不返回完整兑换码或可恢复的码材料。
+      summary: 查询批次内兑换码和额度
+      description: 新生成的兑换码向已登录管理端返回完整明文；迁移前的历史兑换码无法恢复，仅返回掩码。
       security:
         - adminCookie: []
       parameters:
@@ -1958,7 +1958,7 @@ paths:
             pattern: '^[A-Z0-9]+$'
       responses:
         '200':
-          description: 掩码兑换码分页
+          description: 兑换码分页
           content:
             application/json:
               schema:
@@ -4239,10 +4239,16 @@ components:
       properties:
         id:
           $ref: '#/components/schemas/LongId'
+        code:
+          type: string
+          nullable: true
+          readOnly: true
+          pattern: '^[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}$'
+          description: 完整兑换码。迁移前未保存原文的历史记录返回 null。
         maskedCode:
           type: string
           maxLength: 32
-          description: 仅显示安全掩码和尾号，例如 *****-*****-*****-A7K9X。
+          description: 安全掩码和尾号，供无法恢复原文的历史记录回退显示。
         codeSuffix:
           type: string
           minLength: 4

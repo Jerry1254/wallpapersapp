@@ -163,9 +163,15 @@ for (const [schemaName, schema] of Object.entries(document.components.schemas)) 
   }
 }
 
-assert.ok(
-  !document.components.schemas.AdminRedemptionCode.properties.code,
-  'admin code history must never expose a complete redemption code'
+assert.equal(
+  document.components.schemas.AdminRedemptionCode.properties.code.readOnly,
+  true,
+  'complete redemption codes may only be returned by the authenticated admin API'
+);
+assert.equal(
+  document.components.schemas.AdminRedemptionCode.properties.code.nullable,
+  true,
+  'legacy redemption codes without recoverable material must remain representable'
 );
 assert.deepEqual(document.components.schemas.DownloadDescriptor.properties.deliveryMode.enum, ['SECURE_PACKAGE']);
 assert.ok(!document.components.schemas.PublicWallpaperSummary.properties.kind, 'wallpaper kind must not remain exclusive');
