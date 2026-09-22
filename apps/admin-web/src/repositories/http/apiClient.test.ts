@@ -59,7 +59,7 @@ describe('apiRequest', () => {
     for (const request of [() => apiRequest('/admin/categories'), () => apiDownload('/admin/code-batches/1/delivery')]) {
       await expect(request()).rejects.toMatchObject({ code: 'NETWORK_ERROR', status: 0 });
     }
-    expect(readableApiError(new ApiError(409, 'DUPLICATE_SLUG', 'Already exists'))).toBe('此 Slug 已被使用，请换一个');
+    expect(readableApiError(new ApiError(409, 'DUPLICATE_SLUG', 'Already exists'))).toBe('系统标识冲突，请重试');
   });
 
   it('无响应超过 15 秒中止请求，提示先确认提交结果', async () => {
@@ -277,7 +277,7 @@ describe('adminRepository.saveWallpaper', () => {
     vi.stubGlobal('fetch', fetchMock);
     const file = new File(['invalid'], 'image.png', { type: 'image/png' });
     const cover = new File(['cover'], 'list-cover.png', { type: 'image/png' });
-    const input: Wallpaper = { id: '', title: '恢复草稿', slug: 'recover', categoryId: '20', subcategoryId: '',
+    const input: Wallpaper = { id: '', title: '恢复草稿', slug: '', categoryId: '20', subcategoryId: '',
       accessType: 'REDEEM', capabilities: ['universal_static'], status: 'draft', sort: 1, featuredRank: null,
       coverUrl: '', copyrightNote: '本地测试', updatedAt: '', version: 0, variants: [], resources: {
         cover: { name: cover.name, size: cover.size, mime: cover.type, nativeFile: cover },
@@ -286,13 +286,15 @@ describe('adminRepository.saveWallpaper', () => {
     const failure = await adminRepository.saveWallpaper(input, false).catch((cause: unknown) => cause);
     expect(failure).toBeInstanceOf(WallpaperSaveError);
     const recovery = (failure as WallpaperSaveError).wallpaper;
-    expect(recovery).toMatchObject({ id: '30', version: 1 });
+    expect(recovery).toMatchObject({ id: '30', slug: 'misty-mountains', version: 1 });
     expect(recovery.resources.staticImage?.nativeFile).toBe(file);
     versionFails = false;
+    recovery.slug = '';
     await adminRepository.saveWallpaper(recovery, false);
     expect(fetchMock.mock.calls.filter(([url, options]) => url.endsWith('/admin/wallpapers') && options?.method === 'POST')).toHaveLength(1);
     const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
     expect((patch?.[1]?.headers as Headers).get('If-Match')).toBe('"1"');
+    expect(JSON.parse(String(patch?.[1]?.body)).slug).toBe('misty-mountains');
   });
   it('重新读取并保存壁纸时保留服务器的精选排序和可空二级分类', async () => {
     setCsrfToken('csrf-token');

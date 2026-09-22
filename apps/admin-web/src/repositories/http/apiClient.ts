@@ -142,7 +142,7 @@ const errorLabels: Record<string, string> = {
   VERSION_CONFLICT: '数据已被更新，请刷新后重试',
   SESSION_EXPIRED: '登录已过期，请重新登录', UNAUTHORIZED: '登录已过期，请重新登录',
   CSRF_INVALID: '登录状态已变化，请重新登录后再操作',
-  DUPLICATE_SLUG: '此 Slug 已被使用，请换一个', DUPLICATE_CATEGORY_NAME: '同级分类名称已存在，请换一个名称',
+  DUPLICATE_SLUG: '系统标识冲突，请重试', DUPLICATE_CATEGORY_NAME: '同级分类名称已存在，请换一个名称',
   DUPLICATE_VARIANT: '此平台的资源组合已存在，请刷新后编辑',
   ASSET_NOT_READY: '资源尚未就绪，请补齐资源并检查校验结果',
   RESOURCE_VERSION_NOT_READY: '尚无可发布的资源版本，请补齐资源并检查校验结果',
@@ -172,7 +172,7 @@ const errorLabels: Record<string, string> = {
   REQUEST_CANCELLED: '请求已取消', NETWORK_ERROR: '无法连接服务，请检查网络后重试；提交过的操作请先刷新确认结果'
 };
 const fieldLabels: Record<string, string> = {
-  name: '名称', title: '壁纸名称', slug: 'Slug', parentId: '所属节点', rootCategoryId: '一级分类', childCategoryId: '二级分类',
+  name: '名称', title: '壁纸名称', slug: '系统标识', parentId: '所属节点', rootCategoryId: '一级分类', childCategoryId: '二级分类',
   sortOrder: '排序值', featuredRank: '精选排序', copyrightNote: '版权说明', videoAssetId: '教程视频', sourcePackageId: '4D 固定资源包', generatedCount: '生成数量', quotaPerCode: '每码设备数',
   suffix: '末位码', wallpaperId: '壁纸 ID', deviceId: '设备 ID', codeSuffix: '兑换码末位', page: '页码', pageSize: '每页数量'
 };

@@ -79,6 +79,10 @@ const automaticSlug = (prefix: 'category' | 'wallpaper') => {
   return `${prefix}-${suffix}`;
 };
 
+const validAutomaticSlug = (value: string) => value.length >= 2
+  && value.length <= 64
+  && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+
 interface ApiCategorySummary {
   id: string;
   name: string;
@@ -477,6 +481,10 @@ export const adminRepository = {
           && variant.resourceVersions.some((version) => ['READY', 'PUBLISHED'].includes(version.status)))) {
       throw new ApiError(422, 'PARALLAX_PACKAGE_REQUIRED', '请上传 4D 固定资源包');
     }
+    const inputSlug = (input.slug || '').trim();
+    const slug = input.id && !validAutomaticSlug(inputSlug)
+      ? (await fetchWallpaper(input.id)).slug
+      : (input.id ? inputSlug : automaticSlug('wallpaper'));
     let coverAssetId: string;
     if (input.resources.cover) {
       coverAssetId = await uploadAsset(input.resources.cover, 'WALLPAPER_COVER');
@@ -488,7 +496,7 @@ export const adminRepository = {
     }
     const payload = jsonBody({
       title: input.title.trim(),
-      slug: input.id ? input.slug.trim() : automaticSlug('wallpaper'),
+      slug,
       accessType: input.accessType,
       rootCategoryId: input.categoryId,
       childCategoryId: input.subcategoryId || null,
@@ -602,6 +610,7 @@ export const adminRepository = {
       throw new WallpaperSaveError(cause, {
         ...input,
         id: persisted.id,
+        slug: persisted.slug,
         version: persisted.version,
         status: persisted.status,
         variants: persisted.variants,
