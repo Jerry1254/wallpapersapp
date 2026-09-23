@@ -6,6 +6,7 @@ import 'app_config.dart';
 // Dart clients need their own public trust anchor; normal TLS checks remain active.
 void configureInternalTls(AppConfig config, {String? publicCertificate}) {
   if (!{'internal', 'lab'}.contains(config.environment)) return;
+  if (!{'127.0.0.1', 'localhost'}.contains(config.apiBase.host)) return;
   const fromBuild = String.fromEnvironment('INTERNAL_TLS_CERTIFICATE');
   final encoded = publicCertificate ?? fromBuild;
   if (encoded.isEmpty || encoded.length > 24000) {
