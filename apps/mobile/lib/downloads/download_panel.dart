@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
 import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
@@ -118,16 +117,12 @@ class DownloadPanel extends StatefulWidget {
     required this.deliveryPlatform,
     required this.resourceType,
     this.playback,
-    this.capabilities = const WallpaperCapabilities(
-      platform: ClientPlatform.android,
-    ),
     this.autoStart = false,
     this.onReady,
   });
   final DownloadManager manager;
   final String wallpaperId, deliveryPlatform, resourceType;
   final AndroidWallpaperPlayback? playback;
-  final WallpaperCapabilities capabilities;
   final bool autoStart;
   final ValueChanged<String>? onReady;
   @override
@@ -290,20 +285,12 @@ class WallpaperTargetSheet extends StatefulWidget {
     required this.installedId,
     required this.effect,
     required this.playback,
-    required this.capabilities,
-    this.initialResult,
-    this.onResult,
+    required this.placements,
   });
   final String installedId;
   final WallpaperEffect effect;
   final AndroidWallpaperPlayback playback;
-  final WallpaperCapabilities capabilities;
-  final PlatformResult<void>? initialResult;
-  final Future<void> Function(
-    WallpaperTarget target,
-    PlatformResult<void> result,
-  )?
-  onResult;
+  final Set<String> placements;
   @override
   State<WallpaperTargetSheet> createState() => _WallpaperTargetSheetState();
 }
@@ -313,32 +300,20 @@ class _WallpaperTargetSheetState extends State<WallpaperTargetSheet> {
   bool busy = false, success = false, accepted = false;
   String? acceptedMessage;
   String? failure;
-  bool get systemChoosesTarget =>
-      widget.capabilities.systemChoosesLiveTarget &&
-      widget.effect != WallpaperEffect.staticImage;
+  bool get systemChoosesTarget => widget.effect != WallpaperEffect.staticImage;
 
   List<(WallpaperTarget, String, String, String)> get options {
     if (systemChoosesTarget) {
-      final supportsLock = widget.capabilities.canApply(
-        widget.effect,
-        WallpaperTarget.lock,
-      );
-      return [
-        (
-          WallpaperTarget.home,
-          supportsLock ? '桌面和锁屏' : '桌面壁纸',
-          '最终设置位置由手机系统确认',
-          'smartphone',
-        ),
-      ];
+      return [(WallpaperTarget.home, '打开系统设置', '最终设置位置由手机系统确认', 'smartphone')];
     }
     return [
-          (WallpaperTarget.home, '桌面壁纸', '显示在手机桌面', 'panels-top-left'),
-          (WallpaperTarget.lock, '锁屏壁纸', '显示在锁屏界面', 'lock-keyhole'),
-          (WallpaperTarget.both, '桌面和锁屏', '两处使用同一张壁纸', 'smartphone'),
-        ]
-        .where((item) => widget.capabilities.canApply(widget.effect, item.$1))
-        .toList();
+      if (widget.placements.contains('HOME'))
+        (WallpaperTarget.home, '桌面壁纸', '显示在手机桌面', 'panels-top-left'),
+      if (widget.placements.contains('LOCK'))
+        (WallpaperTarget.lock, '锁屏壁纸', '显示在锁屏界面', 'lock-keyhole'),
+      if (widget.placements.containsAll({'HOME', 'LOCK'}))
+        (WallpaperTarget.both, '桌面和锁屏', '两处使用同一张壁纸', 'smartphone'),
+    ];
   }
 
   @override
@@ -348,8 +323,6 @@ class _WallpaperTargetSheetState extends State<WallpaperTargetSheet> {
     target = values.any((e) => e.$1 == WallpaperTarget.both)
         ? WallpaperTarget.both
         : values.firstOrNull?.$1;
-    final initialResult = widget.initialResult;
-    if (initialResult != null) _readResult(initialResult);
   }
 
   void _readResult(PlatformResult<void> result) {
@@ -361,7 +334,7 @@ class _WallpaperTargetSheetState extends State<WallpaperTargetSheet> {
         : result.message ??
               switch (result.status) {
                 OperationStatus.cancelled => '已取消',
-                OperationStatus.unsupported => '当前手机不支持此操作',
+                OperationStatus.unsupported => '您的手机不支持此壁纸，请尝试切换其他类型',
                 OperationStatus.unknown => '结果不可确认，请检查系统壁纸',
                 OperationStatus.accepted => '系统已接受设置',
                 OperationStatus.completed => '壁纸设置成功',
@@ -376,13 +349,19 @@ class _WallpaperTargetSheetState extends State<WallpaperTargetSheet> {
       acceptedMessage = null;
       failure = null;
     });
-    final result = await widget.playback.apply(
-      widget.installedId,
-      widget.effect,
-      target!,
-    );
-    final report = widget.onResult?.call(target!, result);
-    if (report != null) unawaited(report);
+    PlatformResult<void> result;
+    try {
+      result = await widget.playback.apply(
+        widget.installedId,
+        widget.effect,
+        target!,
+      );
+    } catch (_) {
+      result = const PlatformResult(
+        OperationStatus.unsupported,
+        message: '您的手机不支持此壁纸，请尝试切换其他类型',
+      );
+    }
     if (!mounted) return;
     setState(() {
       busy = false;
@@ -412,7 +391,9 @@ class _WallpaperTargetSheetState extends State<WallpaperTargetSheet> {
                 ? '请返回桌面观看效果'
                 : accepted
                 ? (acceptedMessage ?? '请到桌面或锁屏查看效果')
-                : '选项由当前手机的系统能力决定',
+                : systemChoosesTarget
+                ? '由手机系统完成最终设置'
+                : '请选择壁纸设置位置',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: T.space4),

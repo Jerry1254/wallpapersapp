@@ -3,7 +3,7 @@ import '../catalog/catalog.dart';
 
 WallpaperEffect? effectForResource(String type) => switch (type) {
   'STATIC_IMAGE' => WallpaperEffect.staticImage,
-  'VIDEO' => WallpaperEffect.video,
+  'VIDEO' || 'LIVE_PHOTO' || 'THEME_PACKAGE' => WallpaperEffect.video,
   'LAYER_PARALLAX' => WallpaperEffect.parallax,
   _ => null,
 };
@@ -27,124 +27,46 @@ class WallpaperDeliveryOption {
   String get deliveryPlatform => capability.deliveryPlatform;
   String get resourceType => capability.resourceType;
   Set<String> get placements => capability.placements;
+  String get key => '$deliveryPlatform/$resourceType';
+  String get label => capability.label;
+
+  bool get canApplyOnAndroid =>
+      (deliveryPlatform == 'ANDROID' &&
+          {'LAYER_PARALLAX', 'VIDEO'}.contains(resourceType)) ||
+      (deliveryPlatform == 'UNIVERSAL' && resourceType == 'STATIC_IMAGE');
 }
 
-/// Rechecks the API-provided device intersection against the latest local probe.
-List<WallpaperDeliveryOption> deliveryOptions(
-  Wallpaper wallpaper,
-  WallpaperCapabilities local,
-) {
-  final platformName = switch (local.platform) {
-    ClientPlatform.android => 'ANDROID',
-    ClientPlatform.ios => 'IOS',
-    ClientPlatform.harmonyos => 'HARMONYOS',
-    _ => '',
-  };
-  if (platformName.isEmpty) return [];
-  final options = <WallpaperDeliveryOption>[];
-  for (final capability in wallpaper.availableCapabilities) {
-    if (capability.deliveryPlatform != platformName &&
-        capability.deliveryPlatform != 'UNIVERSAL') {
-      continue;
-    }
-    final effect = effectForResource(capability.resourceType);
-    if (effect == null || !local.previewEffects.contains(effect)) continue;
-    final placements = capability.placements.where((placement) {
-      final target = switch (placement) {
-        'HOME' => WallpaperTarget.home,
-        'LOCK' => WallpaperTarget.lock,
-        _ => null,
-      };
-      return target != null && _canApply(local, effect, target);
-    }).toSet();
-    if (placements.isEmpty) continue;
-    options.add(
-      WallpaperDeliveryOption(
-        AvailableCapability(
-          deliveryPlatform: capability.deliveryPlatform,
-          resourceType: capability.resourceType,
-          placements: placements,
-        ),
-        effect,
-      ),
-    );
-  }
+/// The detail page reflects resources published by the backend. Device
+/// probing must never remove a resource tab before the user tries it.
+List<WallpaperDeliveryOption> deliveryOptions(Wallpaper wallpaper) {
+  final options = wallpaper.availableCapabilities
+      .map((capability) {
+        final effect = effectForResource(capability.resourceType);
+        return effect == null
+            ? null
+            : WallpaperDeliveryOption(capability, effect);
+      })
+      .whereType<WallpaperDeliveryOption>()
+      .toList(growable: false);
   const priority = {
-    WallpaperEffect.parallax: 0,
-    WallpaperEffect.video: 1,
-    WallpaperEffect.staticImage: 2,
+    'ANDROID/LAYER_PARALLAX': 0,
+    'ANDROID/VIDEO': 1,
+    'IOS/LIVE_PHOTO': 2,
+    'HARMONYOS/THEME_PACKAGE': 3,
+    'UNIVERSAL/STATIC_IMAGE': 4,
   };
   options.sort(
-    (left, right) => priority[left.effect]!.compareTo(priority[right.effect]!),
+    (left, right) =>
+        (priority[left.key] ?? 99).compareTo(priority[right.key] ?? 99),
   );
   return options;
 }
 
 List<WallpaperEffect> deliveryEffects(
   Wallpaper wallpaper,
-  ClientPlatform platform, {
+  ClientPlatform _, {
   String? osVersion,
-}) {
-  final targets = {
-    for (final effect in WallpaperEffect.values)
-      effect: {
-        WallpaperTarget.home,
-        WallpaperTarget.lock,
-        WallpaperTarget.both,
-      },
-  };
-  return deliveryOptions(
-    wallpaper,
-    WallpaperCapabilities(
-      platform: platform,
-      osVersion: osVersion,
-      previewEffects: WallpaperEffect.values.toSet(),
-      targets: targets,
-    ),
-  ).map((item) => item.effect).toList(growable: false);
-}
-
-WallpaperCapabilities capabilitiesForOption(
-  WallpaperCapabilities local,
-  WallpaperDeliveryOption option,
-) {
-  final targets = <WallpaperTarget>{};
-  if (option.placements.contains('HOME') &&
-      _canApply(local, option.effect, WallpaperTarget.home)) {
-    targets.add(WallpaperTarget.home);
-  }
-  if (option.placements.contains('LOCK') &&
-      _canApply(local, option.effect, WallpaperTarget.lock)) {
-    targets.add(WallpaperTarget.lock);
-  }
-  if (targets.contains(WallpaperTarget.home) &&
-      targets.contains(WallpaperTarget.lock) &&
-      local.canApply(option.effect, WallpaperTarget.both)) {
-    targets.add(WallpaperTarget.both);
-  }
-  return WallpaperCapabilities(
-    platform: local.platform,
-    previewEffects: {option.effect},
-    targets: {option.effect: targets},
-    osVersion: local.osVersion,
-    sdkInt: local.sdkInt,
-    manufacturer: local.manufacturer,
-    model: local.model,
-    hostOsFamily: local.hostOsFamily,
-    executionMode: local.executionMode,
-    parallaxSensorAvailable: local.parallaxSensorAvailable,
-    systemChoosesLiveTarget: local.systemChoosesLiveTarget,
-    setupMessage: local.setupMessage,
-  );
-}
-
-bool _canApply(
-  WallpaperCapabilities capabilities,
-  WallpaperEffect effect,
-  WallpaperTarget target,
-) =>
-    capabilities.canApply(effect, target) ||
-    capabilities.canApply(effect, WallpaperTarget.both);
+}) => deliveryOptions(wallpaper).map((item) => item.effect).toSet().toList();
 
 bool supportsMinimumOs(String? current, String? minimum) {
   if (minimum == null || minimum.isEmpty) return true;

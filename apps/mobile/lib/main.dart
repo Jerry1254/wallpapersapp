@@ -8,7 +8,6 @@ import 'catalog/catalog.dart';
 import 'catalog/catalog_screen.dart';
 import 'detail/detail_preview.dart';
 import 'device/device_session.dart';
-import 'device/device_capabilities.dart';
 import 'entitlements/redemption.dart';
 import 'entitlements/entitlements_screen.dart';
 import 'downloads/download_manager.dart';
@@ -37,20 +36,9 @@ class _QingjingAppState extends State<QingjingApp> {
   );
   late final AndroidWallpaperPlayback playback =
       const AndroidWallpaperPlayback();
-  late final DeviceCapabilityManager? deviceCapabilities =
-      widget.repository == null
-      ? DeviceCapabilityManager(
-          sessions,
-          probe: AndroidDeviceCapabilityProbe(playback),
-        )
-      : null;
   late final CatalogRepository repository =
       widget.repository ??
-      HttpCatalogRepository(
-        widget.config.apiBase,
-        sessions: sessions,
-        deviceCapabilities: deviceCapabilities,
-      );
+      HttpCatalogRepository(widget.config.apiBase, sessions: sessions);
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -63,7 +51,6 @@ class _QingjingAppState extends State<QingjingApp> {
       sessions: sessions,
       apiBase: widget.config.apiBase,
       playback: playback,
-      deviceCapabilities: deviceCapabilities,
       labMode: widget.config.environment == 'lab',
     ),
   );
@@ -76,14 +63,12 @@ class HomeShell extends StatefulWidget {
     required this.sessions,
     required this.apiBase,
     required this.playback,
-    this.deviceCapabilities,
     this.labMode = false,
   });
   final Uri apiBase;
   final DeviceSessionManager sessions;
   final CatalogRepository repository;
   final AndroidWallpaperPlayback playback;
-  final DeviceCapabilityManager? deviceCapabilities;
   final bool labMode;
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -96,13 +81,9 @@ class _HomeShellState extends State<HomeShell> {
     AndroidPendingStore(),
   );
   late final downloads = DownloadManager(widget.sessions, widget.apiBase);
-  late Future<DeviceCapabilityProfile?> readiness;
   @override
   void initState() {
     super.initState();
-    readiness =
-        widget.deviceCapabilities?.ensureCurrent() ??
-        Future<DeviceCapabilityProfile?>.value();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         const native = AndroidTrialPreview();
@@ -120,40 +101,7 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<DeviceCapabilityProfile?>(
-    future: readiness,
-    builder: (context, snapshot) {
-      if (snapshot.connectionState != ConnectionState.done) {
-        return const Scaffold(
-          body: SafeArea(child: Center(child: CircularProgressIndicator())),
-        );
-      }
-      if (snapshot.hasError) {
-        return Scaffold(
-          body: SafeArea(
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: T.sizeContentMax),
-                child: Padding(
-                  padding: const EdgeInsets.all(T.space5),
-                  child: QjStatePanel(
-                    kind: QjStateKind.error,
-                    description: '无法确认当前手机的壁纸设置能力，请检查网络后重试',
-                    onPressed: () => setState(() {
-                      readiness = widget.deviceCapabilities!.ensureCurrent(
-                        force: true,
-                      );
-                    }),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      }
-      return _content();
-    },
-  );
+  Widget build(BuildContext context) => _content();
 
   Widget _content() => AnnotatedRegion<SystemUiOverlayStyle>(
     value: qjSystemUiOverlayStyle,
@@ -169,7 +117,6 @@ class _HomeShellState extends State<HomeShell> {
                 redemptions: redemptions,
                 downloads: downloads,
                 playback: widget.playback,
-                deviceCapabilities: widget.deviceCapabilities,
                 labMode: widget.labMode,
                 onTab: (value) => setState(() => index = value),
               ),
@@ -182,7 +129,6 @@ class _HomeShellState extends State<HomeShell> {
                 redemptions: redemptions,
                 downloads: downloads,
                 playback: widget.playback,
-                deviceCapabilities: widget.deviceCapabilities,
                 active: index == 1,
                 onHome: () => setState(() => index = 0),
               ),

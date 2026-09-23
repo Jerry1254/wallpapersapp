@@ -74,7 +74,7 @@ void main() {
       );
     }
   });
-  test('服务端能力交集只转换当前平台支持的资源形式', () {
+  test('详情资源形式不依赖设备能力上报', () {
     expect(supportsMinimumOs('15', '15.0.0'), true);
     expect(supportsMinimumOs('14.9', '15'), false);
     expect(supportsMinimumOs(null, '15'), false);

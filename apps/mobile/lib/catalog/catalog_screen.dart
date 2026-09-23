@@ -4,7 +4,6 @@ import '../design_system/qj_components.dart';
 import '../design_system/qj_theme.dart';
 import '../detail/detail_screen.dart';
 import '../detail/help_screen.dart';
-import '../device/device_capabilities.dart';
 import '../downloads/download_manager.dart';
 import '../entitlements/redemption.dart';
 import '../lab/parallax_lab_screen.dart';
@@ -18,7 +17,6 @@ class CatalogScreen extends StatefulWidget {
     this.redemptions,
     this.downloads,
     this.playback,
-    this.deviceCapabilities,
     this.onTab,
     this.category,
     this.search,
@@ -28,7 +26,6 @@ class CatalogScreen extends StatefulWidget {
   final RedemptionCoordinator? redemptions;
   final DownloadManager? downloads;
   final AndroidWallpaperPlayback? playback;
-  final DeviceCapabilityManager? deviceCapabilities;
   final ValueChanged<int>? onTab;
   final Category? category;
   final String? search;
@@ -109,7 +106,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
           redemptions: widget.redemptions,
           downloads: widget.downloads,
           playback: widget.playback,
-          deviceCapabilities: widget.deviceCapabilities,
           onTab: widget.onTab,
           labMode: widget.labMode,
         ),
@@ -137,7 +133,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 redemptions: widget.redemptions,
                 downloads: widget.downloads,
                 playback: widget.playback,
-                deviceCapabilities: widget.deviceCapabilities,
               ),
       ),
     );
@@ -153,7 +148,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
         redemptions: widget.redemptions,
         downloads: widget.downloads,
         playback: widget.playback,
-        deviceCapabilities: widget.deviceCapabilities,
         onTab: widget.onTab,
         labMode: widget.labMode,
       ),
