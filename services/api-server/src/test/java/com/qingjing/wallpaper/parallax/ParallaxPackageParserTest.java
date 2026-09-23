@@ -41,19 +41,12 @@ class ParallaxPackageParserTest {
         assertThat(parser.parse(zip(legacy)).layers()).hasSize(2);
     }
     @Test void decodesStaticAlphaAndOpaqueWebp() throws Exception {
-        var directory=java.nio.file.Files.createTempDirectory("qj-webp-test-");
-        try {
-            var files=files(2);
-            for(int i=1;i<=2;i++) {
-                var input=directory.resolve("input.png");var output=directory.resolve("output.webp");
-                java.nio.file.Files.write(input,files.remove("layers/0"+i+".png"));
-                var process=new ProcessBuilder(System.getenv().getOrDefault("QJ_FFMPEG","ffmpeg"),"-v","error","-y","-i",input.toString(),"-c:v","libwebp","-lossless","1","-threads","1",output.toString()).redirectError(ProcessBuilder.Redirect.DISCARD).start();
-                try{assertThat(process.waitFor(25,java.util.concurrent.TimeUnit.SECONDS)).isTrue();assertThat(process.exitValue()).isZero();}
-                finally{if(process.isAlive())process.destroyForcibly();}
-                files.put("layers/0"+i+".webp",java.nio.file.Files.readAllBytes(output));
-            }
-            assertThat(parser.parse(zip(files)).layers()).hasSize(2);
-        }finally{try(var paths=java.nio.file.Files.walk(directory)){for(var path:paths.sorted(Comparator.reverseOrder()).toList())java.nio.file.Files.delete(path);}}
+        var files=files(2);
+        files.remove("layers/01.png");
+        files.remove("layers/02.png");
+        files.put("layers/01.webp",resource("/parallax/static-alpha.webp"));
+        files.put("layers/02.webp",resource("/parallax/static-opaque.webp"));
+        assertThat(parser.parse(zip(files)).layers()).hasSize(2);
     }
     @ParameterizedTest @ValueSource(strings={"../evil","/evil","layers\\01.png","wrapper/cover.jpg","layers/01.zip","Cover.jpg","layers//01.png","layers/./01.png"})
     void rejectsUnexpectedOrUnsafePaths(String name) throws Exception {
@@ -109,6 +102,9 @@ class ParallaxPackageParserTest {
         var crc=new java.util.zip.CRC32();crc.update(chunk.array(),4,12);chunk.putInt((int)crc.getValue());
         var out=new java.io.ByteArrayOutputStream();out.write(png,0,33);out.write(chunk.array());out.write(png,33,png.length-33);
         files.put("layers/01.png",out.toByteArray());reject(files);
+    }
+    private byte[] resource(String name) throws Exception {
+        try(var stream=Objects.requireNonNull(getClass().getResourceAsStream(name))) { return stream.readAllBytes(); }
     }
     private void reject(Map<String,byte[]> files) throws Exception {reject(zip(files));}
     private void reject(byte[] bytes) {assertThatThrownBy(()->parser.parse(bytes)).isInstanceOf(ApiException.class);}
