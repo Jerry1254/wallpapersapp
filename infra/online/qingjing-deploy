@@ -123,7 +123,7 @@ write_slot_environment() {
     printf 'SERVER_ADDRESS=127.0.0.1\n'
     printf 'SERVER_PORT=%s\n' "$(slot_port "${slot}")"
     printf 'MANAGEMENT_SERVER_ADDRESS=127.0.0.1\n'
-    printf 'MANAGEMENT_PORT=%s\n' "$(slot_management_port "${slot}")"
+    printf 'MANAGEMENT_SERVER_PORT=%s\n' "$(slot_management_port "${slot}")"
     printf 'SPRING_FLYWAY_ENABLED=%s\n' "${flyway_enabled}"
     printf 'QJ_SCHEDULING_ENABLED=%s\n' "${scheduling}"
     cat "${release}/runtime.env"
