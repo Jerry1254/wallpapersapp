@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import '../device/device_capabilities.dart';
 import '../device/device_session.dart';
 
 class ApiFailure implements Exception {
@@ -58,7 +57,7 @@ class Wallpaper {
   bool get isFree => accessType == 'FREE';
   List<String> get capabilityLabels {
     final labels = availableCapabilities.map((item) => item.label).toSet();
-    const order = ['4D动态', '动态', '静态'];
+    const order = ['4D壁纸', '安卓动态壁纸', '苹果动态壁纸', '华为动态壁纸', '静态壁纸'];
     return order.where(labels.contains).toList(growable: false);
   }
 
@@ -84,9 +83,11 @@ class AvailableCapability {
   final String deliveryPlatform, resourceType;
   final Set<String> placements;
   String get label => switch (resourceType) {
-    'LAYER_PARALLAX' => '4D动态',
-    'VIDEO' || 'LIVE_PHOTO' || 'THEME_PACKAGE' => '动态',
-    'STATIC_IMAGE' => '静态',
+    'LAYER_PARALLAX' => '4D壁纸',
+    'VIDEO' => '安卓动态壁纸',
+    'LIVE_PHOTO' => '苹果动态壁纸',
+    'THEME_PACKAGE' => '华为动态壁纸',
+    'STATIC_IMAGE' => '静态壁纸',
     _ => '未知形式',
   };
 }
@@ -177,10 +178,9 @@ abstract interface class CatalogRepository {
 }
 
 class HttpCatalogRepository implements CatalogRepository {
-  HttpCatalogRepository(this.base, {this.sessions, this.deviceCapabilities});
+  HttpCatalogRepository(this.base, {this.sessions});
   final Uri base;
   final DeviceSessionManager? sessions;
-  final DeviceCapabilityManager? deviceCapabilities;
   Future<Map<String, dynamic>> _get(
     String path, [
     Map<String, String>? query,
@@ -191,9 +191,7 @@ class HttpCatalogRepository implements CatalogRepository {
       Future<Map<String, dynamic>> request() =>
           sessions!.authenticated(uri.toString());
       try {
-        return deviceCapabilities == null
-            ? await request()
-            : await deviceCapabilities!.withProfile(request);
+        return await request();
       } on DeviceApiError catch (error) {
         throw ApiFailure(error.status, error.code);
       } catch (_) {

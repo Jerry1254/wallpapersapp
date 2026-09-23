@@ -70,7 +70,6 @@ const migratedFolder = await archive.readFolder([
     { index: 1, depth: 1, scale: 1.18, opacity: 1, blendMode: 'normal' },
     { index: 2, depth: 0, scale: 1.18, opacity: 1, blendMode: 'normal' },
   ] }))),
-  folderFile('old/cover.jpg', new Uint8Array([255, 216, 255, 217])),
   folderFile('old/layers/01.png', new Uint8Array([1])),
   folderFile('old/layers/02.png', new Uint8Array([2])),
 ]);
@@ -84,10 +83,11 @@ assert.equal(JSON.stringify(exported), JSON.stringify(validConfig));
 class FakeZip { constructor() { this.files = new Map(); } file(name, value) { this.files.set(name, value); return this; } async generateAsync() { return this.files; } }
 const firstBytes = new Uint8Array([11, 22, 33, 44]);
 const secondBytes = new Uint8Array([55, 66, 77]);
-const archiveFiles = await archive.wallpaper(validConfig, [{ bytes: firstBytes, ext: 'png' }, { bytes: secondBytes, ext: 'webp' }], new Uint8Array([1, 2]), FakeZip);
+const archiveFiles = await archive.wallpaper(validConfig, [{ bytes: firstBytes, ext: 'png' }, { bytes: secondBytes, ext: 'webp' }], FakeZip);
 assert.strictEqual(archiveFiles.get('layers/01.png'), firstBytes);
 assert.strictEqual(archiveFiles.get('layers/02.webp'), secondBytes);
 assert.equal(JSON.parse(archiveFiles.get('config.json')).formatVersion, 2);
+assert.equal(archiveFiles.has('cover.jpg'), false);
 
 const appStart = html.indexOf("(function(){\n  'use strict';", coreEnd);
 const appEnd = html.indexOf('</script>', appStart);

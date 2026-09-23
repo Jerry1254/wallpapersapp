@@ -18,10 +18,6 @@ class AppConfig {
         !(environment == 'local' && debug && apiBase.scheme == 'http')) {
       throw ArgumentError('此构建只允许 HTTPS API');
     }
-    if ({'internal', 'lab'}.contains(environment) &&
-        !{'127.0.0.1', 'localhost'}.contains(apiBase.host)) {
-      throw ArgumentError('本地候选内测只允许 loopback API');
-    }
   }
   final String environment;
   final Uri apiBase;

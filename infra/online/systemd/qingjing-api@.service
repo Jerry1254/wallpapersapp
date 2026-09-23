@@ -1,0 +1,39 @@
+[Unit]
+Description=Qingjing API blue-green slot %i
+After=network-online.target mysql.service redis-server.service
+Wants=network-online.target
+Requires=mysql.service redis-server.service
+
+[Service]
+Type=simple
+User=qingjing
+Group=qingjing
+WorkingDirectory=/opt/qingjing/slots/%i
+EnvironmentFile=/opt/qingjing/shared/env/api.env
+EnvironmentFile=-/opt/qingjing/shared/env/bootstrap.env
+EnvironmentFile=/opt/qingjing/runtime/%i.env
+ExecStartPre=/usr/bin/test -s /opt/qingjing/slots/%i/wallpaper-api.jar
+ExecStart=/usr/bin/java -Xms128m -Xmx640m -XX:+ExitOnOutOfMemoryError -jar /opt/qingjing/slots/%i/wallpaper-api.jar
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=90s
+TimeoutStopSec=45s
+SuccessExitStatus=143
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/opt/qingjing/shared/storage
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+LimitNOFILE=65535
+MemoryMax=800M
+
+[Install]
+WantedBy=multi-user.target

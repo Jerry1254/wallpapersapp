@@ -1,0 +1,217 @@
+labels:
+  platform: linux/amd64
+when:
+  - event: [manual, deployment]
+    branch: main
+
+skip_clone: true
+
+steps:
+  - name: checkout source
+    image: shuquantong-ci-builder:node24-java21
+    pull: false
+    environment:
+      GITHUB_CLONE_SSH_PRIVATE_KEY:
+        from_secret: github_clone_ssh_private_key
+    commands:
+      - |
+        set -eu
+        test "$${CI_COMMIT_BRANCH}" = "main"
+        commit="$${CI_COMMIT_SHA}"
+        printf '%s' "$commit" | grep -Eq '^[a-f0-9]{40}$'
+
+        cache_root=/cache/git
+        cache_repo="$cache_root/wallpapersapp.git"
+        remote_url=ssh://git@ssh.github.com:443/Jerry1254/wallpapersapp.git
+        key_path="$${HOME}/.ssh/github_clone_key"
+        known_hosts_path="$${HOME}/.ssh/known_hosts"
+        cleanup() {
+          rm -f "$key_path" "$known_hosts_path"
+        }
+        trap cleanup EXIT HUP INT TERM
+
+        umask 077
+        install -d -m 0700 "$${HOME}/.ssh"
+        printf '%s\n' "$${GITHUB_CLONE_SSH_PRIVATE_KEY}" > "$key_path"
+        printf '%s\n' '[ssh.github.com]:443 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+          > "$known_hosts_path"
+        export GIT_TERMINAL_PROMPT=0
+        export GIT_SSH_COMMAND="ssh -i $key_path -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known_hosts_path"
+
+        install -d -m 0750 "$cache_root"
+        if [ ! -d "$cache_repo/objects" ]; then
+          git init --bare --quiet "$cache_repo"
+        fi
+        test "$(git --git-dir="$cache_repo" rev-parse --is-bare-repository)" = "true"
+        git --git-dir="$cache_repo" config remote.origin.url "$remote_url"
+
+        if ! git --git-dir="$cache_repo" cat-file -e "$${commit}^{commit}" 2>/dev/null; then
+          fetched=false
+          for attempt in 1 2 3; do
+            if timeout 120 git --git-dir="$cache_repo" fetch \
+              --no-tags --depth=1 --force origin \
+              "+$${commit}:refs/cache/current"; then
+              fetched=true
+              break
+            fi
+            [ "$attempt" -eq 3 ] || sleep "$((attempt * 5))"
+          done
+          test "$fetched" = "true"
+        fi
+        git --git-dir="$cache_repo" cat-file -e "$${commit}^{commit}"
+        git --git-dir="$cache_repo" update-ref refs/cache/current "$commit"
+
+        git init --quiet .
+        install -d .git/objects/info
+        printf '%s\n' "$cache_repo/objects" > .git/objects/info/alternates
+        git remote add origin "$remote_url"
+        git checkout --detach --force "$commit"
+        test "$(git rev-parse HEAD)" = "$commit"
+        test -z "$(git status --porcelain --untracked-files=no)"
+    when:
+      - event: [manual, deployment]
+
+  - name: release preflight
+    image: shuquantong-ci-builder:node24-java21
+    pull: false
+    commands:
+      - |
+        set -eu
+        operation="$${DEPLOY_OPERATION:-deploy}"
+        component="$${DEPLOY_COMPONENT:-all}"
+        if [ "$${CI_PIPELINE_EVENT}" = "deployment" ]; then
+          operation="deploy"
+          component="$${CI_PIPELINE_DEPLOY_TARGET:-}"
+        fi
+        case "$${operation}" in deploy|check|rollback|sync) ;; *) exit 64 ;; esac
+        case "$${component}" in all|api|admin) ;; *) exit 64 ;; esac
+        test "$${CI_COMMIT_BRANCH}" = "main"
+        if [ "$${operation}" = "rollback" ]; then
+          printf '%s' "$${ROLLBACK_RELEASE:-}" | grep -Eq '^[0-9]{8}-[0-9]{6}-[a-f0-9]{7,40}$'
+        fi
+        mkdir -p .runtime/woodpecker
+        printf 'DEPLOY_OPERATION=%s\nDEPLOY_COMPONENT=%s\n' "$${operation}" "$${component}" \
+          > .runtime/woodpecker/release.env
+        printf 'ROLLBACK_RELEASE=%s\n' "$${ROLLBACK_RELEASE:-}" \
+          >> .runtime/woodpecker/release.env
+    when:
+      - event: [manual, deployment]
+
+  - name: install dependencies
+    image: shuquantong-ci-builder:node24-java21
+    pull: false
+    commands:
+      - |
+        set -eu
+        . .runtime/woodpecker/release.env
+        [ "$${DEPLOY_OPERATION}" = deploy ] || exit 0
+        cd apps/admin-web
+        npm ci --cache /cache/npm --prefer-offline
+    when:
+      - event: [manual, deployment]
+
+  - name: build management frontend
+    image: shuquantong-ci-builder:node24-java21
+    pull: false
+    commands:
+      - |
+        set -eu
+        . .runtime/woodpecker/release.env
+        [ "$${DEPLOY_OPERATION}" = deploy ] || exit 0
+        cd apps/admin-web
+        npm run build
+    when:
+      - event: [manual, deployment]
+
+  - name: package Java API
+    image: shuquantong-ci-builder:node24-java21
+    pull: false
+    environment:
+      MAVEN_USER_HOME: /cache/maven-home
+      MAVEN_OPTS: -Dmaven.repo.local=/cache/maven-repository -Xmx1536m
+    commands:
+      - |
+        set -eu
+        . .runtime/woodpecker/release.env
+        [ "$${DEPLOY_OPERATION}" = deploy ] || exit 0
+        cd services/api-server
+        ./mvnw --batch-mode --no-transfer-progress verify
+    when:
+      - event: [manual, deployment]
+
+  - name: create complete release
+    image: shuquantong-ci-builder:node24-java21
+    pull: false
+    commands:
+      - |
+        set -eu
+        . .runtime/woodpecker/release.env
+        [ "$${DEPLOY_OPERATION}" = deploy ] || exit 0
+        release_id="$(date -u +%Y%m%d-%H%M%S)-$(printf '%s' "$${CI_COMMIT_SHA}" | cut -c1-12)"
+        export GIT_COMMIT="$${CI_COMMIT_SHA}"
+        archive_path="$(node tools/package-online-release.mjs "$${release_id}")"
+        printf 'RELEASE_ID=%s\nARCHIVE_PATH=%s\n' "$${release_id}" "$${archive_path}" \
+          >> .runtime/woodpecker/release.env
+    when:
+      - event: [manual, deployment]
+
+  - name: deploy with blue-green switch
+    image: shuquantong-ci-builder:node24-java21
+    pull: false
+    environment:
+      ONLINE_DEPLOYMENT_HOST:
+        from_secret: online_deployment_host
+      ONLINE_DEPLOYMENT_USER:
+        from_secret: online_deployment_user
+      ONLINE_DEPLOYMENT_SSH_PRIVATE_KEY:
+        from_secret: online_deployment_ssh_private_key
+      ONLINE_DEPLOYMENT_SSH_KNOWN_HOSTS:
+        from_secret: online_deployment_ssh_known_hosts
+      ONLINE_DEPLOYMENT_ROOT:
+        from_secret: online_deployment_root
+      ONLINE_SERVICE_ENVIRONMENT_FILE:
+        from_secret: online_service_environment_file
+      ONLINE_PUBLIC_HOST:
+        from_secret: online_public_host
+    commands:
+      - |
+        set -eu
+        . .runtime/woodpecker/release.env
+        if [ "$${DEPLOY_OPERATION}" = sync ]; then
+          printf 'GitHub main latest commit synchronized: %.12s\n' "$${CI_COMMIT_SHA}"
+          exit 0
+        fi
+        test "$${ONLINE_DEPLOYMENT_ROOT}" = "/opt/qingjing"
+        test "$${ONLINE_SERVICE_ENVIRONMENT_FILE}" = "/opt/qingjing/shared/env/api.env"
+        printf '%s' "$${ONLINE_PUBLIC_HOST}" | grep -Eq '^[A-Za-z0-9.-]+$'
+        umask 077
+        install -d "$${HOME}/.ssh"
+        printf '%s\n' "$${ONLINE_DEPLOYMENT_SSH_PRIVATE_KEY}" > "$${HOME}/.ssh/deploy_key"
+        printf '%s\n' "$${ONLINE_DEPLOYMENT_SSH_KNOWN_HOSTS}" > "$${HOME}/.ssh/known_hosts"
+        cleanup() {
+          rm -f "$${HOME}/.ssh/deploy_key" "$${HOME}/.ssh/known_hosts"
+        }
+        trap cleanup EXIT HUP INT TERM
+        ssh_args="-o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$${HOME}/.ssh/known_hosts -i $${HOME}/.ssh/deploy_key"
+        admin_host="$${ONLINE_PUBLIC_HOST}"
+        api_host="$${ONLINE_PUBLIC_HOST}"
+        case "$${DEPLOY_OPERATION}" in
+          deploy)
+            archive_sha="$(sha256sum "$${ARCHIVE_PATH}" | awk '{print $1}')"
+            remote_archive="/var/lib/qingjing-deploy/uploads/$${RELEASE_ID}.tar.gz"
+            scp -O $${ssh_args} "$${ARCHIVE_PATH}" \
+              "$${ONLINE_DEPLOYMENT_USER}@$${ONLINE_DEPLOYMENT_HOST}:$${remote_archive}"
+            ssh $${ssh_args} "$${ONLINE_DEPLOYMENT_USER}@$${ONLINE_DEPLOYMENT_HOST}" \
+              "sudo -n /usr/local/libexec/qingjing-deploy deploy $${ONLINE_DEPLOYMENT_ROOT} $${RELEASE_ID} $${remote_archive} $${ONLINE_SERVICE_ENVIRONMENT_FILE} $${admin_host} $${api_host} $${archive_sha} $${DEPLOY_COMPONENT}"
+            ;;
+          check)
+            ssh $${ssh_args} "$${ONLINE_DEPLOYMENT_USER}@$${ONLINE_DEPLOYMENT_HOST}" \
+              "sudo -n /usr/local/libexec/qingjing-deploy check $${ONLINE_DEPLOYMENT_ROOT} $${admin_host} $${api_host}"
+            ;;
+          rollback)
+            ssh $${ssh_args} "$${ONLINE_DEPLOYMENT_USER}@$${ONLINE_DEPLOYMENT_HOST}" \
+              "sudo -n /usr/local/libexec/qingjing-deploy rollback $${ONLINE_DEPLOYMENT_ROOT} $${ROLLBACK_RELEASE} $${ONLINE_SERVICE_ENVIRONMENT_FILE} $${admin_host} $${api_host}"
+            ;;
+        esac
+    when:
+      - event: [manual, deployment]

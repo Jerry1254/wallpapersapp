@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 
 /** Retries failed rollback cleanup and removal of replaced derived packages. */
 @Component
-@org.springframework.scheduling.annotation.EnableScheduling
 public class ParallaxStorageCleanup {
     private static final Logger LOG=LoggerFactory.getLogger(ParallaxStorageCleanup.class);
     private final FileStorage storage;

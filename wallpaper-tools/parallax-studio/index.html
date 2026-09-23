@@ -156,7 +156,7 @@
   <div class="dialog-heading"><div><h2 id="import-title">导入工程</h2><p>打开壁纸上传包，或继续编辑已保存的工程</p></div><button data-close-dialog class="icon-button" aria-label="关闭"><svg><use href="#i-close"/></svg></button></div>
   <div class="dialog-body import-choices">
     <button id="import-zip-btn" class="import-choice"><svg><use href="#i-open"/></svg><span><strong>导入 ZIP 压缩包</strong><span>选择壁纸 .zip 或已保存的 .parallax.zip，无需解压</span></span><span aria-hidden="true">›</span></button>
-    <button id="import-folder-btn" class="import-choice"><svg><use href="#i-folder"/></svg><span><strong>导入文件夹</strong><span>选择包含 config.json、cover.jpg 和 layers 的整个文件夹</span></span><span aria-hidden="true">›</span></button>
+    <button id="import-folder-btn" class="import-choice"><svg><use href="#i-folder"/></svg><span><strong>导入文件夹</strong><span>选择包含 config.json 和 layers 的整个文件夹</span></span><span aria-hidden="true">›</span></button>
     <p class="hint">也支持含 project.json 和 assets 的工程文件夹。可以直接把 ZIP 或整个文件夹拖进工作区。</p>
   </div>
   <div class="dialog-footer"><button data-close-dialog>取消</button></div>
@@ -164,7 +164,7 @@
 
 <dialog id="export-dialog" class="dialog export-dialog">
   <div class="dialog-heading"><div><h2>导出壁纸</h2><p>生成可上传到 App 后台的源素材 ZIP</p></div><button data-close-dialog class="icon-button" aria-label="关闭"><svg><use href="#i-close"/></svg></button></div>
-  <div class="dialog-body"><div id="validation-report"></div><div class="field"><label for="export-name">文件名称</label><div class="input-suffix"><input id="export-name" maxlength="80"><span>.zip</span></div></div><div class="field"><label for="cover-mode">封面构图</label><select id="cover-mode"><option value="device">当前手机比例 · 中立姿态</option><option value="canvas">完整工程画布 · 中立姿态</option></select></div><div class="export-contents"><span>包内文件</span><code>cover.jpg</code><code>config.json</code><code id="export-layer-label">layers/01.png … 05.png</code></div><p class="hint">包含全部图层。手机边框、锁屏参考和安全线不会写入素材。</p><details class="config-preview"><summary>查看将导出的配置</summary><pre id="config-preview"></pre></details></div>
+  <div class="dialog-body"><div id="validation-report"></div><div class="field"><label for="export-name">文件名称</label><div class="input-suffix"><input id="export-name" maxlength="80"><span>.zip</span></div></div><div class="export-contents"><span>包内文件</span><code>config.json</code><code id="export-layer-label">layers/01.png … 05.png</code></div><p class="hint">包含全部图层，不生成封面；列表缩略图请在管理后台单独上传。手机边框、锁屏参考和安全线不会写入素材。</p><details class="config-preview"><summary>查看将导出的配置</summary><pre id="config-preview"></pre></details></div>
   <div class="dialog-footer"><button data-close-dialog>取消</button><button id="confirm-export-btn" class="primary"><svg><use href="#i-export"/></svg>导出 ZIP</button></div>
 </dialog>
 
@@ -178,7 +178,7 @@
   <div class="dialog-body help-copy">
     <h3>从素材到壁纸</h3><ol><li>新建工程，或直接打开内置示例。</li><li>导入同尺寸的分层图。前景需要透明通道，最后一层背景必须完全不透明。</li><li>调整左侧图层顺序，再为每层设置位移百分比、缩放、不透明度和混合模式。</li><li>拖动样机、调整角度或开启自动演示，检查四个方向的位移、裁切和遮挡。</li><li>保存工程用于继续编辑；导出壁纸 ZIP 后上传到 App 管理后台。</li></ol>
     <h3>v2 位移规则</h3><p>每层分别设置位移比例和“跟随 / 反向 / 固定”方向。屏幕对应轴长记为 100%：10% 移动 0.1 屏，100% 移动 1 屏，200% 移动 2 屏。位移比例只要求是非负有限数值，不设置产品上限，图层可以移出屏幕；0% 或“固定”都不会移动。</p><p>满幅角度支持 1°～75°。从中立位置的 0° 变化开始线性响应：满幅设为 75° 时，37.5° 产生配置位移的一半，75° 产生全部配置位移。没有启动死区、增强曲线或全局运动强度。浏览器预览使用与 Android 相同的固定平滑时间基准。</p><p>最后背景会按实际位移自动增加显示范围并裁切，避免露边。这个保护只发生在绘制阶段，不修改图片文件，不压缩或降低源分辨率。</p>
-    <h3>导入、保存与导出</h3><p>标准 ZIP 包含 cover.jpg、config.json 和连续编号的 layers 图片；01 是最前景，最后一层是背景。正式保存和导出统一使用 formatVersion=2；导入旧 formatVersion=1 文件夹时会一次性换算为当前参数，并提示检查效果后重新保存。</p><p>导出保留每张源图片的像素尺寸和原始图片字节，不做静默降采样。cover.jpg 是中立姿态合成封面，不参与 4D 播放。已隐藏图层会阻止导出。</p><p>保存工程会生成可继续编辑的 .parallax.zip。机型切换、样机边框、锁屏参考和安全线只影响工作区显示。</p>
+    <h3>导入、保存与导出</h3><p>标准 ZIP 只包含 config.json 和连续编号的 layers 图片；01 是最前景，最后一层是背景。列表缩略图在管理后台单独上传，不由本工具生成。正式保存和导出统一使用 formatVersion=2；导入旧 formatVersion=1 文件夹时会一次性换算为当前参数，并提示检查效果后重新保存。</p><p>导出保留每张源图片的像素尺寸和原始图片字节，不做静默降采样。已隐藏图层会阻止导出。</p><p>保存工程会生成可继续编辑的 .parallax.zip。机型切换、样机边框、锁屏参考和安全线只影响工作区显示。</p>
     <h3>快捷键</h3><p>Ctrl / ⌘ S 保存工程；Ctrl / ⌘ O 导入工程；Ctrl / ⌘ E 导出；Ctrl / ⌘ Z 撤销；空格自动演示；R 回正；方向键微调倾斜角度。</p><p class="hint">全部功能离线运行，无远程字体、无 CDN、无需账号。使用桌面 Chrome 或 Edge 打开 index.html。</p>
   </div><div class="dialog-footer"><button data-close-dialog class="primary">知道了</button></div>
 </dialog>
@@ -390,7 +390,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     if(projectNames.length+configNames.length>1)fail('包含多个工程配置，请只选择一个壁纸的 ZIP 或文件夹');
     const isProject=projectNames.length===1;
     const roots=isProject?projectNames:configNames;
-    if(roots.length!==1) fail('未找到工程配置。请选择含 config.json、cover.jpg、layers 的壁纸 ZIP / 文件夹，或含 project.json 的已保存工程。只有分层图片时，请用左侧“导入分层素材”。');
+    if(roots.length!==1) fail('未找到工程配置。请选择含 config.json、layers 的壁纸 ZIP / 文件夹，或含 project.json 的已保存工程。只有分层图片时，请用左侧“导入分层素材”。');
     const configPath=roots[0],prefix=configPath.slice(0,configPath.lastIndexOf('/')+1);
     let meta;try{meta=JSON.parse(await zip.file(configPath).async('string'));}catch(_){fail('配置 JSON 无法解析');}
     if(isProject){
@@ -413,9 +413,6 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     let migrated=false;
     if(meta?.formatVersion===1){meta=C.migrateV1(meta);migrated=true;}
     const errors=C.validateConfig(meta);if(errors.length) fail(errors.join('；'));
-    const cover=zip.file(prefix+'cover.jpg');if(!cover) fail('源包缺少 cover.jpg');
-    const coverBytes=await cover.async('uint8array');
-    if(coverBytes[0]!==255||coverBytes[1]!==216||coverBytes[2]!==255) fail('cover.jpg 必须是真实 JPEG');
     const layerPaths=names.filter(n=>n.startsWith(prefix+'layers/'));
     const entries=[];
     for(let i=0;i<meta.layers.length;i++){
@@ -426,12 +423,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const path=candidates[0];entries.push({name:path.split('/').pop(),bytes:await zip.file(path).async('uint8array'),params:meta.layers[i],visible:true});
     }
     if(layerPaths.length!==meta.layers.length) fail('layers 目录图片数量与配置不一致');
-    return {type:'wallpaper',config:meta,entries,coverBytes,migrated};
+    return {type:'wallpaper',config:meta,entries,migrated};
   }
-  async function wallpaper(config,images,cover,JSZip,type='blob'){
+  async function wallpaper(config,images,JSZip,type='blob'){
     const errors=C.validateConfig(config);if(errors.length) fail(errors.join('；'));
     if(images.length!==config.layers.length) fail('导出图层数量不匹配');
-    const zip=new JSZip();zip.file('cover.jpg',cover);zip.file('config.json',JSON.stringify(config,null,2)+'\n');
+    const zip=new JSZip();zip.file('config.json',JSON.stringify(config,null,2)+'\n');
     images.forEach((image,i)=>{if(!image||!['png','jpg','jpeg','webp'].includes(image.ext)||!(image.bytes instanceof Uint8Array))fail('导出图层格式无效');zip.file('layers/'+String(i+1).padStart(2,'0')+'.'+image.ext,image.bytes);});
     return zip.generateAsync({type,compression:'DEFLATE',compressionOptions:{level:3}});
   }
@@ -677,10 +674,9 @@ window.PARALLAX_SAMPLE = [{"name":"debris.png","label":"碎片","opacity":1,"sca
   function openExport(){finishEdit();setAuto(false);$('export-name').value=safeName(scene.name);populateExport();$('export-dialog').showModal();}
   async function exportWallpaper(){
     if(C.validateScene(scene).errors.length){populateExport();return;}
-    const name=safeName($('export-name').value),mode=$('cover-mode').value;$('export-dialog').close();
+    const name=safeName($('export-name').value);$('export-dialog').close();
     await work('生成壁纸源素材包',async()=>{const images=scene.layers.map(l=>({bytes:l.bytes,ext:l.ext}));
-      const target=mode==='canvas'?scene.canvas:currentScreens()[0],can=makeCanvas(target.width,target.height,true);$('busy-detail').textContent='合成封面并打包';const cover=new Uint8Array(await (await canvasBlob(can,'image/jpeg',.94)).arrayBuffer());can.width=can.height=1;
-      const zip=await A.wallpaper(C.sourceConfig(scene),images,cover,window.JSZip);download(zip,name+'.zip');toast('壁纸 ZIP 已下载，包含封面、配置和 '+images.length+' 个图层');
+      $('busy-detail').textContent='打包配置与图层';const zip=await A.wallpaper(C.sourceConfig(scene),images,window.JSZip);download(zip,name+'.zip');toast('壁纸 ZIP 已下载，包含配置和 '+images.length+' 个图层');
     });
   }
   function openImport(){if(!busy)$('import-dialog').showModal();}
@@ -699,7 +695,6 @@ window.PARALLAX_SAMPLE = [{"name":"debris.png","label":"碎片","opacity":1,"sca
   }
   async function applyImported(parsed,name){
     const layers=[];
-    if(parsed.coverBytes)await decodeImage(await dataURL(parsed.coverBytes,'image/jpeg'));
     for(const e of parsed.entries){$('busy-detail').textContent=e.name;const l=await loadImage(e.bytes,e.name);if(l.width!==parsed.config.canvas.width||l.height!==parsed.config.canvas.height)throw new Error('图层尺寸与 config.json 不一致：'+e.name);Object.assign(l,{offsetXPercent:e.params.offsetXPercent,offsetYPercent:e.params.offsetYPercent,initialOffsetXPercent:e.params.initialOffsetXPercent,initialOffsetYPercent:e.params.initialOffsetYPercent,direction:e.params.direction,scale:e.params.scale,opacity:e.params.opacity,blendMode:e.params.blendMode,visible:e.visible!==false,label:typeof e.label==='string'?e.label.slice(0,80):null});layers.push(l);await tick();}
     const next={name:String(parsed.type==='project'?parsed.meta.name||'未命名壁纸':name).slice(0,80),canvas:{...parsed.config.canvas},motion:{...parsed.config.motion},layers};
     if(parsed.type==='wallpaper'){const errors=C.validateScene(next).errors;if(errors.length)throw new Error(errors.join('；'));}

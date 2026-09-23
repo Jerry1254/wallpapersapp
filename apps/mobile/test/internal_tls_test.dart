@@ -87,14 +87,12 @@ subjectAltName=DNS:localhost
       } finally {
         trusted.close(force: true);
       }
-      expect(
-        () => AppConfig(
-          environment: 'internal',
-          apiBase: Uri.parse('https://example.com'),
-          debug: false,
-        ),
-        throwsArgumentError,
+      final online = AppConfig(
+        environment: 'internal',
+        apiBase: Uri.parse('https://example.com/api/v1'),
+        debug: false,
       );
+      configureInternalTls(online, publicCertificate: 'not-used-online');
       expect(
         () => AppConfig(
           environment: 'internal',

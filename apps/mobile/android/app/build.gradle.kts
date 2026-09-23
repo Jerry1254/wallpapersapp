@@ -64,14 +64,14 @@ android {
         create("internal") {
             dimension = "environment"
             applicationIdSuffix = ".internal"
-            resValue("string", "app_name", "倾境动态壁纸·本地测试")
+            resValue("string", "app_name", "倾境动态壁纸")
             resValue("string", "qj_package_signing_key_id", System.getenv("QJ_INTERNAL_PACKAGE_SIGNING_KEY_ID") ?: "")
             resValue("string", "qj_package_signing_public_key", System.getenv("QJ_INTERNAL_PACKAGE_PUBLIC_KEY_DER") ?: "")
         }
         create("lab") {
             dimension = "environment"
             applicationIdSuffix = ".lab"
-            resValue("string", "app_name", "4D壁纸·本地测试")
+            resValue("string", "app_name", "4D壁纸测试")
             resValue("string", "qj_package_signing_key_id", System.getenv("QJ_INTERNAL_PACKAGE_SIGNING_KEY_ID") ?: "")
             resValue("string", "qj_package_signing_public_key", System.getenv("QJ_INTERNAL_PACKAGE_PUBLIC_KEY_DER") ?: "")
         }

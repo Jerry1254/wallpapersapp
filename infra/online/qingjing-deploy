@@ -1,0 +1,791 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+BLUE_PORT=8080
+BLUE_MANAGEMENT_PORT=8081
+GREEN_PORT=8082
+GREEN_MANAGEMENT_PORT=8083
+UPLOAD_ROOT="/var/lib/qingjing-deploy/uploads"
+
+fail() {
+  printf '%s\n' "$1" >&2
+  exit 1
+}
+
+assert_root() {
+  [[ "$1" == "/opt/qingjing" ]] || fail "部署根目录与蓝绿运行基线不一致"
+}
+
+assert_release_id() {
+  [[ "$1" =~ ^[0-9]{8}-[0-9]{6}-[a-f0-9]{7,40}$ ]] || fail "发布版本号不合法"
+}
+
+assert_service_environment_file() {
+  [[ "$1" == "/opt/qingjing/shared/env/api.env" ]] || fail "API 环境文件路径不符合受控基线"
+}
+
+assert_host() {
+  [[ "$1" =~ ^[A-Za-z0-9.-]+$ ]] || fail "公开域名不合法"
+}
+
+assert_slot() {
+  [[ "$1" == "blue" || "$1" == "green" ]] || fail "蓝绿槽位状态不合法"
+}
+
+other_slot() {
+  if [[ "$1" == "blue" ]]; then
+    printf 'green\n'
+  else
+    printf 'blue\n'
+  fi
+}
+
+slot_port() {
+  if [[ "$1" == "blue" ]]; then
+    printf '%s\n' "${BLUE_PORT}"
+  else
+    printf '%s\n' "${GREEN_PORT}"
+  fi
+}
+
+slot_management_port() {
+  if [[ "$1" == "blue" ]]; then
+    printf '%s\n' "${BLUE_MANAGEMENT_PORT}"
+  else
+    printf '%s\n' "${GREEN_MANAGEMENT_PORT}"
+  fi
+}
+
+service_name() {
+  printf 'qingjing-api@%s.service\n' "$1"
+}
+
+assert_complete_bundle() {
+  local release="$1"
+  local asset=""
+  local migration=""
+
+  [[ -s "${release}/wallpaper-api.jar" ]] || fail "发布包缺少 API JAR"
+  [[ -s "${release}/admin/index.html" ]] || fail "发布包缺少管理后台入口"
+  [[ -s "${release}/manifest.json" ]] || fail "发布包缺少版本清单"
+  [[ -s "${release}/runtime.env" ]] || fail "发布包缺少运行身份配置"
+  grep -Eq '^QJ_DEPLOYMENT_GIT_COMMIT=[a-f0-9]{40}$' "${release}/runtime.env" \
+    || fail "发布包 Git 身份不合法"
+  grep -Eq '^QJ_DEPLOYMENT_SOURCE_SHA256=[a-f0-9]{64}$' "${release}/runtime.env" \
+    || fail "发布包源码身份不合法"
+  grep -Eq '^QJ_DEPLOYMENT_ARTIFACT_SHA256=[a-f0-9]{64}$' "${release}/runtime.env" \
+    || fail "发布包制品身份不合法"
+  grep -Eq '^QJ_API_CONTRACT_VERSION=[A-Za-z0-9._-]+$' "${release}/runtime.env" \
+    || fail "发布包接口契约版本不合法"
+  grep -Eq '^QJ_FLYWAY_VERSION=[0-9]+$' "${release}/runtime.env" \
+    || fail "发布包 Flyway 版本不合法"
+  asset="$(find "${release}/admin" -type f \( -name '*.js' -o -name '*.css' \) -print -quit)"
+  [[ -n "${asset}" ]] || fail "发布包缺少管理后台静态资源"
+  find "${release}/db/migration" -type f -name 'V*__*.sql' -print -quit | grep -q . \
+    || fail "发布包缺少 Flyway 迁移"
+  while IFS= read -r migration; do
+    runuser -u qingjing -- test -r "${migration}" \
+      || fail "Flyway 迁移文件对 API 运行账号不可读"
+  done < <(find "${release}/db/migration" -maxdepth 1 -type f -name 'V*__*.sql' | sort)
+}
+
+switch_symlink() {
+  local link="$1"
+  local target="$2"
+  local candidate="${link}.candidate-$$"
+
+  ln -s "${target}" "${candidate}"
+  mv -Tf "${candidate}" "${link}"
+}
+
+write_slot_environment() {
+  local root="$1"
+  local slot="$2"
+  local role="$3"
+  local flyway_enabled="${4:-false}"
+  local release=""
+  local scheduling="false"
+  local temporary="${root}/runtime/.${slot}.env-$$"
+
+  [[ "${role}" == "web" || "${role}" == "worker" ]] || fail "槽位角色不合法"
+  [[ "${flyway_enabled}" == "true" || "${flyway_enabled}" == "false" ]] \
+    || fail "Flyway 槽位配置不合法"
+  if [[ "${role}" == "worker" ]]; then
+    scheduling="true"
+  fi
+  release="$(readlink -f "${root}/slots/${slot}")"
+  [[ "${release}" == "${root}/releases/"* ]] || fail "${slot} 槽位版本指针越界"
+  assert_complete_bundle "${release}"
+
+  umask 027
+  {
+    printf 'SERVER_ADDRESS=127.0.0.1\n'
+    printf 'SERVER_PORT=%s\n' "$(slot_port "${slot}")"
+    printf 'MANAGEMENT_SERVER_ADDRESS=127.0.0.1\n'
+    printf 'MANAGEMENT_PORT=%s\n' "$(slot_management_port "${slot}")"
+    printf 'SPRING_FLYWAY_ENABLED=%s\n' "${flyway_enabled}"
+    printf 'QJ_SCHEDULING_ENABLED=%s\n' "${scheduling}"
+    cat "${release}/runtime.env"
+  } > "${temporary}"
+  mv -f "${temporary}" "${root}/runtime/${slot}.env"
+}
+
+write_upstream() {
+  local root="$1"
+  local slot="$2"
+  local temporary="${root}/runtime/.api-upstream-$$.conf"
+
+  printf 'server 127.0.0.1:%s max_fails=1 fail_timeout=5s;\n' \
+    "$(slot_port "${slot}")" > "${temporary}"
+  chmod 0644 "${temporary}"
+  mv -f "${temporary}" "${root}/runtime/api-upstream.conf"
+}
+
+wait_for_readiness() {
+  local slot="$1"
+  local readiness=""
+  local port=""
+
+  port="$(slot_management_port "${slot}")"
+  for _ in $(seq 1 45); do
+    if readiness="$(curl --fail --silent --connect-timeout 2 --max-time 5 \
+      "http://127.0.0.1:${port}/actuator/health/readiness" 2>/dev/null)" \
+      && [[ "${readiness}" == *'"status":"UP"'* ]]; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+assert_legacy_service_inactive() {
+  if systemctl is-active --quiet qingjing-api.service; then
+    fail "检测到旧单实例 API 仍在运行，禁止继续蓝绿发布"
+  fi
+}
+
+assert_slot_process_owns_ports() {
+  local slot="$1"
+  local service=""
+  local pid=""
+  local port=""
+
+  service="$(service_name "${slot}")"
+  pid="$(systemctl show --property MainPID --value "${service}")"
+  [[ "${pid}" =~ ^[1-9][0-9]*$ ]] || fail "${slot} 槽位 API 进程不存在"
+
+  for port in "$(slot_port "${slot}")" "$(slot_management_port "${slot}")"; do
+    ss -H -ltnp "sport = :${port}" | grep -Fq "pid=${pid}," \
+      || fail "${slot} 槽位端口 ${port} 未由目标 API 进程监听"
+  done
+}
+
+verify_slot_gateway() {
+  local slot="$1"
+
+  assert_slot_process_owns_ports "${slot}"
+  curl --fail --silent --show-error --connect-timeout 3 --max-time 10 \
+    "http://127.0.0.1:$(slot_port "${slot}")/api/v1/public/categories?page=0&size=1" \
+    >/dev/null || fail "候选 API 公开目录检查失败"
+}
+
+verify_slot_identity() {
+  local slot="$1"
+  local release="$2"
+  local info=""
+
+  info="$(curl --fail --silent --show-error --connect-timeout 3 --max-time 10 \
+    "http://127.0.0.1:$(slot_management_port "${slot}")/actuator/info")" \
+    || fail "${slot} 槽位运行身份读取失败"
+  if ! INFO_JSON="${info}" python3 - "${release}/manifest.json" <<'PY'
+import json
+import os
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    manifest = json.load(handle)
+info = json.loads(os.environ["INFO_JSON"]).get("app", {})
+expected = {
+    "git-commit": manifest["commit"],
+    "source-sha256": manifest["sourceSha256"],
+    "artifact-sha256": manifest["apiSha256"],
+    "contract-version": manifest["contractVersion"],
+    "flyway-version": str(manifest["latestMigration"]),
+}
+if any(str(info.get(key, "")) != str(value) for key, value in expected.items()):
+    raise SystemExit(1)
+PY
+  then
+    fail "${slot} 槽位运行身份与发布包不一致"
+  fi
+}
+
+verify_public_endpoints() {
+  local admin_host="$1"
+  local api_host="$2"
+
+  curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+    --resolve "${admin_host}:443:127.0.0.1" "https://${admin_host}/" >/dev/null \
+    || fail "管理后台 HTTPS 冒烟检查失败"
+  curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+    --resolve "${api_host}:443:127.0.0.1" \
+    "https://${api_host}/api/v1/public/categories?page=0&size=1" >/dev/null \
+    || fail "公网 API 公开目录检查失败"
+}
+
+reload_nginx() {
+  nginx -t >/dev/null 2>&1 || fail "Nginx 配置检查失败"
+  systemctl reload nginx || fail "Nginx 热重载失败"
+}
+
+load_database_environment() {
+  local environment_file="$1"
+
+  [[ -r "${environment_file}" ]] || fail "数据库迁移环境文件不可读"
+  set -a
+  # shellcheck disable=SC1090
+  source "${environment_file}"
+  set +a
+  [[ -n "${QJ_MYSQL_URL:-}" && -n "${QJ_MYSQL_USER:-}" && -n "${QJ_MYSQL_PASSWORD:-}" ]] \
+    || fail "数据库迁移配置不完整"
+}
+
+create_mysql_credentials() {
+  local credentials="$1"
+  local jdbc="${QJ_MYSQL_URL#jdbc:mysql://}"
+  local host_port="${jdbc%%/*}"
+  local database_and_query="${jdbc#*/}"
+
+  DATABASE="${database_and_query%%\?*}"
+  DB_HOST="${host_port%%:*}"
+  DB_PORT="${host_port##*:}"
+  [[ "${DB_PORT}" != "${host_port}" ]] || DB_PORT=3306
+  [[ "${DB_HOST}" =~ ^[A-Za-z0-9.-]+$ ]] || fail "数据库地址不合法"
+  [[ "${DB_PORT}" =~ ^[0-9]+$ ]] || fail "数据库端口不合法"
+  [[ "${DATABASE}" =~ ^[A-Za-z0-9_]+$ ]] || fail "数据库名称不合法"
+
+  chmod 0600 "${credentials}"
+  printf '[client]\nuser=%s\npassword=%s\n' \
+    "${QJ_MYSQL_USER}" "${QJ_MYSQL_PASSWORD}" > "${credentials}"
+}
+
+check_pending_migration_policy() {
+  local migration_directory="$1"
+  local applied_versions="$2"
+  local migration=""
+  local normalized=""
+  local version=""
+
+  while IFS= read -r migration; do
+    version="$(basename "${migration}" | sed -E 's/^V([0-9]+)__.*/\1/')"
+    if grep -Fxq "${version}" <<< "${applied_versions}"; then
+      continue
+    fi
+
+    normalized="$(sed -E 's/--.*$//' "${migration}" | tr '\n' ' ')"
+    if grep -Eiq \
+      'DROP[[:space:]]+(TABLE|DATABASE|COLUMN)|TRUNCATE[[:space:]]+TABLE|RENAME[[:space:]]+(TABLE|COLUMN)|ALTER[[:space:]]+TABLE[^;]*RENAME[[:space:]]+|CHANGE[[:space:]]+(COLUMN[[:space:]]+)?|MODIFY[[:space:]]+(COLUMN[[:space:]]+)?|DELETE[[:space:]]+FROM' \
+      <<< "${normalized}"; then
+      fail "迁移 $(basename "${migration}") 含破坏性语句，不允许进入零停机发布"
+    fi
+  done < <(find "${migration_directory}" -maxdepth 1 -type f -name 'V*__*.sql' | sort)
+}
+
+read_latest_migration() {
+  local manifest="$1"
+
+  python3 - "${manifest}" <<'PY'
+import json
+import re
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    manifest = json.load(handle)
+
+version = str(manifest.get("latestMigration", ""))
+if not re.fullmatch(r"[0-9]+", version):
+    raise SystemExit("发布清单 latestMigration 不合法")
+print(version)
+PY
+}
+
+prepare_database_migration() {
+  local release="$1"
+  local service_environment_file="$2"
+  local credentials=""
+  local applied_versions=""
+  local latest_migration=""
+
+  latest_migration="$(read_latest_migration "${release}/manifest.json")" \
+    || fail "发布清单最新迁移版本读取失败"
+  find "${release}/db/migration" -maxdepth 1 -type f \
+    -name "V${latest_migration}__*.sql" -print -quit | grep -q . \
+    || fail "发布清单最新迁移版本与发布包不一致"
+  load_database_environment "${service_environment_file}"
+  credentials="$(mktemp)"
+  create_mysql_credentials "${credentials}"
+  if ! applied_versions="$(mysql --defaults-extra-file="${credentials}" --batch --skip-column-names \
+    --protocol=TCP -h "${DB_HOST}" -P "${DB_PORT}" "${DATABASE}" \
+    -e "SELECT version FROM flyway_schema_history WHERE success = 1 ORDER BY installed_rank")"; then
+    rm -f "${credentials}"
+    fail "数据库 Flyway 历史读取失败"
+  fi
+  rm -f "${credentials}"
+  check_pending_migration_policy "${release}/db/migration" "${applied_versions}"
+  printf '待应用 Flyway 迁移的零停机策略检查通过。\n'
+}
+
+verify_database_migration() {
+  local release="$1"
+  local service_environment_file="$2"
+  local credentials=""
+  local latest_migration=""
+  local failed_count=""
+  local applied_count=""
+
+  latest_migration="$(read_latest_migration "${release}/manifest.json")" \
+    || fail "发布清单最新迁移版本读取失败"
+  load_database_environment "${service_environment_file}"
+  credentials="$(mktemp)"
+  create_mysql_credentials "${credentials}"
+  failed_count="$(mysql --defaults-extra-file="${credentials}" --batch --skip-column-names \
+    --protocol=TCP -h "${DB_HOST}" -P "${DB_PORT}" "${DATABASE}" \
+    -e "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 0")" || true
+  applied_count="$(mysql --defaults-extra-file="${credentials}" --batch --skip-column-names \
+    --protocol=TCP -h "${DB_HOST}" -P "${DB_PORT}" "${DATABASE}" \
+    -e "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '${latest_migration}' AND success = 1")" || true
+  rm -f "${credentials}"
+  [[ "${failed_count}" == "0" && "${applied_count}" == "1" ]] \
+    || fail "候选 API 未完成发布包指定的 Flyway 版本"
+  printf '发布清单最新 Flyway 版本核对通过。\n'
+}
+
+install_release_archive() {
+  local root="$1"
+  local release_id="$2"
+  local archive="$3"
+  local expected_sha="$4"
+  local release="${root}/releases/${release_id}"
+  local incoming="${root}/releases/.${release_id}.incoming"
+  local entry=""
+
+  [[ "${expected_sha}" =~ ^[a-f0-9]{64}$ ]] || fail "发布包校验值不合法"
+  [[ "${archive}" == "${UPLOAD_ROOT}/${release_id}.tar.gz" ]] \
+    || fail "发布包不在受控上传目录"
+  [[ -s "${archive}" ]] || fail "发布包不存在或为空"
+  [[ "$(sha256sum "${archive}" | awk '{print $1}')" == "${expected_sha}" ]] \
+    || fail "发布包 SHA-256 校验失败"
+  [[ ! -e "${release}" ]] || fail "发布版本已经存在"
+
+  while IFS= read -r entry; do
+    [[ "${entry}" != /* && "${entry}" != *'../'* && "${entry}" != '..' ]] \
+      || fail "发布包包含越界路径"
+  done < <(tar -tzf "${archive}")
+
+  rm -rf "${incoming}"
+  mkdir -p "${incoming}"
+  tar --no-same-owner -xzf "${archive}" -C "${incoming}"
+  find "${incoming}/db/migration" -maxdepth 1 -type f -name 'V*__*.sql' \
+    -exec chmod 0644 {} +
+  assert_complete_bundle "${incoming}"
+  mv "${incoming}" "${release}"
+  rm -f "${archive}"
+  printf '%s\n' "${release}"
+}
+
+restore_worker_slot() {
+  local root="$1"
+  local slot="$2"
+  local release="$3"
+  local service=""
+
+  service="$(service_name "${slot}")"
+  systemctl stop "${service}" >/dev/null 2>&1 || true
+  switch_symlink "${root}/slots/${slot}" "${release}"
+  write_slot_environment "${root}" "${slot}" worker
+  systemctl start "${service}" || return 1
+  wait_for_readiness "${slot}" && verify_slot_identity "${slot}" "${release}"
+}
+
+restore_web_slot() {
+  local root="$1"
+  local slot="$2"
+  local release="$3"
+  local service=""
+
+  service="$(service_name "${slot}")"
+  systemctl stop "${service}" >/dev/null 2>&1 || true
+  switch_symlink "${root}/slots/${slot}" "${release}"
+  write_slot_environment "${root}" "${slot}" web
+  systemctl start "${service}" || return 1
+  wait_for_readiness "${slot}" && verify_slot_identity "${slot}" "${release}"
+}
+
+activate_release() {
+  local root="$1"
+  local release="$2"
+  local service_environment_file="$3"
+  local admin_host="$4"
+  local api_host="$5"
+  local component="$6"
+  local run_migrations="$7"
+  local active_slot=""
+  local candidate_slot=""
+  local active_release=""
+  local candidate_previous_release=""
+  local previous_admin=""
+  local active_service=""
+  local candidate_service=""
+  local switched=0
+  local active_stopped=0
+  local admin_switched=0
+  local admin_only=0
+
+  [[ "${component}" == "all" || "${component}" == "api" || "${component}" == "admin" ]] \
+    || fail "发布组件不合法"
+  assert_complete_bundle "${release}"
+  active_slot="$(tr -d '\r\n' < "${root}/runtime/active-slot")"
+  assert_slot "${active_slot}"
+  candidate_slot="$(other_slot "${active_slot}")"
+  active_release="$(readlink -f "${root}/slots/${active_slot}")"
+  candidate_previous_release="$(readlink -f "${root}/slots/${candidate_slot}")"
+  previous_admin="$(readlink -f "${root}/current-admin")"
+  [[ "${active_release}" == "${root}/releases/"* ]] || fail "当前 API 版本指针越界"
+  [[ "${candidate_previous_release}" == "${root}/releases/"* ]] || fail "后台任务版本指针越界"
+  [[ "${previous_admin}" == "${root}/releases/"*/admin ]] || fail "当前管理后台版本指针越界"
+  active_service="$(service_name "${active_slot}")"
+  candidate_service="$(service_name "${candidate_slot}")"
+
+  rollback_failed_activation() {
+    local status=$?
+    trap - EXIT
+    if [[ ${status} -eq 0 ]]; then
+      return
+    fi
+
+    printf '发布失败，正在恢复发布前版本。\n' >&2
+    if [[ ${admin_only} -eq 1 ]]; then
+      switch_symlink "${root}/current-admin" "${previous_admin}" \
+        || printf '管理后台版本指针恢复失败，需要人工处置。\n' >&2
+      printf '管理后台失败版本未保留为活动版本。\n' >&2
+      exit "${status}"
+    fi
+    if [[ ${active_stopped} -eq 1 ]]; then
+      restore_web_slot "${root}" "${active_slot}" "${active_release}" \
+        || printf '旧 API 槽位恢复失败，需要人工处置。\n' >&2
+    fi
+    if [[ ${switched} -eq 1 ]]; then
+      write_upstream "${root}" "${active_slot}"
+      if [[ ${admin_switched} -eq 1 ]]; then
+        switch_symlink "${root}/current-admin" "${previous_admin}"
+      fi
+      if nginx -t >/dev/null 2>&1 && systemctl reload nginx; then
+        printf 'Nginx 已恢复到发布前上游。\n' >&2
+      else
+        printf 'Nginx 流量回退失败，需要人工处置。\n' >&2
+      fi
+    fi
+    restore_worker_slot "${root}" "${candidate_slot}" "${candidate_previous_release}" \
+      || printf '后台任务槽位恢复失败，需要人工处置。\n' >&2
+    printf '失败版本未接管最终流量，上一版本恢复流程已执行。\n' >&2
+    exit "${status}"
+  }
+  trap rollback_failed_activation EXIT
+
+  if [[ "${component}" == "admin" ]]; then
+    admin_only=1
+    switch_symlink "${root}/current-admin" "${release}/admin"
+    admin_switched=1
+    verify_public_endpoints "${admin_host}" "${api_host}"
+    printf '%s\n' "$(basename "$(dirname "${previous_admin}")")" > "${root}/runtime/previous-admin-release"
+    printf '%s\n' "$(basename "${release}")" > "${root}/runtime/active-admin-release"
+    trap - EXIT
+    printf '管理后台已原子切换，API 服务未重启。\n'
+    return
+  fi
+
+  assert_legacy_service_inactive
+  systemctl stop "${candidate_service}"
+  if [[ "${run_migrations}" == "true" ]]; then
+    prepare_database_migration "${release}" "${service_environment_file}"
+  fi
+
+  switch_symlink "${root}/slots/${candidate_slot}" "${release}"
+  write_slot_environment "${root}" "${candidate_slot}" web "${run_migrations}"
+  systemctl start "${candidate_service}"
+  wait_for_readiness "${candidate_slot}" || fail "候选 API 未在时限内就绪"
+  if [[ "${run_migrations}" == "true" ]]; then
+    verify_database_migration "${release}" "${service_environment_file}"
+    write_slot_environment "${root}" "${candidate_slot}" web false
+  fi
+  verify_slot_identity "${candidate_slot}" "${release}"
+  verify_slot_gateway "${candidate_slot}"
+  printf '候选 API 已就绪，旧 API 仍在处理流量。\n'
+
+  if [[ "${component}" == "all" ]]; then
+    switch_symlink "${root}/current-admin" "${release}/admin"
+    admin_switched=1
+  fi
+  write_upstream "${root}" "${candidate_slot}"
+  switched=1
+  reload_nginx
+  verify_public_endpoints "${admin_host}" "${api_host}"
+  printf 'Nginx 已切换到候选 API，公网联合冒烟检查通过。\n'
+
+  systemctl stop "${active_service}"
+  active_stopped=1
+  switch_symlink "${root}/slots/${active_slot}" "${release}"
+  write_slot_environment "${root}" "${active_slot}" worker
+  systemctl start "${active_service}"
+  wait_for_readiness "${active_slot}" || fail "新版本后台任务槽位未就绪"
+  verify_slot_identity "${active_slot}" "${release}"
+  assert_slot_process_owns_ports "${active_slot}"
+
+  printf '%s\n' "${candidate_slot}" > "${root}/runtime/active-slot"
+  printf '%s\n' "$(basename "${active_release}")" > "${root}/runtime/previous-release"
+  printf '%s\n' "$(basename "${release}")" > "${root}/runtime/active-release"
+  if [[ ${admin_switched} -eq 1 ]]; then
+    printf '%s\n' "$(basename "$(dirname "${previous_admin}")")" > "${root}/runtime/previous-admin-release"
+    printf '%s\n' "$(basename "${release}")" > "${root}/runtime/active-admin-release"
+  fi
+  trap - EXIT
+  printf '蓝绿发布完成：新 API 已接管流量，旧槽位已转为单实例后台任务。\n'
+}
+
+check_runtime() {
+  local root="$1"
+  local admin_host="$2"
+  local api_host="$3"
+  local active_slot=""
+  local worker_slot=""
+  local active_release=""
+  local worker_release=""
+
+  active_slot="$(tr -d '\r\n' < "${root}/runtime/active-slot")"
+  assert_slot "${active_slot}"
+  worker_slot="$(other_slot "${active_slot}")"
+  assert_legacy_service_inactive
+  systemctl is-active --quiet "$(service_name "${active_slot}")" || fail "活动 API 槽位未运行"
+  systemctl is-active --quiet "$(service_name "${worker_slot}")" || fail "后台任务槽位未运行"
+  wait_for_readiness "${active_slot}" || fail "活动 API 未就绪"
+  wait_for_readiness "${worker_slot}" || fail "后台任务进程未就绪"
+  assert_slot_process_owns_ports "${active_slot}"
+  assert_slot_process_owns_ports "${worker_slot}"
+  grep -Fq "127.0.0.1:$(slot_port "${active_slot}")" "${root}/runtime/api-upstream.conf" \
+    || fail "Nginx 上游与活动槽位不一致"
+  grep -Fq 'QJ_SCHEDULING_ENABLED=false' "${root}/runtime/${active_slot}.env" \
+    || fail "活动 API 不应运行定时任务"
+  grep -Fq 'QJ_SCHEDULING_ENABLED=true' "${root}/runtime/${worker_slot}.env" \
+    || fail "后台任务槽位未启用调度"
+  active_release="$(readlink -f "${root}/slots/${active_slot}")"
+  worker_release="$(readlink -f "${root}/slots/${worker_slot}")"
+  assert_complete_bundle "${active_release}"
+  verify_slot_identity "${active_slot}" "${active_release}"
+  verify_slot_identity "${worker_slot}" "${worker_release}"
+  verify_public_endpoints "${admin_host}" "${api_host}"
+  printf 'ONLINE_MAIN 蓝绿 API、单实例定时任务、管理后台和 Nginx 检查通过。\n'
+}
+
+bootstrap_runtime() {
+  local root="$1"
+  local release_id="$2"
+  local archive="$3"
+  local service_environment_file="$4"
+  local admin_host="$5"
+  local api_host="$6"
+  local expected_archive_sha="$7"
+  local unit_upload="$8"
+  local expected_unit_sha="$9"
+  local nginx_upload="${10}"
+  local expected_nginx_sha="${11}"
+  local old_release=""
+  local release=""
+  local old_nginx_backup=""
+  local old_unit_backup=""
+  local old_unit_existed=0
+  local old_service_stopped=0
+
+  [[ -s "${unit_upload}" && -s "${nginx_upload}" ]] || fail "蓝绿基础配置上传不完整"
+  [[ "${expected_unit_sha}" =~ ^[a-f0-9]{64}$ ]] || fail "systemd 模板校验值不合法"
+  [[ "${expected_nginx_sha}" =~ ^[a-f0-9]{64}$ ]] || fail "Nginx 配置校验值不合法"
+  [[ "$(sha256sum "${unit_upload}" | awk '{print $1}')" == "${expected_unit_sha}" ]] \
+    || fail "systemd 模板校验失败"
+  [[ "$(sha256sum "${nginx_upload}" | awk '{print $1}')" == "${expected_nginx_sha}" ]] \
+    || fail "Nginx 配置校验失败"
+  [[ -s "${root}/current/wallpaper-api.jar" && -s "${root}/current/admin-web/index.html" ]] \
+    || fail "旧单实例完整版本不可用"
+  systemctl is-active --quiet qingjing-api.service || fail "旧单实例 API 未运行"
+  curl --fail --silent --max-time 5 \
+    http://127.0.0.1:8080/actuator/health/readiness >/dev/null \
+    || fail "旧单实例 API 未就绪"
+
+  old_release="$(readlink -f "${root}/current")"
+  [[ "${old_release}" == "${root}/releases/"* ]] || fail "旧版本指针越界"
+  install -d -m 0755 "${root}/releases" "${root}/slots" "${root}/runtime"
+  release="$(install_release_archive \
+    "${root}" "${release_id}" "${archive}" "${expected_archive_sha}")"
+
+  old_nginx_backup="$(mktemp)"
+  cp -a /etc/nginx/sites-available/qingjing "${old_nginx_backup}"
+  if [[ -e /etc/systemd/system/qingjing-api@.service ]]; then
+    old_unit_existed=1
+    old_unit_backup="$(mktemp)"
+    cp -a /etc/systemd/system/qingjing-api@.service "${old_unit_backup}"
+  fi
+
+  rollback_bootstrap() {
+    local status=$?
+    trap - EXIT
+    if [[ ${status} -eq 0 ]]; then
+      return
+    fi
+    printf '蓝绿初始化失败，正在恢复原单实例运行方式。\n' >&2
+    systemctl stop qingjing-api@blue.service >/dev/null 2>&1 || true
+    systemctl stop qingjing-api@green.service >/dev/null 2>&1 || true
+    if [[ ${old_service_stopped} -eq 1 ]]; then
+      systemctl start qingjing-api.service >/dev/null 2>&1 || true
+    fi
+    if [[ -s "${old_nginx_backup}" ]]; then
+      cp -a "${old_nginx_backup}" /etc/nginx/sites-available/qingjing
+    fi
+    switch_symlink "${root}/current-admin" "${old_release}/admin-web" \
+      || printf '管理后台旧版本指针恢复失败，需要人工处置。\n' >&2
+    if [[ ${old_unit_existed} -eq 1 && -s "${old_unit_backup}" ]]; then
+      cp -a "${old_unit_backup}" /etc/systemd/system/qingjing-api@.service
+    else
+      rm -f /etc/systemd/system/qingjing-api@.service
+    fi
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
+    rm -f "${unit_upload}" "${nginx_upload}" "${old_nginx_backup}"
+    if [[ -n "${old_unit_backup}" ]]; then
+      rm -f "${old_unit_backup}"
+    fi
+    if systemctl is-active --quiet qingjing-api.service; then
+      printf '旧单实例 API 已恢复运行。\n' >&2
+    else
+      printf '旧单实例 API 未能自动恢复，需要人工处置。\n' >&2
+    fi
+    exit "${status}"
+  }
+  trap rollback_bootstrap EXIT
+
+  install -m 0644 "${unit_upload}" /etc/systemd/system/qingjing-api@.service
+  switch_symlink "${root}/current-admin" "${old_release}/admin-web"
+  write_upstream "${root}" blue
+  install -m 0644 "${nginx_upload}" /etc/nginx/sites-available/qingjing
+  systemctl daemon-reload
+  reload_nginx
+
+  prepare_database_migration "${release}" "${service_environment_file}"
+  switch_symlink "${root}/slots/green" "${release}"
+  write_slot_environment "${root}" green web true
+  systemctl start qingjing-api@green.service
+  wait_for_readiness green || fail "首次候选 API 未在时限内就绪"
+  verify_database_migration "${release}" "${service_environment_file}"
+  write_slot_environment "${root}" green web false
+  verify_slot_identity green "${release}"
+  verify_slot_gateway green
+
+  switch_symlink "${root}/current-admin" "${release}/admin"
+  write_upstream "${root}" green
+  reload_nginx
+  verify_public_endpoints "${admin_host}" "${api_host}"
+
+  systemctl stop qingjing-api.service
+  old_service_stopped=1
+  switch_symlink "${root}/slots/blue" "${release}"
+  write_slot_environment "${root}" blue worker
+  systemctl start qingjing-api@blue.service
+  wait_for_readiness blue || fail "首次后台任务槽位未就绪"
+  verify_slot_identity blue "${release}"
+  assert_slot_process_owns_ports blue
+
+  printf 'green\n' > "${root}/runtime/active-slot"
+  printf '%s\n' "$(basename "${release}")" > "${root}/runtime/active-release"
+  printf '%s\n' "$(basename "${old_release}")" > "${root}/runtime/previous-release"
+  printf '%s\n' "$(basename "${release}")" > "${root}/runtime/active-admin-release"
+  printf '%s\n' "$(basename "${old_release}")" > "${root}/runtime/previous-admin-release"
+  systemctl enable qingjing-api@blue.service qingjing-api@green.service >/dev/null
+  systemctl disable qingjing-api.service >/dev/null 2>&1 || true
+  rm -f "${unit_upload}" "${nginx_upload}" "${old_nginx_backup}"
+  if [[ -n "${old_unit_backup}" ]]; then
+    rm -f "${old_unit_backup}"
+  fi
+  trap - EXIT
+  printf 'ONLINE_MAIN 已从单实例无停机转换为蓝绿运行模式。\n'
+}
+
+mode="${1:-}"
+shift || true
+
+case "${mode}" in
+  bootstrap)
+    [[ $# -eq 11 ]] || fail "蓝绿初始化参数不完整"
+    root="$1"
+    release_id="$2"
+    assert_root "${root}"
+    assert_release_id "${release_id}"
+    assert_service_environment_file "$4"
+    assert_host "$5"
+    assert_host "$6"
+    [[ ! -e "${root}/runtime/active-slot" ]] || fail "ONLINE_MAIN 已经完成蓝绿初始化"
+    exec 9>/run/lock/qingjing-release.lock
+    flock -n 9 || fail "已有发布或回退任务正在执行"
+    bootstrap_runtime "$@"
+    ;;
+  deploy)
+    [[ $# -eq 8 ]] || fail "发布参数不完整"
+    root="$1"
+    release_id="$2"
+    archive="$3"
+    service_environment_file="$4"
+    admin_host="$5"
+    api_host="$6"
+    expected_sha="$7"
+    component="$8"
+    assert_root "${root}"
+    assert_release_id "${release_id}"
+    assert_service_environment_file "${service_environment_file}"
+    assert_host "${admin_host}"
+    assert_host "${api_host}"
+    exec 9>/run/lock/qingjing-release.lock
+    flock -n 9 || fail "已有发布或回退任务正在执行"
+    release="$(install_release_archive \
+      "${root}" "${release_id}" "${archive}" "${expected_sha}")"
+    activate_release \
+      "${root}" "${release}" "${service_environment_file}" \
+      "${admin_host}" "${api_host}" "${component}" true
+    ;;
+  rollback)
+    [[ $# -eq 5 ]] || fail "回退参数不完整"
+    root="$1"
+    release_id="$2"
+    service_environment_file="$3"
+    admin_host="$4"
+    api_host="$5"
+    assert_root "${root}"
+    assert_release_id "${release_id}"
+    assert_service_environment_file "${service_environment_file}"
+    assert_host "${admin_host}"
+    assert_host "${api_host}"
+    exec 9>/run/lock/qingjing-release.lock
+    flock -n 9 || fail "已有发布或回退任务正在执行"
+    release="${root}/releases/${release_id}"
+    [[ -d "${release}" ]] || fail "目标回退版本不存在"
+    activate_release \
+      "${root}" "${release}" "${service_environment_file}" \
+      "${admin_host}" "${api_host}" all false
+    ;;
+  check)
+    [[ $# -eq 3 ]] || fail "检查参数不完整"
+    assert_root "$1"
+    assert_host "$2"
+    assert_host "$3"
+    check_runtime "$1" "$2" "$3"
+    ;;
+  *)
+    fail "不支持的蓝绿发布操作"
+    ;;
+esac
