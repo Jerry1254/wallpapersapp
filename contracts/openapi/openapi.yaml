@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.3.0
+  version: 2.4.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -16,7 +16,7 @@ servers:
 security: []
 tags:
   - name: Public Catalog
-    description: 按已认证设备的有效设置能力返回目录与封面
+    description: 向已认证 App 返回全部已发布资源能力与封面；设备适配由 App 本地判断
   - name: Public Tutorial
     description: 无需设备会话的壁纸设置教程与视频流
   - name: Device Identity
@@ -57,8 +57,6 @@ paths:
                       $ref: '#/components/schemas/PublicRootCategory'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '428':
-          $ref: '#/components/responses/PreconditionRequired'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '500':
@@ -85,7 +83,7 @@ paths:
             $ref: '#/components/schemas/LongId'
         - name: deliveryPlatform
           in: query
-          description: 必须与 resourceType 同时提供，按当前设备可见的精确设置能力在计数和分页前筛选商品。
+          description: 必须与 resourceType 同时提供，按作品已发布的精确资源组合在计数和分页前筛选商品。
           schema:
             $ref: '#/components/schemas/DeliveryPlatform'
         - name: resourceType
@@ -127,8 +125,6 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '428':
-          $ref: '#/components/responses/PreconditionRequired'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -152,8 +148,6 @@ paths:
           $ref: '#/components/responses/NotFound'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '428':
-          $ref: '#/components/responses/PreconditionRequired'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -663,7 +657,7 @@ paths:
       summary: 为已获得壁纸签发短时下载描述
       description: |
         客户端必须选择详情 availableCapabilities 中的精确 deliveryPlatform/resourceType 组合。
-        服务端不做跨平台或资源类型回退。
+        服务端不做跨平台或资源类型回退，也不读取设备能力档案；只校验权益、资源已发布及对应安全资源包可用。
       security:
         - deviceBearer: []
       parameters:
@@ -2168,9 +2162,10 @@ paths:
       tags:
         - Device Entitlement
       operationId: createPreviewTicket
-      summary: 为 Android App 签发独立受限效果试用描述
-      description: 需 Android 设备会话与持钥签名，无需权益，不扣兑换额度。交付与正式版本绑定一致的原始媒体 payload，并使用独立 APP_PREVIEW 外壳、密钥、票据和临时库；票据有效 90 秒仅用于下载，App
-        实际预览由单调时钟限制为 120 秒，后台时间继续计入。正式下载与试用票据、包格式和临时库相互隔离。
+      summary: 为 Android App 按精确资源类型签发独立受限效果试用描述
+      description: |
+        需 Android 设备会话与持钥签名，无需权益，不扣兑换额度。服务端按请求的 deliveryPlatform/resourceType 精确选择已发布资源，不读取设备能力档案，也不跨类型回退。
+        Android、通用资源使用与正式版本绑定一致的媒体 payload；IOS/LIVE_PHOTO 使用发布时从实况视频生成的 H.264 MP4 预览 payload。所有预览都使用独立 APP_PREVIEW 外壳、密钥、票据和临时库；票据有效 90 秒仅用于下载，App 实际预览由单调时钟限制为 120 秒，后台时间继续计入。
       security:
         - deviceBearer: []
       parameters:
@@ -2611,7 +2606,6 @@ components:
         - PARALLAX_PACKAGE_IN_USE
         - CONFIG_INVALID
         - DEVICE_CAPABILITY_PROFILE_REQUIRED
-        - WALLPAPER_NOT_AVAILABLE_FOR_DEVICE
 
     WallpaperKind:
       type: string
@@ -2826,6 +2820,7 @@ components:
           minimum: 0
           maximum: 999999
         availableCapabilities:
+          description: 该作品全部已发布且已启用的资源组合；未按当前设备能力、系统版本或探测档案过滤。
           type: array
           minItems: 1
           items:

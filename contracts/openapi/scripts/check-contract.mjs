@@ -176,10 +176,23 @@ assert.equal(
 assert.deepEqual(document.components.schemas.DownloadDescriptor.properties.deliveryMode.enum, ['SECURE_PACKAGE']);
 assert.ok(!document.components.schemas.PublicWallpaperSummary.properties.kind, 'wallpaper kind must not remain exclusive');
 assert.ok(document.components.schemas.PublicWallpaperSummary.properties.availableCapabilities);
+for (const path of ['/public/categories', '/public/wallpapers', '/public/wallpapers/{wallpaperId}']) {
+  assert.ok(!document.paths[path].get.responses['428'], `${path} must not require a device capability profile`);
+}
+assert.match(
+  document.components.schemas.PublicWallpaperSummary.properties.availableCapabilities.description,
+  /全部已发布/,
+  'availableCapabilities must describe the complete published inventory'
+);
 assert.ok(document.components.schemas.DeviceCapabilityReportRequest);
 assert.deepEqual(document.components.schemas.PreviewDescriptor.properties.purpose.enum, ['APP_PREVIEW']);
 assert.deepEqual(document.components.schemas.PreviewDescriptor.properties.durationSeconds.enum, [120]);
 assert.deepEqual(document.components.schemas.PreviewPackageMetadata.properties.formatVersion.enum, [3]);
+assert.match(
+  document.paths['/device/wallpapers/{wallpaperId}/preview-tickets'].post.description,
+  /IOS\/LIVE_PHOTO/,
+  'preview contract must document the Android-playable iOS Live Photo video'
+);
 assert.deepEqual(document.components.schemas.SecurePackageMetadata.properties.formatVersion.enum, [2]);
 assert.equal(document.components.schemas.AdminParallaxSourcePackage.properties.configFormatVersion.minimum, 2);
 assert.ok(!document.components.schemas.AdminParallaxSourcePackage.properties.configFormatVersion.enum);

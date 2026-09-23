@@ -2,9 +2,7 @@ package com.qingjing.wallpaper.redemption;
 
 import com.qingjing.wallpaper.entitlement.DeviceEntitlementService;
 import com.qingjing.wallpaper.entitlement.EntitlementDtos.EntitlementSummary;
-import com.qingjing.wallpaper.catalog.DeviceCatalogVisibility;
-import com.qingjing.wallpaper.catalog.PublicCatalogDtos.DeliveryPlatform;
-import com.qingjing.wallpaper.catalog.PublicCatalogDtos.ResourceType;
+import com.qingjing.wallpaper.catalog.PublishedResourceCatalog;
 import com.qingjing.wallpaper.redemption.RedemptionDtos.ProcessingResult;
 import com.qingjing.wallpaper.redemption.RedemptionDtos.RedemptionAttempt;
 import com.qingjing.wallpaper.redemption.RedemptionDtos.RedemptionResult;
@@ -33,19 +31,19 @@ public class RedemptionService {
     private final SecurityCrypto crypto;
     private final RedisRateLimiter rateLimiter;
     private final DeviceEntitlementService entitlements;
-    private final DeviceCatalogVisibility visibility;
+    private final PublishedResourceCatalog publishedResources;
 
     public RedemptionService(
             JdbcTemplate jdbc,
             SecurityCrypto crypto,
             RedisRateLimiter rateLimiter,
             DeviceEntitlementService entitlements,
-            DeviceCatalogVisibility visibility) {
+            PublishedResourceCatalog publishedResources) {
         this.jdbc = jdbc;
         this.crypto = crypto;
         this.rateLimiter = rateLimiter;
         this.entitlements = entitlements;
-        this.visibility = visibility;
+        this.publishedResources = publishedResources;
     }
 
     @Transactional
@@ -97,26 +95,9 @@ public class RedemptionService {
         if (wallpapers.isEmpty()) {
             throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_FOUND", "The wallpaper was not found");
         }
-        var available = visibility.resolve(deviceId).capabilities(wallpaperId);
-        boolean nativeReady = available.stream().anyMatch(capability ->
-                capability.deliveryPlatform() == DeliveryPlatform.IOS
-                || capability.deliveryPlatform() == DeliveryPlatform.HARMONYOS);
-        List<PackagedDelivery> packaged = jdbc.query("""
-                SELECT v.platform, v.resource_type FROM wallpaper_variant v
-                JOIN resource_version r ON r.variant_id = v.id AND r.status = 'PUBLISHED'
-                JOIN secure_resource_package p ON p.resource_version_id = r.id
-                WHERE v.wallpaper_id = ? AND v.enabled = TRUE
-                """, (resultSet, rowNumber) -> new PackagedDelivery(
-                        DeliveryPlatform.valueOf(resultSet.getString("platform")),
-                        ResourceType.valueOf(resultSet.getString("resource_type"))), wallpaperId);
-        boolean packagedReady = available.stream().anyMatch(capability -> packaged.contains(
-                new PackagedDelivery(capability.deliveryPlatform(), capability.resourceType())));
-        Boolean legacyTestDevice = jdbc.queryForObject(
-                "SELECT platform = 'H5_TEST' FROM anonymous_device WHERE id = ?", Boolean.class, deviceId);
-        boolean deviceCanUse = !available.isEmpty()
-                && (Boolean.TRUE.equals(legacyTestDevice) || nativeReady || packagedReady);
+        boolean hasPublishedResource = publishedResources.resolve().contains(wallpaperId);
         WallpaperRow wallpaper=wallpapers.get(0);
-        if (!wallpaper.status().equals("PUBLISHED") || !deviceCanUse) {
+        if (!wallpaper.status().equals("PUBLISHED") || !hasPublishedResource) {
             complete(
                     requestId, deviceId, wallpaperId, null, suffix(normalizedCode), null,
                     RedemptionResultCode.WALLPAPER_UNAVAILABLE, 0, "WALLPAPER_UNAVAILABLE", "REJECTED");
@@ -332,8 +313,6 @@ public class RedemptionService {
     private record RequestRow(long id, String requestHash, String status) {
     }
 
-    private record PackagedDelivery(DeliveryPlatform platform, ResourceType resourceType) {
-    }
 
     private record CodeRow(long id, String suffix, int totalQuota, int usedQuota) {
     }

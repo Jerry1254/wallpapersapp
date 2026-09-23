@@ -86,6 +86,7 @@ class SecurePackageCodecTest {
         Map<String,List<SecurePackageCodec.Payload>> cases=Map.of(
             "STATIC_IMAGE",List.of(payload("STATIC_IMAGE","image/png")),
             "VIDEO",List.of(payload("VIDEO","video/mp4")),
+            "LIVE_PHOTO",List.of(payload("LIVE_PHOTO_VIDEO","video/mp4")),
             "LAYER_PARALLAX",List.of(payload("BACKGROUND","image/png"),payload("FOREGROUND","image/png"),payload("PARALLAX_CONFIG","application/json")));
         for(var item:cases.entrySet()) {
             var identity=new SecurePackageCodec.Identity(11,22,3,item.getKey());
@@ -103,9 +104,14 @@ class SecurePackageCodecTest {
             Signature verifier=Signature.getInstance("SHA256withRSA");verifier.initVerify(signing.getPublic());verifier.update(manifest);
             assertThat(verifier.verify(files.get("manifest.sig"))).isTrue();
             assertThatThrownBy(()->decryptAad(preview.encrypted(),preview.contentKey(),identity.aad())).isInstanceOf(AEADBadTagException.class);
-            var paid=codec.encode(identity,item.getValue(),"test-preview",signing.getPrivate());
-            assertThatThrownBy(()->decryptAad(paid.encrypted(),paid.contentKey(),SecurePackageCodec.previewAad(identity))).isInstanceOf(AEADBadTagException.class);
+            if (!item.getKey().equals("LIVE_PHOTO")) {
+                var paid=codec.encode(identity,item.getValue(),"test-preview",signing.getPrivate());
+                assertThatThrownBy(()->decryptAad(paid.encrypted(),paid.contentKey(),SecurePackageCodec.previewAad(identity))).isInstanceOf(AEADBadTagException.class);
+            }
         }
+        var livePhoto=new SecurePackageCodec.Identity(11,22,3,"LIVE_PHOTO");
+        assertThatThrownBy(()->codec.encode(livePhoto,List.of(payload("LIVE_PHOTO_VIDEO","video/mp4")),"test-preview",signing.getPrivate()))
+                .isInstanceOf(IllegalArgumentException.class);
     }
     private static byte[] decryptAad(byte[] envelope,byte[] key,byte[] aad) throws Exception {
         Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");

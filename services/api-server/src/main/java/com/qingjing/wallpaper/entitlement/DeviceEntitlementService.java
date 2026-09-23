@@ -2,7 +2,7 @@ package com.qingjing.wallpaper.entitlement;
 
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.PageMetadata;
 import com.qingjing.wallpaper.catalog.PublicWallpaperViewReader;
-import com.qingjing.wallpaper.catalog.DeviceCatalogVisibility;
+import com.qingjing.wallpaper.catalog.PublishedResourceCatalog;
 import com.qingjing.wallpaper.entitlement.EntitlementDtos.EntitlementPage;
 import com.qingjing.wallpaper.entitlement.EntitlementDtos.EntitlementSummary;
 import com.qingjing.wallpaper.shared.web.ApiException;
@@ -20,14 +20,14 @@ public class DeviceEntitlementService {
 
     private final JdbcTemplate jdbc;
     private final PublicWallpaperViewReader wallpapers;
-    private final DeviceCatalogVisibility visibility;
+    private final PublishedResourceCatalog publishedResources;
     private final NamedParameterJdbcTemplate namedJdbc;
 
     public DeviceEntitlementService(
-            JdbcTemplate jdbc, PublicWallpaperViewReader wallpapers, DeviceCatalogVisibility visibility) {
+            JdbcTemplate jdbc, PublicWallpaperViewReader wallpapers, PublishedResourceCatalog publishedResources) {
         this.jdbc = jdbc;
         this.wallpapers = wallpapers;
-        this.visibility = visibility;
+        this.publishedResources = publishedResources;
         this.namedJdbc = new NamedParameterJdbcTemplate(jdbc);
     }
 
@@ -36,7 +36,7 @@ public class DeviceEntitlementService {
         if (page < 1 || pageSize < 1 || pageSize > 100) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "page and pageSize are outside the accepted range");
         }
-        var visible = visibility.resolve(deviceId);
+        var visible = publishedResources.resolve();
         if (visible.wallpaperIds().isEmpty()) {
             return new EntitlementPage(List.of(), new PageMetadata(page, pageSize, 0, 0));
         }
@@ -71,10 +71,10 @@ public class DeviceEntitlementService {
     }
 
     public EntitlementSummary summary(long deviceId, long entitlementId, long wallpaperId, Instant grantedAt) {
-        var visible = visibility.resolve(deviceId);
+        var visible = publishedResources.resolve();
         if (!visible.contains(wallpaperId)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_AVAILABLE_FOR_DEVICE",
-                    "The wallpaper is not available for this device");
+            throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_FOUND",
+                    "The wallpaper was not found");
         }
         return new EntitlementSummary(Long.toString(entitlementId),
                 wallpapers.summary(wallpaperId, visible.capabilities(wallpaperId)), grantedAt);

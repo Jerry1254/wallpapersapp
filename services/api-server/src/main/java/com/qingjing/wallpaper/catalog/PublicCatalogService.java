@@ -1,6 +1,6 @@
 package com.qingjing.wallpaper.catalog;
 
-import com.qingjing.wallpaper.catalog.DeviceCatalogVisibility.VisibleCatalog;
+import com.qingjing.wallpaper.catalog.PublishedResourceCatalog.PublishedCatalog;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.PageMetadata;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.PublicCategoryList;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.PublicChildCategory;
@@ -35,19 +35,19 @@ public class PublicCatalogService {
     private final JdbcTemplate jdbc;
     private final NamedParameterJdbcTemplate namedJdbc;
     private final PublicWallpaperViewReader views;
-    private final DeviceCatalogVisibility visibility;
+    private final PublishedResourceCatalog publishedResources;
 
     public PublicCatalogService(
-            JdbcTemplate jdbc, PublicWallpaperViewReader views, DeviceCatalogVisibility visibility) {
+            JdbcTemplate jdbc, PublicWallpaperViewReader views, PublishedResourceCatalog publishedResources) {
         this.jdbc = jdbc;
         this.namedJdbc = new NamedParameterJdbcTemplate(jdbc);
         this.views = views;
-        this.visibility = visibility;
+        this.publishedResources = publishedResources;
     }
 
     @Transactional(readOnly = true)
     public PublicCategoryList categories(long deviceId) {
-        VisibleCatalog visible = visibility.resolve(deviceId);
+        PublishedCatalog visible = publishedResources.resolve();
         if (visible.wallpaperIds().isEmpty()) return new PublicCategoryList(List.of());
         Map<Long, Long> rootCounts = new HashMap<>();
         Map<Long, Long> childCounts = new HashMap<>();
@@ -107,7 +107,7 @@ public class PublicCatalogService {
         validateCategories(rootCategoryId, childCategoryId);
         validateCapabilityFilter(deliveryPlatform, resourceType);
         String normalizedQuery = normalizeQuery(query);
-        VisibleCatalog visible = visibility.resolve(deviceId);
+        PublishedCatalog visible = publishedResources.resolve();
         List<Long> scopedWallpaperIds = deliveryPlatform == null
                 ? List.copyOf(visible.wallpaperIds())
                 : visible.capabilitiesByWallpaper().entrySet().stream()
@@ -166,10 +166,10 @@ public class PublicCatalogService {
 
     @Transactional(readOnly = true)
     public PublicWallpaperDetail wallpaper(long deviceId, long wallpaperId) {
-        VisibleCatalog visible = visibility.resolve(deviceId);
+        PublishedCatalog visible = publishedResources.resolve();
         if (!visible.contains(wallpaperId)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_AVAILABLE_FOR_DEVICE",
-                    "The wallpaper is not available for this device");
+            throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_FOUND",
+                    "The wallpaper was not found");
         }
         List<DetailRow> rows = jdbc.query("""
                 SELECT copyright_note, published_at FROM wallpaper

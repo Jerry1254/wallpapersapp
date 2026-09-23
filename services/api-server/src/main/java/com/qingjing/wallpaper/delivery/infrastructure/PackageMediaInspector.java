@@ -27,6 +27,35 @@ public final class PackageMediaInspector {
         this.mapper = mapper; this.ffprobe = ffprobe; this.ffmpeg = ffmpeg;
     }
     public record Media(int width, int height, boolean alpha) {}
+
+    /** Converts an uploaded Live Photo movie into the bounded H.264 MP4 consumed by Android preview. */
+    public byte[] androidPreview(byte[] content) {
+        Path input = null, output = null;
+        try {
+            input = Files.createTempFile("qj-live-photo-", ".bin");
+            output = Files.createTempFile("qj-android-preview-", ".mp4");
+            Files.write(input, content);
+            runQuietly(List.of(
+                    ffmpeg, "-v", "error", "-xerror", "-y", "-nostdin",
+                    "-protocol_whitelist", "file,pipe", "-threads", "1", "-i", input.toString(),
+                    "-map", "0:v:0", "-an", "-t", "30", "-r", "30",
+                    "-vf", "scale='min(1080,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+                    "-c:v", "libx264", "-profile:v", "main", "-level", "4.0", "-pix_fmt", "yuv420p",
+                    "-preset", "veryfast", "-b:v", "4M", "-maxrate", "6M", "-bufsize", "12M",
+                    "-map_metadata", "-1", "-movflags", "+faststart", output.toString()), Duration.ofSeconds(90));
+            byte[] converted = Files.readAllBytes(output);
+            if (converted.length == 0 || converted.length > 60L * 1024 * 1024) throw invalid();
+            inspect(converted, true);
+            return converted;
+        } catch (ApiException exception) { throw exception; }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw invalid(); }
+        catch (Exception exception) { throw invalid(); }
+        finally {
+            try { if (input != null) Files.deleteIfExists(input); } catch (java.io.IOException ignored) { }
+            try { if (output != null) Files.deleteIfExists(output); } catch (java.io.IOException ignored) { }
+        }
+    }
+
     public Media inspect(byte[] content, boolean video) {
         Path input = null, output = null;
         try {
@@ -74,6 +103,16 @@ public final class PackageMediaInspector {
     }
     private void run(List<String> args, Path output, Duration timeout) throws Exception {
         Process process = new ProcessBuilder(args).redirectOutput(output.toFile()).redirectError(ProcessBuilder.Redirect.DISCARD).start();
+        try {
+            if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS) || process.exitValue() != 0) throw invalid();
+        } finally {
+            if (process.isAlive()) { process.destroyForcibly(); process.waitFor(5, TimeUnit.SECONDS); }
+        }
+    }
+    private void runQuietly(List<String> args, Duration timeout) throws Exception {
+        Process process = new ProcessBuilder(args)
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD).start();
         try {
             if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS) || process.exitValue() != 0) throw invalid();
         } finally {

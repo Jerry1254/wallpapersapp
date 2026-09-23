@@ -311,7 +311,7 @@ class InfrastructureIntegrationIT {
 
         ResponseEntity<JsonNode> info = http.getForEntity("/actuator/info", JsonNode.class);
         assertThat(info.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(info.getBody().path("app").path("contract-version").asText()).isEqualTo("2.3.0");
+        assertThat(info.getBody().path("app").path("contract-version").asText()).isEqualTo("2.4.0");
         assertThat(info.getBody().path("app").path("environment-id").asText()).isEqualTo("UNCONFIGURED");
         assertThat(info.getBody().path("app").path("source-sha256").asText()).isEqualTo("unknown");
         assertThat(info.getBody().path("app").path("artifact-sha256").asText()).isEqualTo("unknown");
@@ -688,7 +688,7 @@ class InfrastructureIntegrationIT {
     }
 
     @Test
-    void publicCatalogFiltersByExactVisibleCapabilityBeforeCountingAndPaging() throws Exception {
+    void publicCatalogUsesEveryPublishedResourceBeforeCountingAndPagingWithoutCapabilityProfile() throws Exception {
         ensureAdmin();
         long multiCapabilityWallpaper = createPublishedWallpaperFixture();
         long staticOnlyWallpaper = createPublishedWallpaperFixture();
@@ -710,28 +710,8 @@ class InfrastructureIntegrationIT {
                 """, videoVariantId, securityCrypto.sha256Hex("catalog-video-" + multiCapabilityWallpaper), adminId);
 
         DeviceTestSession device = registerAndCreateSession("capability-filter-" + UUID.randomUUID());
-        Long deviceId = jdbc.queryForObject(
-                "SELECT device_id FROM device_credential WHERE credential_key_id=?",
-                Long.class, device.credentialKeyId());
-        String capabilities = objectMapper.writeValueAsString(List.of(
-                Map.of(
-                        "deliveryPlatform", "ANDROID",
-                        "resourceType", "VIDEO",
-                        "runtimeOsVersion", "35",
-                        "placements", List.of("HOME")),
-                Map.of(
-                        "deliveryPlatform", "UNIVERSAL",
-                        "resourceType", "STATIC_IMAGE",
-                        "runtimeOsVersion", "35",
-                        "placements", List.of("HOME", "LOCK"))));
-        jdbc.update("""
-                UPDATE device_capability_profile
-                SET reported_capabilities=CAST(? AS JSON), effective_capabilities=CAST(? AS JSON),
-                    profile_hash=?, lock_version=lock_version+1
-                WHERE device_id=?
-                """, capabilities, capabilities,
-                securityCrypto.sha256Hex("capability-filter-profile-" + deviceId), deviceId);
-
+        jdbc.update("DELETE p FROM device_capability_profile p JOIN device_credential c ON c.device_id=p.device_id WHERE c.credential_key_id=?",
+                device.credentialKeyId());
         String base = "/api/v1/public/wallpapers?rootCategoryId=" + categoryId;
         JsonNode videoPage = deviceGet(base
                 + "&deliveryPlatform=ANDROID&resourceType=VIDEO&pageSize=1", device).getBody();
@@ -1517,6 +1497,47 @@ class InfrastructureIntegrationIT {
             }
         }
     }
+
+    @Test
+    void livePhotoPublicationCreatesExactAndroidPlayableVideoPreviewWithoutFormalPackage() throws Exception {
+        ensureAdmin(); var admin=login();
+        long wallpaperId=createPublishedWallpaperFixture();
+        long variantId=jdbc.queryForObject("SELECT id FROM wallpaper_variant WHERE wallpaper_id=?",Long.class,wallpaperId);
+        jdbc.update("UPDATE wallpaper_variant SET platform='IOS',resource_type='LIVE_PHOTO' WHERE id=?",variantId);
+        JsonNode photo=uploadAsset(admin,"LIVE_PHOTO_IMAGE","live-photo.jpg",jpeg(64,64));
+        JsonNode movie=uploadAsset(admin,"LIVE_PHOTO_VIDEO","live-photo.mp4",testVideo());
+        var created=jsonExchange("/api/v1/admin/variants/"+variantId+"/resource-versions",HttpMethod.POST,
+                Map.of("versionNo",2,"bindings",List.of(
+                        Map.of("role","LIVE_PHOTO_IMAGE","ordinal",0,"assetId",photo.path("id").asText()),
+                        Map.of("role","LIVE_PHOTO_VIDEO","ordinal",0,"assetId",movie.path("id").asText()))),admin,null);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        long versionId=created.getBody().path("id").asLong();
+        var published=jsonExchange("/api/v1/admin/wallpapers/"+wallpaperId+"/publish",HttpMethod.POST,
+                Map.of("resourceVersionIds",List.of(Long.toString(versionId))),admin,"\"0\"");
+        assertThat(published.getStatusCode()).as(published.getBody().toString()).isEqualTo(HttpStatus.OK);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM secure_resource_package WHERE resource_version_id=?",Integer.class,versionId)).isZero();
+        var stored=jdbc.queryForMap("SELECT * FROM preview_resource_package WHERE resource_version_id=?",versionId);
+        var identity=new com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.Identity(wallpaperId,variantId,2,"LIVE_PHOTO");
+        var preview=decodeStoredPackage(stored,versionId,identity,true);
+        assertThat(preview.manifest().path("resourceType").asText()).isEqualTo("LIVE_PHOTO");
+        assertThat(preview.manifest().path("files")).hasSize(1);
+        assertThat(preview.manifest().path("files").get(0).path("role").asText()).isEqualTo("LIVE_PHOTO_VIDEO");
+        assertThat(preview.manifest().path("files").get(0).path("mimeType").asText()).isEqualTo("video/mp4");
+
+        var signing=resourceSigningKey();var encryption=resourceSigningKey();
+        var registered=http.postForEntity("/api/v1/device/registrations",androidRegistration(signing),JsonNode.class);
+        String credential=registered.getBody().path("credentialKeyId").asText();
+        JsonNode challenge=http.postForEntity("/api/v1/device/session-challenges",Map.of("credentialKeyId",credential),JsonNode.class).getBody();
+        String timestamp=Instant.now().toString();
+        String proof=androidSign(signing,"QJ-DEVICE-SESSION-V1\n"+credential+"\n"+challenge.path("challengeId").asText()+"\n"+challenge.path("nonce").asText()+"\n"+timestamp);
+        var session=http.postForEntity("/api/v1/device/sessions",Map.of("credentialKeyId",credential,"challengeId",challenge.path("challengeId").asText(),"clientTimestamp",timestamp,"proof",proof),JsonNode.class);
+        String token=session.getBody().path("accessToken").asText();long deviceId=androidIdentity.requireSession(token).deviceId();
+        String pem=new com.qingjing.wallpaper.device.AndroidCredentialProof(objectMapper).canonicalPem((java.security.interfaces.RSAPublicKey)encryption.getPublic());
+        String bindPath="/api/v1/device/encryption-key";
+        assertThat(http.exchange(bindPath,HttpMethod.PUT,androidSignedEntity(signing,token,"PUT",bindPath,objectMapper.writeValueAsString(Map.of("publicKeyPem",pem))),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        verifyUnownedPreview(signing,encryption,token,deviceId,wallpaperId,versionId,"LIVE_PHOTO");
+    }
+
     private DecodedPackage decodeStoredPackage(Map<String,Object> stored,long versionId,
             com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.Identity identity,boolean preview) throws Exception {
         byte[] key=securityCrypto.decrypt((preview?"preview-package-key-v1:":"secure-package-key-v2:")+versionId,
@@ -1567,13 +1588,12 @@ class InfrastructureIntegrationIT {
         var session=http.postForEntity("/api/v1/device/sessions",Map.of("credentialKeyId",credential,"challengeId",challenge.path("challengeId").asText(),"clientTimestamp",timestamp,"proof",proof),JsonNode.class);
         assertThat(session.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         String token=session.getBody().path("accessToken").asText(); long deviceId=androidIdentity.requireSession(token).deviceId();
-        reportAndroidCapabilities(signing, token);
         String pem=new com.qingjing.wallpaper.device.AndroidCredentialProof(objectMapper).canonicalPem((java.security.interfaces.RSAPublicKey)encryption.getPublic());
         String bindPath="/api/v1/device/encryption-key";
         assertThat(http.exchange(bindPath,HttpMethod.PUT,androidSignedEntity(signing,token,"PUT",bindPath,objectMapper.writeValueAsString(Map.of("publicKeyPem",pem))),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
         var previewHeaders=verifyUnownedPreview(signing,encryption,token,deviceId,wallpaperId,versionId,type);
         String ticketPath="/api/v1/device/wallpapers/"+wallpaperId+"/download-tickets";
-        String deliveryPlatform = type.equals("STATIC_IMAGE") ? "UNIVERSAL" : "ANDROID";
+        String deliveryPlatform = type.equals("STATIC_IMAGE") ? "UNIVERSAL" : type.equals("LIVE_PHOTO") ? "IOS" : "ANDROID";
         String body=objectMapper.writeValueAsString(Map.of("deliveryPlatform",deliveryPlatform,"resourceType",type));
         if (type.equals("STATIC_IMAGE")) {
             jdbc.update("UPDATE wallpaper SET access_type='FREE',lock_version=lock_version+1 WHERE id=?",wallpaperId);
@@ -1597,9 +1617,9 @@ class InfrastructureIntegrationIT {
         String code=new String(csv,StandardCharsets.UTF_8).lines().skip(1).findFirst().orElseThrow().split(",")[1];
         assertThat(androidRedemption(signing,token,UUID.randomUUID().toString(),Map.of("wallpaperId",Long.toString(wallpaperId),"code",code)).getStatusCode()).isEqualTo(HttpStatus.CREATED);
         String wrongPlatform=body.replace(deliveryPlatform,"IOS");
-        assertThat(http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,wrongPlatform),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,wrongPlatform),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
         jdbc.update("UPDATE wallpaper_variant SET minimum_os_version='36' WHERE wallpaper_id=?",wallpaperId);
-        assertThat(http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,body),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,body),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.CREATED);
         jdbc.update("UPDATE wallpaper_variant SET minimum_os_version=NULL WHERE wallpaper_id=?",wallpaperId);
         var issued=http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,body),JsonNode.class);
         assertThat(issued.getStatusCode()).isEqualTo(HttpStatus.CREATED);
@@ -1669,7 +1689,7 @@ class InfrastructureIntegrationIT {
         int entitlementCount=jdbc.queryForObject("SELECT COUNT(*) FROM device_entitlement WHERE device_id=?",Integer.class,deviceId);
         int redemptionCount=jdbc.queryForObject("SELECT COUNT(*) FROM redemption_event WHERE device_id=?",Integer.class,deviceId);
         String path="/api/v1/device/wallpapers/"+wallpaperId+"/preview-tickets";
-        String deliveryPlatform = type.equals("STATIC_IMAGE") ? "UNIVERSAL" : "ANDROID";
+        String deliveryPlatform = type.equals("STATIC_IMAGE") ? "UNIVERSAL" : type.equals("LIVE_PHOTO") ? "IOS" : "ANDROID";
         String json=objectMapper.writeValueAsString(Map.of("deliveryPlatform",deliveryPlatform,"resourceType",type));
         HttpHeaders bearerOnly=new HttpHeaders();bearerOnly.setBearerAuth(token);bearerOnly.setContentType(MediaType.APPLICATION_JSON);
         assertThat(http.exchange(path,HttpMethod.POST,new HttpEntity<>(json,bearerOnly),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -1900,7 +1920,9 @@ class InfrastructureIntegrationIT {
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add("purpose", purpose);
         HttpHeaders fileHeaders = new HttpHeaders();
-        fileHeaders.setContentType(purpose.contains("VIDEO") ? MediaType.valueOf("video/mp4") : purpose.equals("PARALLAX_CONFIG") ? MediaType.APPLICATION_JSON : MediaType.IMAGE_PNG);
+        fileHeaders.setContentType(purpose.contains("VIDEO") ? MediaType.valueOf("video/mp4")
+                : purpose.equals("LIVE_PHOTO_IMAGE") ? MediaType.IMAGE_JPEG
+                : purpose.equals("PARALLAX_CONFIG") ? MediaType.APPLICATION_JSON : MediaType.IMAGE_PNG);
         fileHeaders.setContentDispositionFormData("file", filename);
         ByteArrayResource resource = new ByteArrayResource(bytes) {
             @Override
@@ -1958,6 +1980,13 @@ class InfrastructureIntegrationIT {
         return output.toByteArray();
     }
 
+    private static byte[] jpeg(int width, int height) throws IOException {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ImageIO.write(image, "jpeg", output);
+        return output.toByteArray();
+    }
+
     @Autowired
     com.qingjing.wallpaper.device.DeviceIdentityService androidIdentity;
 
@@ -1968,6 +1997,10 @@ class InfrastructureIntegrationIT {
     void androidInstallationProofSessionReplayAndRevocationUseRealInfrastructure() throws Exception {
         java.security.KeyPairGenerator generator = java.security.KeyPairGenerator.getInstance("RSA");
         generator.initialize(2048);
+        for (String scope : List.of("com.qingjing.bizhi.internal", "com.qingjing.bizhi.lab")) {
+            assertThat(http.postForEntity("/api/v1/device/registrations", androidRegistration(generator.generateKeyPair(),scope), JsonNode.class).getStatusCode())
+                    .isEqualTo(HttpStatus.CREATED);
+        }
         java.security.KeyPair key = generator.generateKeyPair();
         Map<String, Object> registration = androidRegistration(key);
         ResponseEntity<JsonNode> registered = http.postForEntity("/api/v1/device/registrations", registration, JsonNode.class);
@@ -1994,7 +2027,7 @@ class InfrastructureIntegrationIT {
         String token = session.getBody().path("accessToken").asText();
         HttpHeaders capabilityAuth = new HttpHeaders(); capabilityAuth.setBearerAuth(token);
         assertThat(http.exchange("/api/v1/public/categories", HttpMethod.GET,
-                new HttpEntity<>(capabilityAuth), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.PRECONDITION_REQUIRED);
+                new HttpEntity<>(capabilityAuth), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
         String capabilityPath = "/api/v1/device/me/capabilities";
         List<Map<String,Object>> reportedCapabilities = List.of(
                 orderedMap("deliveryPlatform","ANDROID","resourceType","LAYER_PARALLAX","runtimeOsVersion","35","placements",List.of("HOME"),"evidence","SYSTEM_PROBE"),
@@ -2118,13 +2151,13 @@ class InfrastructureIntegrationIT {
         assertThat(http.exchange("/api/v1/device/me/entitlements", HttpMethod.GET, new HttpEntity<>(auth), JsonNode.class).getBody().path("items")).hasSize(1);
         long unpackaged = createPublishedWallpaperFixture();
         ResponseEntity<JsonNode> noPackage=androidRedemption(key,token,UUID.randomUUID().toString(),orderedMap("wallpaperId",Long.toString(unpackaged),"code",code));
-        assertThat(noPackage.getBody().path("result").asText()).isEqualTo("WALLPAPER_UNAVAILABLE");
+        assertThat(noPackage.getBody().path("result").asText()).isEqualTo("CODE_EXHAUSTED");
         assertThat(noPackage.getBody().path("quotaDelta").asInt()).isZero();
         long unavailable = createPublishedWallpaperFixture();
         jdbc.update("UPDATE wallpaper_variant SET platform='IOS',resource_type='LIVE_PHOTO' WHERE wallpaper_id=?", unavailable);
         ResponseEntity<JsonNode> rejected = androidRedemption(key, token, UUID.randomUUID().toString(), orderedMap("wallpaperId", Long.toString(unavailable), "code", code));
         assertThat(rejected.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
-        assertThat(rejected.getBody().path("result").asText()).isEqualTo("WALLPAPER_UNAVAILABLE");
+        assertThat(rejected.getBody().path("result").asText()).isEqualTo("CODE_EXHAUSTED");
         assertThat(rejected.getBody().path("quotaDelta").asInt()).isZero();
         jdbc.update("UPDATE device_credential SET status='REVOKED',revoked_at=UTC_TIMESTAMP(6) WHERE credential_key_id=?", keyId);
         assertThatThrownBy(() -> androidIdentity.requireSession(token)).isInstanceOf(com.qingjing.wallpaper.shared.web.ApiException.class);
@@ -2172,7 +2205,10 @@ class InfrastructureIntegrationIT {
     }
 
     private Map<String, Object> androidRegistration(java.security.KeyPair key) throws Exception {
-        String scope="android-integration", timestamp=Instant.now().toString(), nonce=UUID.randomUUID().toString();
+        return androidRegistration(key,"android-integration");
+    }
+    private Map<String, Object> androidRegistration(java.security.KeyPair key,String scope) throws Exception {
+        String timestamp=Instant.now().toString(), nonce=UUID.randomUUID().toString();
         byte[] encoded=key.getPublic().getEncoded();
         String fingerprint=java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(encoded));
         String payload="QJ-ANDROID-REGISTER-V1\n"+scope+"\n"+fingerprint+"\n"+timestamp+"\n"+nonce;

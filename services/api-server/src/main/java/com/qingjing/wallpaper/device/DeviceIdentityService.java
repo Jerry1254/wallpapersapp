@@ -263,7 +263,7 @@ public class DeviceIdentityService {
     private DeviceRegistrationResponse registerAndroid(DeviceRegistrationRequest request, String remoteAddress) {
         String scope = request.appInstallScope().strip();
         if (!properties.isAndroidEnabled() || request.credentialType() != CredentialType.PLATFORM_PUBLIC_KEY
-                || !properties.getAllowedAndroidScopes().contains(scope)) {
+                || !properties.isAndroidScopeAllowed(scope)) {
             throw new ApiException(HttpStatus.FORBIDDEN, "DEVICE_PROVIDER_NOT_ALLOWED", "The Android provider is not enabled for this scope");
         }
         rateLimiter.require("android-registration", remoteAddress, 30, Duration.ofMinutes(1));

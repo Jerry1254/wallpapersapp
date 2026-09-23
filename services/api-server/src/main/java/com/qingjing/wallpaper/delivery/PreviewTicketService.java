@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qingjing.wallpaper.asset.application.FileStorage;
 import com.qingjing.wallpaper.asset.application.StorageKey;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.DeliveryPlatform;
-import com.qingjing.wallpaper.catalog.DeviceCatalogVisibility;
 import com.qingjing.wallpaper.catalog.PublicWallpaperViewReader;
 import com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec;
 import com.qingjing.wallpaper.device.*;
@@ -25,24 +24,15 @@ public class PreviewTicketService {
     private final JdbcTemplate jdbc;private final StringRedisTemplate redis;private final SecurityCrypto crypto;
     private final RedisRateLimiter limiter;private final DeviceProperties devices;private final InstallationEncryptionKeys keys;
     private final PublicWallpaperViewReader wallpapers;private final FileStorage storage;private final ObjectMapper mapper;
-    private final DeviceCatalogVisibility visibility;
     private final Semaphore reads=new Semaphore(4);
     private static final Duration TTL=Duration.ofSeconds(90);
     public PreviewTicketService(JdbcTemplate jdbc,StringRedisTemplate redis,SecurityCrypto crypto,RedisRateLimiter limiter,
-        DeviceProperties devices,InstallationEncryptionKeys keys,PublicWallpaperViewReader wallpapers,FileStorage storage,ObjectMapper mapper,
-        DeviceCatalogVisibility visibility) {
+        DeviceProperties devices,InstallationEncryptionKeys keys,PublicWallpaperViewReader wallpapers,FileStorage storage,ObjectMapper mapper) {
         this.jdbc=jdbc;this.redis=redis;this.crypto=crypto;this.limiter=limiter;this.devices=devices;this.keys=keys;this.wallpapers=wallpapers;this.storage=storage;this.mapper=mapper;
-        this.visibility=visibility;
     }
     public PreviewDtos.PreviewDescriptor create(DevicePrincipal principal,long wallpaperId,PreviewDtos.CreatePreviewTicketRequest request) {
         limiter.require("preview-ticket",Long.toString(principal.deviceId()),6,Duration.ofMinutes(1));
         if(principal.platform()!=DeviceDtos.DevicePlatform.ANDROID || !devices.isAndroidEnabled()) throw unavailable();
-        if((request.deliveryPlatform()!=DeliveryPlatform.ANDROID && request.deliveryPlatform()!=DeliveryPlatform.UNIVERSAL)
-                || !Set.of("STATIC_IMAGE","VIDEO","LAYER_PARALLAX").contains(request.resourceType().name())) throw unavailable();
-        boolean allowed=visibility.resolve(principal.deviceId()).capabilities(wallpaperId).stream()
-                .anyMatch(capability -> capability.deliveryPlatform()==request.deliveryPlatform()
-                        && capability.resourceType()==request.resourceType());
-        if(!allowed) throw new ApiException(HttpStatus.NOT_FOUND,"WALLPAPER_NOT_AVAILABLE_FOR_DEVICE","The requested preview is not available for this device");
         wallpapers.summary(wallpaperId);
         var publicKey=keys.require(principal);String fingerprint=SecurePackageCodec.sha256(publicKey.getEncoded());
         var candidates=jdbc.query(SELECT+" WHERE w.id=? AND w.status='PUBLISHED' AND r.status='PUBLISHED' AND v.enabled=TRUE AND v.platform=? AND v.resource_type=? ORDER BY r.version_no DESC,r.id",PreviewTicketService::row,wallpaperId,request.deliveryPlatform().name(),request.resourceType().name());
@@ -85,15 +75,10 @@ public class PreviewTicketService {
             SELECT d.app_install_scope FROM anonymous_device d JOIN device_credential c ON c.device_id=d.id JOIN device_encryption_key k ON k.credential_id=c.id
             WHERE d.id=? AND d.status='ACTIVE' AND d.platform='ANDROID' AND c.credential_key_id=? AND c.status='ACTIVE' AND k.public_key_sha256=?
             """,String.class,ticket.device(),ticket.credential(),ticket.fingerprint());
-        if(scopes.size()!=1 || !devices.getAllowedAndroidScopes().contains(scopes.get(0))) throw invalid();
-        var rows=jdbc.query(SELECT+" WHERE r.id=? AND w.id=? AND w.status='PUBLISHED' AND r.status='PUBLISHED' AND v.enabled=TRUE AND v.platform IN ('ANDROID','UNIVERSAL')",PreviewTicketService::row,ticket.version(),ticket.wallpaper());
+        if(scopes.size()!=1 || !devices.isAndroidScopeAllowed(scopes.get(0))) throw invalid();
+        var rows=jdbc.query(SELECT+" WHERE r.id=? AND w.id=? AND w.status='PUBLISHED' AND r.status='PUBLISHED' AND v.enabled=TRUE",PreviewTicketService::row,ticket.version(),ticket.wallpaper());
         if(rows.size()!=1) throw invalid();
-        Package resource=rows.get(0);
-        boolean stillAvailable=visibility.resolve(ticket.device()).capabilities(ticket.wallpaper()).stream()
-                .anyMatch(capability -> capability.deliveryPlatform().name().equals(resource.platform())
-                        && capability.resourceType().name().equals(resource.type()));
-        if(!stillAvailable) throw invalid();
-        return resource;
+        return rows.get(0);
     }
     private String ticketKey(String token) { return "preview-ticket-v1:"+crypto.hmacHex("preview-ticket-v1",token); }
     private static final String SELECT="""

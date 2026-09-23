@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qingjing.wallpaper.asset.application.FileStorage;
 import com.qingjing.wallpaper.asset.application.StorageKey;
 import com.qingjing.wallpaper.catalog.PublicWallpaperViewReader;
-import com.qingjing.wallpaper.catalog.DeviceCatalogVisibility;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.DeliveryPlatform;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.ResourceType;
 import com.qingjing.wallpaper.catalog.WallpaperAccessType;
@@ -38,31 +37,23 @@ public class DownloadTicketService {
     private final ObjectMapper mapper;
     private final FileStorage storage;
     private final DeviceProperties devices;
-    private final DeviceCatalogVisibility visibility;
     private final Semaphore reads = new Semaphore(4);
     private static final Duration TTL = Duration.ofSeconds(90);
     public DownloadTicketService(JdbcTemplate jdbc, PublicWallpaperViewReader wallpapers, RedisRateLimiter rateLimiter,
             StringRedisTemplate redis, SecurityCrypto crypto, InstallationEncryptionKeys keys, ObjectMapper mapper,
-            FileStorage storage, DeviceProperties devices, DeviceCatalogVisibility visibility) {
+            FileStorage storage, DeviceProperties devices) {
         this.jdbc=jdbc; this.wallpapers=wallpapers; this.rateLimiter=rateLimiter; this.redis=redis;
         this.crypto=crypto; this.keys=keys; this.mapper=mapper; this.storage=storage; this.devices=devices;
-        this.visibility=visibility;
     }
     public DownloadDescriptor create(DevicePrincipal principal,long wallpaperId,CreateDownloadTicketRequest request) {
         rateLimiter.require("download-ticket",Long.toString(principal.deviceId()),30,Duration.ofMinutes(1));
         Access access=access(wallpaperId);
-        boolean allowed=visibility.resolve(principal.deviceId()).capabilities(wallpaperId).stream()
-                .anyMatch(capability -> capability.deliveryPlatform()==request.deliveryPlatform()
-                        && capability.resourceType()==request.resourceType());
-        if (!allowed) throw new ApiException(HttpStatus.NOT_FOUND,"WALLPAPER_NOT_AVAILABLE_FOR_DEVICE","The requested resource is not available for this device");
         Authorization authorization=access.type()==WallpaperAccessType.FREE?Authorization.FREE:Authorization.ENTITLEMENT;
         if (authorization==Authorization.ENTITLEMENT && !entitled(principal.deviceId(),wallpaperId)) throw new ApiException(HttpStatus.FORBIDDEN,"ENTITLEMENT_REQUIRED","An active entitlement is required");
         var wallpaper=wallpapers.summary(wallpaperId);
         if (principal.platform()==DevicePlatform.H5_TEST) return new DownloadDescriptor(
                 DeliveryMode.H5_PLACEHOLDER,Long.toString(wallpaperId),wallpaper.cover(),null,null,null,null,null);
-        if (principal.platform()!=DevicePlatform.ANDROID || !devices.isAndroidEnabled()
-                || (request.deliveryPlatform()!=DeliveryPlatform.ANDROID
-                    && request.deliveryPlatform()!=DeliveryPlatform.UNIVERSAL)) throw unavailable();
+        if (principal.platform()!=DevicePlatform.ANDROID || !devices.isAndroidEnabled()) throw unavailable();
         var encryptionKey=keys.require(principal);
         String fingerprint=SecurePackageCodec.sha256(encryptionKey.getEncoded());
         List<PackageRow> candidates=jdbc.query(SELECT_PACKAGE+" WHERE w.id=? AND w.status='PUBLISHED' AND r.status='PUBLISHED' AND v.enabled=TRUE AND v.platform=? AND v.resource_type=? ORDER BY r.version_no DESC,r.id",DownloadTicketService::row,wallpaperId,request.deliveryPlatform().name(),request.resourceType().name());
@@ -124,14 +115,10 @@ public class DownloadTicketService {
                 WHERE d.id=? AND d.status='ACTIVE' AND d.platform='ANDROID'
                   AND c.credential_key_id=? AND c.status='ACTIVE' AND k.public_key_sha256=?
                 """,String.class,state.deviceId(),state.credentialKeyId(),state.keyHash());
-        if (credentials.size()!=1 || !devices.getAllowedAndroidScopes().contains(credentials.get(0))) throw invalid();
-        var resources=jdbc.query(SELECT_PACKAGE+" WHERE r.id=? AND w.id=? AND w.status='PUBLISHED' AND r.status='PUBLISHED' AND v.enabled=TRUE AND v.platform IN ('ANDROID','UNIVERSAL')",DownloadTicketService::row,state.versionId(),state.wallpaperId());
+        if (credentials.size()!=1 || !devices.isAndroidScopeAllowed(credentials.get(0))) throw invalid();
+        var resources=jdbc.query(SELECT_PACKAGE+" WHERE r.id=? AND w.id=? AND w.status='PUBLISHED' AND r.status='PUBLISHED' AND v.enabled=TRUE",DownloadTicketService::row,state.versionId(),state.wallpaperId());
         if (resources.size()!=1) throw invalid();
         PackageRow resource=resources.get(0);
-        boolean stillAvailable=visibility.resolve(state.deviceId()).capabilities(state.wallpaperId()).stream()
-                .anyMatch(capability -> capability.deliveryPlatform().name().equals(resource.platform())
-                        && capability.resourceType().name().equals(resource.type()));
-        if(!stillAvailable) throw invalid();
         return resource;
     }
     private boolean entitled(long device,long wallpaper) {

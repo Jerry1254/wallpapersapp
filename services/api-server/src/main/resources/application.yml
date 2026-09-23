@@ -45,7 +45,7 @@ management:
 info:
   app:
     name: ${spring.application.name}
-    contract-version: ${QJ_API_CONTRACT_VERSION:2.3.0}
+    contract-version: ${QJ_API_CONTRACT_VERSION:2.4.0}
     environment-id: ${QJ_ENVIRONMENT_ID:UNCONFIGURED}
     deployment-stage: ${QJ_DEPLOYMENT_STAGE:UNCONFIGURED}
     git-commit: ${QJ_DEPLOYMENT_GIT_COMMIT:unknown}
@@ -65,6 +65,9 @@ qingjing:
   device:
     h5-test-enabled: false
     allowed-h5-scopes: []
+    online-test-android-scopes:
+      - com.qingjing.bizhi.internal
+      - com.qingjing.bizhi.lab
     challenge-ttl: 2m
     session-ttl: 30m
     clock-skew: 5m

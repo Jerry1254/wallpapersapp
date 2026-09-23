@@ -25,9 +25,10 @@ public final class SecurePackageCodec {
     public static final int MAX_PAYLOAD_BYTES = 64 * 1024 * 1024;
     private static final byte[] MAGIC = "QJWP0002".getBytes(StandardCharsets.US_ASCII);
     private static final SecureRandom RANDOM = new SecureRandom();
-    private static final Set<String> TYPES = Set.of("STATIC_IMAGE", "VIDEO", "LAYER_PARALLAX");
+    private static final Set<String> TYPES = Set.of("STATIC_IMAGE", "VIDEO", "LAYER_PARALLAX", "LIVE_PHOTO");
     private static final Map<String, String> EXTENSIONS = Map.of(
-            "image/jpeg", "jpg", "image/png", "png", "image/webp", "webp", "video/mp4", "mp4", "application/json", "json");
+            "image/jpeg", "jpg", "image/png", "png", "image/webp", "webp", "video/mp4", "mp4",
+            "video/quicktime", "mov", "application/json", "json");
     private final ObjectMapper mapper;
     public SecurePackageCodec(ObjectMapper mapper) { this.mapper = mapper; }
 
@@ -62,7 +63,7 @@ public final class SecurePackageCodec {
                 !(signingKey instanceof RSAKey rsa) || rsa.getModulus().bitLength() != 2048) {
             throw new IllegalArgumentException("Invalid package signing key");
         }
-        validate(payloads, identity.resourceType());
+        validate(payloads, identity.resourceType(), preview);
         try {
             Map<String, byte[]> files = new LinkedHashMap<>();
             List<Map<String, Object>> entries = new ArrayList<>();
@@ -110,12 +111,14 @@ public final class SecurePackageCodec {
             return cipher.doFinal(contentKey);
         } catch (GeneralSecurityException exception) { throw new IllegalStateException("Content key wrapping failed", exception); }
     }
-    private static void validate(List<Payload> payloads, String type) {
+    private static void validate(List<Payload> payloads, String type, boolean preview) {
         if (payloads == null || payloads.isEmpty() || payloads.size() > 16) throw new IllegalArgumentException("Invalid payload count");
+        if (!preview && type.equals("LIVE_PHOTO")) throw new IllegalArgumentException("Live Photo is preview-only in this package format");
         Set<String> seen = new HashSet<>(), roles = new HashSet<>(); long bytes = 0;
         Set<String> allowed = switch (type) {
             case "STATIC_IMAGE" -> Set.of("STATIC_IMAGE");
             case "VIDEO" -> Set.of("VIDEO");
+            case "LIVE_PHOTO" -> Set.of("LIVE_PHOTO_VIDEO");
             default -> Set.of("BACKGROUND", "FOREGROUND", "PARALLAX_CONFIG");
         };
         for (Payload payload : payloads) {
@@ -124,6 +127,7 @@ public final class SecurePackageCodec {
                     !seen.add(payload.role() + ":" + payload.ordinal())) throw new IllegalArgumentException("Invalid payload");
             boolean mimeMatches = switch (payload.role()) {
                 case "VIDEO" -> payload.mimeType().equals("video/mp4");
+                case "LIVE_PHOTO_VIDEO" -> payload.mimeType().equals("video/mp4") || payload.mimeType().equals("video/quicktime");
                 case "PARALLAX_CONFIG" -> payload.mimeType().equals("application/json") && payload.content().length <= 65536;
                 default -> payload.mimeType().startsWith("image/");
             };

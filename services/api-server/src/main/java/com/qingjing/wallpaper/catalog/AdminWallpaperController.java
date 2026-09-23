@@ -94,6 +94,7 @@ public class AdminWallpaperController {
             @PathVariable String wallpaperId,
             @RequestHeader("If-Match") String ifMatch,
             @Valid @RequestBody PublishWallpaperRequest request) {
+        request.resourceVersionIds().forEach(id -> packages.prepareForPublication(Ids.parse(id, "resourceVersionIds")));
         AdminWallpaperDetail wallpaper = wallpapers.publish(
                 Ids.parse(wallpaperId, "wallpaperId"),
                 EntityTags.parseRequired(ifMatch),
