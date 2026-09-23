@@ -186,7 +186,7 @@ verify_slot_gateway() {
 
   assert_slot_process_owns_ports "${slot}"
   curl --fail --silent --show-error --connect-timeout 3 --max-time 10 \
-    "http://127.0.0.1:$(slot_port "${slot}")/api/v1/public/categories?page=0&size=1" \
+    "http://127.0.0.1:$(slot_port "${slot}")/api/v1/public/wallpaper-tutorials" \
     >/dev/null || fail "候选 API 公开目录检查失败"
 }
 
@@ -230,7 +230,7 @@ verify_public_endpoints() {
     || fail "管理后台 HTTPS 冒烟检查失败"
   curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
     --resolve "${api_host}:443:127.0.0.1" \
-    "https://${api_host}/api/v1/public/categories?page=0&size=1" >/dev/null \
+    "https://${api_host}/api/v1/public/wallpaper-tutorials" >/dev/null \
     || fail "公网 API 公开目录检查失败"
 }
 

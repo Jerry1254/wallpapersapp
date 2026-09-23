@@ -43,6 +43,8 @@ try {
   assert(controller.includes('BLUE_PORT=8080') && controller.includes('GREEN_PORT=8082'), '蓝绿 API 端口必须隔离')
   assert(controller.includes("printf 'MANAGEMENT_SERVER_PORT=%s\\n'"), 'Spring Boot 管理端口变量名必须正确')
   assert(!controller.includes("printf 'MANAGEMENT_PORT=%s\\n'"), '禁止使用无效的管理端口变量')
+  assert(controller.includes('/api/v1/public/wallpaper-tutorials'), '冒烟检查必须请求真实无需设备会话的公开接口')
+  assert(!controller.includes('/api/v1/public/categories'), '冒烟检查不得请求需要设备会话的分类接口')
   assert(controller.includes('QJ_SCHEDULING_ENABLED=false') && controller.includes('QJ_SCHEDULING_ENABLED=true'), '定时任务必须保持单实例')
   assert(controller.includes('verify_slot_identity'), '候选 API 必须核对制品身份')
   assert(controller.includes('check_pending_migration_policy'), 'Flyway 发布必须检查破坏性语句')
