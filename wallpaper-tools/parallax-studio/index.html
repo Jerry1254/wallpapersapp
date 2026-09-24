@@ -61,7 +61,7 @@
 </defs></svg>
 
 <header class="appbar">
-  <div class="brand"><span class="brand-mark"><svg><use href="#i-layers"/></svg></span><div><strong>倾境</strong><span>4D 壁纸工作台</span></div><span class="version">2.1.0</span></div>
+  <div class="brand"><span class="brand-mark"><svg><use href="#i-layers"/></svg></span><div><strong>倾境</strong><span>4D 壁纸工作台</span></div><span class="version" data-tool-version></span></div>
   <div class="project-title"><span id="project-title">城市飞行</span><span id="dirty-mark" title="有未保存的修改">●</span></div>
   <nav class="project-actions" aria-label="项目操作">
     <button id="new-btn" title="新建工程"><svg><use href="#i-plus"/></svg><span>新建</span></button>
@@ -174,7 +174,7 @@
 </dialog>
 
 <dialog id="help-dialog" class="dialog help-dialog">
-  <div class="dialog-heading"><div><h2>使用说明</h2><p>倾境 4D 壁纸工作台 · 本地版 2.0.0</p></div><button data-close-dialog class="icon-button" aria-label="关闭"><svg><use href="#i-close"/></svg></button></div>
+  <div class="dialog-heading"><div><h2>使用说明</h2><p>倾境 4D 壁纸工作台 · 本地版 <span data-tool-version></span></p></div><button data-close-dialog class="icon-button" aria-label="关闭"><svg><use href="#i-close"/></svg></button></div>
   <div class="dialog-body help-copy">
     <h3>从素材到壁纸</h3><ol><li>新建工程，或直接打开内置示例。</li><li>导入同尺寸的分层图。前景需要透明通道，最后一层背景必须完全不透明。</li><li>调整左侧图层顺序，再为每层设置位移百分比、缩放、不透明度和混合模式。</li><li>拖动样机、调整角度或开启自动演示，检查四个方向的位移、裁切和遮挡。</li><li>保存工程用于继续编辑；导出壁纸 ZIP 后上传到 App 管理后台。</li></ol>
     <h3>v2 位移规则</h3><p>每层分别设置位移比例和“跟随 / 反向 / 固定”方向。屏幕对应轴长记为 100%：10% 移动 0.1 屏，100% 移动 1 屏，200% 移动 2 屏。位移比例只要求是非负有限数值，不设置产品上限，图层可以移出屏幕；0% 或“固定”都不会移动。</p><p>满幅角度支持 1°～75°。从中立位置的 0° 变化开始线性响应：满幅设为 75° 时，37.5° 产生配置位移的一半，75° 产生全部配置位移。没有启动死区、增强曲线或全局运动强度。浏览器预览使用与 Android 相同的固定平滑时间基准。</p><p>最后背景会按实际位移自动增加显示范围并裁切，避免露边。这个保护只发生在绘制阶段，不修改图片文件，不压缩或降低源分辨率。</p>
@@ -467,6 +467,10 @@ window.PARALLAX_SAMPLE = [{"name":"debris.png","label":"碎片","opacity":1,"sca
 <script>
 (function(){
   'use strict';
+  // 每次修改生成器功能时递增此版本；页面所有版本展示统一读取这里。
+  const TOOL_VERSION='2.2.0';
+  document.querySelectorAll('[data-tool-version]').forEach(node=>node.textContent=TOOL_VERSION);
+  document.title='倾境 · 4D 壁纸工作台 '+TOOL_VERSION;
   const $=id=>document.getElementById(id), C=window.ParallaxCore, A=window.ParallaxArchive;
   const devices=window.PARALLAX_DEVICES;
   const TILT_LIMIT=C.MAX_ANGLE;
