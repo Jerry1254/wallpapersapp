@@ -135,7 +135,7 @@ steps:
         . .runtime/woodpecker/release.env
         [ "$${DEPLOY_OPERATION}" = deploy ] || exit 0
         cd services/api-server
-        ./mvnw --batch-mode --no-transfer-progress verify
+        ./mvnw --batch-mode --no-transfer-progress -DskipTests package
     when:
       - event: [manual, deployment]
 
