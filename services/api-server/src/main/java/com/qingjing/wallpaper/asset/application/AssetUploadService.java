@@ -8,10 +8,15 @@ public final class AssetUploadService {
 
     private final FileStorage fileStorage;
     private final AssetContentValidator contentValidator;
+    private final CoverImageOptimizer coverImageOptimizer;
 
-    public AssetUploadService(FileStorage fileStorage, AssetContentValidator contentValidator) {
+    public AssetUploadService(
+            FileStorage fileStorage,
+            AssetContentValidator contentValidator,
+            CoverImageOptimizer coverImageOptimizer) {
         this.fileStorage = fileStorage;
         this.contentValidator = contentValidator;
+        this.coverImageOptimizer = coverImageOptimizer;
     }
 
     public ValidatedAsset upload(
@@ -22,16 +27,29 @@ public final class AssetUploadService {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(purpose, "purpose");
 
-        StagedObject stagedObject = fileStorage.stage(source, purpose.maximumBytes());
+        StagedObject uploaded = fileStorage.stage(source, purpose.maximumBytes());
+        StagedObject readyToStore = uploaded;
+        boolean uploadedDiscarded = false;
         boolean committed = false;
         RuntimeException uploadFailure = null;
         try {
-            AssetMetadata metadata = contentValidator.validate(stagedObject, purpose, declaredContentType);
-            StoredObject storedObject = fileStorage.commit(stagedObject, metadata.type().extension());
+            AssetMetadata metadata = contentValidator.validate(uploaded, purpose, declaredContentType);
+            if (purpose == AssetPurpose.WALLPAPER_COVER) {
+                readyToStore = coverImageOptimizer.optimize(uploaded);
+                metadata = contentValidator.validate(readyToStore, purpose, "image/webp");
+                if (metadata.type() != DetectedAssetType.WEBP) {
+                    throw new AssetValidationException(
+                            AssetValidationException.Code.INVALID_IMAGE,
+                            "The optimized wallpaper cover is not WebP");
+                }
+                fileStorage.discard(uploaded);
+                uploadedDiscarded = true;
+            }
+            StoredObject storedObject = fileStorage.commit(readyToStore, metadata.type().extension());
             committed = true;
             return new ValidatedAsset(
                     storedObject.storageKey(),
-                    sanitizeFilename(originalFilename, metadata.type().extension()),
+                    storedFilename(originalFilename, metadata.type().extension(), purpose),
                     metadata.type().mimeType(),
                     metadata.type().extension(),
                     storedObject.sizeBytes(),
@@ -45,7 +63,18 @@ public final class AssetUploadService {
         } finally {
             if (!committed) {
                 try {
-                    fileStorage.discard(stagedObject);
+                    fileStorage.discard(readyToStore);
+                } catch (RuntimeException cleanupFailure) {
+                    if (uploadFailure != null) {
+                        uploadFailure.addSuppressed(cleanupFailure);
+                    } else {
+                        throw cleanupFailure;
+                    }
+                }
+            }
+            if (!readyToStore.equals(uploaded) && !uploadedDiscarded) {
+                try {
+                    fileStorage.discard(uploaded);
                 } catch (RuntimeException cleanupFailure) {
                     if (uploadFailure != null) {
                         uploadFailure.addSuppressed(cleanupFailure);
@@ -55,6 +84,19 @@ public final class AssetUploadService {
                 }
             }
         }
+    }
+
+    private static String storedFilename(
+            String originalFilename,
+            String extension,
+            AssetPurpose purpose) {
+        String sanitized = sanitizeFilename(originalFilename, extension);
+        if (purpose != AssetPurpose.WALLPAPER_COVER) return sanitized;
+        int dot = sanitized.lastIndexOf('.');
+        String base = dot > 0 ? sanitized.substring(0, dot) : sanitized;
+        int maximumBaseLength = 255 - extension.length() - 1;
+        if (base.length() > maximumBaseLength) base = base.substring(0, maximumBaseLength);
+        return base + "." + extension;
     }
 
     private static String sanitizeFilename(String originalFilename, String fallbackExtension) {

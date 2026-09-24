@@ -311,7 +311,7 @@ class InfrastructureIntegrationIT {
 
         ResponseEntity<JsonNode> info = http.getForEntity("/actuator/info", JsonNode.class);
         assertThat(info.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(info.getBody().path("app").path("contract-version").asText()).isEqualTo("2.4.0");
+        assertThat(info.getBody().path("app").path("contract-version").asText()).isEqualTo("2.4.1");
         assertThat(info.getBody().path("app").path("environment-id").asText()).isEqualTo("UNCONFIGURED");
         assertThat(info.getBody().path("app").path("source-sha256").asText()).isEqualTo("unknown");
         assertThat(info.getBody().path("app").path("artifact-sha256").asText()).isEqualTo("unknown");
@@ -379,6 +379,11 @@ class InfrastructureIntegrationIT {
         JsonNode staticAsset = uploadAsset(session, "STATIC_IMAGE", "wallpaper.png", image);
         assertThat(icon.path("sha256").asText()).hasSize(64);
         assertThat(icon.has("storageKey")).isFalse();
+        assertThat(cover.path("originalFilename").asText()).isEqualTo("cover.webp");
+        assertThat(cover.path("mimeType").asText()).isEqualTo("image/webp");
+        assertThat(cover.path("widthPx").asInt()).isEqualTo(4);
+        assertThat(cover.path("heightPx").asInt()).isEqualTo(3);
+        assertThat(cover.path("sizeBytes").asLong()).isLessThanOrEqualTo(512L * 1024);
 
         ResponseEntity<byte[]> content = http.exchange(
                 icon.path("previewUrl").asText(),
@@ -542,7 +547,11 @@ class InfrastructureIntegrationIT {
         ResponseEntity<byte[]> publicCover = http.getForEntity(publicDetail.path("cover").path("contentUrl").asText(),
                 byte[].class);
         assertThat(publicCover.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(publicCover.getBody()).isEqualTo(image);
+        assertThat(publicDetail.path("cover").path("mimeType").asText()).isEqualTo("image/webp");
+        assertThat(publicCover.getHeaders().getContentType()).isEqualTo(MediaType.parseMediaType("image/webp"));
+        assertThat(new String(publicCover.getBody(), 0, 4, StandardCharsets.US_ASCII)).isEqualTo("RIFF");
+        assertThat(new String(publicCover.getBody(), 8, 4, StandardCharsets.US_ASCII)).isEqualTo("WEBP");
+        assertThat(publicCover.getBody()).hasSizeLessThanOrEqualTo(512 * 1024);
         assertThat(publicCover.getHeaders().getETag()).isEqualTo("\"" + cover.path("sha256").asText() + "\"");
         assertThat(publicCover.getHeaders().getCacheControl()).contains("public", "max-age=3600");
         assertThat(http.getForEntity("/api/v1/public/assets/" + staticAsset.path("id").asText() + "/content",

@@ -170,7 +170,7 @@ const resourceRows = computed(() => {
         <section class="editor-section">
           <div class="editor-section__heading"><h3>列表封面</h3><p>必填，用于 App 列表和详情入口；4D ZIP 不再包含或提供封面。</p></div>
           <div class="resource-grid"><div class="resource-grid__item span-2">
-            <ResourceFileField :model-value="form.resources.cover" label="列表封面（必填）" hint="JPG / PNG / WebP" accept="image/jpeg,image/png,image/webp" required @update:model-value="setResource('cover', $event)" />
+            <ResourceFileField :model-value="form.resources.cover" label="列表封面（必填）" hint="JPG / PNG / WebP，保存时自动压缩为最大 720×1280" accept="image/jpeg,image/png,image/webp" required @update:model-value="setResource('cover', $event)" />
             <p v-if="errors.cover" class="field-error">{{ errors.cover }}</p>
           </div></div>
         </section>

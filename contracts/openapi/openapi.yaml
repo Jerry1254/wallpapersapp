@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.4.0
+  version: 2.4.1
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -826,7 +826,9 @@ paths:
       tags: [Admin Asset]
       operationId: uploadAdminAsset
       summary: 上传并校验一个资源文件
-      description: 文件先写入隔离暂存区；校验通过后原子移入正式相对存储键。
+      description: |
+        文件先写入隔离暂存区；校验通过后原子移入正式相对存储键。
+        WALLPAPER_COVER 会在服务端统一缩小到不超过 720×1280，转换为 WebP 并移除原文件元数据；响应元数据为转换后文件。
       security:
         - adminCookie: []
           adminCsrf: []
@@ -2652,7 +2654,7 @@ components:
 
     AssetPurpose:
       type: string
-      description: 决定允许的 MIME、大小、解码和压缩包安全校验规则。
+      description: 决定允许的 MIME、大小、解码和压缩包安全校验规则；WALLPAPER_COVER 还会触发服务端 WebP 缩略图生成。
       enum:
         - CATEGORY_ICON
         - WALLPAPER_COVER

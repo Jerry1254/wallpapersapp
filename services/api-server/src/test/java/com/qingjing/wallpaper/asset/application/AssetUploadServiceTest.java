@@ -41,7 +41,10 @@ class AssetUploadServiceTest {
         storageRoot = temporaryDirectory.resolve("storage");
         storage = new LocalFileStorage(storageRoot);
         AssetContentValidator validator = new AssetContentValidator(storage, new ObjectMapper());
-        service = new AssetUploadService(storage, validator);
+        service = new AssetUploadService(
+                storage,
+                validator,
+                source -> storage.stage(new ByteArrayInputStream(webp(3, 2)), 512 * 1024));
     }
 
     @Test
@@ -59,9 +62,9 @@ class AssetUploadServiceTest {
                 "image/png; charset=binary",
                 AssetPurpose.WALLPAPER_COVER);
 
-        assertThat(first.originalFilename()).isEqualTo("cover.png");
-        assertThat(first.mimeType()).isEqualTo("image/png");
-        assertThat(first.fileExtension()).isEqualTo("png");
+        assertThat(first.originalFilename()).isEqualTo("cover.webp");
+        assertThat(first.mimeType()).isEqualTo("image/webp");
+        assertThat(first.fileExtension()).isEqualTo("webp");
         assertThat(first.widthPixels()).isEqualTo(3);
         assertThat(first.heightPixels()).isEqualTo(2);
         assertThat(first.sha256()).hasSize(64).isEqualTo(second.sha256());
@@ -69,10 +72,35 @@ class AssetUploadServiceTest {
         assertThat(first.storageKey().value()).doesNotContain("cover.png", temporaryDirectory.toString());
 
         try (StoredContent storedContent = storage.open(first.storageKey())) {
-            assertThat(storedContent.inputStream().readAllBytes()).isEqualTo(image);
+            assertThat(storedContent.inputStream().readAllBytes()).isEqualTo(webp(3, 2));
         }
         try (StoredContent storedContent = storage.open(second.storageKey())) {
-            assertThat(storedContent.inputStream().readAllBytes()).isEqualTo(image);
+            assertThat(storedContent.inputStream().readAllBytes()).isEqualTo(webp(3, 2));
+        }
+    }
+
+    @Test
+    void replacesWallpaperCoverWithOptimizedWebp() throws Exception {
+        byte[] optimized = webp(720, 1280);
+        AssetContentValidator validator = new AssetContentValidator(storage, new ObjectMapper());
+        AssetUploadService optimizedService = new AssetUploadService(
+                storage,
+                validator,
+                source -> storage.stage(new ByteArrayInputStream(optimized), 512 * 1024));
+
+        ValidatedAsset stored = optimizedService.upload(
+                new ByteArrayInputStream(png(2160, 3840)),
+                "../../高清列表封面.PNG",
+                "image/png",
+                AssetPurpose.WALLPAPER_COVER);
+
+        assertThat(stored.originalFilename()).isEqualTo("高清列表封面.webp");
+        assertThat(stored.mimeType()).isEqualTo("image/webp");
+        assertThat(stored.fileExtension()).isEqualTo("webp");
+        assertThat(stored.widthPixels()).isEqualTo(720);
+        assertThat(stored.heightPixels()).isEqualTo(1280);
+        try (StoredContent content = storage.open(stored.storageKey())) {
+            assertThat(content.inputStream().readAllBytes()).isEqualTo(optimized);
         }
     }
 
@@ -210,6 +238,30 @@ class AssetUploadServiceTest {
             throw new IOException("Test image encoder is unavailable: " + format);
         }
         return output.toByteArray();
+    }
+
+    private static byte[] webp(int width, int height) {
+        byte[] bytes = new byte[30];
+        System.arraycopy("RIFF".getBytes(StandardCharsets.US_ASCII), 0, bytes, 0, 4);
+        littleEndian(bytes, 4, bytes.length - 8);
+        System.arraycopy("WEBPVP8X".getBytes(StandardCharsets.US_ASCII), 0, bytes, 8, 8);
+        littleEndian(bytes, 16, 10);
+        littleEndian24(bytes, 24, width - 1);
+        littleEndian24(bytes, 27, height - 1);
+        return bytes;
+    }
+
+    private static void littleEndian(byte[] bytes, int offset, int value) {
+        bytes[offset] = (byte) value;
+        bytes[offset + 1] = (byte) (value >>> 8);
+        bytes[offset + 2] = (byte) (value >>> 16);
+        bytes[offset + 3] = (byte) (value >>> 24);
+    }
+
+    private static void littleEndian24(byte[] bytes, int offset, int value) {
+        bytes[offset] = (byte) value;
+        bytes[offset + 1] = (byte) (value >>> 8);
+        bytes[offset + 2] = (byte) (value >>> 16);
     }
 
     private static byte[] zip(Map<String, String> entries) throws IOException {

@@ -30,6 +30,7 @@ import type {
   WallpaperTutorialKey,
   WallpaperVariant
 } from '@/domain/admin';
+import { optimizeCoverFile } from '@/utils/coverImage';
 import { ApiError, apiDownload, apiRequest, apiResourceUrl } from '@/repositories/http/apiClient';
 
 type AssetPurpose = 'CATEGORY_ICON' | 'WALLPAPER_COVER' | 'BACKGROUND' | 'FOREGROUND'
@@ -343,9 +344,20 @@ const variantSpecs = (value: Wallpaper): VariantSpec[] => {
 const uploadAsset = async (resource: ResourceFile, purpose: AssetPurpose) => {
   if (resource.assetId) return resource.assetId;
   if (!resource.nativeFile) throw new ApiError(422, 'ASSET_NOT_READY', `缺少资源：${resource.name}`);
+  const uploadFile = purpose === 'WALLPAPER_COVER'
+    ? await optimizeCoverFile(resource.nativeFile)
+    : resource.nativeFile;
+  if (uploadFile !== resource.nativeFile) {
+    Object.assign(resource, {
+      name: uploadFile.name,
+      size: uploadFile.size,
+      mime: uploadFile.type,
+      nativeFile: uploadFile
+    });
+  }
   const form = new FormData();
   form.set('purpose', purpose);
-  form.set('file', resource.nativeFile, resource.name);
+  form.set('file', uploadFile, uploadFile.name);
   const { data } = await apiRequest<ApiAsset>('/admin/assets', { method: 'POST', body: form, csrf: true });
   if (data.validationStatus !== 'READY') throw new ApiError(422, 'ASSET_NOT_READY', `${resource.name} 尚未通过校验`);
   resource.assetId = data.id;
