@@ -8,8 +8,10 @@ import '../device/device_session.dart';
 class DownloadState {
   const DownloadState({
     this.wallpaperId,
+    this.deliveryPlatform,
     this.resourceType,
     this.requestId,
+    this.afterRedemption = false,
     this.busy = false,
     this.status = '',
     this.received = 0,
@@ -17,8 +19,13 @@ class DownloadState {
     this.message,
     this.installedId,
   });
-  final String? wallpaperId, resourceType, requestId, message, installedId;
-  final bool busy;
+  final String? wallpaperId,
+      deliveryPlatform,
+      resourceType,
+      requestId,
+      message,
+      installedId;
+  final bool busy, afterRedemption;
   final String status;
   final int received, total;
 }
@@ -41,16 +48,19 @@ class DownloadManager extends ValueNotifier<DownloadState> {
   Future<void> download(
     String wallpaper,
     String deliveryPlatform,
-    String type,
-  ) async {
+    String type, {
+    bool afterRedemption = false,
+  }) async {
     if (value.busy || _operationActive) return;
     _operationActive = true;
     final requestId = requestUuid();
     _cancelRequested = false;
     value = DownloadState(
       wallpaperId: wallpaper,
+      deliveryPlatform: deliveryPlatform,
       resourceType: type,
       requestId: requestId,
+      afterRedemption: afterRedemption,
       busy: true,
       status: 'preparing',
     );
@@ -59,8 +69,10 @@ class DownloadManager extends ValueNotifier<DownloadState> {
         if (event.requestId != requestId || !value.busy) return;
         value = DownloadState(
           wallpaperId: wallpaper,
+          deliveryPlatform: deliveryPlatform,
           resourceType: type,
           requestId: requestId,
+          afterRedemption: afterRedemption,
           busy: true,
           status: event.status,
           received: event.receivedBytes,
@@ -101,8 +113,10 @@ class DownloadManager extends ValueNotifier<DownloadState> {
       final installed = await installer.install(requestId);
       value = DownloadState(
         wallpaperId: wallpaper,
+        deliveryPlatform: deliveryPlatform,
         resourceType: type,
         requestId: requestId,
+        afterRedemption: afterRedemption,
         status: installed.status == OperationStatus.completed
             ? 'completed'
             : 'failed',
@@ -114,8 +128,10 @@ class DownloadManager extends ValueNotifier<DownloadState> {
     } catch (e) {
       value = DownloadState(
         wallpaperId: wallpaper,
+        deliveryPlatform: deliveryPlatform,
         resourceType: type,
         requestId: requestId,
+        afterRedemption: afterRedemption,
         status: 'failed',
         message: e is DeviceApiError
             ? switch (e.code) {
@@ -132,7 +148,9 @@ class DownloadManager extends ValueNotifier<DownloadState> {
       if (value.busy) {
         value = DownloadState(
           wallpaperId: wallpaper,
+          deliveryPlatform: deliveryPlatform,
           resourceType: type,
+          afterRedemption: afterRedemption,
           status: 'cancelled',
           message: '下载已取消，可重新下载',
         );
@@ -145,6 +163,26 @@ class DownloadManager extends ValueNotifier<DownloadState> {
     _cancelRequested = true;
     final id = value.requestId;
     if (id != null) await installer.cancel(id);
+  }
+
+  Future<void> retry() async {
+    final current = value;
+    final wallpaper = current.wallpaperId;
+    final platform = current.deliveryPlatform;
+    final type = current.resourceType;
+    if (current.busy || wallpaper == null || platform == null || type == null) {
+      return;
+    }
+    await download(
+      wallpaper,
+      platform,
+      type,
+      afterRedemption: current.afterRedemption,
+    );
+  }
+
+  void dismissResult() {
+    if (!value.busy) value = const DownloadState();
   }
 
   Future<int> clearUnused() async {

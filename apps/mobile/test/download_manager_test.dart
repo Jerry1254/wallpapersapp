@@ -91,7 +91,12 @@ void main() {
       Uri.parse('https://example.test/api/v1'),
       installer: installer,
     );
-    final operation = manager.download('10', 'UNIVERSAL', 'STATIC_IMAGE');
+    final operation = manager.download(
+      '10',
+      'UNIVERSAL',
+      'STATIC_IMAGE',
+      afterRedemption: true,
+    );
     await Future<void>.delayed(Duration.zero);
     expect(
       installer.prepared?.url.toString(),
@@ -113,6 +118,7 @@ void main() {
     expect(manager.value.busy, true);
     expect(manager.value.installedId, isNull);
     expect(manager.value.status, 'verifying');
+    expect(manager.value.afterRedemption, isTrue);
     installer.installed.complete(
       const PlatformResult(
         OperationStatus.completed,
@@ -121,6 +127,7 @@ void main() {
     );
     await operation;
     expect(manager.value.installedId, 'verified-version');
+    expect(manager.value.afterRedemption, isTrue);
     expect(manager.value.busy, false);
     manager.dispose();
     await installer.stream.close();

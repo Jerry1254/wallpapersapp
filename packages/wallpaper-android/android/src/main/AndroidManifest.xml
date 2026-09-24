@@ -1,10 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <queries>
         <intent><action android:name="android.service.wallpaper.CHANGE_LIVE_WALLPAPER" /></intent>
         <intent><action android:name="android.service.wallpaper.WallpaperService" /></intent>
     </queries>
     <application>
+        <service android:name=".install.DownloadForegroundService" android:exported="false"
+            android:foregroundServiceType="dataSync" />
         <activity android:name=".playback.NativeWallpaperActivity" android:exported="false"
             android:configChanges="orientation|screenSize" android:theme="@android:style/Theme.Material.NoActionBar" />
         <activity android:name=".playback.NativeTrialActivity" android:exported="false"

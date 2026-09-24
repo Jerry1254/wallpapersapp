@@ -30,6 +30,7 @@ import javax.crypto.spec.PSource
 internal class AndroidPackageDelivery(private val context: Context,private val purpose: PackagePurpose = PackagePurpose.FORMAL,
     private val detailPreview: Boolean = false, private val event: (Map<String, Any>) -> Unit) {
     private val trial get() = purpose == PackagePurpose.APP_PREVIEW
+    private val formal get() = purpose == PackagePurpose.FORMAL && !detailPreview
     private val store = if(detailPreview) DetailPreviewRuntime.store(context) else if(trial) TrialRuntime.store(context) else PackageRuntime.store(context)
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -53,6 +54,9 @@ internal class AndroidPackageDelivery(private val context: Context,private val p
         require(java.util.UUID.fromString(id).toString() == id)
         val transfer = Transfer(id)
         if (!active.compareAndSet(null, transfer)) { result.error("DOWNLOAD_BUSY", "已有下载正在进行，请稍后重试", null); return }
+        if (formal) {
+            try { DownloadForegroundService.start(context) } catch (_: Exception) { }
+        }
         executor.execute {
             var partial: File? = null; var staging: File? = null; var key: ByteArray? = null
             var phase = "metadata"
@@ -98,6 +102,7 @@ internal class AndroidPackageDelivery(private val context: Context,private val p
                 if (store.root.usableSpace < expected.size * 3 + 16*1024*1024) throw NoSpace()
                 partial = store.partial(); staging = store.staging()
                 fun report(status: String, received: Long = 0) {
+                    if (formal) DownloadForegroundService.update(status, received, expected.size)
                     main.post { event(mapOf("requestId" to id,"status" to status,"receivedBytes" to received,"totalBytes" to expected.size)) }
                 }
                 phase = "download"; report("downloading")
@@ -135,7 +140,11 @@ internal class AndroidPackageDelivery(private val context: Context,private val p
             } finally {
                 key?.fill(0); transfer.connection?.disconnect()
                 try { partial?.let { AtomicPackageStore.remove(it) }; staging?.let { AtomicPackageStore.remove(it) } }
-                finally { active.compareAndSet(transfer,null); if(trial && !detailPreview) TrialRuntime.cleanup(context) }
+                finally {
+                    active.compareAndSet(transfer,null)
+                    if(formal) DownloadForegroundService.stop(context)
+                    if(trial && !detailPreview) TrialRuntime.cleanup(context)
+                }
             }
         }
     }

@@ -1,7 +1,9 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qingjing_wallpaper/device/device_session.dart';
 import 'device_session_test.dart' show FakeIdentity;
 import 'package:qingjing_wallpaper/entitlements/redemption.dart';
+import 'package:qingjing_wallpaper/entitlements/redemption_dialog.dart';
 
 class MemoryStore implements PendingStore {
   PendingRedemption? value;
@@ -203,5 +205,43 @@ void main() {
     final message = await RedemptionCoordinator(api, store).redeem('1', code);
     expect(message, contains('无需兑换'));
     expect(store.value, isNull);
+  });
+
+  testWidgets('兑换成功后弹层立即返回成功结果', (tester) async {
+    final coordinator = RedemptionCoordinator(
+      FakeApi()
+        ..timeout = false
+        ..result = 'GRANTED',
+      MemoryStore(),
+    );
+    bool? granted;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => FilledButton(
+            onPressed: () async {
+              granted = await showModalBottomSheet<bool>(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) => RedemptionDialog(
+                  coordinator: coordinator,
+                  wallpaperId: '1',
+                ),
+              );
+            },
+            child: const Text('兑换'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('兑换'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), code);
+    await tester.tap(find.text('验证并兑换'));
+    await tester.pumpAndSettle();
+
+    expect(granted, isTrue);
+    expect(find.byType(RedemptionDialog), findsNothing);
   });
 }

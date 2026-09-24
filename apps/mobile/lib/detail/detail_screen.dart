@@ -69,6 +69,11 @@ class _DetailScreenState extends State<DetailScreen> {
     super.initState();
     future = widget.repository.detail(widget.id);
     scroll.addListener(_scrolled);
+    widget.downloads?.addListener(_downloadChanged);
+  }
+
+  void _downloadChanged() {
+    if (mounted) setState(() {});
   }
 
   void _scrolled() {
@@ -121,29 +126,26 @@ class _DetailScreenState extends State<DetailScreen> {
         .whenComplete(() => _checkingInstalled.remove(option.key));
   }
 
-  Future<void> _openDownload(WallpaperDeliveryOption option) async {
+  Future<void> _openDownload(
+    WallpaperDeliveryOption option, {
+    bool afterRedemption = false,
+  }) async {
     final manager = widget.downloads;
     if (manager == null) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      constraints: const BoxConstraints(maxWidth: T.sizeContentMax),
-      builder: (sheetContext) => DownloadPanel(
-        manager: manager,
-        wallpaperId: widget.id,
-        deliveryPlatform: option.deliveryPlatform,
-        resourceType: option.resourceType,
-        autoStart: true,
-        onReady: (id) {
-          Navigator.pop(sheetContext);
-          setState(() => installedIds[option.key] = id);
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _openTarget(option, id);
-          });
-        },
-      ),
+    await manager.download(
+      widget.id,
+      option.deliveryPlatform,
+      option.resourceType,
+      afterRedemption: afterRedemption,
     );
+    final state = manager.value;
+    if (mounted &&
+        state.status == 'completed' &&
+        state.wallpaperId == widget.id &&
+        state.deliveryPlatform == option.deliveryPlatform &&
+        state.resourceType == option.resourceType) {
+      setState(() => installedIds[option.key] = state.installedId);
+    }
   }
 
   Future<void> _openTarget(WallpaperDeliveryOption option, String id) async {
@@ -168,6 +170,7 @@ class _DetailScreenState extends State<DetailScreen> {
     Wallpaper wallpaper,
     WallpaperDeliveryOption option,
   ) async {
+    var redeemedNow = false;
     if (!wallpaper.isFree && owned == null && trials != null) {
       await _ownership();
       if (owned == null) return;
@@ -185,7 +188,13 @@ class _DetailScreenState extends State<DetailScreen> {
             RedemptionDialog(coordinator: coordinator, wallpaperId: widget.id),
       );
       if (granted != true) return;
-      if (mounted) setState(() => owned = true);
+      if (mounted) {
+        setState(() => owned = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('兑换成功'), duration: Duration(seconds: 1)),
+        );
+      }
+      redeemedNow = true;
     }
     if (!mounted) return;
     if (!option.canApplyOnAndroid) {
@@ -207,7 +216,7 @@ class _DetailScreenState extends State<DetailScreen> {
     if (installed != null) {
       await _openTarget(option, installed);
     } else {
-      await _openDownload(option);
+      await _openDownload(option, afterRedemption: redeemedNow);
     }
   }
 
@@ -271,6 +280,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
   @override
   void dispose() {
+    widget.downloads?.removeListener(_downloadChanged);
     scroll.dispose();
     if (widget.trials == null) trials?.dispose();
     super.dispose();
@@ -344,7 +354,24 @@ class _DetailScreenState extends State<DetailScreen> {
               final waitsForOwnership =
                   !wallpaper.isFree && trials != null && owned == null;
               final hasAccess = wallpaper.isFree || owned == true;
-              final label = !usable
+              final downloadState = widget.downloads?.value;
+              final downloadingCurrent =
+                  previewOption != null &&
+                  downloadState?.busy == true &&
+                  downloadState?.wallpaperId == widget.id &&
+                  downloadState?.deliveryPlatform ==
+                      previewOption.deliveryPlatform &&
+                  downloadState?.resourceType == previewOption.resourceType;
+              final progress = downloadingCurrent && downloadState!.total > 0
+                  ? (downloadState.received / downloadState.total * 100)
+                        .clamp(0, 100)
+                        .round()
+                  : null;
+              final label = downloadingCurrent
+                  ? progress == null
+                        ? '下载中'
+                        : '下载中 $progress%'
+                  : !usable
                   ? '暂无可用资源'
                   : waitsForOwnership
                   ? '正在确认权益'
@@ -454,6 +481,7 @@ class _DetailScreenState extends State<DetailScreen> {
                                 onPressed:
                                     usable &&
                                         !waitsForOwnership &&
+                                        !downloadingCurrent &&
                                         (wallpaper.isFree ||
                                             ownershipError == null)
                                     ? () => _action(wallpaper, previewOption!)

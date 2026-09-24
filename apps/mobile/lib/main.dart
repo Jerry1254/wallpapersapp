@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'design_system/qj_theme.dart';
@@ -11,6 +12,7 @@ import 'device/device_session.dart';
 import 'entitlements/redemption.dart';
 import 'entitlements/entitlements_screen.dart';
 import 'downloads/download_manager.dart';
+import 'downloads/global_download_dialog.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
 
 void main() {
@@ -76,6 +78,7 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
+  bool downloadDialogVisible = false;
   late final redemptions = RedemptionCoordinator(
     SessionRedemptionApi(widget.sessions),
     AndroidPendingStore(),
@@ -84,6 +87,7 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
+    downloads.addListener(_downloadChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         const native = AndroidTrialPreview();
@@ -96,8 +100,35 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   void dispose() {
+    downloads.removeListener(_downloadChanged);
     downloads.dispose();
     super.dispose();
+  }
+
+  void _downloadChanged() {
+    final state = downloads.value;
+    if (state.busy && !downloadDialogVisible) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && downloads.value.busy && !downloadDialogVisible) {
+          unawaited(_showDownloadDialog());
+        }
+      });
+      return;
+    }
+  }
+
+  Future<void> _showDownloadDialog() async {
+    downloadDialogVisible = true;
+    try {
+      await showDialog<void>(
+        context: context,
+        useRootNavigator: true,
+        barrierDismissible: false,
+        builder: (_) => GlobalDownloadDialog(manager: downloads),
+      );
+    } finally {
+      downloadDialogVisible = false;
+    }
   }
 
   @override

@@ -1,10 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qingjing_wallpaper/catalog/catalog.dart';
+import 'package:qingjing_wallpaper/device/device_session.dart';
 import 'package:qingjing_wallpaper/detail/delivery.dart';
 import 'package:qingjing_wallpaper/detail/detail_screen.dart';
 import 'package:qingjing_wallpaper/design_system/qj_components.dart';
+import 'package:qingjing_wallpaper/downloads/download_manager.dart';
 import 'package:qingjing_wallpaper/downloads/download_panel.dart';
+import 'package:wallpaper_android/wallpaper_android.dart';
 import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
 import 'catalog_test.dart' show FakeCatalog;
 
@@ -73,6 +77,28 @@ class MultiFormatDetailCatalog extends FakeCatalog {
       'placements': ['HOME'],
     },
   ]);
+}
+
+class _UnusedTransport implements DeviceTransport {
+  @override
+  Future<Map<String, dynamic>> request(
+    String path, {
+    String method = 'GET',
+    String? body,
+    Map<String, String> headers = const {},
+    Set<int> accepted = const {},
+  }) => throw UnimplementedError();
+}
+
+class _CurrentInstaller extends AndroidPackageInstaller {
+  final controller = StreamController<PackageDownloadProgress>.broadcast();
+
+  @override
+  Stream<PackageDownloadProgress> get progress => controller.stream;
+
+  @override
+  Future<String?> current(String wallpaperId, String resourceType) async =>
+      null;
 }
 
 void main() {
@@ -216,5 +242,53 @@ void main() {
           .selected,
       isTrue,
     );
+  });
+
+  testWidgets('详情主按钮同步显示当前资源下载进度', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final installer = _CurrentInstaller();
+    final manager = DownloadManager(
+      DeviceSessionManager(_UnusedTransport()),
+      Uri.parse('https://example.test/api/v1'),
+      installer: installer,
+    );
+    manager.value = const DownloadState(
+      wallpaperId: '1',
+      deliveryPlatform: 'UNIVERSAL',
+      resourceType: 'STATIC_IMAGE',
+      busy: true,
+      status: 'downloading',
+      received: 25,
+      total: 100,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DetailScreen(
+          repository: DetailCatalog(),
+          id: '1',
+          downloads: manager,
+          detailPreviewBuilder:
+              (
+                manager,
+                wallpaperId,
+                deliveryPlatform,
+                resourceType,
+                cover,
+                active,
+              ) => cover,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('下载中 25%'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    manager.dispose();
+    await installer.controller.close();
   });
 }

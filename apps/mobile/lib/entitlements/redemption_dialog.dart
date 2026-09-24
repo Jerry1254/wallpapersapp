@@ -17,7 +17,7 @@ class RedemptionDialog extends StatefulWidget {
 
 class _RedemptionDialogState extends State<RedemptionDialog> {
   final code = TextEditingController();
-  bool busy = false, pending = false, success = false;
+  bool busy = false, pending = false;
   String? message;
   @override
   void initState() {
@@ -53,14 +53,13 @@ class _RedemptionDialogState extends State<RedemptionDialog> {
         result.startsWith('兑换成功') ||
         result.startsWith('已拥有') ||
         result.contains('无需兑换');
+    if (granted) {
+      Navigator.pop(context, true);
+      return;
+    }
     setState(() {
       busy = false;
       message = result;
-      success = granted;
-      if (granted) {
-        pending = false;
-        code.clear();
-      }
     });
   }
 
@@ -119,7 +118,7 @@ class _RedemptionDialogState extends State<RedemptionDialog> {
         const SizedBox(height: 7),
         TextField(
           controller: code,
-          enabled: !busy && !success,
+          enabled: !busy,
           obscureText: true,
           autocorrect: false,
           enableSuggestions: false,
@@ -139,7 +138,7 @@ class _RedemptionDialogState extends State<RedemptionDialog> {
                 12,
                 FontWeight.w600,
                 T.lineHeightCaption,
-                success ? T.colorSuccess : T.colorDanger,
+                T.colorDanger,
               ),
             ),
           ),
@@ -153,15 +152,9 @@ class _RedemptionDialogState extends State<RedemptionDialog> {
         ],
         const SizedBox(height: T.space4),
         QjPrimaryAction(
-          label: success
-              ? '下载壁纸'
-              : pending
-              ? '使用原码重试本次兑换'
-              : '验证并兑换',
+          label: pending ? '使用原码重试本次兑换' : '验证并兑换',
           loading: busy,
-          onPressed: success
-              ? () => Navigator.pop(context, true)
-              : () => run(false),
+          onPressed: () => run(false),
         ),
       ],
     ),
