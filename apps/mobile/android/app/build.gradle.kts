@@ -79,7 +79,7 @@ android {
 
     buildTypes {
         release {
-            // Internal localRelease only. Production release remains unsigned.
+            // Each online flavor receives its signer from the local packaging environment below.
             signingConfig = null
         }
     }
@@ -92,7 +92,19 @@ flutter {
 // Test signing applies only to local artifacts, never to production.
 android.productFlavors.getByName("local").signingConfig = android.signingConfigs.getByName("debug")
 
-// Independent installation and signer for destructive QA; production stays unsigned.
+// Production signing is supplied only by the local packaging environment.
+val prodStore = System.getenv("QJ_PROD_KEYSTORE_FILE")
+if (!prodStore.isNullOrBlank()) {
+    val prodSigning = android.signingConfigs.create("prodRelease") {
+        storeFile = file(prodStore)
+        storePassword = System.getenv("QJ_PROD_KEYSTORE_PASSWORD")
+        keyAlias = System.getenv("QJ_PROD_KEY_ALIAS")
+        keyPassword = System.getenv("QJ_PROD_KEY_PASSWORD")
+    }
+    android.productFlavors.getByName("prod").signingConfig = prodSigning
+}
+
+// Independent signer for the separate 4D adjustment app and legacy internal flavor.
 val internalStore = System.getenv("QJ_INTERNAL_KEYSTORE_FILE")
 if (!internalStore.isNullOrBlank()) {
     val internalSigning = android.signingConfigs.create("internalTest") {
@@ -105,18 +117,12 @@ if (!internalStore.isNullOrBlank()) {
     android.productFlavors.getByName("lab").signingConfig = internalSigning
 }
 
-android.sourceSets.getByName("lab").manifest.srcFile("src/internal/AndroidManifest.xml")
-android.sourceSets.getByName("lab").res.srcDir("src/internal/res")
-
 val generateInternalTrustResources = tasks.register<GenerateInternalTrustResources>("generateInternalTrustResources") {
     certificate.set(layout.file(providers.environmentVariable("QJ_INTERNAL_TLS_CERT_FILE").map { file(it) }))
     outputDirectory.set(layout.buildDirectory.dir("generated/internalTrust/res"))
 }
 androidComponents {
     onVariants(selector().withFlavor("environment" to "internal")) { variant ->
-        variant.sources.res?.addGeneratedSourceDirectory(generateInternalTrustResources) { it.outputDirectory }
-    }
-    onVariants(selector().withFlavor("environment" to "lab")) { variant ->
         variant.sources.res?.addGeneratedSourceDirectory(generateInternalTrustResources) { it.outputDirectory }
     }
 }
