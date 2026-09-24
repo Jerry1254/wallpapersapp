@@ -5,7 +5,6 @@ set -euo pipefail
 DEPLOY_USER="qingjing-deploy"
 DEPLOY_HOME="/var/lib/qingjing-deploy"
 CONTROLLER="/usr/local/libexec/qingjing-deploy"
-UPLOAD_ROOT="/var/lib/qingjing-deploy/uploads"
 SSH_GATE="/usr/local/libexec/qingjing-deploy-ssh"
 SUDOERS_FILE="/etc/sudoers.d/qingjing-deploy"
 
@@ -98,6 +97,7 @@ cat > "${ssh_gate_candidate}" <<'SSH_GATE'
 set -euo pipefail
 
 CONTROLLER="/usr/local/libexec/qingjing-deploy"
+UPLOAD_ROOT="/var/lib/qingjing-deploy/uploads"
 
 fail() {
   printf '%s\n' '该部署密钥只允许调用受限发布控制器' >&2
