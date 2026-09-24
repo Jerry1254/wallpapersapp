@@ -2,27 +2,27 @@ package com.qingjing.wallpaper_android.playback
 
 import org.junit.Assert.*
 import org.junit.Test
-import kotlin.math.PI
 
 class ParallaxMotionTest {
-    @Test fun calibrationAndAngleWrap() {
-        assertEquals(.02f,ParallaxMotion.angleDelta((-PI+.01).toFloat(),(PI-.01).toFloat()),.0001f)
-        assertEquals(-.02f,ParallaxMotion.angleDelta((PI-.01).toFloat(),(-PI+.01).toFloat()),.0001f)
-        assertEquals(0f to 0f,ParallaxMotion.tilt(1f,2f,1f,2f,10f,20f,0))
-        assertEquals(0f,ParallaxMotion.angleDelta(Float.NaN,0f),0f)
+    @Test fun physicallyFlatPhoneIsAlwaysNeutral() {
+        for(rotation in 0..3) {
+            val value=ParallaxMotion.tilt(0f,0f,10f,20f,rotation)
+            assertEquals(0f,value.first,0f)
+            assertEquals(0f,value.second,0f)
+        }
     }
-    @Test fun rotationsAndClampedRange() {
+    @Test fun absoluteTiltsRespectScreenRotationAndClampedRange() {
         val angle = Math.toRadians(10.0).toFloat()
-        assertEquals(1f to 0f,ParallaxMotion.tilt(angle,0f,0f,0f,10f,20f,0))
-        val p = ParallaxMotion.tilt(angle,0f,0f,0f,20f,10f,1); assertEquals(0f,p.first,0f); assertEquals(1f,p.second,0f)
-        val q = ParallaxMotion.tilt(angle,0f,0f,0f,10f,20f,2); assertEquals(-1f,q.first,0f); assertEquals(0f,q.second,0f)
-        val r = ParallaxMotion.tilt(angle,0f,0f,0f,20f,10f,3); assertEquals(0f,r.first,0f); assertEquals(-1f,r.second,0f)
-        assertEquals(1f,ParallaxMotion.tilt(1f,0f,0f,0f,5f,75f,0).first,0f)
+        assertEquals(1f to 0f,ParallaxMotion.tilt(angle,0f,10f,20f,0))
+        val p = ParallaxMotion.tilt(angle,0f,20f,10f,1); assertEquals(0f,p.first,0f); assertEquals(1f,p.second,0f)
+        val q = ParallaxMotion.tilt(angle,0f,10f,20f,2); assertEquals(-1f,q.first,0f); assertEquals(0f,q.second,0f)
+        val r = ParallaxMotion.tilt(angle,0f,20f,10f,3); assertEquals(0f,r.first,0f); assertEquals(-1f,r.second,0f)
+        assertEquals(1f,ParallaxMotion.tilt(1f,0f,5f,75f,0).first,0f)
     }
     @Test fun respondsFromZeroAndSupportsSeventyFiveDegreeFullScale() {
-        val tiny = ParallaxMotion.tilt(Math.toRadians(.1).toFloat(),0f,0f,0f,75f,75f,0).first
+        val tiny = ParallaxMotion.tilt(Math.toRadians(.1).toFloat(),0f,75f,75f,0).first
         assertTrue(tiny > 0f)
-        assertEquals(1f,ParallaxMotion.tilt(Math.toRadians(75.0).toFloat(),0f,0f,0f,75f,75f,0).first,.00001f)
+        assertEquals(1f,ParallaxMotion.tilt(Math.toRadians(75.0).toFloat(),0f,75f,75f,0).first,.00001f)
     }
     @Test fun extremeMotionNeverExposesUncoveredEdgesWithoutNeutralCorrection() {
         for ((w,h) in listOf(1080 to 2400,2400 to 1080,512 to 512))

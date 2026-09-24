@@ -6,15 +6,9 @@ import kotlin.math.pow
 
 /** Geometry migrated from PoC TiltSensor/ParallaxScene, independent of Android for boundary tests. */
 internal object ParallaxMotion {
-    fun angleDelta(angle: Float, base: Float): Float {
-        if (!angle.isFinite() || !base.isFinite()) return 0f
-        return kotlin.math.atan2(kotlin.math.sin(angle-base),kotlin.math.cos(angle-base))
-    }
-    fun tilt(roll: Float,pitch: Float,baseRoll: Float,basePitch: Float,maxAngleX: Float,maxAngleY: Float,rotation: Int): Pair<Float,Float> {
+    fun tilt(roll: Float,pitch: Float,maxAngleX: Float,maxAngleY: Float,rotation: Int): Pair<Float,Float> {
         require(maxAngleX.isFinite() && maxAngleX>0f && maxAngleX<=75f && maxAngleY.isFinite() && maxAngleY>0f && maxAngleY<=75f && rotation in 0..3)
-        val rollDelta=angleDelta(roll,baseRoll)
-        val pitchDelta=angleDelta(pitch,basePitch)
-        val (screenX,screenY)=when(rotation) { 1 -> -pitchDelta to rollDelta; 2 -> -rollDelta to -pitchDelta; 3 -> pitchDelta to -rollDelta; else -> rollDelta to pitchDelta }
+        val (screenX,screenY)=when(rotation) { 1 -> -pitch to roll; 2 -> -roll to -pitch; 3 -> pitch to -roll; else -> roll to pitch }
         val x=(screenX/Math.toRadians(maxAngleX.toDouble()).toFloat()).coerceIn(-1f,1f)
         val y=(screenY/Math.toRadians(maxAngleY.toDouble()).toFloat()).coerceIn(-1f,1f)
         return x to y
