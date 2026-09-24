@@ -30,6 +30,7 @@ class _ParallaxLabScreenState extends State<ParallaxLabScreen> {
     widget.apiBase,
   );
   final nativeDraft = ParallaxLabNative();
+  final previewController = DetailPreviewController();
   ParallaxLabConfig? baseline, config;
   String? baseResourceVersionId, loadError;
   int versionNo = 0, selected = 0;
@@ -72,6 +73,7 @@ class _ParallaxLabScreenState extends State<ParallaxLabScreen> {
         config = next;
         loadError = null;
       });
+      previewController.applyConfiguration(next.encoded);
     } catch (_) {
       if (mounted) setState(() => loadError = '当前 4D 配置无法读取');
     }
@@ -81,10 +83,12 @@ class _ParallaxLabScreenState extends State<ParallaxLabScreen> {
     final current = config;
     if (current == null) return;
     edit(current);
+    final encoded = current.encoded;
     setState(() {});
+    previewController.applyConfiguration(encoded);
     final base = baseResourceVersionId;
     if (base != null) {
-      unawaited(nativeDraft.writeDraft(widget.id, base, current.encoded));
+      unawaited(nativeDraft.writeDraft(widget.id, base, encoded));
     }
   }
 
@@ -304,6 +308,7 @@ class _ParallaxLabScreenState extends State<ParallaxLabScreen> {
                 preferPreview: true,
                 fill: true,
                 configuration: config?.encoded,
+                controller: previewController,
                 onInstalled: _installed,
                 onReady: (value) => setState(() => ready = value),
               ),
@@ -673,25 +678,16 @@ class _ParallaxLabScreenState extends State<ParallaxLabScreen> {
               ),
               SizedBox(
                 width: 92,
-                child: TextFormField(
-                  key: ValueKey('$selected-$title-$value'),
-                  initialValue: _format(value),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                    signed: true,
-                  ),
-                  textAlign: TextAlign.center,
-                  onFieldSubmitted: (text) {
-                    final parsed = double.tryParse(text);
-                    final valid =
-                        parsed != null &&
-                        parsed.isFinite &&
-                        (openSigned || parsed >= min) &&
-                        (openPositive
-                            ? parsed >= 0
-                            : openSigned || parsed <= max);
-                    if (valid) changed(parsed);
-                  },
+                child: _LiveNumberField(
+                  key: ValueKey('$selected-$title'),
+                  value: value,
+                  valid: (parsed) =>
+                      parsed.isFinite &&
+                      (openSigned || parsed >= min) &&
+                      (openPositive
+                          ? parsed >= 0
+                          : openSigned || parsed <= max),
+                  changed: changed,
                 ),
               ),
             ],
@@ -718,6 +714,78 @@ class _ParallaxLabScreenState extends State<ParallaxLabScreen> {
       ((ParallaxLabConfig.number(value).abs() / 100).ceil().clamp(1, 1000000) *
               100)
           .toDouble();
+}
+
+class _LiveNumberField extends StatefulWidget {
+  const _LiveNumberField({
+    super.key,
+    required this.value,
+    required this.valid,
+    required this.changed,
+  });
+  final double value;
+  final bool Function(double value) valid;
+  final ValueChanged<double> changed;
+
+  @override
+  State<_LiveNumberField> createState() => _LiveNumberFieldState();
+}
+
+class _LiveNumberFieldState extends State<_LiveNumberField> {
+  late final TextEditingController controller;
+  late final FocusNode focus;
+  double? emitted;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = TextEditingController(text: _format(widget.value));
+    focus = FocusNode()..addListener(_focusChanged);
+  }
+
+  @override
+  void didUpdateWidget(_LiveNumberField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!focus.hasFocus && oldWidget.value != widget.value) {
+      controller.text = _format(widget.value);
+    }
+  }
+
+  void _focusChanged() {
+    if (!focus.hasFocus) {
+      controller.text = _format(widget.value);
+      emitted = null;
+    }
+  }
+
+  void _changed(String text) {
+    final parsed = double.tryParse(text);
+    if (parsed == null || !widget.valid(parsed) || emitted == parsed) return;
+    emitted = parsed;
+    widget.changed(parsed);
+  }
+
+  @override
+  void dispose() {
+    focus.removeListener(_focusChanged);
+    focus.dispose();
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => TextField(
+    controller: controller,
+    focusNode: focus,
+    keyboardType: const TextInputType.numberWithOptions(
+      decimal: true,
+      signed: true,
+    ),
+    textAlign: TextAlign.center,
+    onChanged: _changed,
+    onSubmitted: _changed,
+  );
+
   static String _format(double value) => value == value.roundToDouble()
       ? value.toInt().toString()
       : value.toStringAsFixed(2);

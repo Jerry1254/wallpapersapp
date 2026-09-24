@@ -11,6 +11,26 @@ import '../downloads/download_manager.dart';
 
 final detailPreviewRouteObserver = RouteObserver<PageRoute<dynamic>>();
 
+class DetailPreviewController {
+  ValueChanged<String>? _listener;
+  String? _latest;
+
+  void applyConfiguration(String value) {
+    _latest = value;
+    _listener?.call(value);
+  }
+
+  void _attach(ValueChanged<String> listener) {
+    _listener = listener;
+    final latest = _latest;
+    if (latest != null) listener(latest);
+  }
+
+  void _detach(ValueChanged<String> listener) {
+    if (identical(_listener, listener)) _listener = null;
+  }
+}
+
 class DetailPreview extends StatefulWidget {
   const DetailPreview({
     super.key,
@@ -23,6 +43,7 @@ class DetailPreview extends StatefulWidget {
     this.preferPreview = false,
     this.fill = false,
     this.configuration,
+    this.controller,
     this.onInstalled,
     this.onReady,
   });
@@ -32,6 +53,7 @@ class DetailPreview extends StatefulWidget {
   final bool active;
   final bool preferPreview, fill;
   final String? configuration;
+  final DetailPreviewController? controller;
   final ValueChanged<String>? onInstalled;
   final ValueChanged<bool>? onReady;
   @override
@@ -44,6 +66,10 @@ class _DetailPreviewState extends State<DetailPreview>
   String? installedId, requestId, error;
   bool restricted = true, ready = false, routeVisible = true;
   MethodChannel? channel;
+  String? pendingConfiguration;
+  String? applyingValue, appliedConfiguration;
+  bool applyingConfiguration = false;
+  late final ValueChanged<String> controllerListener = _queueConfiguration;
   PageRoute<dynamic>? route;
   bool get visible =>
       widget.active &&
@@ -55,6 +81,7 @@ class _DetailPreviewState extends State<DetailPreview>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     widget.manager.addListener(_downloadChanged);
+    widget.controller?._attach(controllerListener);
     unawaited(_prepare());
   }
 
@@ -73,10 +100,13 @@ class _DetailPreviewState extends State<DetailPreview>
   void didUpdateWidget(DetailPreview oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.active != widget.active) _visibility();
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller?._detach(controllerListener);
+      widget.controller?._attach(controllerListener);
+    }
     if (oldWidget.configuration != widget.configuration &&
-        widget.configuration != null &&
-        ready) {
-      unawaited(_applyConfiguration(widget.configuration!));
+        widget.configuration != null) {
+      _queueConfiguration(widget.configuration!);
     }
   }
 
@@ -95,6 +125,15 @@ class _DetailPreviewState extends State<DetailPreview>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) => _visibility();
   void _visibility() {
+    if (!visible && widget.resourceType == 'LAYER_PARALLAX') {
+      appliedConfiguration = null;
+      pendingConfiguration ??=
+          widget.configuration ?? widget.controller?._latest;
+      if (ready && mounted) {
+        setState(() => ready = false);
+        widget.onReady?.call(false);
+      }
+    }
     unawaited(
       channel?.invokeMethod<void>('visible', visible).catchError((_) {}),
     );
@@ -110,6 +149,7 @@ class _DetailPreviewState extends State<DetailPreview>
       _cancel();
       channel?.setMethodCallHandler(null);
       channel = null;
+      appliedConfiguration = null;
       setState(() {
         installedId = state.installedId;
         restricted = false;
@@ -207,6 +247,7 @@ class _DetailPreviewState extends State<DetailPreview>
     if (!mounted) return;
     final next = MethodChannel('qingjing/detail_preview/$id');
     channel = next;
+    appliedConfiguration = null;
     next.setMethodCallHandler((call) async {
       if (!mounted || channel != next || call.method != 'status') return;
       setState(() {
@@ -214,8 +255,9 @@ class _DetailPreviewState extends State<DetailPreview>
         error = call.arguments == 'failed' ? '预览暂时不可用，请重试' : null;
       });
       widget.onReady?.call(ready);
+      if (ready) unawaited(_flushConfiguration());
       if (ready && widget.configuration != null) {
-        unawaited(_applyConfiguration(widget.configuration!));
+        _queueConfiguration(widget.configuration!);
       }
     });
     _visibility();
@@ -224,20 +266,54 @@ class _DetailPreviewState extends State<DetailPreview>
       if (mounted && channel == next && state?['rendering'] == true) {
         setState(() => ready = true);
         widget.onReady?.call(true);
+        unawaited(_flushConfiguration());
         if (widget.configuration != null) {
-          await _applyConfiguration(widget.configuration!);
+          _queueConfiguration(widget.configuration!);
         }
       }
     } catch (_) {}
   }
 
-  Future<void> _applyConfiguration(String value) async {
-    final current = channel;
-    if (current == null || widget.resourceType != 'LAYER_PARALLAX') return;
+  void _queueConfiguration(String value) {
+    if (widget.resourceType != 'LAYER_PARALLAX') return;
+    if (pendingConfiguration == value ||
+        (pendingConfiguration == null &&
+            (applyingValue == value || appliedConfiguration == value))) {
+      return;
+    }
+    pendingConfiguration = value;
+    unawaited(_flushConfiguration());
+  }
+
+  Future<void> _flushConfiguration() async {
+    if (applyingConfiguration || !ready || channel == null) return;
+    applyingConfiguration = true;
     try {
-      await current.invokeMethod<void>('configuration', {'config': value});
-    } catch (_) {
-      if (mounted) setState(() => error = '参数无法应用，请复位后重试');
+      while (mounted && ready && channel != null) {
+        final value = pendingConfiguration;
+        if (value == null) break;
+        pendingConfiguration = null;
+        applyingValue = value;
+        final current = channel!;
+        try {
+          await current.invokeMethod<void>('configuration', {'config': value});
+          if (channel == current) appliedConfiguration = value;
+          if (mounted && channel == current && error == '参数无法应用，请复位后重试') {
+            setState(() => error = null);
+          }
+        } catch (_) {
+          if (mounted && channel == current) {
+            setState(() => error = '参数无法应用，请复位后重试');
+          }
+        } finally {
+          applyingValue = null;
+        }
+      }
+    } finally {
+      applyingConfiguration = false;
+      if (mounted && ready && channel != null && pendingConfiguration != null) {
+        unawaited(_flushConfiguration());
+      }
     }
   }
 
@@ -279,6 +355,7 @@ class _DetailPreviewState extends State<DetailPreview>
   void dispose() {
     _cancel();
     channel?.setMethodCallHandler(null);
+    widget.controller?._detach(controllerListener);
     widget.manager.removeListener(_downloadChanged);
     detailPreviewRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
@@ -325,6 +402,7 @@ class _DetailPreviewState extends State<DetailPreview>
                           _cancel();
                           channel?.setMethodCallHandler(null);
                           channel = null;
+                          appliedConfiguration = null;
                           setState(() {
                             installedId = null;
                             error = null;
