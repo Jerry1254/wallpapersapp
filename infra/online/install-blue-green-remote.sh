@@ -5,6 +5,7 @@ set -euo pipefail
 DEPLOY_USER="qingjing-deploy"
 DEPLOY_HOME="/var/lib/qingjing-deploy"
 CONTROLLER="/usr/local/libexec/qingjing-deploy"
+UPLOAD_ROOT="/var/lib/qingjing-deploy/uploads"
 SSH_GATE="/usr/local/libexec/qingjing-deploy-ssh"
 SUDOERS_FILE="/etc/sudoers.d/qingjing-deploy"
 
@@ -111,6 +112,13 @@ if [[ ${#command_parts[@]} -ge 4 \
   && "${command_parts[1]}" == "-n" \
   && "${command_parts[2]}" == "${CONTROLLER}" ]]; then
   exec "${command_parts[@]}"
+fi
+
+if [[ ${#command_parts[@]} -eq 3 \
+  && "${command_parts[0]}" == "scp" \
+  && "${command_parts[1]}" == "-t" \
+  && "${command_parts[2]}" =~ ^${UPLOAD_ROOT}/[0-9]{8}-[0-9]{6}-[a-f0-9]{12}\.tar\.gz$ ]]; then
+  exec /usr/bin/scp -t "${command_parts[2]}"
 fi
 
 fail
