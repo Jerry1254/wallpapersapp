@@ -80,7 +80,6 @@ android {
     buildTypes {
         release {
             // Each online flavor receives its signer from the local packaging environment below.
-            signingConfig = null
         }
     }
 }
