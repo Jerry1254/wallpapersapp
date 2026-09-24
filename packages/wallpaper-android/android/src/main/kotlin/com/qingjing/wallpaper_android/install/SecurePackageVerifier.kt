@@ -39,7 +39,12 @@ internal data class PackageFile(val path: String, val role: String, val ordinal:
 internal data class MediaInfo(val width: Int, val height: Int, val alpha: Boolean = false)
 
 /** Only writes inside a new private staging directory. Nothing is installed until every check passes. */
-internal class SecurePackageVerifier(private val purpose: PackagePurpose = PackagePurpose.FORMAL,private val media: (PackageFile, File) -> MediaInfo) {
+internal class SecurePackageVerifier(
+    private val purpose: PackagePurpose = PackagePurpose.FORMAL,
+    private val maximumMediaDimension: Int = if (purpose == PackagePurpose.APP_PREVIEW) 1280 else 4096,
+    private val media: (PackageFile, File) -> MediaInfo
+) {
+    init { require(maximumMediaDimension in 1..4096) }
     fun verify(encrypted: File, staging: File, expected: PackageExpectation, key: ByteArray,
                trustKeyId: String, trustKey: PublicKey, cancelled: () -> Boolean = { false }) {
         require(expected.signingKeyId == trustKeyId && key.size == 32)
@@ -89,7 +94,7 @@ internal class SecurePackageVerifier(private val purpose: PackagePurpose = Packa
                     } }
                     if (file.role != "PARALLAX_CONFIG") {
                         val info = media(file, target)
-                        if (purpose == PackagePurpose.APP_PREVIEW) require(info.width in 1..1280 && info.height in 1..1280)
+                        require(info.width in 1..maximumMediaDimension && info.height in 1..maximumMediaDimension)
                         images["${file.role}:${file.ordinal}"] = info
                     }
                 }

@@ -204,14 +204,21 @@ class SecurePackageVerifierTest {
             assertFalse(store.directory(id).exists())
         }
     }
-    @Test fun signedWrongPurposeAndOversizedPreviewsRemainInvalid() = temporary { root ->
+    @Test fun signedWrongPurposeAndPreviewDimensionPoliciesRemainEnforced() = temporary { root ->
         val wrong = fixture(purpose = PackagePurpose.APP_PREVIEW,manifestEdit = { it.replace("APP_PREVIEW","SYSTEM_WALLPAPER") })
         try { verify(wrong,root,PackagePurpose.APP_PREVIEW);fail("Wrong signed purpose was accepted") } catch(_: Exception) {}
         val f = fixture(purpose = PackagePurpose.APP_PREVIEW)
         val source = File(root,"encrypted").also { it.writeBytes(f.encrypted) };val stage = File(root,"stage").also { it.mkdir() }
         try {
             SecurePackageVerifier(PackagePurpose.APP_PREVIEW) { _,_ -> MediaInfo(1920,1080,true) }.verify(source,stage,f.e,f.key,"test-root",signer.public)
-            fail("An oversized preview was accepted")
+            fail("A full-size source was accepted by the reduced trial verifier")
         } catch(_: Exception) {}
+        val detailSource = File(root,"detail-encrypted").also { it.writeBytes(f.encrypted) }
+        val detailStage = File(root,"detail-stage").also { it.mkdir() }
+        SecurePackageVerifier(
+            PackagePurpose.APP_PREVIEW,
+            maximumMediaDimension = 4096,
+            media = { _,_ -> MediaInfo(1920,1080,true) }
+        ).verify(detailSource,detailStage,f.e,f.key,"test-root",signer.public)
     }
 }

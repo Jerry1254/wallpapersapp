@@ -111,7 +111,11 @@ internal class AndroidPackageDelivery(private val context: Context,private val p
                 phase = "verify"; report("verifying",expected.size)
                 // GCM providers may buffer until tag verification. Reserve heap before decoding.
                 memory(expected.plaintextSize * 4 + 16*1024*1024)
-                SecurePackageVerifier(purpose,::media).verify(partial,staging,expected,key,trustId,trust) { transfer.cancelled.get() }
+                SecurePackageVerifier(
+                    purpose,
+                    maximumMediaDimension = if (detailPreview) 4096 else if (trial) 1280 else 4096,
+                    media = ::media
+                ).verify(partial,staging,expected,key,trustId,trust) { transfer.cancelled.get() }
                 if (transfer.cancelled.get()) throw Cancelled()
                 report("installing",expected.size)
                 val installed = store.commit(staging,expected)
@@ -183,16 +187,23 @@ internal class AndroidPackageDelivery(private val context: Context,private val p
                 val width=format.getInteger(MediaFormat.KEY_WIDTH); val height=format.getInteger(MediaFormat.KEY_HEIGHT)
                 require(width in 1..4096 && height in 1..4096 && format.getLong(MediaFormat.KEY_DURATION) in 1..30_000_000)
                 if(format.containsKey(MediaFormat.KEY_FRAME_RATE)) require(format.getInteger(MediaFormat.KEY_FRAME_RATE) in 1..60)
-                if(trial) require(width <= 1280 && height <= 1280 && (!format.containsKey(MediaFormat.KEY_FRAME_RATE) || format.getInteger(MediaFormat.KEY_FRAME_RATE) <= 15))
+                if(trial && !detailPreview) require(width <= 1280 && height <= 1280 && (!format.containsKey(MediaFormat.KEY_FRAME_RATE) || format.getInteger(MediaFormat.KEY_FRAME_RATE) <= 15))
                 return MediaInfo(width,height)
             } finally { extractor.release() }
         }
         val options=BitmapFactory.Options().apply { inJustDecodeBounds=true }
         BitmapFactory.decodeFile(source.absolutePath,options)
         require(options.outWidth in 1..4096 && options.outHeight in 1..4096 && options.outMimeType == file.mime)
-        memory(options.outWidth.toLong() * options.outHeight * 4 + 16*1024*1024)
-        val bitmap=BitmapFactory.decodeFile(source.absolutePath) ?: error("Undecodable image")
-        try { return MediaInfo(bitmap.width,bitmap.height,bitmap.hasAlpha()) } finally { bitmap.recycle() }
+        val sample = if (detailPreview) PreviewBitmapSampling.inSampleSize(
+            options.outWidth,
+            options.outHeight,
+            PreviewBitmapSampling.pixelBudget(context.resources.displayMetrics.widthPixels, context.resources.displayMetrics.heightPixels)
+        ) else 1
+        memory((options.outWidth / sample).toLong() * (options.outHeight / sample) * 4 + 16*1024*1024)
+        val bitmap=BitmapFactory.decodeFile(source.absolutePath,BitmapFactory.Options().apply {
+            inSampleSize=sample; inScaled=false; inPreferredConfig=android.graphics.Bitmap.Config.ARGB_8888
+        }) ?: error("Undecodable image")
+        try { return MediaInfo(options.outWidth,options.outHeight,bitmap.hasAlpha()) } finally { bitmap.recycle() }
     }
     private fun memory(required: Long) {
         val runtime = Runtime.getRuntime()

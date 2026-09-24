@@ -9,6 +9,7 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -19,6 +20,7 @@ import com.qingjing.wallpaper_android.install.DetailPreviewRuntime
 import com.qingjing.wallpaper_android.install.InstalledPackage
 import com.qingjing.wallpaper_android.install.PackagePurpose
 import com.qingjing.wallpaper_android.install.PackageRuntime
+import com.qingjing.wallpaper_android.install.PreviewBitmapSampling
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.StandardMessageCodec
@@ -116,8 +118,17 @@ private class DetailPreviewView(context: Context,id: Int,args: Map<*,*>,messenge
                 lease = store.pin(installed)
                 val verified = PackageRuntime.verifier(context,purpose).verify(store,installed,type!!)
                 if(type == "STATIC_IMAGE") {
-                    decoded = BitmapFactory.decodeFile(verified.content("STATIC_IMAGE").absolutePath,
-                        BitmapFactory.Options().apply { inSampleSize = 1; inScaled = false; inPreferredConfig = Bitmap.Config.ARGB_8888 })
+                    val file = verified.content("STATIC_IMAGE")
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(file.absolutePath,bounds)
+                    require(bounds.outWidth in 1..4096 && bounds.outHeight in 1..4096)
+                    val metrics = context.resources.displayMetrics
+                    val sample = PreviewBitmapSampling.inSampleSize(
+                        bounds.outWidth,bounds.outHeight,
+                        PreviewBitmapSampling.pixelBudget(metrics.widthPixels,metrics.heightPixels)
+                    )
+                    decoded = BitmapFactory.decodeFile(file.absolutePath,
+                        BitmapFactory.Options().apply { inSampleSize = sample; inScaled = false; inPreferredConfig = Bitmap.Config.ARGB_8888 })
                         ?: error("Undecodable image")
                 }
                 val retained = lease; lease = null
@@ -139,8 +150,14 @@ private class DetailPreviewView(context: Context,id: Int,args: Map<*,*>,messenge
                         play()
                     }
                 }
-            } catch(_: Exception) { decoded?.recycle(); lease?.close(); main.post { status("failed") } }
-            catch(_: OutOfMemoryError) { decoded?.recycle(); lease?.close(); main.post { status("failed") } }
+            } catch(error: Exception) {
+                Log.e("QjDetailPreview","Preview rendering failed: ${error.javaClass.simpleName}")
+                decoded?.recycle(); lease?.close(); main.post { status("failed") }
+            }
+            catch(_: OutOfMemoryError) {
+                Log.e("QjDetailPreview","Preview rendering failed: OutOfMemoryError")
+                decoded?.recycle(); lease?.close(); main.post { status("failed") }
+            }
         }
     }
     private fun status(value: String) { if(!dead) channel.invokeMethod("status",value) }
