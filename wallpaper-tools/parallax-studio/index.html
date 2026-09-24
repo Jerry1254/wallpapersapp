@@ -212,16 +212,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     const sign = layer.direction === 'follow' ? 1 : layer.direction === 'reverse' ? -1 : 0;
     const motionX = sign * layer.offsetXPercent / 100, motionY = sign * layer.offsetYPercent / 100;
     const originX = layer.initialOffsetXPercent / 100, originY = layer.initialOffsetYPercent / 100;
-    const overscanX = Math.abs(originX) + Math.abs(motionX), overscanY = Math.abs(originY) + Math.abs(motionY);
+    const overscanX = Math.abs(motionX), overscanY = Math.abs(motionY);
     const overscan = background ? 1 + 2 * Math.max(overscanX,overscanY) : 1;
     const relativeScale = Math.max(layer.scale, overscan);
     const scale = Math.max(W / iw, H / ih) * relativeScale;
     const width = iw * scale, height = ih * scale;
     const marginX = Math.max(0, (width - W) / 2), marginY = Math.max(0, (height - H) / 2);
-    const requestedX = W * (originX - clamp(x, -1, 1) * motionX);
-    const requestedY = H * (originY + clamp(y, -1, 1) * motionY);
-    const dx = background ? clamp(requestedX,-marginX,marginX) : requestedX;
-    const dy = background ? clamp(requestedY,-marginY,marginY) : requestedY;
+    const neutralX = W * originX, neutralY = H * originY;
+    const animationX = -W * clamp(x, -1, 1) * motionX;
+    const animationY = H * clamp(y, -1, 1) * motionY;
+    const dx = neutralX + animationX, dy = neutralY + animationY;
     return {scale,relativeScale,width,height,marginX,marginY,maxX:W*overscanX,maxY:H*overscanY,dx,dy,left:(W-width)/2+dx,top:(H-height)/2+dy};
   }
   function inputFromAngles(yaw, pitch, maxAngleX, maxAngleY) {

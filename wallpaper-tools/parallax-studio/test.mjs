@@ -41,6 +41,8 @@ assert.deepEqual({ ...core.inputFromAngles(150, -100, 75, 50) }, { x: 1, y: -1 }
 const following = core.geometry(1000, 1000, 1000, 1000, layer(1, { scale: 1 }), 1, 1, false);
 const beyondScreen = core.geometry(1000, 1000, 1000, 1000, layer(1, { offsetXPercent: 300, offsetYPercent: 200, initialOffsetXPercent: 0, initialOffsetYPercent: 0, scale: 1 }), 1, 1, false);
 const opposite = core.geometry(1000, 1000, 1000, 1000, layer(1, { offsetXPercent: 20, offsetYPercent: 10, initialOffsetXPercent: 0, initialOffsetYPercent: 0, direction: 'reverse', scale: 1 }), 1, 1, true);
+const correctedOppositeStart = core.geometry(1000, 1000, 1000, 1000, layer(1, { offsetXPercent: 20, offsetYPercent: 10, initialOffsetXPercent: 35, initialOffsetYPercent: -25, direction: 'reverse', scale: 1 }), -1, -1, true);
+const correctedOppositeEnd = core.geometry(1000, 1000, 1000, 1000, layer(1, { offsetXPercent: 20, offsetYPercent: 10, initialOffsetXPercent: 35, initialOffsetYPercent: -25, direction: 'reverse', scale: 1 }), 1, 1, true);
 const fixed = core.geometry(1000, 1000, 1000, 1000, layer(1, { direction: 'fixed', scale: 1 }), 1, 1, false);
 assert.equal(following.dx, -900);
 assert.equal(following.dy, 450);
@@ -53,6 +55,9 @@ assert.equal(fixed.dy, -50);
 assert.equal(opposite.relativeScale, 1.4, 'background overscan covers the larger axis travel');
 assert.ok(opposite.marginX >= Math.abs(opposite.dx));
 assert.ok(opposite.marginY >= Math.abs(opposite.dy));
+assert.equal(correctedOppositeStart.relativeScale, opposite.relativeScale, 'neutral correction must not change background scale');
+assert.equal(correctedOppositeEnd.dx - correctedOppositeStart.dx, 400, 'neutral correction must not change horizontal animation travel');
+assert.equal(correctedOppositeEnd.dy - correctedOppositeStart.dy, -200, 'neutral correction must not change vertical animation travel');
 
 const migrated = core.migrateV1({ formatVersion: 1, canvas: { width: 2048, height: 2048 }, sensor: { maxAngle: 75, smoothing: .2, strength: 1.3, responseCurve: 'depth', responseGain: 10 }, layers: [
   { index: 1, depth: 1, scale: 1.18, opacity: 1, blendMode: 'normal' },

@@ -39,15 +39,17 @@ internal object ParallaxMotion {
         val fractionY=sign*offsetYPercent/100f
         val originX=initialOffsetXPercent/100f
         val originY=initialOffsetYPercent/100f
-        val overscan=if(background) 1f+2f*max(abs(originX)+abs(fractionX),abs(originY)+abs(fractionY)) else 1f
+        // Neutral-position correction is deliberately excluded from protection scaling.
+        // It only translates the layer; motion strength alone determines animation scale.
+        val overscan=if(background) 1f+2f*max(abs(fractionX),abs(fractionY)) else 1f
         val cover=max(width.toFloat()/imageWidth,height.toFloat()/imageHeight)*max(scale,overscan)
         val marginX=max(0f,(imageWidth*cover-width)/2f)
         val marginY=max(0f,(imageHeight*cover-height)/2f)
-        val requestedX=width*(originX-x.coerceIn(-1f,1f)*fractionX)
-        val requestedY=height*(originY+y.coerceIn(-1f,1f)*fractionY)
-        val motionX=if(background) requestedX.coerceIn(-marginX,marginX) else requestedX
-        val motionY=if(background) requestedY.coerceIn(-marginY,marginY) else requestedY
-        return Placement(cover,-marginX+motionX,-marginY+motionY)
+        val neutralX=width*originX
+        val neutralY=height*originY
+        val motionX=-width*x.coerceIn(-1f,1f)*fractionX
+        val motionY=height*y.coerceIn(-1f,1f)*fractionY
+        return Placement(cover,-marginX+neutralX+motionX,-marginY+neutralY+motionY)
     }
 
     /** Exact ARGB_8888 allocation required to preserve every source pixel in every layer. */
