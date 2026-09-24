@@ -1423,7 +1423,7 @@ class InfrastructureIntegrationIT {
             for (String role : roles) {
                 byte[] bytes;
                 String extension = "png";
-                if (role.equals("VIDEO")) { bytes = testVideo(); extension = "mp4"; }
+                if (role.equals("VIDEO")) { bytes = testPhoneVideo(); extension = "mp4"; }
                 else if (role.equals("PARALLAX_CONFIG")) {
                     extension = "json";
                     bytes = objectMapper.writeValueAsBytes(Map.of("formatVersion",2,"canvas",Map.of("width",512,"height",512),
@@ -1746,6 +1746,20 @@ class InfrastructureIntegrationIT {
         try {
             String executable=System.getenv().getOrDefault("QJ_FFMPEG","ffmpeg");
             Process process=new ProcessBuilder(executable,"-v","error","-y","-f","lavfi","-i","testsrc2=size=64x64:rate=4","-t","1","-c:v","libx264","-pix_fmt","yuv420p","-threads","1",output.toString())
+                    .redirectError(ProcessBuilder.Redirect.DISCARD).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+            try { assertThat(process.waitFor(30,java.util.concurrent.TimeUnit.SECONDS)).isTrue(); assertThat(process.exitValue()).isZero(); }
+            finally { if(process.isAlive()) process.destroyForcibly(); }
+            return java.nio.file.Files.readAllBytes(output);
+        } finally { java.nio.file.Files.deleteIfExists(output); }
+    }
+
+    private byte[] testPhoneVideo() throws Exception {
+        var output=java.nio.file.Files.createTempFile("qj-test-phone-video-",".mp4");
+        try {
+            String executable=System.getenv().getOrDefault("QJ_FFMPEG","ffmpeg");
+            Process process=new ProcessBuilder(executable,"-v","error","-y","-f","lavfi","-i","testsrc2=size=64x96:rate=12",
+                    "-f","lavfi","-i","sine=frequency=440:sample_rate=44100","-t","1","-map","0:v:0","-map","1:a:0",
+                    "-c:v","mpeg4","-q:v","3","-c:a","aac","-threads","1",output.toString())
                     .redirectError(ProcessBuilder.Redirect.DISCARD).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
             try { assertThat(process.waitFor(30,java.util.concurrent.TimeUnit.SECONDS)).isTrue(); assertThat(process.exitValue()).isZero(); }
             finally { if(process.isAlive()) process.destroyForcibly(); }

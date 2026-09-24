@@ -19,6 +19,7 @@ import org.springframework.stereotype.Component;
 /** External decoder boundary; temporary filesystem paths never enter business records or responses. */
 @Component
 public final class PackageMediaInspector {
+    private static final long MAX_PACKAGE_VIDEO_BYTES = 60L * 1024 * 1024;
     private final ObjectMapper mapper;
     private final String ffprobe, ffmpeg;
     public PackageMediaInspector(ObjectMapper mapper,
@@ -27,6 +28,46 @@ public final class PackageMediaInspector {
         this.mapper = mapper; this.ffprobe = ffprobe; this.ffmpeg = ffmpeg;
     }
     public record Media(int width, int height, boolean alpha) {}
+
+    /**
+     * Keeps already compatible Android MP4 bytes unchanged and normalizes common phone exports
+     * (for example HEVC with AAC audio) to the single-track H.264 format consumed by the App.
+     */
+    public byte[] androidVideo(byte[] content, boolean mp4Container) {
+        if (mp4Container) {
+            try {
+                inspect(content, true);
+                return content;
+            } catch (ApiException incompatible) {
+                // A valid phone export can still be incompatible with Android wallpaper playback.
+            }
+        }
+        Path input = null, output = null;
+        try {
+            input = Files.createTempFile("qj-android-video-source-", ".mp4");
+            output = Files.createTempFile("qj-android-video-", ".mp4");
+            Files.write(input, content);
+            inspectVideoSource(input);
+            runQuietly(List.of(
+                    ffmpeg, "-v", "error", "-xerror", "-y", "-nostdin",
+                    "-protocol_whitelist", "file,pipe", "-threads", "1", "-i", input.toString(),
+                    "-map", "0:v:0", "-an", "-r", "30",
+                    "-vf", "scale='min(1080,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+                    "-c:v", "libx264", "-profile:v", "high", "-level:v", "4.2", "-pix_fmt", "yuv420p",
+                    "-preset", "veryfast", "-crf", "20", "-maxrate", "8M", "-bufsize", "16M",
+                    "-map_metadata", "-1", "-movflags", "+faststart", output.toString()), Duration.ofSeconds(90));
+            byte[] converted = Files.readAllBytes(output);
+            if (converted.length == 0 || converted.length > MAX_PACKAGE_VIDEO_BYTES) throw invalid();
+            inspect(converted, true);
+            return converted;
+        } catch (ApiException exception) { throw exception; }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw invalid(); }
+        catch (Exception exception) { throw invalid(); }
+        finally {
+            try { if (input != null) Files.deleteIfExists(input); } catch (java.io.IOException ignored) { }
+            try { if (output != null) Files.deleteIfExists(output); } catch (java.io.IOException ignored) { }
+        }
+    }
 
     /** Converts an uploaded Live Photo movie into the bounded H.264 MP4 consumed by Android preview. */
     public byte[] androidPreview(byte[] content) {
@@ -44,7 +85,7 @@ public final class PackageMediaInspector {
                     "-preset", "veryfast", "-b:v", "4M", "-maxrate", "6M", "-bufsize", "12M",
                     "-map_metadata", "-1", "-movflags", "+faststart", output.toString()), Duration.ofSeconds(90));
             byte[] converted = Files.readAllBytes(output);
-            if (converted.length == 0 || converted.length > 60L * 1024 * 1024) throw invalid();
+            if (converted.length == 0 || converted.length > MAX_PACKAGE_VIDEO_BYTES) throw invalid();
             inspect(converted, true);
             return converted;
         } catch (ApiException exception) { throw exception; }
@@ -100,6 +141,35 @@ public final class PackageMediaInspector {
             try { if (input != null) Files.deleteIfExists(input); } catch (java.io.IOException ignored) { }
             try { if (output != null) Files.deleteIfExists(output); } catch (java.io.IOException ignored) { }
         }
+    }
+
+    private void inspectVideoSource(Path input) throws Exception {
+        Path output = Files.createTempFile("qj-video-source-probe-", ".json");
+        try {
+            run(List.of(ffprobe, "-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries",
+                    "stream=codec_type,width,height,avg_frame_rate:format=duration", "-of", "json", input.toString()),
+                    output, Duration.ofSeconds(15));
+            if (Files.size(output) > 65536) throw invalid();
+            JsonNode metadata = mapper.readTree(Files.readAllBytes(output));
+            JsonNode streams = metadata.path("streams");
+            if (!streams.isArray() || streams.isEmpty() || streams.size() > 8) throw invalid();
+            JsonNode video = null;
+            for (JsonNode stream : streams) {
+                String type = stream.path("codec_type").asText();
+                if (type.equals("video")) {
+                    if (video != null) throw invalid();
+                    video = stream;
+                } else if (!type.equals("audio")) throw invalid();
+            }
+            if (video == null) throw invalid();
+            int width = video.path("width").asInt(), height = video.path("height").asInt();
+            double seconds = metadata.path("format").path("duration").asDouble(Double.NaN);
+            String[] rate = video.path("avg_frame_rate").asText().split("/");
+            double fps = rate.length == 2 ? Double.parseDouble(rate[0]) / Double.parseDouble(rate[1]) : Double.NaN;
+            if (width < 1 || height < 1 || width > 4096 || height > 4096 ||
+                    !Double.isFinite(seconds) || seconds <= 0 || seconds > 30 ||
+                    !Double.isFinite(fps) || fps <= 0 || fps > 240) throw invalid();
+        } finally { Files.deleteIfExists(output); }
     }
     private void run(List<String> args, Path output, Duration timeout) throws Exception {
         Process process = new ProcessBuilder(args).redirectOutput(output.toFile()).redirectError(ProcessBuilder.Redirect.DISCARD).start();

@@ -100,11 +100,16 @@ public class SecurePackagePublisher {
                 payloads.add(new SecurePackageCodec.Payload("LIVE_PHOTO_VIDEO",binding.ordinal(),"video/mp4",bytes));
                 continue;
             }
-            total += binding.size();
+            String payloadMime=binding.mime();
+            if (version.type().equals("VIDEO") && binding.role().equals("VIDEO")) {
+                bytes=media.androidVideo(bytes,binding.mime().equals("video/mp4"));
+                payloadMime="video/mp4";
+            }
+            total += bytes.length;
             if (total>SecurePackageCodec.MAX_PAYLOAD_BYTES) throw invalid();
             if (binding.role().equals("PARALLAX_CONFIG")) parallax=bytes;
             else images.put(binding.role()+":"+binding.ordinal(),media.inspect(bytes,binding.role().equals("VIDEO")));
-            payloads.add(new SecurePackageCodec.Payload(binding.role(),binding.ordinal(),binding.mime(),bytes));
+            payloads.add(new SecurePackageCodec.Payload(binding.role(),binding.ordinal(),payloadMime,bytes));
         }
         if (version.type().equals("LAYER_PARALLAX")) validateParallax(parallax,images);
         var identity=new SecurePackageCodec.Identity(version.wallpaperId(),version.variantId(),version.number(),version.type());
