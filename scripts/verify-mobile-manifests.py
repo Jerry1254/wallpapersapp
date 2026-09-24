@@ -10,8 +10,8 @@ for variant, flavor, build_type, package, cleartext, label in [
     ('localDebug', 'local', 'debug', 'com.qingjing.bizhi.local', 'true', '倾境动态壁纸·本地'),
     ('localRelease', 'local', 'release', 'com.qingjing.bizhi.local', 'false', '倾境动态壁纸·本地'),
     ('prodRelease', 'prod', 'release', 'com.qingjing.bizhi', 'false', '倾境动态壁纸'),
-    ('internalRelease', 'internal', 'release', 'com.qingjing.bizhi.internal', 'false', '倾境动态壁纸·本地测试'),
-    ('labRelease', 'lab', 'release', 'com.qingjing.bizhi.lab', 'false', '4D壁纸·本地测试'),
+    ('internalRelease', 'internal', 'release', 'com.qingjing.bizhi.internal', 'false', '倾境动态壁纸'),
+    ('labRelease', 'lab', 'release', 'com.qingjing.bizhi.lab', 'false', '4D壁纸测试'),
 ]:
     paths = list((base / variant).glob('*/AndroidManifest.xml'))
     if len(paths) != 1:
@@ -26,7 +26,7 @@ for variant, flavor, build_type, package, cleartext, label in [
     assert app is not None
     assert app.attrib[android + 'usesCleartextTraffic'] == cleartext, variant
     assert app.attrib[android + 'allowBackup'] == 'false', variant
-    if variant.startswith(('internal', 'lab')):
+    if variant.startswith('internal'):
         assert app.attrib[android + 'networkSecurityConfig'] == '@xml/internal_network_security', variant
         assert any(m.attrib.get(android + 'name') == 'qingjing.internalDiagnostics' and m.attrib.get(android + 'value') == 'true' for m in app.findall('meta-data')), variant
         policy = ET.parse(root / 'apps/mobile/android/app/src/internal/res/xml/internal_network_security.xml').getroot()
