@@ -72,7 +72,9 @@ export class CatalogApi {
       '/public/wallpapers/' + encodeURIComponent(id)) as ApiWallpaperPayload;
     const projected: WallpaperSummary | null = HarmonyCatalogProjection.projectWallpaper(
       WallpaperSummary.fromApi(response));
-    if (projected === null) throw new ApiRequestError(404, '该壁纸没有鸿蒙可用资源');
+    if (projected === null) {
+      throw new ApiRequestError(404, 'WALLPAPER_NOT_AVAILABLE_FOR_PLATFORM', '该壁纸没有鸿蒙可用资源');
+    }
     return projected as WallpaperSummary;
   }
 

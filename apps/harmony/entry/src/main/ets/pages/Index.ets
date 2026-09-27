@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { QjTokens as T } from '../design/Tokens';
 import {
   HarmonyCatalogProjection,
@@ -14,6 +15,8 @@ import { CustomerSupport } from '../support/CustomerSupport';
 interface FailureWithMessage {
   message: string;
 }
+
+const LOG_DOMAIN: number = 0x514A;
 
 @Entry
 @Component
@@ -62,6 +65,7 @@ struct Index {
       this.wallpapers = await (this.api as CatalogApi).wallpapers(this.selectedFilter);
     } catch (error) {
       this.errorMessage = this.messageFor(error);
+      hilog.error(LOG_DOMAIN, 'QingjingApi', 'Home load failed: %{public}s', this.errorMessage);
       this.wallpapers = [];
       this.categories = [];
     } finally {
@@ -395,8 +399,7 @@ struct Index {
     } else if (this.errorMessage.length > 0) {
       Column({ space: 12 }) {
         Text('暂时无法加载').fontSize(18).fontWeight(FontWeight.Bold).fontColor(T.ink);
-        Text(this.page === 'HOME' || this.page === 'MINE' ?
-          '鸿蒙设备身份接口尚未开通，开通后会加载后台真实数据' : this.errorMessage)
+        Text(this.errorMessage)
           .width('100%').fontSize(13).fontColor(T.mutedInk).textAlign(TextAlign.Center);
         Button('重新加载')
           .height(44)

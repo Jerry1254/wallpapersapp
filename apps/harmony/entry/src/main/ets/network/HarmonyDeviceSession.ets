@@ -45,6 +45,10 @@ interface SessionRequest {
   proof: string;
 }
 
+interface FailureWithCode {
+  code: number;
+}
+
 export class HarmonyDeviceSession {
   private static readonly BASE_URL: string = 'https://wallpaper.biguo66.top/api/v1';
   private static readonly KEY_ALIAS: string = 'qingjing_harmony_device_identity_v1';
@@ -138,7 +142,16 @@ export class HarmonyDeviceSession {
   }
 
   private async ensureKey(): Promise<void> {
-    const exists: boolean = await huks.isKeyItemExist(HarmonyDeviceSession.KEY_ALIAS, { properties: [] });
+    let exists: boolean = false;
+    try {
+      exists = await huks.isKeyItemExist(HarmonyDeviceSession.KEY_ALIAS, { properties: [] });
+    } catch (error) {
+      const failure: FailureWithCode = error as FailureWithCode;
+      if (failure.code !== 12000011) {
+        if (error instanceof Error) throw error;
+        throw new Error('无法检查鸿蒙设备密钥');
+      }
+    }
     if (exists) return;
     await huks.generateKeyItem(HarmonyDeviceSession.KEY_ALIAS, {
       properties: [
