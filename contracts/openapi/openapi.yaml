@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.5.0
+  version: 2.6.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -314,6 +314,7 @@ paths:
       description: |
         正式 App 提交平台公钥和设备证明。
         Android 使用 SEC-002 安装级 RSA 2048 持钥证明；同公钥新证明恢复原 ACTIVE 凭据，撤销后不可重建。
+        HarmonyOS 使用 HUKS RSA-2048、SHA-256 和 PKCS#1 v1.5，固定 appInstallScope 为 com.qingjing.bizhi。
         证明不等同硬件或 APK 来源认证，清数据/卸载后不自动恢复旧权益。
       parameters:
         - $ref: '#/components/parameters/RequestId'
@@ -2879,7 +2880,7 @@ components:
           type: string
           minLength: 1
           maxLength: 64
-          description: 应用签名和发行渠道的服务端允许值。
+          description: 应用签名和发行渠道的服务端允许值；HarmonyOS 固定为 com.qingjing.bizhi。
         credentialType:
           type: string
           enum: [PLATFORM_PUBLIC_KEY]
@@ -2888,14 +2889,21 @@ components:
           minLength: 64
           maxLength: 8192
           nullable: true
-          description: 正式客户端必填的平台安装公钥。
+          description: |
+            正式客户端必填的 RSA-2048 安装公钥。
+            HarmonyOS 将 huks.exportKeyItem 返回的 X.509 SubjectPublicKeyInfo 原始字节用
+            -----BEGIN PUBLIC KEY----- 和 -----END PUBLIC KEY----- 包装为 PEM。
         evidenceToken:
           type: string
           minLength: 16
           maxLength: 8192
           writeOnly: true
-          description: Android 为 Base64URL 无填充 JSON(timestamp, nonce, proof)，签名载荷见
-            SEC-002。服务端只保留身份 keyed hash，不持久化完整证明。
+          description: |
+            Base64URL 无填充编码的 UTF-8 JSON(timestamp, nonce, proof)。
+            HarmonyOS proof 使用 HUKS RSA-2048 / SHA-256 / PKCS#1 v1.5 签署，再做 Base64URL 无填充编码。
+            鸿蒙注册原文为 QJ-HARMONYOS-REGISTER-V1、appInstallScope、
+            SHA-256(huks.exportKeyItem 原始字节)小写十六进制、timestamp 和 nonce，每项以换行分隔。
+            服务端只保留身份 keyed hash，不持久化完整证明。
 
     DeviceRegistrationResponse:
       type: object
@@ -2924,6 +2932,7 @@ components:
         algorithm:
           type: string
           enum: [ED25519, ECDSA_P256_SHA256, RSA_SHA256, HMAC_SHA256]
+          description: Android 和 HarmonyOS 的 PLATFORM_PUBLIC_KEY 凭据返回 RSA_SHA256。
         expiresAt:
           $ref: '#/components/schemas/Timestamp'
 
@@ -2944,7 +2953,9 @@ components:
           minLength: 16
           maxLength: 2048
           writeOnly: true
-          description: 对服务端规定的规范化挑战载荷生成的 Base64URL 签名或 HMAC。
+          description: |
+            对 QJ-DEVICE-SESSION-V1 规范原文生成的 Base64URL 无填充签名或 HMAC。
+            HarmonyOS 使用 HUKS RSA-2048 / SHA-256 / PKCS#1 v1.5。
 
     DeviceSession:
       type: object

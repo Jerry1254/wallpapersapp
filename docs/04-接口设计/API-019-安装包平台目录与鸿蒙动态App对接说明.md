@@ -1,10 +1,10 @@
 # API-019 安装包平台目录与鸿蒙动态 App 对接说明
 
-**版本：** 1.0.0
+**版本：** 1.1.0
 
 **日期：** 2026-09-27
 
-**对应 OpenAPI：** 2.5.0
+**对应 OpenAPI：** 2.6.0
 
 **对接对象：** Android App、HarmonyOS App、iOS App
 
@@ -24,13 +24,13 @@ App **不要再调用**：
 | 能力 | Android | HarmonyOS | iOS |
 |---|---:|---:|---:|
 | 按安装包平台过滤目录、分类、详情和权益 | 已完成 | API 业务逻辑已完成 | API 业务逻辑已完成 |
-| 设备注册、挑战和签名会话 | 已完成 | **待对齐鸿蒙公钥算法、签名和 evidenceToken** | 待实现 |
+| 设备注册、挑战和签名会话 | 已完成 | 已完成 | 待实现 |
 | Android 4D/动态安全包预览与下载 | 已完成 | 不适用 | 不适用 |
-| HarmonyOS Moving Photo 双文件下载 | 不适用 | API 已完成，需先完成鸿蒙身份会话 | 不适用 |
+| HarmonyOS Moving Photo 双文件下载 | 不适用 | API 已完成 | 不适用 |
 | 鸿蒙通用静态原图正式下载 | — | 待实现 | — |
 | iOS Live Photo/通用静态正式交付 | — | — | 待实现 |
 
-> 鸿蒙目录和 Moving Photo 业务逻辑已就绪，但当前 Java 还不能验证鸿蒙安装包的注册和请求签名。在这一项完成前，鸿蒙 App 不能进行真实端到端联调。
+> 鸿蒙身份、目录和 Moving Photo 交付代码已就绪。部署包含 OpenAPI 2.6.0 的新 API 后，鸿蒙 App 可进行真实端到端联调。
 
 ## 3. 平台可见矩阵
 
@@ -101,10 +101,38 @@ QJ-SIGNED-REQUEST-V1
 ```json
 {
   "platform": "HARMONYOS",
-  "appInstallScope": "<鸿蒙正式包唯一标识>",
+  "appInstallScope": "com.qingjing.bizhi",
   "credentialType": "PLATFORM_PUBLIC_KEY",
-  "publicKeyPem": "<安装级公钥>",
-  "evidenceToken": "<注册证明>"
+  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----",
+  "evidenceToken": "<Base64URL 无填充字符串>"
+}
+```
+
+鸿蒙安装级密钥固定使用 HUKS RSA-2048、SHA-256 和 PKCS#1 v1.5。`publicKeyPem` 的主体是 `huks.exportKeyItem` 返回的 X.509 SubjectPublicKeyInfo 原始字节，用 PEM 头尾包装。
+
+公钥指纹：
+
+```text
+lowercaseHex(SHA-256(huks.exportKeyItem 原始字节))
+```
+
+鸿蒙注册签名原文：
+
+```text
+QJ-HARMONYOS-REGISTER-V1
+com.qingjing.bizhi
+<公钥指纹>
+<timestamp>
+<nonce>
+```
+
+`evidenceToken` 是以下 UTF-8 JSON 的 Base64URL 无填充编码：
+
+```json
+{
+  "timestamp": "<ISO 8601 UTC>",
+  "nonce": "<UUID>",
+  "proof": "<注册原文的 RSA SHA-256 PKCS#1 v1.5 签名，Base64URL 无填充>"
 }
 ```
 
@@ -137,12 +165,14 @@ QJ-DEVICE-SESSION-V1
 }
 ```
 
+HarmonyOS 的 `challenge.algorithm` 固定为 `RSA_SHA256`，会话 `proof` 使用同一把 HUKS RSA-2048 私钥按 SHA-256 / PKCS#1 v1.5 签名，输出 Base64URL 无填充字符串。
+
 会话响应中的 `platform` 是服务端后续过滤目录和交付资源的依据。Android 线上联调包已允许以下 `appInstallScope`：
 
 - `com.qingjing.bizhi.internal`
 - `com.qingjing.bizhi.lab`
 
-上述流程的 Android RSA-2048/SHA-256 验证已实现。HarmonyOS 的请求字段已在契约中保留，但签名算法、`evidenceToken` 和 `appInstallScope` 尚未定稿，**现在不能直接把 Android 的签名参数当作鸿蒙正式契约**。
+上述 Android 和 HarmonyOS 的 RSA-2048/SHA-256 设备注册、会话及 `QJ-SIGNED-REQUEST-V1` 业务请求验签都已在 Java API 实现。
 
 ## 6. 目录与详情
 
@@ -374,7 +404,7 @@ App 分支只依赖 `error.code`，不依赖可变的 `message`。
 ### HarmonyOS
 
 - [ ] 目录只接收 `HARMONYOS / MOVING_PHOTO` 和 `UNIVERSAL / STATIC_IMAGE`。
-- [ ] 对接前提供安装级公钥算法、注册 `evidenceToken` 结构、挑战签名格式和业务请求签名格式。
+- [ ] 使用 `com.qingjing.bizhi` 和 HUKS RSA-2048 完成设备注册、challenge 会话和敏感请求签名。
 - [ ] 使用详情返回的精确类型申请下载，不请求 Android 或 iOS 资源。
 - [ ] 下载并校验 Moving Photo 的 JPEG 和 MP4，两者成功后才交给系统。
 - [ ] 系统注册或保存失败时在 App 提示，不修改服务端目录。
@@ -384,29 +414,27 @@ App 分支只依赖 `error.code`，不依赖可变的 `message`。
 - [ ] 目录只接收 `IOS / LIVE_PHOTO` 和 `UNIVERSAL / STATIC_IMAGE`。
 - [ ] 设备身份和 Live Photo 正式交付完成前，不把目录可见误判为已可正式下载。
 
-## 11. 待完成的两端对齐
+## 11. 鸿蒙身份固定契约
 
-### 11.1 鸿蒙 App 需提供
+| 项目 | 固定值 |
+|---|---|
+| `platform` | `HARMONYOS` |
+| `appInstallScope` | `com.qingjing.bizhi` |
+| 密钥 | HUKS RSA-2048 |
+| 摘要 | SHA-256 |
+| 填充 | PKCS#1 v1.5 |
+| 公钥容器 | X.509 SubjectPublicKeyInfo PEM |
+| 注册签名域 | `QJ-HARMONYOS-REGISTER-V1` |
+| challenge 算法 | `RSA_SHA256` |
+| 签名输出 | Base64URL 无填充 |
 
-1. 公钥算法、密钥长度和 PEM/原始公钥编码。
-2. 注册 `evidenceToken` 的字段、编码和签名原文。
-3. 会话 challenge `proof` 的算法和编码。
-4. `QJ-SIGNED-REQUEST-V1` 业务请求的签名实现确认。
-5. 鸿蒙正式包的 `appInstallScope` 唯一标识。
-
-### 11.2 Java API 在获得上述参数后完成
-
-1. 鸿蒙设备注册证明验证。
-2. 鸿蒙挑战会话签名验证。
-3. 鸿蒙敏感业务请求签名验证。
-4. 鸿蒙安装包标识白名单和契约测试。
-5. 端到端验证目录、兑换、票据、双文件下载和 SHA-256 校验。
+新版 API 部署后，服务端会拒绝其他鸿蒙 `appInstallScope`、非 RSA-2048 公钥、过期时间、重放 nonce、非 PKCS#1 v1.5 签名和签名后被改动的请求体。
 
 ## 12. 契约依据
 
 最终字段、枚举和错误响应以：
 
 - `contracts/openapi/openapi.yaml`
-- OpenAPI 版本 `2.5.0`
+- OpenAPI 版本 `2.6.0`
 
 为准。本文档只说明 App 对接流程和当前实现边界。

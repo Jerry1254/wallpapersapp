@@ -21,6 +21,16 @@ public class DeviceProperties {
         return allowedAndroidScopes.contains(scope) || onlineTestAndroidScopes.contains(scope);
     }
 
+    private boolean harmonyEnabled;
+    private List<String> allowedHarmonyScopes = new ArrayList<>();
+    public boolean isHarmonyEnabled() { return harmonyEnabled; }
+    public void setHarmonyEnabled(boolean value) { harmonyEnabled = value; }
+    public List<String> getAllowedHarmonyScopes() { return List.copyOf(allowedHarmonyScopes); }
+    public void setAllowedHarmonyScopes(List<String> value) { allowedHarmonyScopes = new ArrayList<>(value); }
+    public boolean isHarmonyScopeAllowed(String scope) {
+        return allowedHarmonyScopes.contains(scope);
+    }
+
     private boolean h5TestEnabled;
     private List<String> allowedH5Scopes = new ArrayList<>();
     private Duration challengeTtl = Duration.ofMinutes(2);

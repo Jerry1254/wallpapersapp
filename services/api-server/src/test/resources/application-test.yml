@@ -17,6 +17,9 @@ qingjing:
     android-enabled: true
     allowed-android-scopes:
       - android-integration
+    harmony-enabled: true
+    allowed-harmony-scopes:
+      - com.qingjing.bizhi
     h5-test-enabled: true
     allowed-h5-scopes:
       - h5-integration

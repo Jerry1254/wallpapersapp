@@ -2155,6 +2155,66 @@ class InfrastructureIntegrationIT {
         assertThat(newInstallation.getBody().path("credentialKeyId").asText()).isNotEqualTo(keyId);
     }
 
+    @Test
+    void harmonyInstallationProofSessionAndSignedRequestUseRealInfrastructure() throws Exception {
+        java.security.KeyPairGenerator generator = java.security.KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        java.security.KeyPair key = generator.generateKeyPair();
+        Map<String, Object> registration = harmonyRegistration(key);
+
+        ResponseEntity<JsonNode> registered = http.postForEntity(
+                "/api/v1/device/registrations", registration, JsonNode.class);
+        assertThat(registered.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(registered.getBody().path("credentialType").asText()).isEqualTo("PLATFORM_PUBLIC_KEY");
+        String keyId = registered.getBody().path("credentialKeyId").asText();
+
+        ResponseEntity<JsonNode> replay = http.postForEntity(
+                "/api/v1/device/registrations", registration, JsonNode.class);
+        assertThat(replay.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(replay.getBody().path("error").path("code").asText()).isEqualTo("REQUEST_NONCE_REUSED");
+
+        ResponseEntity<JsonNode> restored = http.postForEntity(
+                "/api/v1/device/registrations", harmonyRegistration(key), JsonNode.class);
+        assertThat(restored.getBody().path("credentialKeyId").asText()).isEqualTo(keyId);
+
+        ResponseEntity<JsonNode> challenge = http.postForEntity(
+                "/api/v1/device/session-challenges", Map.of("credentialKeyId", keyId), JsonNode.class);
+        assertThat(challenge.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(challenge.getBody().path("algorithm").asText()).isEqualTo("RSA_SHA256");
+
+        String timestamp = Instant.now().toString();
+        String challengeId = challenge.getBody().path("challengeId").asText();
+        String sessionPayload = "QJ-DEVICE-SESSION-V1\n" + keyId + "\n" + challengeId + "\n"
+                + challenge.getBody().path("nonce").asText() + "\n" + timestamp;
+        ResponseEntity<JsonNode> session = http.postForEntity(
+                "/api/v1/device/sessions",
+                Map.of(
+                        "credentialKeyId", keyId,
+                        "challengeId", challengeId,
+                        "clientTimestamp", timestamp,
+                        "proof", androidSign(key, sessionPayload)),
+                JsonNode.class);
+        assertThat(session.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(session.getBody().path("platform").asText()).isEqualTo("HARMONYOS");
+        String token = session.getBody().path("accessToken").asText();
+
+        HttpHeaders auth = new HttpHeaders();
+        auth.setBearerAuth(token);
+        assertThat(http.exchange("/api/v1/public/categories", HttpMethod.GET,
+                new HttpEntity<>(auth), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        String ticketPath = "/api/v1/device/wallpapers/999999999/download-tickets";
+        String ticketBody = objectMapper.writeValueAsString(
+                Map.of("deliveryPlatform", "HARMONYOS", "resourceType", "MOVING_PHOTO"));
+        ResponseEntity<JsonNode> signedRequest = http.exchange(
+                ticketPath,
+                HttpMethod.POST,
+                androidSignedEntity(key, token, "POST", ticketPath, ticketBody),
+                JsonNode.class);
+        assertThat(signedRequest.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(signedRequest.getBody().path("error").path("code").asText()).isEqualTo("WALLPAPER_NOT_FOUND");
+    }
+
     private HttpEntity<String> androidSignedEntity(java.security.KeyPair key, String token, String method, String path, String json) throws Exception {
         String timestamp = Instant.now().toString(), nonce = UUID.randomUUID().toString();
         String hash = java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.getBytes(StandardCharsets.UTF_8)));
@@ -2183,6 +2243,26 @@ class InfrastructureIntegrationIT {
         String payload="QJ-ANDROID-REGISTER-V1\n"+scope+"\n"+fingerprint+"\n"+timestamp+"\n"+nonce;
         String evidence=Base64.getUrlEncoder().withoutPadding().encodeToString(objectMapper.writeValueAsBytes(Map.of("timestamp",timestamp,"nonce",nonce,"proof",androidSign(key,payload))));
         return Map.of("platform","ANDROID","appInstallScope",scope,"credentialType","PLATFORM_PUBLIC_KEY","publicKeyPem",publicKeyPem(key),"evidenceToken",evidence);
+    }
+    private Map<String, Object> harmonyRegistration(java.security.KeyPair key) throws Exception {
+        String scope = "com.qingjing.bizhi";
+        String timestamp = Instant.now().toString(), nonce = UUID.randomUUID().toString();
+        byte[] encoded = key.getPublic().getEncoded();
+        String fingerprint = java.util.HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(encoded));
+        String payload = "QJ-HARMONYOS-REGISTER-V1\n" + scope + "\n" + fingerprint + "\n"
+                + timestamp + "\n" + nonce;
+        String evidence = Base64.getUrlEncoder().withoutPadding().encodeToString(
+                objectMapper.writeValueAsBytes(Map.of(
+                        "timestamp", timestamp,
+                        "nonce", nonce,
+                        "proof", androidSign(key, payload))));
+        return Map.of(
+                "platform", "HARMONYOS",
+                "appInstallScope", scope,
+                "credentialType", "PLATFORM_PUBLIC_KEY",
+                "publicKeyPem", publicKeyPem(key),
+                "evidenceToken", evidence);
     }
     private static String publicKeyPem(java.security.KeyPair key) {
         return "-----BEGIN PUBLIC KEY-----\n"

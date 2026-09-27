@@ -36,6 +36,7 @@ public class DeviceIdentityService {
     private final RedisRateLimiter rateLimiter;
     private final DeviceProperties properties;
     private final AndroidCredentialProof androidProof;
+    private final HarmonyCredentialProof harmonyProof;
 
     public DeviceIdentityService(
             JdbcTemplate jdbc,
@@ -43,7 +44,7 @@ public class DeviceIdentityService {
             ObjectMapper objectMapper,
             SecurityCrypto crypto,
             RedisRateLimiter rateLimiter,
-            DeviceProperties properties, AndroidCredentialProof androidProof) {
+            DeviceProperties properties, AndroidCredentialProof androidProof, HarmonyCredentialProof harmonyProof) {
         this.jdbc = jdbc;
         this.redis = redis;
         this.objectMapper = objectMapper;
@@ -51,11 +52,13 @@ public class DeviceIdentityService {
         this.rateLimiter = rateLimiter;
         this.properties = properties;
         this.androidProof = androidProof;
+        this.harmonyProof = harmonyProof;
     }
 
     @Transactional
     public DeviceRegistrationResponse register(DeviceRegistrationRequest request, String remoteAddress) {
         if (request.platform() == DevicePlatform.ANDROID) return registerAndroid(request, remoteAddress);
+        if (request.platform() == DevicePlatform.HARMONYOS) return registerHarmony(request, remoteAddress);
         validateRegistration(request);
         String scope = request.appInstallScope().strip();
         String evidenceHash = crypto.hmacHex("device-evidence-v1", request.evidenceToken());
@@ -142,8 +145,7 @@ public class DeviceIdentityService {
                 + request.clientTimestamp();
         boolean valid;
         if (credential.credentialType() == CredentialType.PLATFORM_PUBLIC_KEY) {
-            valid = credential.platform() == DevicePlatform.ANDROID
-                    && androidProof.verify(credential.publicKeyPem(), payload, request.proof());
+            valid = verifyPlatformSignature(credential, payload, request.proof());
         } else {
             String secret = credentialSecret(request.credentialKeyId());
             valid = crypto.constantTimeEquals(crypto.hmacHex("device-credential-record-v1", secret), credential.secretHash())
@@ -225,8 +227,7 @@ public class DeviceIdentityService {
         boolean valid;
         if (session.credentialType() == CredentialType.PLATFORM_PUBLIC_KEY) {
             CredentialRow credential = requireCredential(session.credentialKeyId());
-            valid = credential.platform() == DevicePlatform.ANDROID
-                    && androidProof.verify(credential.publicKeyPem(), payload, suppliedSignature);
+            valid = verifyPlatformSignature(credential, payload, suppliedSignature);
         } else {
             valid = crypto.constantTimeEquals(crypto.hmacBase64UrlWithKey(credentialSecret(session.credentialKeyId()), payload), suppliedSignature);
         }
@@ -250,7 +251,8 @@ public class DeviceIdentityService {
 
     private void requireProvider(CredentialType type, DevicePlatform platform) {
         boolean allowed = type == CredentialType.PLATFORM_PUBLIC_KEY
-                ? platform == DevicePlatform.ANDROID && properties.isAndroidEnabled()
+                ? (platform == DevicePlatform.ANDROID && properties.isAndroidEnabled())
+                    || (platform == DevicePlatform.HARMONYOS && properties.isHarmonyEnabled())
                 : platform == DevicePlatform.H5_TEST && properties.isH5TestEnabled();
         if (!allowed) throw new ApiException(HttpStatus.FORBIDDEN, "DEVICE_PROVIDER_UNAVAILABLE", "The credential provider is not available");
     }
@@ -269,15 +271,44 @@ public class DeviceIdentityService {
         rateLimiter.require("android-registration", remoteAddress, 30, Duration.ofMinutes(1));
         AndroidCredentialProof.Registration proof = androidProof.verifyRegistration(scope, request.publicKeyPem(),
                 request.evidenceToken(), Instant.now(), properties.getClockSkew());
-        Boolean accepted = redis.opsForValue().setIfAbsent("device:registration-nonce:" + proof.fingerprint() + ":" + proof.nonce(), "1", replayTtl());
-        if (!Boolean.TRUE.equals(accepted)) throw new ApiException(HttpStatus.CONFLICT, "REQUEST_NONCE_REUSED", "The registration nonce has already been used");
-        String evidenceHash = crypto.hmacHex("android-installation-v1", scope + "\n" + proof.fingerprint());
+        return persistPublicKeyRegistration(DevicePlatform.ANDROID, scope, proof.fingerprint(), proof.nonce(),
+                proof.publicKeyPem(), "device:registration-nonce:", "android-installation-v1");
+    }
+
+    private DeviceRegistrationResponse registerHarmony(DeviceRegistrationRequest request, String remoteAddress) {
+        String scope = request.appInstallScope().strip();
+        if (!properties.isHarmonyEnabled() || request.credentialType() != CredentialType.PLATFORM_PUBLIC_KEY
+                || !properties.isHarmonyScopeAllowed(scope)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "DEVICE_PROVIDER_NOT_ALLOWED", "The HarmonyOS provider is not enabled for this scope");
+        }
+        rateLimiter.require("harmony-registration", remoteAddress, 30, Duration.ofMinutes(1));
+        HarmonyCredentialProof.Registration proof = harmonyProof.verifyRegistration(scope, request.publicKeyPem(),
+                request.evidenceToken(), Instant.now(), properties.getClockSkew());
+        return persistPublicKeyRegistration(DevicePlatform.HARMONYOS, scope, proof.fingerprint(), proof.nonce(),
+                proof.publicKeyPem(), "device:harmony-registration-nonce:", "harmonyos-installation-v1");
+    }
+
+    private DeviceRegistrationResponse persistPublicKeyRegistration(
+            DevicePlatform platform,
+            String scope,
+            String fingerprint,
+            String nonce,
+            String publicKeyPem,
+            String noncePrefix,
+            String evidenceDomain) {
+        Boolean accepted = redis.opsForValue().setIfAbsent(noncePrefix + fingerprint + ":" + nonce, "1", replayTtl());
+        if (!Boolean.TRUE.equals(accepted)) {
+            throw new ApiException(HttpStatus.CONFLICT, "REQUEST_NONCE_REUSED", "The registration nonce has already been used");
+        }
+        String evidenceHash = crypto.hmacHex(evidenceDomain, scope + "\n" + fingerprint);
         jdbc.update("""
                 INSERT INTO anonymous_device (public_id, platform, app_install_scope, evidence_hash, status, last_seen_at)
-                VALUES (?, 'ANDROID', ?, ?, 'ACTIVE', UTC_TIMESTAMP(6))
+                VALUES (?, ?, ?, ?, 'ACTIVE', UTC_TIMESTAMP(6))
                 ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
-                """, UUID.randomUUID().toString(), scope, evidenceHash);
-        Long deviceId = jdbc.queryForObject("SELECT id FROM anonymous_device WHERE platform='ANDROID' AND app_install_scope=? AND evidence_hash=? FOR UPDATE", Long.class, scope, evidenceHash);
+                """, UUID.randomUUID().toString(), platform.name(), scope, evidenceHash);
+        Long deviceId = jdbc.queryForObject(
+                "SELECT id FROM anonymous_device WHERE platform=? AND app_install_scope=? AND evidence_hash=? FOR UPDATE",
+                Long.class, platform.name(), scope, evidenceHash);
         String status = jdbc.queryForObject("SELECT status FROM anonymous_device WHERE id=?", String.class, deviceId);
         if (!"ACTIVE".equals(status)) throw new ApiException(HttpStatus.FORBIDDEN, "DEVICE_DISABLED", "The device is not active");
         List<DeviceRegistrationResponse> previous = jdbc.query("""
@@ -292,9 +323,16 @@ public class DeviceIdentityService {
         jdbc.update("""
                 INSERT INTO device_credential (device_id, credential_key_id, credential_type, public_key_pem, secret_hash, status)
                 VALUES (?, ?, 'PLATFORM_PUBLIC_KEY', ?, NULL, 'ACTIVE')
-                """, deviceId, keyId, proof.publicKeyPem());
+                """, deviceId, keyId, publicKeyPem);
         Instant createdAt = jdbc.queryForObject("SELECT created_at FROM device_credential WHERE credential_key_id=?", java.sql.Timestamp.class, keyId).toInstant();
         return new DeviceRegistrationResponse(keyId, CredentialType.PLATFORM_PUBLIC_KEY, null, createdAt);
+    }
+
+    private boolean verifyPlatformSignature(CredentialRow credential, String payload, String suppliedSignature) {
+        return switch (credential.platform()) {
+            case ANDROID, HARMONYOS -> androidProof.verify(credential.publicKeyPem(), payload, suppliedSignature);
+            default -> false;
+        };
     }
 
     private void validateRegistration(DeviceRegistrationRequest request) {

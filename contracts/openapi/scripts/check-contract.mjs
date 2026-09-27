@@ -186,6 +186,26 @@ assert.match(
 );
 assert.ok(!document.paths['/device/me/capabilities']);
 assert.ok(!document.components.schemas.DeviceCapabilityReportRequest);
+assert.match(
+  document.paths['/device/registrations'].post.description,
+  /HarmonyOS.*HUKS RSA-2048.*PKCS#1 v1\.5/s,
+  'device registration must document the fixed HarmonyOS HUKS contract'
+);
+assert.match(
+  document.components.schemas.DeviceRegistrationRequest.properties.appInstallScope.description,
+  /com\.qingjing\.bizhi/,
+  'HarmonyOS appInstallScope must remain fixed'
+);
+assert.match(
+  document.components.schemas.DeviceRegistrationRequest.properties.evidenceToken.description,
+  /QJ-HARMONYOS-REGISTER-V1/,
+  'HarmonyOS registration signature domain must remain stable'
+);
+assert.match(
+  document.components.schemas.DeviceSessionChallenge.properties.algorithm.description,
+  /RSA_SHA256/,
+  'HarmonyOS session challenge algorithm must remain RSA_SHA256'
+);
 assert.deepEqual(document.components.schemas.PreviewDescriptor.properties.purpose.enum, ['APP_PREVIEW']);
 assert.deepEqual(document.components.schemas.PreviewDescriptor.properties.durationSeconds.enum, [120]);
 assert.deepEqual(document.components.schemas.PreviewPackageMetadata.properties.formatVersion.enum, [3]);
