@@ -87,23 +87,15 @@ struct Index {
     if (!this.pageVisible || this.initialLoadStarted || this.api === null) return;
     this.initialLoadStarted = true;
     this.loadSavedDeliveryKeys();
-    this.loadHome(true);
+    this.loadHome();
   }
 
-  private async loadHome(retryEmpty: boolean = false): Promise<void> {
+  private async loadHome(): Promise<void> {
     if (this.api === null) return;
     this.loading = true;
     this.errorMessage = '';
     try {
-      let items: WallpaperSummary[] = [];
-      const attempts: number = retryEmpty ? 3 : 1;
-      for (let attempt: number = 0; attempt < attempts; attempt++) {
-        if (attempt > 0) {
-          await new Promise<void>((resolve: () => void) => setTimeout(resolve, attempt * 500));
-        }
-        items = await (this.api as CatalogApi).wallpapers(this.selectedFilter);
-        if (items.length > 0) break;
-      }
+      const items: WallpaperSummary[] = await (this.api as CatalogApi).wallpapers(this.selectedFilter);
       this.wallpapers = items.slice();
     } catch (error) {
       this.errorMessage = this.messageFor(error);
@@ -639,19 +631,19 @@ struct Index {
   }
 
   @Builder
-  private WallpaperGrid(items: WallpaperSummary[], emptyText: string) {
-    if (items.length === 0) {
+  private CatalogWallpaperGrid(emptyText: string) {
+    if (this.wallpapers.length === 0) {
       this.LoadingOrState(emptyText);
     } else {
       Grid() {
-        ForEach(items, (item: WallpaperSummary) => {
+        ForEach(this.wallpapers, (item: WallpaperSummary) => {
           GridItem() { this.WallpaperCard(item); }
         }, (item: WallpaperSummary) => item.id);
       }
       .columnsTemplate('1fr 1fr')
       .columnsGap(12)
       .rowsGap(20)
-      .height(Math.ceil(items.length / 2) * 250);
+      .height(Math.ceil(this.wallpapers.length / 2) * 250);
     }
   }
 
@@ -711,7 +703,7 @@ struct Index {
           }
           .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%');
           Column() {
-            this.WallpaperGrid(this.wallpapers, '暂时没有符合条件的已发布壁纸');
+            this.CatalogWallpaperGrid('暂时没有符合条件的已发布壁纸');
           }
           .width('100%').margin({ top: 16, bottom: 110 });
         }
@@ -729,7 +721,7 @@ struct Index {
         this.PageHeader(this.currentTitle, true);
         this.SearchBar();
         Column() {
-          this.WallpaperGrid(this.wallpapers,
+          this.CatalogWallpaperGrid(
             this.page === 'SEARCH' ? '没有找到相关壁纸，换个关键词试试' : '这个分类正在补充壁纸');
         }
         .width('100%').margin({ top: 24, bottom: 40 });
