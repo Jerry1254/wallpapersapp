@@ -152,6 +152,12 @@ class _RedemptionDialogState extends State<RedemptionDialog> {
           ),
         ],
         const SizedBox(height: T.space4),
+        QjPrimaryAction(
+          label: pending ? '使用原码重试本次兑换' : '验证并兑换',
+          loading: busy,
+          onPressed: () => run(false),
+        ),
+        const SizedBox(height: T.space3),
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
@@ -159,12 +165,6 @@ class _RedemptionDialogState extends State<RedemptionDialog> {
             icon: const QjIcon('message-circle-more', size: 18),
             label: const Text('联系客服'),
           ),
-        ),
-        const SizedBox(height: T.space3),
-        QjPrimaryAction(
-          label: pending ? '使用原码重试本次兑换' : '验证并兑换',
-          loading: busy,
-          onPressed: () => run(false),
         ),
       ],
     ),

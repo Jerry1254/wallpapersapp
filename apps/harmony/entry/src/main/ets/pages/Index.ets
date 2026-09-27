@@ -63,6 +63,8 @@ struct Index {
   private pendingMovingPhoto: DownloadedMovingPhoto | null = null;
   private pendingDeliveryKey: string = '';
   private pendingStaticImage: DownloadedStaticImage | null = null;
+  private initialLoadStarted: boolean = false;
+  private pageVisible: boolean = false;
 
   aboutToAppear(): void {
     const host = this.getUIContext().getHostContext();
@@ -73,16 +75,35 @@ struct Index {
     this.context = host as common.UIAbilityContext;
     const sessions: HarmonyDeviceSession = new HarmonyDeviceSession(this.context as common.UIAbilityContext);
     this.api = new CatalogApi(sessions);
-    this.loadSavedDeliveryKeys();
-    this.loadHome();
+    this.startInitialLoad();
   }
 
-  private async loadHome(): Promise<void> {
+  onPageShow(): void {
+    this.pageVisible = true;
+    this.startInitialLoad();
+  }
+
+  private startInitialLoad(): void {
+    if (!this.pageVisible || this.initialLoadStarted || this.api === null) return;
+    this.initialLoadStarted = true;
+    this.loadSavedDeliveryKeys();
+    this.loadHome(true);
+  }
+
+  private async loadHome(retryEmpty: boolean = false): Promise<void> {
     if (this.api === null) return;
     this.loading = true;
     this.errorMessage = '';
     try {
-      const items: WallpaperSummary[] = await (this.api as CatalogApi).wallpapers(this.selectedFilter);
+      let items: WallpaperSummary[] = [];
+      const attempts: number = retryEmpty ? 3 : 1;
+      for (let attempt: number = 0; attempt < attempts; attempt++) {
+        if (attempt > 0) {
+          await new Promise<void>((resolve: () => void) => setTimeout(resolve, attempt * 500));
+        }
+        items = await (this.api as CatalogApi).wallpapers(this.selectedFilter);
+        if (items.length > 0) break;
+      }
       this.wallpapers = items.slice();
     } catch (error) {
       this.errorMessage = this.messageFor(error);
@@ -958,7 +979,7 @@ struct Index {
       Scroll() {
         Column() {
           Row() {
-            Image($r('app.media.message_circle_more')).width(22).height(22).objectFit(ImageFit.Contain);
+            Image($r('app.media.message_circle_more_dark')).width(22).height(22).objectFit(ImageFit.Contain);
             Column({ space: 3 }) {
               Text('微信客服').width('100%').fontSize(17).fontWeight(FontWeight.Bold).fontColor(T.ink);
               Text('添加客服获取兑换码或处理设备恢复').width('100%').fontSize(12).fontColor(T.mutedInk);
@@ -1011,44 +1032,57 @@ struct Index {
 
   @Builder
   private RedemptionOverlay() {
-    Column() {
-      Column({ space: 14 }) {
-        Text('兑换这张壁纸').width('100%').fontSize(22).fontWeight(FontWeight.Bolder).fontColor(T.ink);
-        Text('输入客服发送的 20 位兑换码，兑换成功后会自动下载')
-          .width('100%').fontSize(13).fontColor(T.mutedInk);
+    Stack({ alignContent: Alignment.Bottom }) {
+      Column()
+        .width('100%').height('100%').backgroundColor('#88191817')
+        .onClick(() => {
+          if (!this.redemptionBusy) this.redemptionVisible = false;
+        });
+      Column() {
+        Row() {}
+          .width(38).height(5).backgroundColor(T.outlineStrong).borderRadius(3)
+          .margin({ bottom: 20 });
+        Row() {
+          Stack({ alignContent: Alignment.Center }) {
+            Image($r('app.media.key_round')).width(22).height(22).objectFit(ImageFit.Contain);
+          }
+          .width(44).height(44).backgroundColor(T.accentSoft).borderRadius(15);
+          Column({ space: 3 }) {
+            Text('兑换这张壁纸').width('100%').fontSize(22).fontWeight(FontWeight.Bolder).fontColor(T.ink);
+            Text('输入客服发送的兑换码').width('100%').fontSize(13).fontColor(T.mutedInk);
+          }
+          .alignItems(HorizontalAlign.Start).layoutWeight(1).margin({ left: 12 });
+        }
+        .width('100%').margin({ bottom: 20 });
+        Text('兑换码').width('100%').fontSize(12).fontWeight(FontWeight.Bold).fontColor(T.mutedInk)
+          .margin({ bottom: 7 });
         TextInput({ text: this.redemptionCode, placeholder: '请输入兑换码' })
           .width('100%').height(52).fontSize(16).backgroundColor(T.surfaceMuted)
           .border({ width: 1, color: T.outlineStrong }).borderRadius(T.controlRadius)
           .maxLength(32).onChange((value: string) => this.redemptionCode = value);
         if (this.redemptionMessage.length > 0) {
-          Text(this.redemptionMessage).width('100%').fontSize(13).fontColor('#C33A32');
+          Text(this.redemptionMessage).width('100%').fontSize(13).fontColor('#C33A32').margin({ top: 9 });
         }
+        Button(this.redemptionBusy ? '正在兑换' : '验证并兑换')
+          .width('100%').height(48).fontSize(15).fontWeight(FontWeight.Bold)
+          .fontColor(T.inverseInk).backgroundColor(T.navigation).borderRadius(24)
+          .margin({ top: 18 }).enabled(!this.redemptionBusy)
+          .onClick(() => this.redeemAndDownload());
         Button() {
           Row({ space: 7 }) {
-            Image($r('app.media.message_circle_more')).width(18).height(18).objectFit(ImageFit.Contain);
+            Image($r('app.media.message_circle_more_dark')).width(18).height(18).objectFit(ImageFit.Contain);
             Text('联系客服').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.ink);
           }
         }
         .width('100%').height(44).backgroundColor(T.surface)
         .border({ width: 1, color: T.outlineStrong }).borderRadius(22)
-        .enabled(!this.redemptionBusy)
+        .margin({ top: 12 }).enabled(!this.redemptionBusy)
         .onClick(() => this.customerDialogVisible = true);
-        Row({ space: 10 }) {
-          Button('取消').layoutWeight(1).height(48).fontSize(15).fontWeight(FontWeight.Bold)
-            .fontColor(T.ink).backgroundColor(T.surface)
-            .border({ width: 1, color: T.outlineStrong }).borderRadius(24)
-            .enabled(!this.redemptionBusy)
-            .onClick(() => this.redemptionVisible = false);
-          Button(this.redemptionBusy ? '正在兑换' : '兑换并下载').layoutWeight(1).height(48)
-            .fontSize(15).fontWeight(FontWeight.Bold).fontColor(T.ink).backgroundColor(T.accent).borderRadius(24)
-            .enabled(!this.redemptionBusy)
-            .onClick(() => this.redeemAndDownload());
-        }
-        .width('100%');
       }
-      .width('100%').padding(22).backgroundColor(T.surface).borderRadius({ topLeft: 28, topRight: 28 });
+      .width('100%').padding({ left: 22, right: 22, top: 14, bottom: 28 })
+      .backgroundColor(T.surface).borderRadius({ topLeft: 28, topRight: 28 });
     }
-    .width('100%').height('100%').justifyContent(FlexAlign.End).backgroundColor('#88191817');
+    .width('100%').height('100%');
   }
 
   @Builder

@@ -266,6 +266,11 @@ void main() {
 
     await tester.tap(find.text('兑换'));
     await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('验证并兑换')).dy,
+      lessThan(tester.getTopLeft(find.text('联系客服')).dy),
+    );
     await tester.tap(find.text('联系客服'));
     await tester.pumpAndSettle();
 
