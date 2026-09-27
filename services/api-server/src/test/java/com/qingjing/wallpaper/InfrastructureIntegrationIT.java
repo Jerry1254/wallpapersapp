@@ -2203,6 +2203,57 @@ class InfrastructureIntegrationIT {
         assertThat(http.exchange("/api/v1/public/categories", HttpMethod.GET,
                 new HttpEntity<>(auth), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
 
+        long staticWallpaper = createPublishedWallpaperFixture();
+        long staticVersion = jdbc.queryForObject("""
+                SELECT rv.id FROM resource_version rv JOIN wallpaper_variant v ON v.id=rv.variant_id
+                WHERE v.wallpaper_id=? AND rv.status='PUBLISHED'
+                """, Long.class, staticWallpaper);
+        long staticAsset = jdbc.queryForObject("""
+                SELECT rb.asset_id FROM resource_binding rb
+                WHERE rb.resource_version_id=? AND rb.role='STATIC_IMAGE' AND rb.ordinal=0
+                """, Long.class, staticVersion);
+        byte[] originalStaticImage = png(4, 3);
+        var stagedStaticImage = packageStorage.stage(
+                new java.io.ByteArrayInputStream(originalStaticImage), 1024 * 1024);
+        var storedStaticImage = packageStorage.commit(stagedStaticImage, "png");
+        jdbc.update("""
+                UPDATE asset SET storage_key=?,size_bytes=?,sha256=?,mime_type='image/png',file_extension='png'
+                WHERE id=?
+                """, storedStaticImage.storageKey().value(), storedStaticImage.sizeBytes(),
+                storedStaticImage.sha256(), staticAsset);
+        jdbc.update("DELETE FROM secure_resource_package WHERE resource_version_id=?", staticVersion);
+        jdbc.update("UPDATE wallpaper SET access_type='FREE' WHERE id=?", staticWallpaper);
+
+        JsonNode harmonyCatalog = http.exchange(
+                "/api/v1/public/wallpapers?deliveryPlatform=UNIVERSAL&resourceType=STATIC_IMAGE&pageSize=100",
+                HttpMethod.GET, new HttpEntity<>(auth), JsonNode.class).getBody();
+        assertThat(harmonyCatalog.path("items").findValuesAsText("id"))
+                .contains(Long.toString(staticWallpaper));
+
+        String staticTicketPath = "/api/v1/device/wallpapers/" + staticWallpaper + "/download-tickets";
+        String staticTicketBody = objectMapper.writeValueAsString(
+                Map.of("deliveryPlatform", "UNIVERSAL", "resourceType", "STATIC_IMAGE"));
+        ResponseEntity<JsonNode> staticDescriptor = http.exchange(
+                staticTicketPath, HttpMethod.POST,
+                androidSignedEntity(key, token, "POST", staticTicketPath, staticTicketBody), JsonNode.class);
+        assertThat(staticDescriptor.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(staticDescriptor.getBody().path("deliveryMode").asText()).isEqualTo("STATIC_IMAGE");
+        assertThat(staticDescriptor.getBody().path("image").path("url").asText())
+                .isEqualTo("/api/v1/delivery/static-image");
+        assertThat(staticDescriptor.getBody().path("image").path("mimeType").asText()).isEqualTo("image/png");
+        assertThat(staticDescriptor.getBody().path("image").path("sha256").asText())
+                .isEqualTo(storedStaticImage.sha256());
+        assertThat(staticDescriptor.getBody().toString()).doesNotContain("storage_key", "objects/");
+
+        HttpHeaders staticDownload = new HttpHeaders();
+        staticDownload.setBearerAuth(staticDescriptor.getBody().path("ticket").asText());
+        ResponseEntity<byte[]> staticBytes = http.exchange(
+                "/api/v1/delivery/static-image", HttpMethod.GET,
+                new HttpEntity<>(staticDownload), byte[].class);
+        assertThat(staticBytes.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(staticBytes.getHeaders().getContentType()).isEqualTo(MediaType.IMAGE_PNG);
+        assertThat(staticBytes.getBody()).containsExactly(originalStaticImage);
+
         String ticketPath = "/api/v1/device/wallpapers/999999999/download-tickets";
         String ticketBody = objectMapper.writeValueAsString(
                 Map.of("deliveryPlatform", "HARMONYOS", "resourceType", "MOVING_PHOTO"));

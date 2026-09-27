@@ -12,7 +12,7 @@ import {
 import { CatalogApi } from '../network/CatalogApi';
 import { HarmonyDeviceSession } from '../network/HarmonyDeviceSession';
 import { CustomerSupport } from '../support/CustomerSupport';
-import { DownloadedMovingPhoto, HarmonyDelivery } from '../media/HarmonyDelivery';
+import { DownloadedMovingPhoto, DownloadedStaticImage, HarmonyDelivery } from '../media/HarmonyDelivery';
 
 interface FailureWithMessage {
   message: string;
@@ -61,6 +61,7 @@ struct Index {
   private videoController: VideoController = new VideoController();
   private pendingMovingPhoto: DownloadedMovingPhoto | null = null;
   private pendingDeliveryKey: string = '';
+  private pendingStaticImage: DownloadedStaticImage | null = null;
 
   aboutToAppear(): void {
     const host = this.getUIContext().getHostContext();
@@ -290,12 +291,6 @@ struct Index {
 
   private async detailAction(item: WallpaperSummary): Promise<void> {
     if (this.deliveryVisible || this.redemptionBusy) return;
-    const capability: WallpaperCapability = this.selectedCapabilityFor(item);
-    if (capability.resourceType !== 'MOVING_PHOTO') {
-      this.statusMessage = '该静态原图尚未开放鸿蒙下载，请切换鸿蒙动态壁纸';
-      this.toast(this.statusMessage);
-      return;
-    }
     if (!item.free && !this.detailOwned) {
       this.openRedemption();
       return;
@@ -324,11 +319,6 @@ struct Index {
   private async downloadSelected(item: WallpaperSummary, justRedeemed: boolean): Promise<void> {
     if (this.api === null || this.context === null) return;
     const capability: WallpaperCapability = this.selectedCapabilityFor(item);
-    if (capability.resourceType !== 'MOVING_PHOTO') {
-      this.statusMessage = '该静态原图尚未开放鸿蒙下载，请切换鸿蒙动态壁纸';
-      this.toast(this.statusMessage);
-      return;
-    }
     this.deliveryVisible = true;
     this.deliveryReady = false;
     this.deliveryJustRedeemed = justRedeemed;
@@ -339,11 +329,16 @@ struct Index {
     try {
       const descriptor = await (this.api as CatalogApi).downloadTicket(item.id, capability);
       this.deliveryMessage = '正在下载壁纸资源，请勿关闭或切换到别的 App';
-      this.pendingMovingPhoto = await HarmonyDelivery.downloadMovingPhoto(
-        this.context as common.UIAbilityContext, descriptor, item.title,
-        (received: number, total: number) => {
-          this.deliveryProgress = total > 0 ? Math.min(100, Math.floor(received * 100 / total)) : 0;
-        });
+      const updateProgress = (received: number, total: number) => {
+        this.deliveryProgress = total > 0 ? Math.min(100, Math.floor(received * 100 / total)) : 0;
+      };
+      if (capability.resourceType === 'STATIC_IMAGE') {
+        this.pendingStaticImage = await HarmonyDelivery.downloadStaticImage(
+          this.context as common.UIAbilityContext, descriptor, item.title, updateProgress);
+      } else {
+        this.pendingMovingPhoto = await HarmonyDelivery.downloadMovingPhoto(
+          this.context as common.UIAbilityContext, descriptor, item.title, updateProgress);
+      }
       this.deliveryReady = true;
       this.deliveryMessage = '资源已下载并校验，请点击保存到图库';
     } catch (error) {
@@ -355,15 +350,21 @@ struct Index {
     }
   }
 
-  private async saveDownloadedMovingPhoto(): Promise<void> {
-    if (this.context === null || this.pendingMovingPhoto === null) return;
+  private async saveDownloadedWallpaper(): Promise<void> {
+    if (this.context === null || (this.pendingMovingPhoto === null && this.pendingStaticImage === null)) return;
     const savedKey: string = this.pendingDeliveryKey;
     this.deliveryReady = false;
-    this.deliveryMessage = '正在保存鸿蒙动态照片';
+    this.deliveryMessage = this.pendingStaticImage === null ? '正在保存鸿蒙动态照片' : '正在保存静态原图';
     try {
-      await HarmonyDelivery.saveDownloaded(this.context as common.UIAbilityContext,
-        this.pendingMovingPhoto as DownloadedMovingPhoto);
-      this.pendingMovingPhoto = null;
+      if (this.pendingStaticImage !== null) {
+        await HarmonyDelivery.saveStaticImage(this.context as common.UIAbilityContext,
+          this.pendingStaticImage as DownloadedStaticImage);
+        this.pendingStaticImage = null;
+      } else {
+        await HarmonyDelivery.saveDownloaded(this.context as common.UIAbilityContext,
+          this.pendingMovingPhoto as DownloadedMovingPhoto);
+        this.pendingMovingPhoto = null;
+      }
       this.pendingDeliveryKey = '';
       await this.rememberSavedDelivery(savedKey);
       this.detailSavedNowKey = savedKey;
@@ -372,6 +373,7 @@ struct Index {
       this.toast('已保存到相册，请设置');
     } catch (error) {
       this.pendingMovingPhoto = null;
+      this.pendingStaticImage = null;
       this.pendingDeliveryKey = '';
       this.deliveryVisible = false;
       this.statusMessage = this.messageFor(error);
@@ -379,10 +381,14 @@ struct Index {
     }
   }
 
-  private async cancelDownloadedMovingPhoto(): Promise<void> {
+  private async cancelDownloadedWallpaper(): Promise<void> {
     if (this.pendingMovingPhoto !== null) {
       await HarmonyDelivery.discard(this.pendingMovingPhoto as DownloadedMovingPhoto);
       this.pendingMovingPhoto = null;
+    }
+    if (this.pendingStaticImage !== null) {
+      await HarmonyDelivery.discardStaticImage(this.pendingStaticImage as DownloadedStaticImage);
+      this.pendingStaticImage = null;
     }
     this.pendingDeliveryKey = '';
     this.deliveryVisible = false;
@@ -972,13 +978,13 @@ struct Index {
           Button('暂不保存').width('48%').height(46).fontSize(14).fontWeight(FontWeight.Bold)
             .fontColor(T.ink).backgroundColor(T.surface)
             .border({ width: 1, color: T.outlineStrong }).borderRadius(23)
-            .onClick(() => this.cancelDownloadedMovingPhoto());
+            .onClick(() => this.cancelDownloadedWallpaper());
           SaveButton({ text: SaveDescription.SAVE_IMAGE, buttonType: ButtonType.Capsule })
             .width('48%').height(46).fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.ink)
             .backgroundColor(T.accent).borderRadius(23)
             .onClick((event: ClickEvent, result: SaveButtonOnClickResult) => {
               if (result === SaveButtonOnClickResult.SUCCESS) {
-                this.saveDownloadedMovingPhoto();
+                this.saveDownloadedWallpaper();
               } else {
                 this.toast('需要允许保存图片才能保存到图库');
               }

@@ -60,6 +60,11 @@ public class DownloadTicketService {
                 && request.resourceType()==ResourceType.MOVING_PHOTO) {
             return createMovingPhoto(principal, wallpaperId, authorization, wallpaper.cover());
         }
+        if (principal.platform()!=DevicePlatform.ANDROID
+                && request.deliveryPlatform()==DeliveryPlatform.UNIVERSAL
+                && request.resourceType()==ResourceType.STATIC_IMAGE) {
+            return createStaticImage(principal, wallpaperId, authorization, wallpaper.cover());
+        }
         if (principal.platform()!=DevicePlatform.ANDROID || !devices.isAndroidEnabled()) throw unavailable();
         var encryptionKey=keys.require(principal);
         String fingerprint=SecurePackageCodec.sha256(encryptionKey.getEncoded());
@@ -81,7 +86,7 @@ public class DownloadTicketService {
         return new DownloadDescriptor(DeliveryMode.SECURE_PACKAGE,Long.toString(wallpaperId),wallpaper.cover(),token,"/api/v1/delivery/files",expiry,
                 new DownloadResourceVersion(Long.toString(selected.versionId()),Long.toString(selected.variantId()),selected.number(),DeliveryPlatform.valueOf(selected.platform()),ResourceType.valueOf(selected.type()),selected.manifestHash()),
                 new SecurePackageMetadata(2,selected.size(),selected.plainSize(),selected.encryptedHash(),selected.plainHash(),selected.signingKeyId(),fingerprint,wrapped,"RSA-OAEP-SHA256-MGF1-SHA1"),
-                null,null);
+                null,null,null);
     }
     public ProtectedFile readProtectedFile(String token) {
         Ticket state=readTicket(token);
@@ -128,6 +133,14 @@ public class DownloadTicketService {
         String hash=part==MovingPhotoPart.POSTER?resource.posterHash():resource.videoHash();
         return new ProtectedFile(size,hash,output->streamMovingPhoto(token,part,storageKey,size,hash,output));
     }
+    public StaticImageFile readStaticImageFile(String token) {
+        Ticket state=readTicket(token);
+        if(state.deliveryMode()!=DeliveryMode.STATIC_IMAGE) throw invalid();
+        rateLimiter.require("static-image-read",Long.toString(state.deviceId()),12,Duration.ofMinutes(1));
+        StaticImageRow resource=validateStaticImage(state);
+        return new StaticImageFile(resource.size(),resource.hash(),resource.mimeType(),
+                output->streamStaticImage(token,resource,output));
+    }
     private void streamMovingPhoto(String token,MovingPhotoPart part,String key,long size,String hash,OutputStream output) throws IOException {
         if(!reads.tryAcquire()) throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,"RATE_LIMITED","Too many active downloads");
         try {
@@ -141,6 +154,21 @@ public class DownloadTicketService {
                 byte[] buffer=new byte[32768];long remaining=size;
                 while(remaining>0){int count=content.inputStream().read(buffer,0,(int)Math.min(buffer.length,remaining));if(count<0)throw new IOException("Incomplete Moving Photo");output.write(buffer,0,count);remaining-=count;}
                 if(content.inputStream().read()!=-1)throw new IOException("Moving Photo length changed");
+            }
+        } finally { reads.release(); }
+    }
+    private void streamStaticImage(String token,StaticImageRow expected,OutputStream output) throws IOException {
+        if(!reads.tryAcquire()) throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,"RATE_LIMITED","Too many active downloads");
+        try {
+            StaticImageRow current=validateStaticImage(readTicket(token));
+            if(current.versionId()!=expected.versionId() || !current.storageKey().equals(expected.storageKey())
+                    || current.size()!=expected.size() || !current.hash().equals(expected.hash())
+                    || !current.mimeType().equals(expected.mimeType())) throw invalid();
+            try(var content=storage.open(new StorageKey(current.storageKey()))) {
+                if(content.sizeBytes()!=current.size()) throw new IOException("Static image length changed");
+                byte[] buffer=new byte[32768];long remaining=current.size();
+                while(remaining>0){int count=content.inputStream().read(buffer,0,(int)Math.min(buffer.length,remaining));if(count<0)throw new IOException("Incomplete static image");output.write(buffer,0,count);remaining-=count;}
+                if(content.inputStream().read()!=-1)throw new IOException("Static image length changed");
             }
         } finally { reads.release(); }
     }
@@ -185,7 +213,32 @@ public class DownloadTicketService {
                 new DownloadResourceVersion(Long.toString(selected.versionId()),Long.toString(selected.variantId()),selected.number(),
                         DeliveryPlatform.HARMONYOS,ResourceType.MOVING_PHOTO,selected.manifestHash()),null,
                 new DeliveryFile("/api/v1/delivery/moving-photo/poster",selected.posterHash(),selected.posterSize(),"image/jpeg"),
-                new DeliveryFile("/api/v1/delivery/moving-photo/video",selected.videoHash(),selected.videoSize(),"video/mp4"));
+                new DeliveryFile("/api/v1/delivery/moving-photo/video",selected.videoHash(),selected.videoSize(),"video/mp4"),null);
+    }
+    private DownloadDescriptor createStaticImage(DevicePrincipal principal,long wallpaperId,Authorization authorization,
+            com.qingjing.wallpaper.catalog.PublicCatalogDtos.PublicMedia cover) {
+        List<StaticImageRow> candidates=jdbc.query(SELECT_STATIC_IMAGE+"""
+                WHERE w.id=? AND w.status='PUBLISHED' AND rv.status='PUBLISHED' AND v.enabled=TRUE
+                  AND v.platform='UNIVERSAL' AND v.resource_type='STATIC_IMAGE'
+                  AND a.validation_status='READY' AND a.deleted_at IS NULL
+                  AND a.mime_type IN ('image/jpeg','image/png','image/webp')
+                ORDER BY rv.version_no DESC,rv.id DESC
+                """,DownloadTicketService::staticImageRow,wallpaperId);
+        StaticImageRow selected=candidates.stream().findFirst().orElseThrow(DownloadTicketService::resourceUnavailable);
+        if(authorization==Authorization.ENTITLEMENT&&!entitled(principal.deviceId(),wallpaperId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN,"ENTITLEMENT_REQUIRED","An active entitlement is required");
+        }
+        String token=crypto.randomToken(32);Instant expiry=Instant.now().plus(TTL);
+        Ticket state=new Ticket(principal.deviceId(),principal.credentialKeyId(),wallpaperId,selected.versionId(),null,
+                principal.platform(),DeliveryPlatform.UNIVERSAL,ResourceType.STATIC_IMAGE,
+                DeliveryMode.STATIC_IMAGE,authorization,expiry.toString());
+        validateStaticImage(state);
+        try { redis.opsForValue().set(ticketKey(token),mapper.writeValueAsString(state),TTL); }
+        catch(com.fasterxml.jackson.core.JsonProcessingException error){throw new IllegalStateException("Cannot serialize download ticket");}
+        return new DownloadDescriptor(DeliveryMode.STATIC_IMAGE,Long.toString(wallpaperId),cover,token,null,expiry,
+                new DownloadResourceVersion(Long.toString(selected.versionId()),Long.toString(selected.variantId()),selected.number(),
+                        DeliveryPlatform.UNIVERSAL,ResourceType.STATIC_IMAGE,selected.manifestHash()),null,null,null,
+                new DeliveryFile("/api/v1/delivery/static-image",selected.hash(),selected.size(),selected.mimeType()));
     }
     private MovingPhotoRow validateMovingPhoto(Ticket state) {
         if(state.authorization()==null || state.platform()!=DevicePlatform.HARMONYOS
@@ -202,6 +255,27 @@ public class DownloadTicketService {
                 WHERE rv.id=? AND w.id=? AND w.status='PUBLISHED' AND rv.status='PUBLISHED'
                   AND v.enabled=TRUE AND v.platform='HARMONYOS' AND v.resource_type='MOVING_PHOTO' AND mp.status='READY'
                 """,DownloadTicketService::movingPhotoRow,state.versionId(),state.wallpaperId());
+        if(rows.size()!=1)throw invalid();
+        return rows.get(0);
+    }
+    private StaticImageRow validateStaticImage(Ticket state) {
+        if(state.authorization()==null || state.platform()==DevicePlatform.ANDROID
+                || state.resourcePlatform()!=DeliveryPlatform.UNIVERSAL || state.resourceType()!=ResourceType.STATIC_IMAGE
+                || state.deliveryMode()!=DeliveryMode.STATIC_IMAGE
+                || !PlatformResourceScope.visibleTo(state.platform(),state.resourcePlatform(),state.resourceType())
+                || (state.authorization()==Authorization.ENTITLEMENT&&!entitled(state.deviceId(),state.wallpaperId())))throw invalid();
+        Integer credentials=jdbc.queryForObject("""
+                SELECT COUNT(*) FROM anonymous_device d JOIN device_credential c ON c.device_id=d.id
+                WHERE d.id=? AND d.status='ACTIVE' AND d.platform=?
+                  AND c.credential_key_id=? AND c.status='ACTIVE'
+                """,Integer.class,state.deviceId(),state.platform().name(),state.credentialKeyId());
+        if(credentials==null||credentials!=1)throw invalid();
+        List<StaticImageRow> rows=jdbc.query(SELECT_STATIC_IMAGE+"""
+                WHERE rv.id=? AND w.id=? AND w.status='PUBLISHED' AND rv.status='PUBLISHED'
+                  AND v.enabled=TRUE AND v.platform='UNIVERSAL' AND v.resource_type='STATIC_IMAGE'
+                  AND a.validation_status='READY' AND a.deleted_at IS NULL
+                  AND a.mime_type IN ('image/jpeg','image/png','image/webp')
+                """,DownloadTicketService::staticImageRow,state.versionId(),state.wallpaperId());
         if(rows.size()!=1)throw invalid();
         return rows.get(0);
     }
@@ -227,6 +301,7 @@ public class DownloadTicketService {
     private record Access(String status,WallpaperAccessType type) {}
     @FunctionalInterface public interface Writer { void write(OutputStream output) throws IOException; }
     public record ProtectedFile(long sizeBytes,String sha256,Writer writer) {}
+    public record StaticImageFile(long sizeBytes,String sha256,String mimeType,Writer writer) {}
     private static final String SELECT_PACKAGE="""
             SELECT r.id,r.version_no,v.id AS variant_id,v.platform,v.resource_type,v.minimum_os_version,
                    JSON_LENGTH(v.capability_requirements) AS requirement_count,p.*
@@ -239,6 +314,14 @@ public class DownloadTicketService {
                    mp.poster_storage_key,mp.poster_size_bytes,mp.poster_sha256
             FROM moving_photo_package mp JOIN resource_version rv ON rv.id=mp.resource_version_id
             JOIN wallpaper_variant v ON v.id=rv.variant_id JOIN wallpaper w ON w.id=v.wallpaper_id
+            """;
+    private static final String SELECT_STATIC_IMAGE="""
+            SELECT rv.id,rv.version_no,rv.manifest_sha256,v.id AS variant_id,
+                   a.storage_key,a.mime_type,a.size_bytes,a.sha256
+            FROM resource_version rv JOIN wallpaper_variant v ON v.id=rv.variant_id
+            JOIN wallpaper w ON w.id=v.wallpaper_id
+            JOIN resource_binding rb ON rb.resource_version_id=rv.id AND rb.role='STATIC_IMAGE' AND rb.ordinal=0
+            JOIN asset a ON a.id=rb.asset_id
             """;
     private static PackageRow row(java.sql.ResultSet rs,int n) throws java.sql.SQLException {
         return new PackageRow(rs.getLong("id"),rs.getLong("variant_id"),rs.getInt("version_no"),rs.getString("platform"),rs.getString("resource_type"),
@@ -253,6 +336,12 @@ public class DownloadTicketService {
     }
     private record MovingPhotoRow(long versionId,long variantId,int number,String manifestHash,String videoStorage,long videoSize,
             String videoHash,String posterStorage,long posterSize,String posterHash) {}
+    private static StaticImageRow staticImageRow(java.sql.ResultSet rs,int n)throws java.sql.SQLException{
+        return new StaticImageRow(rs.getLong("id"),rs.getLong("variant_id"),rs.getInt("version_no"),rs.getString("manifest_sha256"),
+                rs.getString("storage_key"),rs.getString("mime_type"),rs.getLong("size_bytes"),rs.getString("sha256"));
+    }
+    private record StaticImageRow(long versionId,long variantId,int number,String manifestHash,String storageKey,
+            String mimeType,long size,String hash) {}
     private static ApiException unavailable() { return resourceUnavailable(); }
     private static ApiException resourceUnavailable(){return new ApiException(HttpStatus.NOT_FOUND,"RESOURCE_NOT_AVAILABLE","The requested resource is not available");}
     private static ApiException invalid() { return new ApiException(HttpStatus.UNAUTHORIZED,"DOWNLOAD_TICKET_INVALID","The download ticket is invalid or expired"); }

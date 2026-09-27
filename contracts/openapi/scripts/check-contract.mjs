@@ -31,6 +31,7 @@ const expectedOperations = {
   '/preview/files': ['get'],
   '/delivery/moving-photo/poster': ['get'],
   '/delivery/moving-photo/video': ['get'],
+  '/delivery/static-image': ['get'],
   '/admin/sessions': ['get', 'post', 'delete'],
   '/admin/assets': ['post'],
   '/admin/parallax-packages': ['post'],
@@ -173,7 +174,13 @@ assert.equal(
   true,
   'legacy redemption codes without recoverable material must remain representable'
 );
-assert.deepEqual(document.components.schemas.DownloadDescriptor.properties.deliveryMode.enum, ['SECURE_PACKAGE', 'MOVING_PHOTO']);
+assert.deepEqual(document.components.schemas.DownloadDescriptor.properties.deliveryMode.enum, ['SECURE_PACKAGE', 'MOVING_PHOTO', 'STATIC_IMAGE']);
+assert.ok(document.components.schemas.DownloadDescriptor.properties.image, 'static image delivery metadata is required');
+assert.match(
+  document.paths['/device/wallpapers/{wallpaperId}/download-tickets'].post.description,
+  /UNIVERSAL \/ STATIC_IMAGE.*所有平台/s,
+  'download tickets must document universal static image availability'
+);
 assert.ok(!document.components.schemas.PublicWallpaperSummary.properties.kind, 'wallpaper kind must not remain exclusive');
 assert.ok(document.components.schemas.PublicWallpaperSummary.properties.availableCapabilities);
 for (const path of ['/public/categories', '/public/wallpapers', '/public/wallpapers/{wallpaperId}']) {

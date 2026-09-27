@@ -13,7 +13,7 @@ public final class DeliveryDtos {
     private DeliveryDtos() {
     }
 
-    public enum DeliveryMode { SECURE_PACKAGE, MOVING_PHOTO }
+    public enum DeliveryMode { SECURE_PACKAGE, MOVING_PHOTO, STATIC_IMAGE }
 
     public record CreateDownloadTicketRequest(
             @NotNull DeliveryPlatform deliveryPlatform,
@@ -60,6 +60,7 @@ public final class DeliveryDtos {
             @JsonProperty("package")
             SecurePackageMetadata packageMetadata,
             DeliveryFile poster,
-            DeliveryFile video) {
+            DeliveryFile video,
+            DeliveryFile image) {
     }
 }

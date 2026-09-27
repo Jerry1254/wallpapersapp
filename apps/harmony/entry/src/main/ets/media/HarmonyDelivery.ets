@@ -3,6 +3,7 @@ import { fileIo, hash } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
 import { DownloadDescriptor, DeliveryFile } from '../network/CatalogApi';
 import { MovingPhotoStore } from './MovingPhotoStore';
+import { StaticImageStore } from './StaticImageStore';
 
 export type DeliveryProgress = (received: number, total: number) => void;
 
@@ -15,6 +16,18 @@ export class DownloadedMovingPhoto {
     this.posterPath = posterPath;
     this.videoPath = videoPath;
     this.title = title;
+  }
+}
+
+export class DownloadedStaticImage {
+  imagePath: string;
+  title: string;
+  extension: string;
+
+  constructor(imagePath: string, title: string, extension: string) {
+    this.imagePath = imagePath;
+    this.title = title;
+    this.extension = extension;
   }
 }
 
@@ -52,6 +65,28 @@ export class HarmonyDelivery {
     }
   }
 
+  static async downloadStaticImage(context: common.UIAbilityContext, descriptor: DownloadDescriptor, title: string,
+    onProgress: DeliveryProgress): Promise<DownloadedStaticImage> {
+    if (descriptor.deliveryMode !== 'STATIC_IMAGE' || descriptor.ticket.length < 32 || descriptor.image === undefined) {
+      throw new Error('服务端没有返回可用的静态原图');
+    }
+    const image: DeliveryFile = descriptor.image as DeliveryFile;
+    const extension: string = HarmonyDelivery.imageExtension(image.mimeType);
+    const safeId: string = descriptor.wallpaperId.replace(/[^0-9A-Za-z_-]/g, '');
+    const imagePath: string = context.cacheDir + '/static-wallpaper-' + safeId + '.' + extension;
+    try {
+      await HarmonyDelivery.downloadPart(image, descriptor.ticket, imagePath,
+        (received: number) => onProgress(received, image.sizeBytes));
+      const safeTitle: string = title.replace(/[\\/:*?"'`<>|{}\[\]]/g, '').substring(0, 80) || '倾境静态壁纸';
+      onProgress(image.sizeBytes, image.sizeBytes);
+      return new DownloadedStaticImage(imagePath, safeTitle, extension);
+    } catch (error) {
+      await HarmonyDelivery.removeIfPresent(imagePath);
+      if (error instanceof Error) throw error;
+      throw new Error('静态壁纸下载失败');
+    }
+  }
+
   static async saveDownloaded(context: common.UIAbilityContext, movingPhoto: DownloadedMovingPhoto): Promise<void> {
     try {
       await MovingPhotoStore.save(context, movingPhoto.posterPath, movingPhoto.videoPath, movingPhoto.title);
@@ -63,6 +98,18 @@ export class HarmonyDelivery {
   static async discard(movingPhoto: DownloadedMovingPhoto): Promise<void> {
     await HarmonyDelivery.removeIfPresent(movingPhoto.posterPath);
     await HarmonyDelivery.removeIfPresent(movingPhoto.videoPath);
+  }
+
+  static async saveStaticImage(context: common.UIAbilityContext, image: DownloadedStaticImage): Promise<void> {
+    try {
+      await StaticImageStore.save(context, image.imagePath, image.title, image.extension);
+    } finally {
+      await HarmonyDelivery.discardStaticImage(image);
+    }
+  }
+
+  static async discardStaticImage(image: DownloadedStaticImage): Promise<void> {
+    await HarmonyDelivery.removeIfPresent(image.imagePath);
   }
 
   private static async downloadPart(file: DeliveryFile, ticket: string, destination: string,
@@ -106,6 +153,13 @@ export class HarmonyDelivery {
   private static absoluteUrl(path: string): string {
     if (path.startsWith('https://')) return path;
     return path.startsWith('/') ? HarmonyDelivery.ORIGIN + path : HarmonyDelivery.ORIGIN + '/' + path;
+  }
+
+  private static imageExtension(mimeType: string): string {
+    if (mimeType === 'image/jpeg') return 'jpg';
+    if (mimeType === 'image/png') return 'png';
+    if (mimeType === 'image/webp') return 'webp';
+    throw new Error('静态原图格式不正确');
   }
 
   private static async removeIfPresent(path: string): Promise<void> {

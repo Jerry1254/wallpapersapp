@@ -86,4 +86,24 @@ class BinaryDeliveryErrorTest {
                     .andExpect(content().bytes(bytes));
         }
     }
+
+    @Test
+    void staticImagePreservesPublishedMimeTypeAndDigest() throws Exception {
+        byte[] bytes = {9, 8, 7};
+        var file = new DownloadTicketService.StaticImageFile(
+                bytes.length, "11".repeat(32), "image/webp", output -> output.write(bytes));
+        when(downloads.readStaticImageFile("valid-static")).thenReturn(file);
+
+        var pending = mvc.perform(get("/api/v1/delivery/static-image")
+                        .header("Authorization", "Bearer valid-static").accept("image/webp"))
+                .andExpect(request().asyncStarted()).andReturn();
+
+        mvc.perform(asyncDispatch(pending))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("image/webp"))
+                .andExpect(header().string("Content-Length", "3"))
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().string("Digest", "sha-256=:ERERERERERERERERERERERERERERERERERERERERERE=:"))
+                .andExpect(content().bytes(bytes));
+    }
 }

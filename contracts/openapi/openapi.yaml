@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.6.0
+  version: 2.7.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -607,7 +607,8 @@ paths:
       summary: 为已获得壁纸签发短时下载描述
       description: |
         客户端必须选择详情 availableCapabilities 中的精确 deliveryPlatform/resourceType 组合。
-        服务端不做跨平台或资源类型回退，也不读取设备能力档案；只校验权益、资源已发布及对应安全资源包可用。
+        服务端不做跨平台或资源类型回退，也不读取设备能力档案；只校验权益、资源已发布及交付文件可用。
+        UNIVERSAL / STATIC_IMAGE 对所有平台开放；Android 延续安全包交付，HarmonyOS 和后续 iOS 会话领取原始静态图。
       security:
         - deviceBearer: []
       parameters:
@@ -720,6 +721,34 @@ paths:
               schema: { type: string }
           content:
             video/mp4:
+              schema: { type: string, format: binary }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /delivery/static-image:
+    get:
+      tags: [Device Entitlement]
+      operationId: downloadStaticImage
+      summary: 使用短时票据下载通用静态原图
+      description: |
+        返回运营发布的 UNIVERSAL / STATIC_IMAGE 原始文件，支持 JPEG、PNG 和 WebP。
+        该文件不是列表封面或缩略图；客户端必须校验响应 Digest 或下载描述中的 SHA-256。
+      security:
+        - downloadTicketBearer: []
+      responses:
+        '200':
+          description: 通用静态原图
+          headers:
+            Digest:
+              schema: { type: string }
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+            image/png:
+              schema: { type: string, format: binary }
+            image/webp:
               schema: { type: string, format: binary }
         '401':
           $ref: '#/components/responses/Unauthorized'
@@ -3066,7 +3095,7 @@ components:
       properties:
         deliveryMode:
           type: string
-          enum: [SECURE_PACKAGE, MOVING_PHOTO]
+          enum: [SECURE_PACKAGE, MOVING_PHOTO, STATIC_IMAGE]
         wallpaperId:
           $ref: '#/components/schemas/LongId'
         cover:
@@ -3109,6 +3138,12 @@ components:
           allOf:
             - $ref: '#/components/schemas/DeliveryFile'
           nullable: true
+        image:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/DeliveryFile'
+          nullable: true
+          description: STATIC_IMAGE 的原始静态文件；所有已认证平台均可领取对应交付形式。
 
     DeliveryFile:
       type: object
@@ -3126,7 +3161,7 @@ components:
           minimum: 1
         mimeType:
           type: string
-          enum: [image/jpeg, video/mp4]
+          enum: [image/jpeg, image/png, image/webp, video/mp4]
 
     DownloadResourceVersion:
       type: object

@@ -62,6 +62,7 @@ export interface DownloadDescriptor {
   ticket: string;
   poster?: DeliveryFile;
   video?: DeliveryFile;
+  image?: DeliveryFile;
 }
 
 export class CatalogApi {

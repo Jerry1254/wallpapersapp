@@ -65,15 +65,30 @@ public class DeviceDownloadController {
         return movingPhoto(authorization,MovingPhotoPart.VIDEO,MediaType.valueOf("video/mp4"));
     }
 
+    @GetMapping("/api/v1/delivery/static-image")
+    ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> staticImage(
+            @RequestHeader(value="Authorization",required=false) String authorization) {
+        String token=requireTicket(authorization);
+        var file=tickets.readStaticImageFile(token);
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType(file.mimeType())).contentLength(file.sizeBytes())
+                .header("Cache-Control","no-store")
+                .header("Digest","sha-256=:"+java.util.Base64.getEncoder().encodeToString(java.util.HexFormat.of().parseHex(file.sha256()))+":")
+                .body(output->file.writer().write(output));
+    }
+
     private ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> movingPhoto(
             String authorization,MovingPhotoPart part,MediaType contentType) {
-        if (authorization == null || !authorization.startsWith("Bearer ") || authorization.length() <= 7) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED,"DOWNLOAD_TICKET_INVALID","A download ticket is required");
-        }
-        var file=tickets.readMovingPhotoFile(authorization.substring(7),part);
+        var file=tickets.readMovingPhotoFile(requireTicket(authorization),part);
         return ResponseEntity.ok().contentType(contentType).contentLength(file.sizeBytes())
                 .header("Cache-Control","no-store")
                 .header("Digest","sha-256=:"+java.util.Base64.getEncoder().encodeToString(java.util.HexFormat.of().parseHex(file.sha256()))+":")
                 .body(output->file.writer().write(output));
+    }
+
+    private String requireTicket(String authorization) {
+        if (authorization == null || !authorization.startsWith("Bearer ") || authorization.length() <= 7) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED,"DOWNLOAD_TICKET_INVALID","A download ticket is required");
+        }
+        return authorization.substring(7);
     }
 }

@@ -34,8 +34,16 @@ public class PublishedResourceCatalog {
                 JOIN wallpaper w ON w.id = v.wallpaper_id AND w.status = 'PUBLISHED'
                 WHERE v.enabled = TRUE
                   AND (
-                    (v.platform IN ('ANDROID', 'UNIVERSAL')
+                    (v.platform='ANDROID'
                       AND EXISTS (SELECT 1 FROM secure_resource_package sp WHERE sp.resource_version_id=rv.id))
+                    OR
+                    (v.platform='UNIVERSAL' AND v.resource_type='STATIC_IMAGE'
+                      AND EXISTS (SELECT 1 FROM resource_binding rb JOIN asset a ON a.id=rb.asset_id
+                                  WHERE rb.resource_version_id=rv.id AND rb.role='STATIC_IMAGE' AND rb.ordinal=0
+                                    AND a.validation_status='READY' AND a.deleted_at IS NULL
+                                    AND a.mime_type IN ('image/jpeg','image/png','image/webp'))
+                      AND (? <> 'ANDROID'
+                           OR EXISTS (SELECT 1 FROM secure_resource_package sp WHERE sp.resource_version_id=rv.id)))
                     OR
                     (v.platform='IOS' AND v.resource_type='LIVE_PHOTO'
                       AND EXISTS (SELECT 1 FROM resource_binding rb JOIN asset a ON a.id=rb.asset_id
@@ -52,7 +60,7 @@ public class PublishedResourceCatalog {
                 ORDER BY v.wallpaper_id, v.platform, v.resource_type
                 """, (rs, rowNumber) -> new VariantRow(
                 rs.getLong("wallpaper_id"), DeliveryPlatform.valueOf(rs.getString("platform")),
-                ResourceType.valueOf(rs.getString("resource_type"))));
+                ResourceType.valueOf(rs.getString("resource_type"))), appPlatform.name());
 
         Map<Long, List<DeliveryCapability>> available = new LinkedHashMap<>();
         for (VariantRow variant : variants) {
