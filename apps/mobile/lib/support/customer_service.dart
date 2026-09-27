@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../design_system/qj_components.dart';
+import '../design_system/qj_theme.dart';
 
 const customerWechatId = 'qingjing_service';
 const _customerQrAsset = 'assets/ui-reference/customer-service-qr.png';
@@ -40,6 +42,60 @@ Future<void> previewCustomerQr(BuildContext context) => showDialog<void>(
     ],
   ),
 );
+
+Future<void> showCustomerServiceDialog(BuildContext context) =>
+    showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) => Dialog(
+        insetPadding: const EdgeInsets.all(T.space4),
+        backgroundColor: Colors.transparent,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: T.sizeContentMax,
+            maxHeight: MediaQuery.sizeOf(dialogContext).height * 0.86,
+          ),
+          child: Material(
+            color: T.colorSurface,
+            borderRadius: BorderRadius.circular(T.radiusCard),
+            clipBehavior: Clip.antiAlias,
+            child: Padding(
+              padding: const EdgeInsets.all(T.space4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '联系客服',
+                          style: Theme.of(dialogContext).textTheme.titleLarge,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: '关闭',
+                        onPressed: () => Navigator.pop(dialogContext),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: T.space2),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: QjCustomerServiceCard(
+                        onCopy: () => copyCustomerWechat(dialogContext),
+                        onPreview: () => previewCustomerQr(dialogContext),
+                        onSave: () => saveCustomerQr(dialogContext),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
 
 Future<void> saveCustomerQr(BuildContext context) async {
   try {

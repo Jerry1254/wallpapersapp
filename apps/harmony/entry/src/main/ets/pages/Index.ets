@@ -44,6 +44,7 @@ struct Index {
   @State errorMessage: string = '';
   @State statusMessage: string = '';
   @State qrPreview: boolean = false;
+  @State customerDialogVisible: boolean = false;
   @State detailOwned: boolean = false;
   @State redemptionVisible: boolean = false;
   @State redemptionCode: string = '';
@@ -945,6 +946,68 @@ struct Index {
   }
 
   @Builder
+  private CustomerDialogOverlay() {
+    Column() {
+      Row() {
+        Text('联系客服').fontSize(22).fontWeight(FontWeight.Bolder).fontColor(T.ink).layoutWeight(1);
+        Button('关闭').height(38).fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.ink)
+          .backgroundColor(T.surfaceMuted).borderRadius(19)
+          .onClick(() => this.customerDialogVisible = false);
+      }
+      .width('100%').margin({ bottom: 16 });
+      Scroll() {
+        Column() {
+          Row() {
+            Image($r('app.media.message_circle_more')).width(22).height(22).objectFit(ImageFit.Contain);
+            Column({ space: 3 }) {
+              Text('微信客服').width('100%').fontSize(17).fontWeight(FontWeight.Bold).fontColor(T.ink);
+              Text('添加客服获取兑换码或处理设备恢复').width('100%').fontSize(12).fontColor(T.mutedInk);
+            }
+            .alignItems(HorizontalAlign.Start).layoutWeight(1).margin({ left: 12 });
+          }
+          .width('100%');
+          Image($r('app.media.customer_service_qr'))
+            .width(164).height(164).objectFit(ImageFit.Contain).margin({ top: 20 })
+            .onClick(() => this.qrPreview = true);
+          Text('点击二维码可放大查看').fontSize(12).fontColor(T.mutedInk).margin({ top: 8 });
+          SaveButton({ icon: SaveIconStyle.LINES, text: SaveDescription.SAVE_IMAGE,
+            buttonType: ButtonType.Capsule })
+            .height(44).fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.ink)
+            .backgroundColor(T.surface).borderWidth(1).borderColor(T.outlineStrong)
+            .margin({ top: 12 })
+            .onClick((event: ClickEvent, result: SaveButtonOnClickResult) => {
+              if (result === SaveButtonOnClickResult.SUCCESS) {
+                this.saveQr();
+              } else {
+                this.toast('需要允许保存图片才能保存二维码');
+              }
+            });
+          Row() {
+            Column({ space: 2 }) {
+              Text('微信号').width('100%').fontSize(10).fontWeight(FontWeight.Bold).fontColor(T.mutedInk);
+              Text(CustomerSupport.WECHAT_ID).width('100%').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.ink);
+            }
+            .alignItems(HorizontalAlign.Start).layoutWeight(1);
+            Button('复制').height(38).fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.inverseInk)
+              .backgroundColor(T.navigation).borderRadius(19).onClick(() => this.copyWechat());
+          }
+          .width('100%').height(62).padding({ left: 16, right: 10 }).backgroundColor(T.surfaceMuted)
+          .borderRadius(T.controlRadius).margin({ top: 20 });
+          Row({ space: 7 }) {
+            Image($r('app.media.clock')).width(17).height(17).objectFit(ImageFit.Contain);
+            Text('服务时间 09:00-21:00').fontSize(12).fontColor(T.mutedInk);
+          }
+          .margin({ top: 14, bottom: 4 });
+        }
+        .width('100%');
+      }
+      .width('100%').layoutWeight(1).scrollBar(BarState.Off);
+    }
+    .width('88%').height('76%').padding(20).backgroundColor(T.surface).borderRadius(T.cardRadius)
+    .shadow({ radius: 34, color: '#2E191817', offsetY: 12 });
+  }
+
+  @Builder
   private RedemptionOverlay() {
     Column() {
       Column({ space: 14 }) {
@@ -958,6 +1021,16 @@ struct Index {
         if (this.redemptionMessage.length > 0) {
           Text(this.redemptionMessage).width('100%').fontSize(13).fontColor('#C33A32');
         }
+        Button() {
+          Row({ space: 7 }) {
+            Image($r('app.media.message_circle_more')).width(18).height(18).objectFit(ImageFit.Contain);
+            Text('联系客服').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.ink);
+          }
+        }
+        .width('100%').height(44).backgroundColor(T.surface)
+        .border({ width: 1, color: T.outlineStrong }).borderRadius(22)
+        .enabled(!this.redemptionBusy)
+        .onClick(() => this.customerDialogVisible = true);
         Row({ space: 10 }) {
           Button('取消').layoutWeight(1).height(48).fontSize(15).fontWeight(FontWeight.Bold)
             .fontColor(T.ink).backgroundColor(T.surface)
@@ -1064,6 +1137,12 @@ struct Index {
         }
       }
       .width('100%').height('100%');
+      if (this.redemptionVisible) this.RedemptionOverlay();
+      if (this.customerDialogVisible) {
+        Column() { this.CustomerDialogOverlay(); }
+          .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+          .backgroundColor('#99191817');
+      }
       if (this.qrPreview) {
         Column() {
           Button('关闭').height(44).fontColor(T.inverseInk).backgroundColor('#99191817').borderRadius(22)
@@ -1074,7 +1153,6 @@ struct Index {
         .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .backgroundColor('#EE191817').onClick(() => this.qrPreview = false);
       }
-      if (this.redemptionVisible) this.RedemptionOverlay();
       if (this.deliveryVisible) {
         Column() { this.DeliveryOverlay(); }
           .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)

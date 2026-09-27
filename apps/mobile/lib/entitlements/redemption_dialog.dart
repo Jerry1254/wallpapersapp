@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../design_system/qj_components.dart';
 import '../design_system/qj_theme.dart';
+import '../support/customer_service.dart';
 import 'redemption.dart';
 
 class RedemptionDialog extends StatefulWidget {
@@ -151,6 +152,15 @@ class _RedemptionDialogState extends State<RedemptionDialog> {
           ),
         ],
         const SizedBox(height: T.space4),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: busy ? null : () => showCustomerServiceDialog(context),
+            icon: const QjIcon('message-circle-more', size: 18),
+            label: const Text('联系客服'),
+          ),
+        ),
+        const SizedBox(height: T.space3),
         QjPrimaryAction(
           label: pending ? '使用原码重试本次兑换' : '验证并兑换',
           loading: busy,

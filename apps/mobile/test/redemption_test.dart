@@ -4,6 +4,7 @@ import 'package:qingjing_wallpaper/device/device_session.dart';
 import 'device_session_test.dart' show FakeIdentity;
 import 'package:qingjing_wallpaper/entitlements/redemption.dart';
 import 'package:qingjing_wallpaper/entitlements/redemption_dialog.dart';
+import 'package:qingjing_wallpaper/design_system/qj_components.dart';
 
 class MemoryStore implements PendingStore {
   PendingRedemption? value;
@@ -243,5 +244,36 @@ void main() {
 
     expect(granted, isTrue);
     expect(find.byType(RedemptionDialog), findsNothing);
+  });
+
+  testWidgets('兑换弹层可打开并关闭客服弹窗', (tester) async {
+    final coordinator = RedemptionCoordinator(FakeApi(), MemoryStore());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => FilledButton(
+            onPressed: () => showModalBottomSheet<void>(
+              context: context,
+              isScrollControlled: true,
+              builder: (_) =>
+                  RedemptionDialog(coordinator: coordinator, wallpaperId: '1'),
+            ),
+            child: const Text('兑换'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('兑换'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('联系客服'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(QjCustomerServiceCard), findsOneWidget);
+    expect(find.byType(RedemptionDialog), findsOneWidget);
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+    expect(find.byType(QjCustomerServiceCard), findsNothing);
+    expect(find.byType(RedemptionDialog), findsOneWidget);
   });
 }
