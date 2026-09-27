@@ -1,51 +1,177 @@
+import { common } from '@kit.AbilityKit';
 import { QjTokens as T } from '../design/Tokens';
 import {
   HarmonyCatalogProjection,
   WallpaperCapability,
   WallpaperCategory,
-  WallpaperSummary
+  WallpaperSummary,
+  WallpaperTutorial
 } from '../model/CatalogModels';
+import { CatalogApi } from '../network/CatalogApi';
+import { HarmonyDeviceSession } from '../network/HarmonyDeviceSession';
+import { CustomerSupport } from '../support/CustomerSupport';
+
+interface FailureWithMessage {
+  message: string;
+}
 
 @Entry
 @Component
 struct Index {
   @State activeTab: number = 0;
+  @State page: string = 'HOME';
+  @State returnPage: string = 'HOME';
   @State selectedFilter: string = HarmonyCatalogProjection.FILTER_FEATURED;
+  @State categories: WallpaperCategory[] = [];
+  @State wallpapers: WallpaperSummary[] = [];
+  @State entitlements: WallpaperSummary[] = [];
+  @State tutorials: WallpaperTutorial[] = [];
   @State selectedDetail: WallpaperSummary | null = null;
-  @State selectedCapability: string = '鸿蒙动态壁纸';
+  @State selectedCapability: string = '';
+  @State selectedTutorial: WallpaperTutorial | null = null;
+  @State currentTitle: string = '';
+  @State currentQuery: string = '';
+  @State currentCategoryId: string = '';
+  @State searchText: string = '';
+  @State loading: boolean = false;
+  @State errorMessage: string = '';
   @State statusMessage: string = '';
+  @State qrPreview: boolean = false;
+  private context: common.UIAbilityContext | null = null;
+  private api: CatalogApi | null = null;
+  private videoController: VideoController = new VideoController();
 
-  private categories: WallpaperCategory[] = [
-    new WallpaperCategory('1', '国风'),
-    new WallpaperCategory('2', '风景'),
-    new WallpaperCategory('3', '人物'),
-    new WallpaperCategory('4', '萌宠')
-  ];
-
-  private rawWallpapers: WallpaperSummary[] = [
-    new WallpaperSummary('preview-1', '鎏金国风', '', false, [
-      new WallpaperCapability('HARMONYOS', 'MOVING_PHOTO', '鸿蒙动态壁纸'),
-      new WallpaperCapability('UNIVERSAL', 'STATIC_IMAGE', '静态壁纸'),
-      new WallpaperCapability('ANDROID', 'VIDEO', '安卓动态壁纸'),
-      new WallpaperCapability('IOS', 'LIVE_PHOTO', '苹果动态壁纸')
-    ]),
-    new WallpaperSummary('preview-2', '云海日出', '', true, [
-      new WallpaperCapability('HARMONYOS', 'MOVING_PHOTO', '鸿蒙动态壁纸')
-    ]),
-    new WallpaperSummary('preview-3', '山水之间', '', false, [
-      new WallpaperCapability('UNIVERSAL', 'STATIC_IMAGE', '静态壁纸')
-    ]),
-    new WallpaperSummary('preview-4', '星河漫游', '', false, [
-      new WallpaperCapability('HARMONYOS', 'MOVING_PHOTO', '鸿蒙动态壁纸')
-    ])
-  ];
-
-  private harmonyWallpapers(): WallpaperSummary[] {
-    return HarmonyCatalogProjection.projectCatalog(this.rawWallpapers);
+  aboutToAppear(): void {
+    const host = this.getUIContext().getHostContext();
+    if (host === undefined) {
+      this.errorMessage = '无法初始化应用环境';
+      return;
+    }
+    this.context = host as common.UIAbilityContext;
+    const sessions: HarmonyDeviceSession = new HarmonyDeviceSession(this.context as common.UIAbilityContext);
+    this.api = new CatalogApi(sessions);
+    this.loadHome();
   }
 
-  private visibleWallpapers(): WallpaperSummary[] {
-    return HarmonyCatalogProjection.filterCatalog(this.harmonyWallpapers(), this.selectedFilter);
+  private async loadHome(): Promise<void> {
+    if (this.api === null) return;
+    this.loading = true;
+    this.errorMessage = '';
+    try {
+      this.categories = await (this.api as CatalogApi).categories();
+      this.wallpapers = await (this.api as CatalogApi).wallpapers(this.selectedFilter);
+    } catch (error) {
+      this.errorMessage = this.messageFor(error);
+      this.wallpapers = [];
+      this.categories = [];
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  private async loadWallpapers(filter: string, query: string = '', categoryId: string = ''): Promise<void> {
+    if (this.api === null) return;
+    this.loading = true;
+    this.errorMessage = '';
+    try {
+      this.wallpapers = await (this.api as CatalogApi).wallpapers(filter, query, categoryId);
+    } catch (error) {
+      this.errorMessage = this.messageFor(error);
+      this.wallpapers = [];
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  private async loadEntitlements(): Promise<void> {
+    if (this.api === null) return;
+    this.loading = true;
+    this.errorMessage = '';
+    try {
+      this.entitlements = await (this.api as CatalogApi).entitlements();
+    } catch (error) {
+      this.errorMessage = this.messageFor(error);
+      this.entitlements = [];
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  private async loadTutorials(): Promise<void> {
+    if (this.api === null) return;
+    this.loading = true;
+    this.errorMessage = '';
+    try {
+      this.tutorials = await (this.api as CatalogApi).tutorials();
+    } catch (error) {
+      this.errorMessage = this.messageFor(error);
+      this.tutorials = [];
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  private async openDetail(item: WallpaperSummary): Promise<void> {
+    this.selectedDetail = item;
+    this.selectedCapability = item.capabilities[0].label;
+    this.page = 'DETAIL';
+    this.statusMessage = '';
+    if (this.api === null) return;
+    try {
+      const detail: WallpaperSummary = await (this.api as CatalogApi).wallpaper(item.id);
+      this.selectedDetail = detail;
+      this.selectedCapability = detail.capabilities[0].label;
+    } catch (error) {
+      this.statusMessage = this.messageFor(error);
+    }
+  }
+
+  private async openTutorials(fromPage: string): Promise<void> {
+    this.returnPage = fromPage;
+    this.page = 'TUTORIALS';
+    this.selectedTutorial = null;
+    await this.loadTutorials();
+  }
+
+  private async openDetailTutorial(): Promise<void> {
+    if (this.selectedDetail === null) return;
+    const selected: WallpaperCapability = this.selectedCapabilityFor(this.selectedDetail as WallpaperSummary);
+    const expectedKey: string = selected.resourceType === 'MOVING_PHOTO' ? 'HARMONYOS_DYNAMIC' : 'STATIC';
+    if (this.tutorials.length === 0) await this.loadTutorials();
+    const tutorial: WallpaperTutorial | undefined = this.tutorials.find(
+      (item: WallpaperTutorial) => item.key === expectedKey);
+    if (tutorial === undefined) {
+      this.toast('对应的设置教程暂未发布');
+      return;
+    }
+    this.returnPage = 'DETAIL';
+    this.selectedTutorial = tutorial;
+    this.page = 'TUTORIAL_PLAYER';
+  }
+
+  private openCustomer(fromPage: string): void {
+    this.returnPage = fromPage;
+    this.page = 'CUSTOMER';
+    this.qrPreview = false;
+  }
+
+  private async copyWechat(): Promise<void> {
+    try {
+      await CustomerSupport.copyWechat();
+      this.toast('客服微信已复制');
+    } catch (error) {
+      this.toast('复制失败，请手动复制微信号');
+    }
+  }
+
+  private async saveQr(): Promise<void> {
+    if (this.context === null) return;
+    try {
+      await CustomerSupport.saveQr(this.context as common.UIAbilityContext);
+      this.toast('二维码已保存，请检查图库');
+    } catch (error) {
+      this.toast('保存二维码失败，请重试');
+    }
   }
 
   private selectedCapabilityFor(item: WallpaperSummary): WallpaperCapability {
@@ -56,69 +182,141 @@ struct Index {
 
   private deliveryHint(item: WallpaperSummary): string {
     const capability: WallpaperCapability = this.selectedCapabilityFor(item);
-    if (capability.deliveryPlatform === 'HARMONYOS' && capability.resourceType === 'MOVING_PHOTO') {
-      return '下载完成后将动态照片保存到图库，再从图库设为锁屏壁纸';
+    if (capability.resourceType === 'MOVING_PHOTO') {
+      return '下载完成后保存为鸿蒙动态照片，再从图库设为锁屏壁纸';
     }
     return '下载高清静态原图并保存到图库，再从图库设置壁纸';
   }
 
-  @Builder
-  private BrandHeader(title: string = '倾境动态壁纸') {
-    Row() {
-      Column() {
-        Text('倾境')
-          .fontSize(12)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(T.inverseInk);
-      }
-      .width(48)
-      .height(48)
-      .justifyContent(FlexAlign.Center)
-      .backgroundColor(T.navigation)
-      .borderRadius(16);
+  private messageFor(error: Object): string {
+    if (error instanceof Error && error.message.length > 0) return error.message;
+    const failure: FailureWithMessage = error as FailureWithMessage;
+    if (failure.message !== undefined && failure.message.length > 0) return failure.message;
+    return '暂时无法加载，请稍后重试';
+  }
 
+  private retryCurrentPage(): void {
+    if (this.page === 'MINE') {
+      this.loadEntitlements();
+    } else if (this.page === 'TUTORIALS') {
+      this.loadTutorials();
+    } else if (this.page === 'SEARCH' || this.page === 'CATEGORY') {
+      this.loadWallpapers(HarmonyCatalogProjection.FILTER_FEATURED, this.currentQuery, this.currentCategoryId);
+    } else {
+      this.loadHome();
+    }
+  }
+
+  private toast(message: string): void {
+    this.getUIContext().getPromptAction().showToast({ message: message });
+  }
+
+  private mediaUrl(path: string): string {
+    return this.api === null ? path : (this.api as CatalogApi).mediaUrl(path);
+  }
+
+  @Builder
+  private BrandHeader(title: string = '倾境') {
+    Row() {
       Text(title)
         .fontSize(28)
         .fontWeight(FontWeight.Bolder)
         .fontColor(T.ink)
-        .margin({ left: 12 })
         .layoutWeight(1);
-
       Button('客服')
-        .height(42)
-        .fontSize(14)
+        .height(44)
+        .padding({ left: 16, right: 16 })
+        .fontSize(13)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(T.inverseInk)
+        .backgroundColor(T.navigation)
+        .borderRadius(22)
+        .onClick(() => this.openCustomer(this.page));
+    }
+    .width('100%')
+    .height(T.topBarHeight);
+  }
+
+  @Builder
+  private PageHeader(title: string, showService: boolean = false) {
+    Row() {
+      Button('‹')
+        .width(44)
+        .height(44)
+        .fontSize(30)
         .fontColor(T.ink)
         .backgroundColor(T.surface)
         .border({ width: 1, color: T.outline })
-        .borderRadius(21)
+        .borderRadius(22)
         .onClick(() => {
-          this.statusMessage = '客服入口将在正式接口接入后启用';
+          if (this.page === 'DETAIL') {
+            this.page = this.activeTab === 0 ? 'HOME' : 'MINE';
+            this.selectedDetail = null;
+          } else {
+            this.page = this.returnPage;
+            this.selectedTutorial = null;
+          }
         });
+      Text(title)
+        .fontSize(22)
+        .fontWeight(FontWeight.Bolder)
+        .fontColor(T.ink)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .layoutWeight(1)
+        .margin({ left: 8 });
+      if (showService) {
+        Button('客服')
+          .height(44)
+          .fontSize(13)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(T.inverseInk)
+          .backgroundColor(T.navigation)
+          .borderRadius(22)
+          .onClick(() => this.openCustomer(this.page));
+      }
     }
     .width('100%')
-    .height(64);
+    .height(T.topBarHeight);
   }
 
   @Builder
   private SearchBar() {
     Row() {
-      TextInput({ placeholder: '搜索壁纸名称' })
-        .fontSize(15)
-        .height(46)
-        .padding({ left: 16, right: 12 })
-        .backgroundColor(T.surfaceMuted)
-        .borderRadius(T.controlRadius)
-        .layoutWeight(1);
+      Text('⌕')
+        .fontSize(22)
+        .fontColor(T.mutedInk);
+      TextInput({ text: this.searchText, placeholder: '搜索壁纸名称' })
+        .fontSize(14)
+        .height(40)
+        .backgroundColor(Color.Transparent)
+        .layoutWeight(1)
+        .onChange((value: string) => this.searchText = value);
       Button('搜索')
-        .height(46)
+        .height(40)
+        .padding({ left: 17, right: 17 })
         .fontSize(14)
         .fontWeight(FontWeight.Bold)
         .fontColor(T.inverseInk)
         .backgroundColor(T.accentStrong)
         .borderRadius(T.controlRadius)
-        .margin({ left: 8 });
+        .onClick(() => {
+          const query: string = this.searchText.trim();
+          if (query.length === 0) return;
+          this.currentTitle = '“' + query + '”';
+          this.currentQuery = query;
+          this.currentCategoryId = '';
+          this.page = 'SEARCH';
+          this.loadWallpapers(HarmonyCatalogProjection.FILTER_FEATURED, query);
+        });
     }
-    .width('100%');
+    .width('100%')
+    .height(50)
+    .padding({ left: 15, right: 5 })
+    .backgroundColor(T.surface)
+    .border({ width: 1, color: T.outline })
+    .borderRadius(18)
+    .shadow({ radius: 24, color: '#1231281F', offsetY: 8 });
   }
 
   @Builder
@@ -130,11 +328,12 @@ struct Index {
       .fontWeight(FontWeight.Bold)
       .fontColor(this.selectedFilter === label ? T.inverseInk : T.ink)
       .backgroundColor(this.selectedFilter === label ? T.navigation : T.surface)
-      .border({ width: 1, color: this.selectedFilter === label ? T.navigation : T.outline })
+      .border({ width: 1, color: this.selectedFilter === label ? T.navigation : T.outlineStrong })
       .borderRadius(19)
       .margin({ right: 8 })
       .onClick(() => {
         this.selectedFilter = label;
+        this.loadWallpapers(label);
       });
   }
 
@@ -150,53 +349,27 @@ struct Index {
   }
 
   @Builder
-  private PlaceholderArtwork(index: number) {
-    Stack({ alignContent: Alignment.Center }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .linearGradient({
-          angle: index % 2 === 0 ? 145 : 215,
-          colors: index % 2 === 0
-            ? [['#171717', 0.0], ['#6D4A21', 0.56], ['#F4A91E', 1.0]]
-            : [['#0E2747', 0.0], ['#376BA0', 0.55], ['#D9EFFB', 1.0]]
-        });
-      Text(index % 2 === 0 ? '倾 境' : 'QINGJING')
-        .fontSize(index % 2 === 0 ? 28 : 18)
-        .fontWeight(FontWeight.Bolder)
-        .fontColor('#E8FFFFFF');
-    }
-    .width('100%')
-    .height('100%');
-  }
-
-  @Builder
-  private WallpaperCard(item: WallpaperSummary, index: number) {
+  private WallpaperCard(item: WallpaperSummary) {
     Column() {
       Stack({ alignContent: Alignment.TopStart }) {
-        if (item.coverUrl.length > 0) {
-          Image(item.coverUrl)
-            .width('100%')
-            .height(236)
-            .objectFit(ImageFit.Cover);
-        } else {
-          this.PlaceholderArtwork(index);
-        }
+        Image(this.mediaUrl(item.coverUrl))
+          .width('100%')
+          .height(T.catalogMediaHeight)
+          .objectFit(ImageFit.Cover)
+          .backgroundColor(T.surfaceMuted);
         Row({ space: 5 }) {
           ForEach(item.capabilities, (capability: WallpaperCapability) => {
             this.CapabilityBadge(capability.label);
           }, (capability: WallpaperCapability) => capability.deliveryPlatform + capability.resourceType);
-          if (item.free) {
-            this.CapabilityBadge('免费', true);
-          }
+          if (item.free) this.CapabilityBadge('免费', true);
         }
         .padding(10);
       }
       .width('100%')
-      .height(236)
+      .height(T.catalogMediaHeight)
       .borderRadius(T.mediaRadius)
-      .clip(true);
-
+      .clip(true)
+      .shadow({ radius: 42, color: '#1A31281F', offsetY: 16 });
       Text(item.title)
         .width('100%')
         .fontSize(16)
@@ -204,14 +377,66 @@ struct Index {
         .fontColor(T.ink)
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .margin({ top: 10 });
+        .margin({ top: 12 });
     }
     .width('100%')
-    .onClick(() => {
-      this.selectedDetail = item;
-      this.selectedCapability = item.capabilities[0].label;
-      this.statusMessage = '';
-    });
+    .onClick(() => this.openDetail(item));
+  }
+
+  @Builder
+  private LoadingOrState(emptyText: string) {
+    if (this.loading) {
+      Column({ space: 12 }) {
+        LoadingProgress().width(36).height(36).color(T.accentStrong);
+        Text('正在加载').fontSize(13).fontColor(T.mutedInk);
+      }
+      .width('100%')
+      .padding({ top: 70, bottom: 70 });
+    } else if (this.errorMessage.length > 0) {
+      Column({ space: 12 }) {
+        Text('暂时无法加载').fontSize(18).fontWeight(FontWeight.Bold).fontColor(T.ink);
+        Text(this.page === 'HOME' || this.page === 'MINE' ?
+          '鸿蒙设备身份接口尚未开通，开通后会加载后台真实数据' : this.errorMessage)
+          .width('100%').fontSize(13).fontColor(T.mutedInk).textAlign(TextAlign.Center);
+        Button('重新加载')
+          .height(44)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(T.inverseInk)
+          .backgroundColor(T.navigation)
+          .borderRadius(22)
+          .onClick(() => this.retryCurrentPage());
+      }
+      .width('100%')
+      .padding({ left: 24, right: 24, top: 54, bottom: 54 })
+      .backgroundColor(T.surfaceMuted)
+      .borderRadius(T.cardRadius);
+    } else {
+      Column({ space: 8 }) {
+        Text(emptyText).fontSize(18).fontWeight(FontWeight.Bold).fontColor(T.ink);
+        Text('下拉刷新或稍后再试').fontSize(13).fontColor(T.mutedInk);
+      }
+      .width('100%')
+      .padding({ top: 60, bottom: 60 })
+      .backgroundColor(T.surfaceMuted)
+      .borderRadius(T.cardRadius);
+    }
+  }
+
+  @Builder
+  private WallpaperGrid(items: WallpaperSummary[], emptyText: string) {
+    if (items.length === 0) {
+      this.LoadingOrState(emptyText);
+    } else {
+      Grid() {
+        ForEach(items, (item: WallpaperSummary) => {
+          GridItem() { this.WallpaperCard(item); }
+        }, (item: WallpaperSummary) => item.id);
+      }
+      .columnsTemplate('1fr 1fr')
+      .columnsGap(12)
+      .rowsGap(20)
+      .height(Math.ceil(items.length / 2) * 250);
+    }
   }
 
   @Builder
@@ -220,70 +445,81 @@ struct Index {
       Column() {
         this.BrandHeader();
         this.SearchBar();
-
-        Text('壁纸分类')
-          .width('100%')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(T.ink)
-          .margin({ top: 28, bottom: 12 });
-
-        Row({ space: 18 }) {
-          ForEach(this.categories, (category: WallpaperCategory, index: number) => {
-            Column({ space: 8 }) {
-              Text(category.name.substring(0, 1))
-                .width(56)
-                .height(56)
-                .fontSize(22)
-                .fontWeight(FontWeight.Bold)
-                .fontColor(T.ink)
-                .textAlign(TextAlign.Center)
-                .backgroundColor(index % 2 === 0 ? T.accentSoft : '#E8F1FB')
-                .borderRadius(18);
-              Text(category.name)
-                .fontSize(13)
-                .fontColor(T.mutedInk);
+        if (this.errorMessage.length > 0) {
+          Column() { this.LoadingOrState(''); }
+            .width('100%').margin({ top: 28, bottom: 110 });
+        } else {
+          Text('壁纸分类')
+            .width('100%').fontSize(20).fontWeight(FontWeight.Bold).fontColor(T.ink)
+            .margin({ top: 28, bottom: 12 });
+          if (this.categories.length > 0) {
+            Scroll() {
+              Row({ space: 18 }) {
+                ForEach(this.categories, (category: WallpaperCategory) => {
+                  Column({ space: 8 }) {
+                    if (category.iconUrl.length > 0) {
+                      Image(this.mediaUrl(category.iconUrl))
+                        .width(T.categoryIcon).height(T.categoryIcon).objectFit(ImageFit.Cover).borderRadius(18);
+                    } else {
+                      Text(category.name.substring(0, 1))
+                        .width(T.categoryIcon).height(T.categoryIcon).fontSize(22).fontWeight(FontWeight.Bold)
+                        .fontColor(T.ink).textAlign(TextAlign.Center)
+                        .backgroundColor(T.surfaceMuted).borderRadius(18);
+                    }
+                    Text(category.name).fontSize(13).fontColor(T.mutedInk);
+                  }
+                  .onClick(() => {
+                    this.currentTitle = category.name;
+                    this.currentQuery = '';
+                    this.currentCategoryId = category.id;
+                    this.page = 'CATEGORY';
+                    this.loadWallpapers(HarmonyCatalogProjection.FILTER_FEATURED, '', category.id);
+                  });
+                }, (category: WallpaperCategory) => category.id);
+              }
             }
-          }, (category: WallpaperCategory) => category.id);
-        }
-        .width('100%');
-
-        Text(this.selectedFilter === HarmonyCatalogProjection.FILTER_FEATURED ? '精选壁纸' : this.selectedFilter)
-          .width('100%')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(T.ink)
-          .margin({ top: 28, bottom: 12 });
-
-        Scroll() {
-          Row() {
-            this.FilterChip(HarmonyCatalogProjection.FILTER_FEATURED);
-            this.FilterChip(HarmonyCatalogProjection.FILTER_FREE);
-            this.FilterChip(HarmonyCatalogProjection.FILTER_MOVING_PHOTO);
-            this.FilterChip(HarmonyCatalogProjection.FILTER_STATIC);
+            .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%');
           }
-        }
-        .scrollable(ScrollDirection.Horizontal)
-        .scrollBar(BarState.Off)
-        .width('100%');
-
-        GridRow({ columns: 2, gutter: 12 }) {
-          ForEach(this.visibleWallpapers(), (item: WallpaperSummary, index: number) => {
-            GridCol({ span: 1 }) {
-              this.WallpaperCard(item, index);
+          Text(this.selectedFilter === HarmonyCatalogProjection.FILTER_FEATURED ? '精选壁纸' : this.selectedFilter)
+            .width('100%').fontSize(20).fontWeight(FontWeight.Bold).fontColor(T.ink)
+            .margin({ top: 28, bottom: 12 });
+          Scroll() {
+            Row() {
+              this.FilterChip(HarmonyCatalogProjection.FILTER_FEATURED);
+              this.FilterChip(HarmonyCatalogProjection.FILTER_FREE);
+              this.FilterChip(HarmonyCatalogProjection.FILTER_MOVING_PHOTO);
+              this.FilterChip(HarmonyCatalogProjection.FILTER_STATIC);
             }
-            .margin({ top: 16 });
-          }, (item: WallpaperSummary) => item.id);
+          }
+          .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%');
+          Column() {
+            this.WallpaperGrid(this.wallpapers, '暂时没有符合条件的已发布壁纸');
+          }
+          .width('100%').margin({ top: 16, bottom: 110 });
         }
-        .width('100%')
-        .padding({ bottom: 110 });
       }
-      .width('100%')
+      .width('100%').constraintSize({ minHeight: '100%' })
       .padding({ left: T.gutter, right: T.gutter });
     }
-    .width('100%')
-    .height('100%')
-    .scrollBar(BarState.Off);
+    .width('100%').height('100%').scrollBar(BarState.Off);
+  }
+
+  @Builder
+  private ResultPage() {
+    Scroll() {
+      Column() {
+        this.PageHeader(this.currentTitle, true);
+        this.SearchBar();
+        Column() {
+          this.WallpaperGrid(this.wallpapers,
+            this.page === 'SEARCH' ? '没有找到相关壁纸，换个关键词试试' : '这个分类正在补充壁纸');
+        }
+        .width('100%').margin({ top: 24, bottom: 40 });
+      }
+      .width('100%').constraintSize({ minHeight: '100%' })
+      .padding({ left: T.gutter, right: T.gutter });
+    }
+    .width('100%').height('100%').scrollBar(BarState.Off);
   }
 
   @Builder
@@ -291,230 +527,276 @@ struct Index {
     Scroll() {
       Column() {
         this.BrandHeader('我的');
-
         Row() {
           Column() {
-            Text('壁纸设置教程')
-              .width('100%')
-              .fontSize(17)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(T.ink);
-            Text('查看鸿蒙动态照片和静态壁纸的设置方法')
-              .width('100%')
-              .fontSize(13)
-              .fontColor(T.mutedInk)
-              .margin({ top: 5 });
+            Text('壁纸设置教程').width('100%').fontSize(17).fontWeight(FontWeight.Bold).fontColor(T.ink);
+            Text('了解鸿蒙动态照片和静态壁纸的设置方式')
+              .width('100%').fontSize(13).fontColor(T.mutedInk).margin({ top: 5 });
+          }.layoutWeight(1);
+          Text('›').fontSize(30).fontColor(T.mutedInk);
+        }
+        .width('100%').padding(18).backgroundColor(T.surface).border({ width: 1, color: T.outline })
+        .borderRadius(T.cardRadius).shadow({ radius: 24, color: '#1231281F', offsetY: 8 })
+        .onClick(() => this.openTutorials('MINE'));
+        Row() {
+          Text('已获得壁纸').fontSize(20).fontWeight(FontWeight.Bold).fontColor(T.ink).layoutWeight(1);
+          Button('刷新权益').height(40).fontSize(13).backgroundColor(T.surface)
+            .fontColor(T.ink).border({ width: 1, color: T.outlineStrong }).borderRadius(20)
+            .onClick(() => this.loadEntitlements());
+        }
+        .width('100%').margin({ top: 28, bottom: 12 });
+        if (this.entitlements.length === 0) {
+          this.LoadingOrState('兑换壁纸后会显示在这里');
+        } else {
+          Column({ space: 12 }) {
+            ForEach(this.entitlements, (item: WallpaperSummary) => {
+              Row() {
+                Image(this.mediaUrl(item.coverUrl)).width(76).height(96).objectFit(ImageFit.Cover).borderRadius(16);
+                Column({ space: 8 }) {
+                  Row({ space: 5 }) {
+                    ForEach(item.capabilities, (capability: WallpaperCapability) => {
+                      this.CapabilityBadge(capability.label);
+                    });
+                  }
+                  Text(item.title).width('100%').fontSize(16).fontWeight(FontWeight.Bold).fontColor(T.ink);
+                }
+                .alignItems(HorizontalAlign.Start).layoutWeight(1).margin({ left: 12 });
+                Text('›').fontSize(28).fontColor(T.mutedInk);
+              }
+              .width('100%').padding(12).backgroundColor(T.surface).border({ width: 1, color: T.outline })
+              .borderRadius(T.cardRadius).onClick(() => this.openDetail(item));
+            }, (item: WallpaperSummary) => item.id);
           }
-          .layoutWeight(1);
-          Text('›')
-            .fontSize(30)
-            .fontColor(T.mutedInk);
         }
-        .width('100%')
-        .padding(18)
-        .backgroundColor(T.surface)
-        .border({ width: 1, color: T.outline })
-        .borderRadius(T.cardRadius)
-        .margin({ top: 20 });
-
-        Text('已获得壁纸')
-          .width('100%')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(T.ink)
-          .margin({ top: 28 });
-        Text('兑换或免费获取的壁纸会显示在这里')
-          .width('100%')
-          .fontSize(13)
-          .fontColor(T.mutedInk)
-          .margin({ top: 5 });
-
-        Column({ space: 10 }) {
-          Text('还没有可用壁纸')
-            .fontSize(18)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(T.ink);
-          Text('去首页选择喜欢的壁纸吧')
-            .fontSize(14)
-            .fontColor(T.mutedInk);
-          Button('去首页')
-            .height(48)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(T.inverseInk)
-            .backgroundColor(T.navigation)
-            .borderRadius(24)
-            .margin({ top: 8 })
-            .onClick(() => {
-              this.activeTab = 0;
-            });
-        }
-        .width('100%')
-        .padding({ top: 70, bottom: 70 })
-        .margin({ top: 18 })
-        .backgroundColor(T.surfaceMuted)
-        .borderRadius(T.cardRadius);
       }
-      .width('100%')
-      .padding({ left: T.gutter, right: T.gutter, bottom: 110 });
+      .width('100%').constraintSize({ minHeight: '100%' })
+      .padding({ left: T.gutter, right: T.gutter, bottom: 18 });
     }
-    .width('100%')
-    .height('100%')
-    .scrollBar(BarState.Off);
-  }
-
-  @Builder
-  private BottomNavigation() {
-    Row() {
-      Button('首页')
-        .layoutWeight(1)
-        .height(52)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(this.activeTab === 0 ? T.inverseInk : T.ink)
-        .backgroundColor(this.activeTab === 0 ? T.navigation : Color.Transparent)
-        .borderRadius(26)
-        .onClick(() => {
-          this.activeTab = 0;
-        });
-      Button('我的')
-        .layoutWeight(1)
-        .height(52)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(this.activeTab === 1 ? T.inverseInk : T.ink)
-        .backgroundColor(this.activeTab === 1 ? T.navigation : Color.Transparent)
-        .borderRadius(26)
-        .onClick(() => {
-          this.activeTab = 1;
-        });
-    }
-    .width('100%')
-    .height(66)
-    .padding(7)
-    .backgroundColor('#F5FFFFFF')
-    .border({ width: 1, color: T.outline })
-    .borderRadius(33)
-    .shadow({ radius: 30, color: '#2E191817', offsetY: 12 });
+    .width('100%').height('100%').scrollBar(BarState.Off);
   }
 
   @Builder
   private DetailPage(item: WallpaperSummary) {
     Column() {
       Row() {
-        Button('‹')
-          .width(48)
-          .height(48)
-          .fontSize(32)
-          .fontColor(T.ink)
-          .backgroundColor(T.surface)
-          .border({ width: 1, color: T.outline })
-          .borderRadius(24)
+        Button('‹').width(44).height(44).fontSize(30).fontColor(T.ink).backgroundColor(T.surface)
+          .border({ width: 1, color: T.outline }).borderRadius(22)
           .onClick(() => {
+            this.page = this.activeTab === 0 ? 'HOME' : 'MINE';
             this.selectedDetail = null;
-            this.statusMessage = '';
           });
-        Text(item.title)
-          .fontSize(28)
-          .fontWeight(FontWeight.Bolder)
-          .fontColor(T.ink)
-          .layoutWeight(1)
-          .margin({ left: 12 });
-        Button('观看设置教程')
-          .height(44)
-          .fontSize(13)
-          .fontColor(T.accentStrong)
-          .backgroundColor(T.accentSoft)
-          .borderRadius(22);
+        Text(item.title).fontSize(22).fontWeight(FontWeight.Bolder).fontColor(T.ink)
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).margin({ left: 8 });
+        Button('观看设置教程').height(44).fontSize(12).fontWeight(FontWeight.Bold)
+          .fontColor(T.accentStrong).backgroundColor(T.accentSoft)
+          .border({ width: 1, color: T.accent }).borderRadius(22)
+          .onClick(() => this.openDetailTutorial());
       }
-      .width('100%')
-      .height(64);
-
+      .width('100%').height(T.topBarHeight);
       if (item.capabilities.length > 1) {
         Scroll() {
           Row({ space: 8 }) {
             ForEach(item.capabilities, (capability: WallpaperCapability) => {
-              Button(capability.label)
-                .height(38)
-                .fontSize(13)
-                .fontWeight(FontWeight.Bold)
+              Button(capability.label).height(38).fontSize(13).fontWeight(FontWeight.Bold)
                 .fontColor(this.selectedCapability === capability.label ? T.inverseInk : T.ink)
                 .backgroundColor(this.selectedCapability === capability.label ? T.navigation : T.surface)
-                .border({ width: 1, color: T.outline })
-                .borderRadius(19)
+                .border({ width: 1, color: T.outlineStrong }).borderRadius(19)
                 .onClick(() => {
                   this.selectedCapability = capability.label;
+                  this.statusMessage = '';
                 });
             }, (capability: WallpaperCapability) => capability.deliveryPlatform + capability.resourceType);
           }
         }
-        .scrollable(ScrollDirection.Horizontal)
-        .scrollBar(BarState.Off)
-        .width('100%')
+        .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%')
         .margin({ top: 12, bottom: 12 });
       }
-
-      Text(this.deliveryHint(item))
-        .width('100%')
-        .fontSize(13)
-        .fontColor(T.mutedInk)
-        .margin({ bottom: 12 });
-
+      Text(this.deliveryHint(item)).width('100%').fontSize(13).fontColor(T.mutedInk).margin({ bottom: 12 });
       Stack({ alignContent: Alignment.Bottom }) {
-        this.PlaceholderArtwork(0);
+        Image(this.mediaUrl(item.coverUrl)).width('100%').height('100%').objectFit(ImageFit.Cover)
+          .backgroundColor(T.surfaceMuted);
         Column() {
           if (this.statusMessage.length > 0) {
-            Text(this.statusMessage)
-              .fontSize(13)
-              .fontColor(T.inverseInk)
-              .backgroundColor('#AA191817')
-              .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-              .borderRadius(14)
-              .margin({ bottom: 10 });
+            Text(this.statusMessage).fontSize(13).fontColor(T.inverseInk).backgroundColor('#BB191817')
+              .padding({ left: 12, right: 12, top: 8, bottom: 8 }).borderRadius(14).margin({ bottom: 10 });
           }
           Button(item.free ? '下载壁纸' : '兑换并下载')
-            .width('100%')
-            .height(T.primaryHeight)
-            .fontSize(17)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(T.ink)
-            .backgroundColor(T.accent)
-            .borderRadius(27)
+            .width('100%').height(T.primaryHeight).fontSize(17).fontWeight(FontWeight.Bold)
+            .fontColor(T.ink).backgroundColor(T.accent).borderRadius(27)
             .onClick(() => {
-              this.statusMessage = this.deliveryHint(item);
+              this.statusMessage = '鸿蒙资源交付接口正在接入，当前不会生成假下载结果';
             });
         }
-        .width('100%')
-        .padding(16);
+        .width('100%').padding(16);
       }
-      .width('100%')
-      .layoutWeight(1)
-      .borderRadius(T.cardRadius)
-      .clip(true)
-      .margin({ bottom: 20 });
+      .width('100%').layoutWeight(1).borderRadius(T.cardRadius).clip(true).margin({ bottom: 20 });
     }
-    .width('100%')
-    .height('100%')
-    .padding({ left: T.gutter, right: T.gutter });
+    .width('100%').height('100%').padding({ left: T.gutter, right: T.gutter });
+  }
+
+  @Builder
+  private TutorialsPage() {
+    Scroll() {
+      Column() {
+        this.PageHeader('壁纸设置教程', true);
+        if (this.loading || this.errorMessage.length > 0 || this.tutorials.length === 0) {
+          this.LoadingOrState('设置教程暂时还没有发布');
+        } else {
+          Column({ space: 12 }) {
+            ForEach(this.tutorials, (tutorial: WallpaperTutorial, index: number) => {
+              Row() {
+                Text('▶').width(50).height(50).fontSize(20).fontColor(T.ink).textAlign(TextAlign.Center)
+                  .backgroundColor(T.accent).borderRadius(17);
+                Column({ space: 5 }) {
+                  Text(tutorial.title).width('100%').fontSize(16).fontWeight(FontWeight.Bold).fontColor(T.ink);
+                  Text('点击播放').width('100%').fontSize(12).fontColor(T.mutedInk);
+                }
+                .alignItems(HorizontalAlign.Start).layoutWeight(1).margin({ left: 16 });
+                Text((index + 1).toString().padStart(2, '0')).fontSize(20).fontWeight(FontWeight.Bold)
+                  .fontColor(T.outlineStrong);
+              }
+              .width('100%').padding(16).backgroundColor(T.surface).border({ width: 1, color: T.outline })
+              .borderRadius(T.cardRadius).shadow({ radius: 24, color: '#1231281F', offsetY: 8 })
+              .onClick(() => {
+                this.selectedTutorial = tutorial;
+                this.page = 'TUTORIAL_PLAYER';
+              });
+            }, (tutorial: WallpaperTutorial) => tutorial.key);
+          }
+        }
+      }
+      .width('100%').constraintSize({ minHeight: '100%' })
+      .padding({ left: T.gutter, right: T.gutter, bottom: 30 });
+    }
+    .width('100%').height('100%').scrollBar(BarState.Off);
+  }
+
+  @Builder
+  private TutorialPlayerPage(tutorial: WallpaperTutorial) {
+    Column() {
+      this.PageHeader(tutorial.title, false);
+      Video({ src: this.mediaUrl(tutorial.videoUrl), controller: this.videoController })
+        .width('100%').layoutWeight(1).objectFit(ImageFit.Contain).controls(true).autoPlay(true)
+        .backgroundColor(Color.Black).borderRadius(T.cardRadius);
+      Text('视频播放完成后，按教程在图库中设置对应壁纸')
+        .width('100%').fontSize(13).fontColor(T.mutedInk).margin({ top: 16, bottom: 20 });
+    }
+    .width('100%').height('100%').padding({ left: T.gutter, right: T.gutter });
+  }
+
+  @Builder
+  private CustomerPage() {
+    Scroll() {
+      Column() {
+        this.PageHeader('微信客服', false);
+        Column() {
+          Row() {
+            Text('✦').width(44).height(44).fontSize(20).textAlign(TextAlign.Center)
+              .backgroundColor(T.accentSoft).fontColor(T.accentStrong).borderRadius(15);
+            Column({ space: 3 }) {
+              Text('微信客服').width('100%').fontSize(17).fontWeight(FontWeight.Bold).fontColor(T.ink);
+              Text('添加客服获取兑换码或处理设备恢复').width('100%').fontSize(12).fontColor(T.mutedInk);
+            }
+            .alignItems(HorizontalAlign.Start).layoutWeight(1).margin({ left: 12 });
+          }
+          .width('100%');
+          Image($r('app.media.customer_service_qr'))
+            .width(164).height(164).objectFit(ImageFit.Contain).margin({ top: 24 })
+            .onClick(() => this.qrPreview = true);
+          Text('点击二维码可放大查看').fontSize(12).fontColor(T.mutedInk).margin({ top: 8 });
+          Row() {
+            SaveButton({ text: SaveDescription.SAVE_IMAGE, buttonType: ButtonType.Capsule })
+              .height(44).fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.ink)
+              .backgroundColor(T.surface).borderWidth(1).borderColor(T.outlineStrong)
+              .onClick((event: ClickEvent, result: SaveButtonOnClickResult) => {
+                if (result === SaveButtonOnClickResult.SUCCESS) {
+                  this.saveQr();
+                } else {
+                  this.toast('需要允许保存图片才能保存二维码');
+                }
+              });
+          }
+          .margin({ top: 12 });
+          Row() {
+            Column({ space: 2 }) {
+              Text('微信号').width('100%').fontSize(10).fontWeight(FontWeight.Bold).fontColor(T.mutedInk);
+              Text(CustomerSupport.WECHAT_ID).width('100%').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.ink);
+            }
+            .alignItems(HorizontalAlign.Start).layoutWeight(1);
+            Button('复制').height(38).fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.inverseInk)
+              .backgroundColor(T.navigation).borderRadius(19).onClick(() => this.copyWechat());
+          }
+          .width('100%').height(62).padding({ left: 16, right: 10 }).backgroundColor(T.surfaceMuted)
+          .borderRadius(T.controlRadius).margin({ top: 24 });
+        }
+        .width('100%').padding(20).backgroundColor(T.surface).border({ width: 1, color: T.outline })
+        .borderRadius(T.cardRadius).margin({ top: 20 });
+      }
+      .width('100%').constraintSize({ minHeight: '100%' })
+      .padding({ left: T.gutter, right: T.gutter, bottom: 30 });
+    }
+    .width('100%').height('100%').scrollBar(BarState.Off);
+  }
+
+  @Builder
+  private BottomNavigation() {
+    Row() {
+      Button('首页').layoutWeight(1).height(52).fontWeight(FontWeight.Bold)
+        .fontColor(this.activeTab === 0 ? T.inverseInk : T.ink)
+        .backgroundColor(this.activeTab === 0 ? T.navigation : Color.Transparent).borderRadius(26)
+        .onClick(() => {
+          this.activeTab = 0;
+          this.page = 'HOME';
+          this.loadHome();
+        });
+      Button('我的').layoutWeight(1).height(52).fontWeight(FontWeight.Bold)
+        .fontColor(this.activeTab === 1 ? T.inverseInk : T.ink)
+        .backgroundColor(this.activeTab === 1 ? T.navigation : Color.Transparent).borderRadius(26)
+        .onClick(() => {
+          this.activeTab = 1;
+          this.page = 'MINE';
+          this.loadEntitlements();
+        });
+    }
+    .width('100%').height(T.bottomNavigationHeight).padding(7).backgroundColor('#F5FFFFFF')
+    .border({ width: 1, color: T.outline }).borderRadius(33)
+    .shadow({ radius: 34, color: '#2E191817', offsetY: 12 });
   }
 
   build() {
-    Stack({ alignContent: Alignment.Bottom }) {
-      if (this.selectedDetail !== null) {
-        this.DetailPage(this.selectedDetail as WallpaperSummary);
-      } else {
-        if (this.activeTab === 0) {
-          this.HomePage();
-        } else {
-          this.MinePage();
+    Stack({ alignContent: Alignment.TopStart }) {
+      Column() {
+        Stack({ alignContent: Alignment.TopStart }) {
+          if (this.page === 'HOME') this.HomePage();
+          if (this.page === 'MINE') this.MinePage();
+          if (this.page === 'CATEGORY' || this.page === 'SEARCH') this.ResultPage();
+          if (this.page === 'DETAIL' && this.selectedDetail !== null) {
+            this.DetailPage(this.selectedDetail as WallpaperSummary);
+          }
+          if (this.page === 'TUTORIALS') this.TutorialsPage();
+          if (this.page === 'TUTORIAL_PLAYER' && this.selectedTutorial !== null) {
+            this.TutorialPlayerPage(this.selectedTutorial as WallpaperTutorial);
+          }
+          if (this.page === 'CUSTOMER') this.CustomerPage();
         }
-        Row() {
-          this.BottomNavigation();
+        .width('100%').layoutWeight(1);
+        if (this.page === 'HOME' || this.page === 'MINE') {
+          Row() { this.BottomNavigation(); }
+            .width('100%').padding({ left: T.gutter, right: T.gutter, bottom: 12 });
         }
-        .width('100%')
-        .padding({ left: T.gutter, right: T.gutter, bottom: 12 });
+      }
+      .width('100%').height('100%');
+      if (this.qrPreview) {
+        Column() {
+          Button('关闭').height(44).fontColor(T.inverseInk).backgroundColor('#99191817').borderRadius(22)
+            .onClick(() => this.qrPreview = false);
+          Image($r('app.media.customer_service_qr')).width(320).height(320).objectFit(ImageFit.Contain)
+            .margin({ top: 20 });
+        }
+        .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+        .backgroundColor('#EE191817').onClick(() => this.qrPreview = false);
       }
     }
-    .width('100%')
-    .height('100%')
-    .backgroundColor(T.surface)
-    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM]);
+    .width('100%').height('100%').backgroundColor(T.surface);
   }
 }

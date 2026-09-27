@@ -1,12 +1,62 @@
+export interface ApiAssetPayload {
+  contentUrl: string;
+}
+
+export interface ApiCapabilityPayload {
+  deliveryPlatform: string;
+  resourceType: string;
+  placements: string[];
+}
+
+export interface ApiWallpaperPayload {
+  id: string;
+  title: string;
+  accessType: string;
+  cover: ApiAssetPayload;
+  availableCapabilities: ApiCapabilityPayload[];
+  copyrightNote?: string;
+}
+
+export interface ApiCategoryPayload {
+  id: string;
+  name: string;
+  icon?: ApiAssetPayload;
+  children?: ApiCategoryPayload[];
+}
+
+export interface ApiTutorialPayload {
+  key: string;
+  title: string;
+  platform: string;
+  wallpaperKind: string;
+  video: ApiAssetPayload;
+  sortOrder: number;
+}
+
 export class WallpaperCapability {
   deliveryPlatform: string;
   resourceType: string;
+  placements: string[];
   label: string;
 
-  constructor(deliveryPlatform: string, resourceType: string, label: string) {
+  constructor(deliveryPlatform: string, resourceType: string, placements: string[] = []) {
     this.deliveryPlatform = deliveryPlatform;
     this.resourceType = resourceType;
-    this.label = label;
+    this.placements = placements;
+    this.label = WallpaperCapability.resolveLabel(deliveryPlatform, resourceType);
+  }
+
+  static fromApi(payload: ApiCapabilityPayload): WallpaperCapability {
+    return new WallpaperCapability(payload.deliveryPlatform, payload.resourceType, payload.placements ?? []);
+  }
+
+  static resolveLabel(deliveryPlatform: string, resourceType: string): string {
+    if (deliveryPlatform === 'HARMONYOS' && resourceType === 'MOVING_PHOTO') return '鸿蒙动态壁纸';
+    if (deliveryPlatform === 'UNIVERSAL' && resourceType === 'STATIC_IMAGE') return '静态壁纸';
+    if (deliveryPlatform === 'ANDROID' && resourceType === 'LAYER_PARALLAX') return '4D壁纸';
+    if (deliveryPlatform === 'ANDROID' && resourceType === 'VIDEO') return '安卓动态壁纸';
+    if (deliveryPlatform === 'IOS' && resourceType === 'LIVE_PHOTO') return '苹果动态壁纸';
+    return '其他壁纸';
   }
 }
 
@@ -16,24 +66,71 @@ export class WallpaperSummary {
   coverUrl: string;
   free: boolean;
   capabilities: WallpaperCapability[];
+  copyrightNote: string;
 
   constructor(id: string, title: string, coverUrl: string, free: boolean,
-    capabilities: WallpaperCapability[]) {
+    capabilities: WallpaperCapability[], copyrightNote: string = '') {
     this.id = id;
     this.title = title;
     this.coverUrl = coverUrl;
     this.free = free;
     this.capabilities = capabilities;
+    this.copyrightNote = copyrightNote;
+  }
+
+  static fromApi(payload: ApiWallpaperPayload): WallpaperSummary {
+    const capabilities: WallpaperCapability[] = [];
+    (payload.availableCapabilities ?? []).forEach((item: ApiCapabilityPayload) => {
+      capabilities.push(WallpaperCapability.fromApi(item));
+    });
+    return new WallpaperSummary(payload.id, payload.title, payload.cover.contentUrl,
+      payload.accessType === 'FREE', capabilities, payload.copyrightNote ?? '');
   }
 }
 
 export class WallpaperCategory {
   id: string;
   name: string;
+  iconUrl: string;
+  children: WallpaperCategory[];
 
-  constructor(id: string, name: string) {
+  constructor(id: string, name: string, iconUrl: string = '', children: WallpaperCategory[] = []) {
     this.id = id;
     this.name = name;
+    this.iconUrl = iconUrl;
+    this.children = children;
+  }
+
+  static fromApi(payload: ApiCategoryPayload): WallpaperCategory {
+    const children: WallpaperCategory[] = [];
+    (payload.children ?? []).forEach((item: ApiCategoryPayload) => {
+      children.push(WallpaperCategory.fromApi(item));
+    });
+    return new WallpaperCategory(payload.id, payload.name, payload.icon?.contentUrl ?? '', children);
+  }
+}
+
+export class WallpaperTutorial {
+  key: string;
+  title: string;
+  platform: string;
+  wallpaperKind: string;
+  videoUrl: string;
+  sortOrder: number;
+
+  constructor(key: string, title: string, platform: string, wallpaperKind: string,
+    videoUrl: string, sortOrder: number) {
+    this.key = key;
+    this.title = title;
+    this.platform = platform;
+    this.wallpaperKind = wallpaperKind;
+    this.videoUrl = videoUrl;
+    this.sortOrder = sortOrder;
+  }
+
+  static fromApi(payload: ApiTutorialPayload): WallpaperTutorial {
+    return new WallpaperTutorial(payload.key, payload.title, payload.platform,
+      payload.wallpaperKind, payload.video.contentUrl, payload.sortOrder);
   }
 }
 
@@ -54,44 +151,19 @@ export class HarmonyCatalogProjection {
   static projectWallpaper(item: WallpaperSummary): WallpaperSummary | null {
     const supportedCapabilities: WallpaperCapability[] = [];
     item.capabilities.forEach((capability: WallpaperCapability) => {
-      if (HarmonyCatalogProjection.isSupportedCapability(capability)) {
-        supportedCapabilities.push(capability);
-      }
+      if (HarmonyCatalogProjection.isSupportedCapability(capability)) supportedCapabilities.push(capability);
     });
-    if (supportedCapabilities.length === 0) {
-      return null;
-    }
-    return new WallpaperSummary(item.id, item.title, item.coverUrl, item.free, supportedCapabilities);
+    if (supportedCapabilities.length === 0) return null;
+    return new WallpaperSummary(item.id, item.title, item.coverUrl, item.free,
+      supportedCapabilities, item.copyrightNote);
   }
 
   static projectCatalog(items: WallpaperSummary[]): WallpaperSummary[] {
     const projectedItems: WallpaperSummary[] = [];
     items.forEach((item: WallpaperSummary) => {
       const projected: WallpaperSummary | null = HarmonyCatalogProjection.projectWallpaper(item);
-      if (projected !== null) {
-        projectedItems.push(projected as WallpaperSummary);
-      }
+      if (projected !== null) projectedItems.push(projected as WallpaperSummary);
     });
     return projectedItems;
-  }
-
-  static hasCapability(item: WallpaperSummary, deliveryPlatform: string, resourceType: string): boolean {
-    return item.capabilities.some((capability: WallpaperCapability) =>
-      capability.deliveryPlatform === deliveryPlatform && capability.resourceType === resourceType);
-  }
-
-  static filterCatalog(items: WallpaperSummary[], filter: string): WallpaperSummary[] {
-    if (filter === HarmonyCatalogProjection.FILTER_FREE) {
-      return items.filter((item: WallpaperSummary) => item.free);
-    }
-    if (filter === HarmonyCatalogProjection.FILTER_MOVING_PHOTO) {
-      return items.filter((item: WallpaperSummary) =>
-        HarmonyCatalogProjection.hasCapability(item, 'HARMONYOS', 'MOVING_PHOTO'));
-    }
-    if (filter === HarmonyCatalogProjection.FILTER_STATIC) {
-      return items.filter((item: WallpaperSummary) =>
-        HarmonyCatalogProjection.hasCapability(item, 'UNIVERSAL', 'STATIC_IMAGE'));
-    }
-    return items;
   }
 }
