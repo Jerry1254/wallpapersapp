@@ -205,6 +205,9 @@ void main() {
         tester.widget<QjFilterChip>(find.widgetWithText(QjFilterChip, label));
     expect(chip('4D壁纸').selected, isTrue);
     expect(chip('安卓动态壁纸').selected, isFalse);
+    final action = find.widgetWithText(QjPrimaryAction, '下载壁纸');
+    expect(action, findsOneWidget);
+    expect(tester.getBottomRight(action).dy, lessThanOrEqualTo(844));
 
     await tester.tap(find.text('安卓动态壁纸').first);
     await tester.pump();

@@ -383,6 +383,27 @@ class _DetailScreenState extends State<DetailScreen> {
                             installedIds[previewOption.key] != null)
                   ? '设置壁纸'
                   : '下载壁纸';
+              final mediaQuery = MediaQuery.of(context);
+              final safeViewportHeight =
+                  mediaQuery.size.height - mediaQuery.viewPadding.vertical;
+              final contentWidth = mediaQuery.size.width > T.sizeContentMax
+                  ? T.sizeContentMax
+                  : mediaQuery.size.width;
+              final naturalPreviewHeight = (contentWidth - T.space5 * 2) * 2;
+              final reservedHeight =
+                  T.sizeTopBar +
+                  T.space4 +
+                  T.space6 +
+                  (showsPreviewTabs ? T.sizeTouchTargetMin + T.space3 : 0);
+              final availablePreviewHeight =
+                  safeViewportHeight - reservedHeight;
+              final fittedPreviewHeight =
+                  availablePreviewHeight < naturalPreviewHeight
+                  ? availablePreviewHeight
+                  : naturalPreviewHeight;
+              final previewHeight = fittedPreviewHeight < 320
+                  ? 320.0
+                  : fittedPreviewHeight;
               return ListView(
                 controller: scroll,
                 padding: const EdgeInsets.fromLTRB(
@@ -431,8 +452,8 @@ class _DetailScreenState extends State<DetailScreen> {
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(T.radiusCard),
-                      child: AspectRatio(
-                        aspectRatio: 1 / 2,
+                      child: SizedBox(
+                        height: previewHeight,
                         child: Stack(
                           fit: StackFit.expand,
                           children: [
