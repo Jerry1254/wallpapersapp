@@ -1,11 +1,16 @@
 import { QjTokens as T } from '../design/Tokens';
-import { WallpaperCapability, WallpaperCategory, WallpaperSummary } from '../model/CatalogModels';
+import {
+  HarmonyCatalogProjection,
+  WallpaperCapability,
+  WallpaperCategory,
+  WallpaperSummary
+} from '../model/CatalogModels';
 
 @Entry
 @Component
 struct Index {
   @State activeTab: number = 0;
-  @State selectedFilter: string = '精选推荐';
+  @State selectedFilter: string = HarmonyCatalogProjection.FILTER_FEATURED;
   @State selectedDetail: WallpaperSummary | null = null;
   @State selectedCapability: string = '鸿蒙动态壁纸';
   @State statusMessage: string = '';
@@ -17,10 +22,12 @@ struct Index {
     new WallpaperCategory('4', '萌宠')
   ];
 
-  private wallpapers: WallpaperSummary[] = [
+  private rawWallpapers: WallpaperSummary[] = [
     new WallpaperSummary('preview-1', '鎏金国风', '', false, [
       new WallpaperCapability('HARMONYOS', 'MOVING_PHOTO', '鸿蒙动态壁纸'),
-      new WallpaperCapability('UNIVERSAL', 'STATIC_IMAGE', '静态壁纸')
+      new WallpaperCapability('UNIVERSAL', 'STATIC_IMAGE', '静态壁纸'),
+      new WallpaperCapability('ANDROID', 'VIDEO', '安卓动态壁纸'),
+      new WallpaperCapability('IOS', 'LIVE_PHOTO', '苹果动态壁纸')
     ]),
     new WallpaperSummary('preview-2', '云海日出', '', true, [
       new WallpaperCapability('HARMONYOS', 'MOVING_PHOTO', '鸿蒙动态壁纸')
@@ -32,6 +39,28 @@ struct Index {
       new WallpaperCapability('HARMONYOS', 'MOVING_PHOTO', '鸿蒙动态壁纸')
     ])
   ];
+
+  private harmonyWallpapers(): WallpaperSummary[] {
+    return HarmonyCatalogProjection.projectCatalog(this.rawWallpapers);
+  }
+
+  private visibleWallpapers(): WallpaperSummary[] {
+    return HarmonyCatalogProjection.filterCatalog(this.harmonyWallpapers(), this.selectedFilter);
+  }
+
+  private selectedCapabilityFor(item: WallpaperSummary): WallpaperCapability {
+    const matched: WallpaperCapability | undefined = item.capabilities.find((capability: WallpaperCapability) =>
+      capability.label === this.selectedCapability);
+    return matched === undefined ? item.capabilities[0] : matched;
+  }
+
+  private deliveryHint(item: WallpaperSummary): string {
+    const capability: WallpaperCapability = this.selectedCapabilityFor(item);
+    if (capability.deliveryPlatform === 'HARMONYOS' && capability.resourceType === 'MOVING_PHOTO') {
+      return '下载完成后将动态照片保存到图库，再从图库设为锁屏壁纸';
+    }
+    return '下载高清静态原图并保存到图库，再从图库设置壁纸';
+  }
 
   @Builder
   private BrandHeader(title: string = '倾境动态壁纸') {
@@ -219,7 +248,7 @@ struct Index {
         }
         .width('100%');
 
-        Text(this.selectedFilter === '精选推荐' ? '精选壁纸' : this.selectedFilter)
+        Text(this.selectedFilter === HarmonyCatalogProjection.FILTER_FEATURED ? '精选壁纸' : this.selectedFilter)
           .width('100%')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
@@ -228,10 +257,10 @@ struct Index {
 
         Scroll() {
           Row() {
-            this.FilterChip('精选推荐');
-            this.FilterChip('免费壁纸');
-            this.FilterChip('鸿蒙动态');
-            this.FilterChip('静态壁纸');
+            this.FilterChip(HarmonyCatalogProjection.FILTER_FEATURED);
+            this.FilterChip(HarmonyCatalogProjection.FILTER_FREE);
+            this.FilterChip(HarmonyCatalogProjection.FILTER_MOVING_PHOTO);
+            this.FilterChip(HarmonyCatalogProjection.FILTER_STATIC);
           }
         }
         .scrollable(ScrollDirection.Horizontal)
@@ -239,7 +268,7 @@ struct Index {
         .width('100%');
 
         GridRow({ columns: 2, gutter: 12 }) {
-          ForEach(this.wallpapers, (item: WallpaperSummary, index: number) => {
+          ForEach(this.visibleWallpapers(), (item: WallpaperSummary, index: number) => {
             GridCol({ span: 1 }) {
               this.WallpaperCard(item, index);
             }
@@ -422,6 +451,12 @@ struct Index {
         .margin({ top: 12, bottom: 12 });
       }
 
+      Text(this.deliveryHint(item))
+        .width('100%')
+        .fontSize(13)
+        .fontColor(T.mutedInk)
+        .margin({ bottom: 12 });
+
       Stack({ alignContent: Alignment.Bottom }) {
         this.PlaceholderArtwork(0);
         Column() {
@@ -443,7 +478,7 @@ struct Index {
             .backgroundColor(T.accent)
             .borderRadius(27)
             .onClick(() => {
-              this.statusMessage = '界面已完成，等待鸿蒙设备身份和动态照片交付接口';
+              this.statusMessage = this.deliveryHint(item);
             });
         }
         .width('100%')
