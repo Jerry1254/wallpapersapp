@@ -375,6 +375,8 @@ class _DetailScreenState extends State<DetailScreen> {
                   ? '暂无可用资源'
                   : waitsForOwnership
                   ? '正在确认权益'
+                  : !wallpaper.isFree && owned == false
+                  ? '兑换并下载'
                   : hasAccess &&
                         previewOption != null &&
                         (!previewOption.canApplyOnAndroid ||

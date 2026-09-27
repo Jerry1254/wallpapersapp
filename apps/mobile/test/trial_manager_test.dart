@@ -199,7 +199,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('试用两分钟'), findsNothing);
       expect(find.text('试用 2 分钟'), findsNothing);
-      expect(find.text(owned ? '设置壁纸' : '下载壁纸'), findsOneWidget);
+      expect(find.text(owned ? '设置壁纸' : '兑换并下载'), findsOneWidget);
       expect(previewType, 'STATIC_IMAGE');
       expect(sessions.issuances, 0);
       expect(find.byType(DownloadPanel), findsNothing);

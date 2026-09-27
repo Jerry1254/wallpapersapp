@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit';
+import { preferences } from '@kit.ArkData';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { QjTokens as T } from '../design/Tokens';
 import {
@@ -18,6 +19,8 @@ interface FailureWithMessage {
 }
 
 const LOG_DOMAIN: number = 0x514A;
+const DELIVERY_PREFERENCES: string = 'qingjing_delivery_state';
+const SAVED_MOVING_PHOTO_KEYS: string = 'saved_moving_photo_keys';
 
 @Entry
 @Component
@@ -51,10 +54,13 @@ struct Index {
   @State deliveryProgress: number = 0;
   @State deliveryReady: boolean = false;
   @State deliveryJustRedeemed: boolean = false;
+  @State savedDeliveryKeys: string[] = [];
+  @State detailSavedNowKey: string = '';
   private context: common.UIAbilityContext | null = null;
   private api: CatalogApi | null = null;
   private videoController: VideoController = new VideoController();
   private pendingMovingPhoto: DownloadedMovingPhoto | null = null;
+  private pendingDeliveryKey: string = '';
 
   aboutToAppear(): void {
     const host = this.getUIContext().getHostContext();
@@ -65,6 +71,7 @@ struct Index {
     this.context = host as common.UIAbilityContext;
     const sessions: HarmonyDeviceSession = new HarmonyDeviceSession(this.context as common.UIAbilityContext);
     this.api = new CatalogApi(sessions);
+    this.loadSavedDeliveryKeys();
     this.loadHome();
   }
 
@@ -128,6 +135,7 @@ struct Index {
   }
 
   private async openDetail(item: WallpaperSummary): Promise<void> {
+    this.detailSavedNowKey = '';
     this.selectedDetail = item;
     this.selectedCapability = item.capabilities[0].label;
     this.detailOwned = item.free;
@@ -196,6 +204,55 @@ struct Index {
     const matched: WallpaperCapability | undefined = item.capabilities.find((capability: WallpaperCapability) =>
       capability.label === this.selectedCapability);
     return matched === undefined ? item.capabilities[0] : matched;
+  }
+
+  private deliveryKey(item: WallpaperSummary, capability: WallpaperCapability): string {
+    return item.id + ':' + capability.deliveryPlatform + ':' + capability.resourceType;
+  }
+
+  private detailActionLabel(item: WallpaperSummary): string {
+    const capability: WallpaperCapability = this.selectedCapabilityFor(item);
+    const key: string = this.deliveryKey(item, capability);
+    if (this.detailSavedNowKey === key) return '已保存到相册，请设置';
+    if (this.savedDeliveryKeys.indexOf(key) >= 0) return '再次下载';
+    return item.free || this.detailOwned ? '下载壁纸' : '兑换并下载';
+  }
+
+  private async primaryDetailAction(item: WallpaperSummary): Promise<void> {
+    const key: string = this.deliveryKey(item, this.selectedCapabilityFor(item));
+    if (this.detailSavedNowKey === key) {
+      await this.openDetailTutorial();
+      return;
+    }
+    await this.detailAction(item);
+  }
+
+  private async loadSavedDeliveryKeys(): Promise<void> {
+    if (this.context === null) return;
+    try {
+      const store: preferences.Preferences = await preferences.getPreferences(
+        this.context as common.UIAbilityContext, DELIVERY_PREFERENCES);
+      const raw: string = String(await store.get(SAVED_MOVING_PHOTO_KEYS, ''));
+      this.savedDeliveryKeys = raw.length > 0 ? raw.split('|') : [];
+    } catch (error) {
+      this.savedDeliveryKeys = [];
+    }
+  }
+
+  private async rememberSavedDelivery(key: string): Promise<void> {
+    if (key.length === 0 || this.savedDeliveryKeys.indexOf(key) >= 0) return;
+    const updated: string[] = [];
+    this.savedDeliveryKeys.forEach((item: string) => updated.push(item));
+    updated.push(key);
+    this.savedDeliveryKeys = updated;
+    if (this.context === null) return;
+    try {
+      const store: preferences.Preferences = await preferences.getPreferences(
+        this.context as common.UIAbilityContext, DELIVERY_PREFERENCES);
+      await store.put(SAVED_MOVING_PHOTO_KEYS, updated.join('|'));
+      await store.flush();
+    } catch (error) {
+    }
   }
 
   private messageFor(error: Object): string {
@@ -278,6 +335,7 @@ struct Index {
     this.deliveryMessage = '正在准备壁纸资源';
     this.deliveryProgress = 0;
     this.statusMessage = '';
+    this.pendingDeliveryKey = this.deliveryKey(item, capability);
     try {
       const descriptor = await (this.api as CatalogApi).downloadTicket(item.id, capability);
       this.deliveryMessage = '正在下载壁纸资源，请勿关闭或切换到别的 App';
@@ -289,6 +347,7 @@ struct Index {
       this.deliveryReady = true;
       this.deliveryMessage = '资源已下载并校验，请点击保存到图库';
     } catch (error) {
+      this.pendingDeliveryKey = '';
       this.deliveryVisible = false;
       this.deliveryReady = false;
       this.statusMessage = this.messageFor(error);
@@ -298,17 +357,22 @@ struct Index {
 
   private async saveDownloadedMovingPhoto(): Promise<void> {
     if (this.context === null || this.pendingMovingPhoto === null) return;
+    const savedKey: string = this.pendingDeliveryKey;
     this.deliveryReady = false;
     this.deliveryMessage = '正在保存鸿蒙动态照片';
     try {
       await HarmonyDelivery.saveDownloaded(this.context as common.UIAbilityContext,
         this.pendingMovingPhoto as DownloadedMovingPhoto);
       this.pendingMovingPhoto = null;
+      this.pendingDeliveryKey = '';
+      await this.rememberSavedDelivery(savedKey);
+      this.detailSavedNowKey = savedKey;
       this.deliveryVisible = false;
-      this.statusMessage = '已保存到图库，请按设置教程将动态照片设为壁纸';
-      this.toast('下载完成，已保存到图库');
+      this.statusMessage = '';
+      this.toast('已保存到相册，请设置');
     } catch (error) {
       this.pendingMovingPhoto = null;
+      this.pendingDeliveryKey = '';
       this.deliveryVisible = false;
       this.statusMessage = this.messageFor(error);
       this.toast(this.statusMessage);
@@ -320,6 +384,7 @@ struct Index {
       await HarmonyDelivery.discard(this.pendingMovingPhoto as DownloadedMovingPhoto);
       this.pendingMovingPhoto = null;
     }
+    this.pendingDeliveryKey = '';
     this.deliveryVisible = false;
     this.deliveryReady = false;
   }
@@ -726,6 +791,7 @@ struct Index {
                 .onClick(() => {
                   this.selectedCapability = capability.label;
                   this.statusMessage = '';
+                  this.detailSavedNowKey = '';
                 });
             }, (capability: WallpaperCapability) => capability.deliveryPlatform + capability.resourceType);
           }
@@ -741,10 +807,10 @@ struct Index {
             Text(this.statusMessage).fontSize(13).fontColor(T.inverseInk).backgroundColor('#BB191817')
               .padding({ left: 12, right: 12, top: 8, bottom: 8 }).borderRadius(14).margin({ bottom: 10 });
           }
-          Button(item.free || this.detailOwned ? '下载壁纸' : '兑换并下载')
+          Button(this.detailActionLabel(item))
             .width('100%').height(T.primaryHeight).fontSize(17).fontWeight(FontWeight.Bold)
             .fontColor(T.ink).backgroundColor(T.accent).borderRadius(27)
-            .onClick(() => this.detailAction(item));
+            .onClick(() => this.primaryDetailAction(item));
         }
         .width('100%').padding(16);
       }
