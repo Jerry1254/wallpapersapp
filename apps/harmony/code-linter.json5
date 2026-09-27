@@ -1,0 +1,6 @@
+{
+  "files": ["**/*.ets"],
+  "ignore": ["**/build/**", "**/oh_modules/**", "**/.hvigor/**"],
+  "ruleSet": ["plugin:@performance/recommended"],
+  "rules": {}
+}

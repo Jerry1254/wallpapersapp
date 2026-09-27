@@ -1,0 +1,4 @@
+-keep-property-name annotation
+-keep-global-name Index
+-keep-global-name EntryAbility
+-keep-global-name EntryBackupAbility
