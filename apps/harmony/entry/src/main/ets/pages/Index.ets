@@ -937,24 +937,27 @@ struct Index {
               this.detailPreviewError = '动态效果暂时无法播放';
             });
         }
-        if (this.detailPreviewLoading) {
-          Row({ space: 8 }) {
-            LoadingProgress().width(20).height(20).color(T.inverseInk);
-            Text('正在加载动态效果').fontSize(13).fontColor(T.inverseInk);
-          }
-          .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-          .backgroundColor('#BB191817').borderRadius(18).align(Alignment.Center);
-        }
-        if (this.detailPreviewEnded) {
-          Button() {
+        Stack({ alignContent: Alignment.Center }) {
+          if (this.detailPreviewLoading) {
             Row({ space: 8 }) {
-              Image($r('app.media.replay_round')).width(22).height(22).objectFit(ImageFit.Contain);
-              Text('重新播放').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.inverseInk);
+              LoadingProgress().width(20).height(20).color(T.inverseInk);
+              Text('正在加载动态效果').fontSize(13).fontColor(T.inverseInk);
             }
+            .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+            .backgroundColor('#BB191817').borderRadius(18);
           }
-          .height(46).padding({ left: 18, right: 18 }).backgroundColor('#CC191817').borderRadius(23)
-          .align(Alignment.Center).onClick(() => this.replayDetailPreview());
+          if (this.detailPreviewEnded) {
+            Button() {
+              Row({ space: 8 }) {
+                Image($r('app.media.replay_round')).width(22).height(22).objectFit(ImageFit.Contain);
+                Text('重新播放').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.inverseInk);
+              }
+            }
+            .height(46).padding({ left: 18, right: 18 }).backgroundColor('#CC191817').borderRadius(23)
+            .onClick(() => this.replayDetailPreview());
+          }
         }
+        .width('100%').height('100%');
         Column() {
           if (this.detailPreviewError.length > 0) {
             Text(this.detailPreviewError).fontSize(13).fontColor(T.inverseInk).backgroundColor('#BB191817')
