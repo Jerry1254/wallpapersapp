@@ -49,6 +49,11 @@ interface DownloadTicketRequest {
   resourceType: string;
 }
 
+interface PreviewTicketRequest {
+  deliveryPlatform: string;
+  resourceType: string;
+}
+
 export interface DeliveryFile {
   url: string;
   sha256: string;
@@ -63,6 +68,15 @@ export interface DownloadDescriptor {
   poster?: DeliveryFile;
   video?: DeliveryFile;
   image?: DeliveryFile;
+}
+
+export interface PreviewDescriptor {
+  deliveryMode: string;
+  purpose: string;
+  durationSeconds: number;
+  wallpaperId: string;
+  ticket: string;
+  video?: DeliveryFile;
 }
 
 export class CatalogApi {
@@ -171,6 +185,15 @@ export class CatalogApi {
     };
     return await this.sessions.signedPost('/device/wallpapers/' + encodeURIComponent(wallpaperId) +
       '/download-tickets', request) as DownloadDescriptor;
+  }
+
+  async previewTicket(wallpaperId: string, capability: WallpaperCapability): Promise<PreviewDescriptor> {
+    const request: PreviewTicketRequest = {
+      deliveryPlatform: capability.deliveryPlatform,
+      resourceType: capability.resourceType
+    };
+    return await this.sessions.signedPost('/device/wallpapers/' + encodeURIComponent(wallpaperId) +
+      '/preview-tickets', request) as PreviewDescriptor;
   }
 
   mediaUrl(path: string): string {

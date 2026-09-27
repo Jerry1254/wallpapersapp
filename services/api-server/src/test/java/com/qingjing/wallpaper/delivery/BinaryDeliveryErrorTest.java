@@ -106,4 +106,24 @@ class BinaryDeliveryErrorTest {
                 .andExpect(header().string("Digest", "sha-256=:ERERERERERERERERERERERERERERERERERERERERERE=:"))
                 .andExpect(content().bytes(bytes));
     }
+
+    @Test
+    void movingPhotoPreviewStreamsTheTicketBoundMp4() throws Exception {
+        byte[] bytes = {5, 6, 7};
+        var file = new DownloadTicketService.ProtectedFile(
+                bytes.length, "22".repeat(32), output -> output.write(bytes));
+        when(previews.readMovingPhotoVideo("valid-preview")).thenReturn(file);
+
+        var pending = mvc.perform(get("/api/v1/preview/moving-photo/video")
+                        .header("Authorization", "Bearer valid-preview").accept("video/mp4"))
+                .andExpect(request().asyncStarted()).andReturn();
+
+        mvc.perform(asyncDispatch(pending))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("video/mp4"))
+                .andExpect(header().string("Content-Length", "3"))
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().string("Digest", "sha-256=:IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI=:"))
+                .andExpect(content().bytes(bytes));
+    }
 }

@@ -5,7 +5,12 @@ import android.view.SurfaceHolder
 import java.io.File
 
 /** Every preview/engine owns its player. No global player or Surface can be stolen by a second preview. */
-internal class VideoSurfacePlayer(private val ready: () -> Unit, private val failed: () -> Unit) {
+internal class VideoSurfacePlayer(
+    private val ready: () -> Unit,
+    private val failed: () -> Unit,
+    private val looping: Boolean = true,
+    private val completed: () -> Unit = {},
+) {
     private var player: MediaPlayer? = null
     var rendered: Boolean = false
         private set
@@ -25,7 +30,7 @@ internal class VideoSurfacePlayer(private val ready: () -> Unit, private val fai
             // Wallpaper SurfaceHolder rejects setKeepScreenOn, which setDisplay invokes even for false.
             // Pass the Surface directly; visibility controls playback without any screen/wake flags.
             next.setDataSource(file.absolutePath); next.setSurface(holder.surface)
-            next.isLooping = true; next.setVolume(0f,0f)
+            next.isLooping = looping; next.setVolume(0f,0f)
             next.setOnPreparedListener {
                 if (player === it && holder.surface.isValid) {
                     try { it.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING); it.start() }
@@ -38,6 +43,9 @@ internal class VideoSurfacePlayer(private val ready: () -> Unit, private val fai
                     try { ready() } catch (_: Exception) { close(); failed() }
                 }
                 false
+            }
+            next.setOnCompletionListener { media ->
+                if (player === media) completed()
             }
             next.setOnErrorListener { media,_,_ -> if (player === media) { close(); failed() }; true }
             next.prepareAsync()

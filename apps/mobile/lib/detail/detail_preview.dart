@@ -65,6 +65,7 @@ class _DetailPreviewState extends State<DetailPreview>
   static const native = AndroidDetailPreview();
   String? installedId, requestId, error;
   bool restricted = true, ready = false, routeVisible = true;
+  bool playbackEnded = false;
   MethodChannel? channel;
   String? pendingConfiguration;
   String? applyingValue, appliedConfiguration;
@@ -154,6 +155,7 @@ class _DetailPreviewState extends State<DetailPreview>
         installedId = state.installedId;
         restricted = false;
         ready = false;
+        playbackEnded = false;
         error = null;
       });
       widget.onInstalled?.call(state.installedId!);
@@ -250,9 +252,16 @@ class _DetailPreviewState extends State<DetailPreview>
     appliedConfiguration = null;
     next.setMethodCallHandler((call) async {
       if (!mounted || channel != next || call.method != 'status') return;
+      final status = call.arguments as String?;
       setState(() {
-        ready = call.arguments == 'ready' || call.arguments == 'touch';
-        error = call.arguments == 'failed' ? '预览暂时不可用，请重试' : null;
+        if (status == 'ready' || status == 'touch') {
+          ready = true;
+          playbackEnded = false;
+        } else if (status == 'ended') {
+          ready = true;
+          playbackEnded = true;
+        }
+        error = status == 'failed' ? '预览暂时不可用，请重试' : null;
       });
       widget.onReady?.call(ready);
       if (ready) unawaited(_flushConfiguration());
@@ -264,7 +273,10 @@ class _DetailPreviewState extends State<DetailPreview>
     try {
       final state = await next.invokeMapMethod<String, dynamic>('state');
       if (mounted && channel == next && state?['rendering'] == true) {
-        setState(() => ready = true);
+        setState(() {
+          ready = true;
+          playbackEnded = state?['ended'] == true;
+        });
         widget.onReady?.call(true);
         unawaited(_flushConfiguration());
         if (widget.configuration != null) {
@@ -272,6 +284,22 @@ class _DetailPreviewState extends State<DetailPreview>
         }
       }
     } catch (_) {}
+  }
+
+  Future<void> _replay() async {
+    final current = channel;
+    if (current == null || widget.resourceType != 'VIDEO') return;
+    setState(() => playbackEnded = false);
+    try {
+      await current.invokeMethod<void>('replay');
+    } catch (_) {
+      if (mounted && channel == current) {
+        setState(() {
+          playbackEnded = true;
+          error = '预览暂时不可用，请重试';
+        });
+      }
+    }
   }
 
   void _queueConfiguration(String value) {
@@ -342,6 +370,7 @@ class _DetailPreviewState extends State<DetailPreview>
           'resourceType': widget.resourceType,
           'restricted': restricted,
           'visible': visible,
+          'autoPlay': widget.resourceType != 'VIDEO' || !playbackEnded,
         },
         onFocus: () => params.onFocusChanged(true),
       );
@@ -382,6 +411,18 @@ class _DetailPreviewState extends State<DetailPreview>
               ),
             ),
           ),
+        if (widget.resourceType == 'VIDEO' && playbackEnded && error == null)
+          Center(
+            child: FilledButton.icon(
+              onPressed: _replay,
+              icon: const Icon(Icons.replay_rounded),
+              label: const Text('重新播放'),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xCC191817),
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ),
         if (error != null)
           Positioned(
             left: 12,
@@ -407,6 +448,7 @@ class _DetailPreviewState extends State<DetailPreview>
                             installedId = null;
                             error = null;
                             ready = false;
+                            playbackEnded = false;
                           });
                           unawaited(_prepare());
                         },

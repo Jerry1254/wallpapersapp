@@ -38,8 +38,13 @@ public class PreviewTicketService {
             throw new ApiException(HttpStatus.BAD_REQUEST,"RESOURCE_PLATFORM_MISMATCH",
                     "The requested resource does not belong to the authenticated App platform");
         }
-        if(principal.platform()!=DeviceDtos.DevicePlatform.ANDROID || !devices.isAndroidEnabled()) throw unavailable();
         wallpapers.summary(wallpaperId);
+        if(principal.platform()==DeviceDtos.DevicePlatform.HARMONYOS
+                && request.deliveryPlatform()==DeliveryPlatform.HARMONYOS
+                && request.resourceType()==ResourceType.MOVING_PHOTO) {
+            return createMovingPhoto(principal,wallpaperId);
+        }
+        if(principal.platform()!=DeviceDtos.DevicePlatform.ANDROID || !devices.isAndroidEnabled()) throw unavailable();
         var publicKey=keys.require(principal);String fingerprint=SecurePackageCodec.sha256(publicKey.getEncoded());
         var candidates=jdbc.query(SELECT+" WHERE w.id=? AND w.status='PUBLISHED' AND r.status='PUBLISHED' AND v.enabled=TRUE AND v.platform=? AND v.resource_type=? ORDER BY r.version_no DESC,r.id",PreviewTicketService::row,wallpaperId,request.deliveryPlatform().name(),request.resourceType().name());
         var selected=candidates.stream().findFirst().orElseThrow(PreviewTicketService::unavailable);
@@ -48,19 +53,20 @@ public class PreviewTicketService {
         finally { Arrays.fill(key,(byte)0); }
         Instant expiry=Instant.now().plus(TTL);String token=crypto.randomToken(32);
         Ticket state=new Ticket(principal.deviceId(),principal.credentialKeyId(),wallpaperId,selected.version(),fingerprint,
-                request.deliveryPlatform(),request.resourceType(),expiry.toString());validate(state);
+                principal.platform(),request.deliveryPlatform(),request.resourceType(),PreviewMode.SECURE_PACKAGE,expiry.toString());validatePackage(state);
         try { redis.opsForValue().set(ticketKey(token),mapper.writeValueAsString(state),TTL); }
         catch(com.fasterxml.jackson.core.JsonProcessingException error) { throw new IllegalStateException("Cannot serialize preview grant"); }
         return new PreviewDtos.PreviewDescriptor("APP_PREVIEW","APP_PREVIEW",120,Long.toString(wallpaperId),token,"/api/v1/preview/files",expiry,
             new DeliveryDtos.DownloadResourceVersion(Long.toString(selected.version()),Long.toString(selected.variant()),selected.number(),DeliveryPlatform.valueOf(selected.platform()),request.resourceType(),selected.manifest()),
-            new DeliveryDtos.SecurePackageMetadata(3,selected.size(),selected.plainSize(),selected.encryptedHash(),selected.plainHash(),selected.signing(),fingerprint,wrapped,"RSA-OAEP-SHA256-MGF1-SHA1"));
+            new DeliveryDtos.SecurePackageMetadata(3,selected.size(),selected.plainSize(),selected.encryptedHash(),selected.plainHash(),selected.signing(),fingerprint,wrapped,"RSA-OAEP-SHA256-MGF1-SHA1"),null);
     }
     public DownloadTicketService.ProtectedFile read(String token) {
-        var ticket=ticket(token);limiter.require("preview-read",Long.toString(ticket.device()),12,Duration.ofMinutes(1));var expected=validate(ticket);
+        var ticket=ticket(token);if(ticket.mode()!=PreviewMode.SECURE_PACKAGE)throw invalid();
+        limiter.require("preview-read",Long.toString(ticket.device()),12,Duration.ofMinutes(1));var expected=validatePackage(ticket);
         return new DownloadTicketService.ProtectedFile(expected.size(),expected.encryptedHash(),output->{
             if(!reads.tryAcquire()) throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,"RATE_LIMITED","Too many active preview transfers");
             try {
-                var current=validate(ticket(token));
+                var current=validatePackage(ticket(token));
                 if(current.version()!=expected.version() || !current.encryptedHash().equals(expected.encryptedHash()) || current.size()!=expected.size()) throw invalid();
                 try(var file=storage.open(new StorageKey(current.storage()))) {
                     if(file.sizeBytes()!=current.size()) throw new java.io.IOException("Preview length changed");
@@ -71,14 +77,34 @@ public class PreviewTicketService {
             } finally { reads.release(); }
         });
     }
+    public DownloadTicketService.ProtectedFile readMovingPhotoVideo(String token) {
+        var ticket=ticket(token);if(ticket.mode()!=PreviewMode.MOVING_PHOTO || ticket.platform()!=DeviceDtos.DevicePlatform.HARMONYOS)throw invalid();
+        limiter.require("preview-moving-photo-read",Long.toString(ticket.device()),12,Duration.ofMinutes(1));
+        var expected=validateMovingPhoto(ticket);
+        return new DownloadTicketService.ProtectedFile(expected.videoSize(),expected.videoHash(),output->{
+            if(!reads.tryAcquire())throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,"RATE_LIMITED","Too many active preview transfers");
+            try {
+                var current=validateMovingPhoto(ticket(token));
+                if(current.version()!=expected.version() || current.videoSize()!=expected.videoSize()
+                        || !current.videoHash().equals(expected.videoHash()) || !current.videoStorage().equals(expected.videoStorage()))throw invalid();
+                try(var file=storage.open(new StorageKey(current.videoStorage()))) {
+                    if(file.sizeBytes()!=current.videoSize())throw new java.io.IOException("Moving Photo preview length changed");
+                    long remaining=current.videoSize();byte[] buffer=new byte[32768];
+                    while(remaining>0){int n=file.inputStream().read(buffer,0,(int)Math.min(buffer.length,remaining));if(n<0)throw new java.io.IOException("Incomplete Moving Photo preview");output.write(buffer,0,n);remaining-=n;}
+                    if(file.inputStream().read()!=-1)throw new java.io.IOException("Moving Photo preview length changed");
+                }
+            } finally { reads.release(); }
+        });
+    }
     private Ticket ticket(String token) {
         if(token==null || !token.matches("[A-Za-z0-9_-]{43}")) throw invalid();String json=redis.opsForValue().get(ticketKey(token));if(json==null) throw invalid();
         try { var ticket=mapper.readValue(json,Ticket.class);if(!Instant.parse(ticket.expires()).isAfter(Instant.now())) throw invalid();return ticket; }
         catch(Exception error) { throw invalid(); }
     }
-    private Package validate(Ticket ticket) {
+    private Package validatePackage(Ticket ticket) {
         if(!devices.isAndroidEnabled()
-                || !PlatformResourceScope.visibleTo(DeviceDtos.DevicePlatform.ANDROID,ticket.resourcePlatform(),ticket.resourceType())) throw invalid();
+                || ticket.platform()!=DeviceDtos.DevicePlatform.ANDROID || ticket.mode()!=PreviewMode.SECURE_PACKAGE
+                || !PlatformResourceScope.visibleTo(ticket.platform(),ticket.resourcePlatform(),ticket.resourceType())) throw invalid();
         var scopes=jdbc.queryForList("""
             SELECT d.app_install_scope FROM anonymous_device d JOIN device_credential c ON c.device_id=d.id JOIN device_encryption_key k ON k.credential_id=c.id
             WHERE d.id=? AND d.status='ACTIVE' AND d.platform='ANDROID' AND c.credential_key_id=? AND c.status='ACTIVE' AND k.public_key_sha256=?
@@ -91,19 +117,67 @@ public class PreviewTicketService {
                 || !selected.type().equals(ticket.resourceType().name())) throw invalid();
         return selected;
     }
-    private String ticketKey(String token) { return "preview-ticket-v1:"+crypto.hmacHex("preview-ticket-v1",token); }
+    private PreviewDtos.PreviewDescriptor createMovingPhoto(DevicePrincipal principal,long wallpaperId) {
+        if(!devices.isHarmonyEnabled())throw unavailable();
+        var candidates=jdbc.query(SELECT_MOVING_PHOTO+"""
+            WHERE w.id=? AND w.status='PUBLISHED' AND rv.status='PUBLISHED' AND v.enabled=TRUE
+              AND v.platform='HARMONYOS' AND v.resource_type='MOVING_PHOTO' AND mp.status='READY'
+            ORDER BY rv.version_no DESC,rv.id DESC
+            """,PreviewTicketService::movingPhotoRow,wallpaperId);
+        var selected=candidates.stream().findFirst().orElseThrow(PreviewTicketService::unavailable);
+        Instant expiry=Instant.now().plus(TTL);String token=crypto.randomToken(32);
+        Ticket state=new Ticket(principal.deviceId(),principal.credentialKeyId(),wallpaperId,selected.version(),null,
+                principal.platform(),DeliveryPlatform.HARMONYOS,ResourceType.MOVING_PHOTO,PreviewMode.MOVING_PHOTO,expiry.toString());
+        validateMovingPhoto(state);
+        try { redis.opsForValue().set(ticketKey(token),mapper.writeValueAsString(state),TTL); }
+        catch(com.fasterxml.jackson.core.JsonProcessingException error){throw new IllegalStateException("Cannot serialize preview grant");}
+        int durationSeconds=(int)Math.max(1,Math.ceil(selected.durationMs()/1000.0));
+        return new PreviewDtos.PreviewDescriptor("MOVING_PHOTO_PREVIEW","APP_PREVIEW",durationSeconds,Long.toString(wallpaperId),token,null,expiry,
+                new DeliveryDtos.DownloadResourceVersion(Long.toString(selected.version()),Long.toString(selected.variant()),selected.number(),
+                        DeliveryPlatform.HARMONYOS,ResourceType.MOVING_PHOTO,selected.manifest()),null,
+                new DeliveryDtos.DeliveryFile("/api/v1/preview/moving-photo/video",selected.videoHash(),selected.videoSize(),"video/mp4"));
+    }
+    private MovingPhoto validateMovingPhoto(Ticket ticket) {
+        if(!devices.isHarmonyEnabled() || ticket.platform()!=DeviceDtos.DevicePlatform.HARMONYOS
+                || ticket.resourcePlatform()!=DeliveryPlatform.HARMONYOS || ticket.resourceType()!=ResourceType.MOVING_PHOTO
+                || ticket.mode()!=PreviewMode.MOVING_PHOTO)throw invalid();
+        var scopes=jdbc.queryForList("""
+            SELECT d.app_install_scope FROM anonymous_device d JOIN device_credential c ON c.device_id=d.id
+            WHERE d.id=? AND d.status='ACTIVE' AND d.platform='HARMONYOS' AND c.credential_key_id=? AND c.status='ACTIVE'
+            """,String.class,ticket.device(),ticket.credential());
+        if(scopes.size()!=1 || !devices.isHarmonyScopeAllowed(scopes.get(0)))throw invalid();
+        var rows=jdbc.query(SELECT_MOVING_PHOTO+"""
+            WHERE rv.id=? AND w.id=? AND w.status='PUBLISHED' AND rv.status='PUBLISHED' AND v.enabled=TRUE
+              AND v.platform='HARMONYOS' AND v.resource_type='MOVING_PHOTO' AND mp.status='READY'
+            """,PreviewTicketService::movingPhotoRow,ticket.version(),ticket.wallpaper());
+        if(rows.size()!=1)throw invalid();
+        return rows.get(0);
+    }
+    private String ticketKey(String token) { return "preview-ticket-v2:"+crypto.hmacHex("preview-ticket-v2",token); }
     private static final String SELECT="""
         SELECT r.id,r.version_no,v.id AS variant_id,v.platform,v.resource_type,v.minimum_os_version,JSON_LENGTH(v.capability_requirements) AS requirement_count,p.*
         FROM preview_resource_package p JOIN resource_version r ON r.id=p.resource_version_id JOIN wallpaper_variant v ON v.id=r.variant_id JOIN wallpaper w ON w.id=v.wallpaper_id
+        """;
+    private static final String SELECT_MOVING_PHOTO="""
+        SELECT rv.id,rv.version_no,rv.manifest_sha256,v.id AS variant_id,
+               mp.video_storage_key,mp.video_size_bytes,mp.video_sha256,mp.duration_ms
+        FROM moving_photo_package mp JOIN resource_version rv ON rv.id=mp.resource_version_id
+        JOIN wallpaper_variant v ON v.id=rv.variant_id JOIN wallpaper w ON w.id=v.wallpaper_id
         """;
     private static Package row(java.sql.ResultSet rs,int ignored) throws java.sql.SQLException {
         if(rs.getInt("format_version")!=3 || !rs.getString("purpose").equals("APP_PREVIEW")) throw invalid();
         return new Package(rs.getLong("id"),rs.getLong("variant_id"),rs.getInt("version_no"),rs.getString("platform"),rs.getString("resource_type"),rs.getString("minimum_os_version"),rs.getInt("requirement_count"),
             rs.getString("storage_key"),rs.getLong("size_bytes"),rs.getLong("plaintext_size_bytes"),rs.getString("encrypted_sha256"),rs.getString("plaintext_sha256"),rs.getString("manifest_sha256"),rs.getString("signing_key_id"),rs.getString("content_key_ciphertext"));
     }
-    public record Ticket(long device,String credential,long wallpaper,long version,String fingerprint,
-            DeliveryPlatform resourcePlatform,ResourceType resourceType,String expires) { }
+    private static MovingPhoto movingPhotoRow(java.sql.ResultSet rs,int ignored)throws java.sql.SQLException {
+        return new MovingPhoto(rs.getLong("id"),rs.getLong("variant_id"),rs.getInt("version_no"),rs.getString("manifest_sha256"),
+                rs.getString("video_storage_key"),rs.getLong("video_size_bytes"),rs.getString("video_sha256"),rs.getLong("duration_ms"));
+    }
+    public record Ticket(long device,String credential,long wallpaper,long version,String fingerprint,DeviceDtos.DevicePlatform platform,
+            DeliveryPlatform resourcePlatform,ResourceType resourceType,PreviewMode mode,String expires) { }
+    public enum PreviewMode { SECURE_PACKAGE, MOVING_PHOTO }
     private record Package(long version,long variant,int number,String platform,String type,String minimum,int requirements,String storage,long size,long plainSize,String encryptedHash,String plainHash,String manifest,String signing,String encryptedKey) { }
+    private record MovingPhoto(long version,long variant,int number,String manifest,String videoStorage,long videoSize,String videoHash,long durationMs) { }
     private static ApiException unavailable() { return new ApiException(HttpStatus.NOT_FOUND,"RESOURCE_NOT_AVAILABLE","The requested resource is not available"); }
     private static ApiException invalid() { return new ApiException(HttpStatus.UNAUTHORIZED,"PREVIEW_TICKET_INVALID","The preview grant is invalid or expired"); }
 }

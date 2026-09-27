@@ -39,7 +39,7 @@ class RedemptionOpenApiCoverageTest {
                 AdminRedemptionQueryController.class));
 
         assertThat(controllerOperations).containsExactlyInAnyOrderElementsOf(contractOperations);
-        assertThat(contractOperations).hasSize(24);
+        assertThat(contractOperations).hasSize(25);
     }
 
     @SuppressWarnings("unchecked")
@@ -52,7 +52,7 @@ class RedemptionOpenApiCoverageTest {
         Map<String, Map<String, Object>> paths = (Map<String, Map<String, Object>>) document.get("paths");
         Set<String> operations = new HashSet<>();
         paths.forEach((path, item) -> {
-            boolean deviceOperation = path.startsWith("/device/") || path.startsWith("/delivery/") || path.equals("/preview/files");
+            boolean deviceOperation = path.startsWith("/device/") || path.startsWith("/delivery/") || path.startsWith("/preview/");
             boolean adminOperation = path.startsWith("/admin/")
                     && ADMIN_ROOTS.contains(path.substring("/admin/".length()).split("/", 2)[0]);
             if (!deviceOperation && !adminOperation) {

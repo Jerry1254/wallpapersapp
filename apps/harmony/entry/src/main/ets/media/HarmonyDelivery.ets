@@ -1,7 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { fileIo, hash } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
-import { DownloadDescriptor, DeliveryFile } from '../network/CatalogApi';
+import { DownloadDescriptor, DeliveryFile, PreviewDescriptor } from '../network/CatalogApi';
 import { MovingPhotoStore } from './MovingPhotoStore';
 import { StaticImageStore } from './StaticImageStore';
 
@@ -85,6 +85,33 @@ export class HarmonyDelivery {
       if (error instanceof Error) throw error;
       throw new Error('静态壁纸下载失败');
     }
+  }
+
+  static async downloadMovingPhotoPreview(context: common.UIAbilityContext, descriptor: PreviewDescriptor,
+    wallpaperId: string): Promise<string> {
+    if (descriptor.deliveryMode !== 'MOVING_PHOTO_PREVIEW' || descriptor.purpose !== 'APP_PREVIEW' ||
+      descriptor.wallpaperId !== wallpaperId || descriptor.durationSeconds < 1 || descriptor.durationSeconds > 2 ||
+      descriptor.ticket.length < 32 || descriptor.video === undefined) {
+      throw new Error('服务端没有返回可用的鸿蒙动态预览');
+    }
+    const video: DeliveryFile = descriptor.video as DeliveryFile;
+    if (video.mimeType !== 'video/mp4' || video.url !== '/api/v1/preview/moving-photo/video') {
+      throw new Error('鸿蒙动态预览格式不正确');
+    }
+    const safeId: string = wallpaperId.replace(/[^0-9A-Za-z_-]/g, '');
+    const videoPath: string = context.cacheDir + '/moving-photo-preview-' + safeId + '-' + Date.now().toString() + '.mp4';
+    try {
+      await HarmonyDelivery.downloadPart(video, descriptor.ticket, videoPath, (_received: number) => {});
+      return videoPath;
+    } catch (error) {
+      await HarmonyDelivery.removeIfPresent(videoPath);
+      if (error instanceof Error) throw error;
+      throw new Error('鸿蒙动态预览加载失败');
+    }
+  }
+
+  static async discardPreview(path: string): Promise<void> {
+    if (path.length > 0) await HarmonyDelivery.removeIfPresent(path);
   }
 
   static async saveDownloaded(context: common.UIAbilityContext, movingPhoto: DownloadedMovingPhoto): Promise<void> {

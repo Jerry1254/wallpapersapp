@@ -57,9 +57,15 @@ struct Index {
   @State deliveryJustRedeemed: boolean = false;
   @State savedDeliveryKeys: string[] = [];
   @State detailSavedNowKey: string = '';
+  @State detailPreviewPath: string = '';
+  @State detailPreviewLoading: boolean = false;
+  @State detailPreviewEnded: boolean = false;
+  @State detailPreviewError: string = '';
   private context: common.UIAbilityContext | null = null;
   private api: CatalogApi | null = null;
   private videoController: VideoController = new VideoController();
+  private detailVideoController: VideoController = new VideoController();
+  private detailPreviewGeneration: number = 0;
   private pendingMovingPhoto: DownloadedMovingPhoto | null = null;
   private pendingDeliveryKey: string = '';
   private pendingStaticImage: DownloadedStaticImage | null = null;
@@ -156,6 +162,7 @@ struct Index {
   }
 
   private async openDetail(item: WallpaperSummary): Promise<void> {
+    this.clearDetailPreview();
     this.detailSavedNowKey = '';
     this.selectedDetail = item;
     this.selectedCapability = item.capabilities[0].label;
@@ -165,9 +172,13 @@ struct Index {
     if (this.api === null) return;
     try {
       const detail: WallpaperSummary = await (this.api as CatalogApi).wallpaper(item.id);
+      if (this.page !== 'DETAIL' || this.selectedDetail === null ||
+        (this.selectedDetail as WallpaperSummary).id !== item.id) return;
       this.selectedDetail = detail;
       this.selectedCapability = detail.capabilities[0].label;
+      const preview: Promise<void> = this.prepareDetailPreview(detail);
       this.detailOwned = detail.free || await (this.api as CatalogApi).owns(detail.id);
+      await preview;
     } catch (error) {
       this.statusMessage = this.messageFor(error);
     }
@@ -193,6 +204,10 @@ struct Index {
     }
     this.returnPage = 'DETAIL';
     this.selectedTutorial = tutorial;
+    if (this.detailPreviewPath.length > 0) {
+      this.detailVideoController.stop();
+      this.detailPreviewEnded = true;
+    }
     this.page = 'TUTORIAL_PLAYER';
   }
 
@@ -204,6 +219,7 @@ struct Index {
 
   private goBack(): void {
     if (this.page === 'DETAIL') {
+      this.clearDetailPreview();
       this.page = this.activeTab === 0 ? 'HOME' : 'MINE';
       this.selectedDetail = null;
       return;
@@ -235,6 +251,58 @@ struct Index {
     const matched: WallpaperCapability | undefined = item.capabilities.find((capability: WallpaperCapability) =>
       capability.label === this.selectedCapability);
     return matched === undefined ? item.capabilities[0] : matched;
+  }
+
+  private selectDetailCapability(item: WallpaperSummary, capability: WallpaperCapability): void {
+    this.selectedCapability = capability.label;
+    this.statusMessage = '';
+    this.detailSavedNowKey = '';
+    this.prepareDetailPreview(item);
+  }
+
+  private async prepareDetailPreview(item: WallpaperSummary): Promise<void> {
+    this.clearDetailPreview();
+    const capability: WallpaperCapability = this.selectedCapabilityFor(item);
+    if (capability.deliveryPlatform !== 'HARMONYOS' || capability.resourceType !== 'MOVING_PHOTO' ||
+      this.api === null || this.context === null) return;
+    const generation: number = this.detailPreviewGeneration;
+    this.detailPreviewLoading = true;
+    this.detailPreviewError = '';
+    try {
+      const descriptor = await (this.api as CatalogApi).previewTicket(item.id, capability);
+      const path: string = await HarmonyDelivery.downloadMovingPhotoPreview(
+        this.context as common.UIAbilityContext, descriptor, item.id);
+      if (generation !== this.detailPreviewGeneration || this.page !== 'DETAIL') {
+        await HarmonyDelivery.discardPreview(path);
+        return;
+      }
+      this.detailPreviewPath = path;
+      this.detailPreviewLoading = false;
+      this.detailPreviewEnded = false;
+    } catch (error) {
+      if (generation === this.detailPreviewGeneration) {
+        this.detailPreviewLoading = false;
+        this.detailPreviewError = '动态效果暂时无法加载';
+      }
+    }
+  }
+
+  private replayDetailPreview(): void {
+    if (this.detailPreviewPath.length === 0) return;
+    this.detailPreviewEnded = false;
+    this.detailVideoController.stop();
+    this.detailVideoController.start();
+  }
+
+  private clearDetailPreview(): void {
+    this.detailPreviewGeneration += 1;
+    this.detailVideoController.stop();
+    const previous: string = this.detailPreviewPath;
+    this.detailPreviewPath = '';
+    this.detailPreviewLoading = false;
+    this.detailPreviewEnded = false;
+    this.detailPreviewError = '';
+    if (previous.length > 0) HarmonyDelivery.discardPreview(previous);
   }
 
   private deliveryKey(item: WallpaperSummary, capability: WallpaperCapability): string {
@@ -818,9 +886,7 @@ struct Index {
                 .backgroundColor(this.selectedCapability === capability.label ? T.navigation : T.surface)
                 .border({ width: 1, color: T.outlineStrong }).borderRadius(19)
                 .onClick(() => {
-                  this.selectedCapability = capability.label;
-                  this.statusMessage = '';
-                  this.detailSavedNowKey = '';
+                  this.selectDetailCapability(item, capability);
                 });
             }, (capability: WallpaperCapability) => capability.deliveryPlatform + capability.resourceType);
           }
@@ -831,7 +897,40 @@ struct Index {
       Stack({ alignContent: Alignment.Bottom }) {
         Image(this.mediaUrl(item.coverUrl)).width('100%').height('100%').objectFit(ImageFit.Cover)
           .backgroundColor(T.surfaceMuted);
+        if (this.detailPreviewPath.length > 0) {
+          Video({ src: 'file://' + this.detailPreviewPath, controller: this.detailVideoController })
+            .width('100%').height('100%').objectFit(ImageFit.Cover).controls(false)
+            .autoPlay(!this.detailPreviewEnded).loop(false).muted(true)
+            .onFinish(() => {
+              this.detailPreviewEnded = true;
+            })
+            .onError(() => {
+              this.detailPreviewError = '动态效果暂时无法播放';
+            });
+        }
+        if (this.detailPreviewLoading) {
+          Row({ space: 8 }) {
+            LoadingProgress().width(20).height(20).color(T.inverseInk);
+            Text('正在加载动态效果').fontSize(13).fontColor(T.inverseInk);
+          }
+          .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+          .backgroundColor('#BB191817').borderRadius(18).align(Alignment.Center);
+        }
+        if (this.detailPreviewEnded) {
+          Button() {
+            Row({ space: 8 }) {
+              Text('↻').fontSize(22).fontWeight(FontWeight.Bold).fontColor(T.inverseInk);
+              Text('重新播放').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.inverseInk);
+            }
+          }
+          .height(46).padding({ left: 18, right: 18 }).backgroundColor('#CC191817').borderRadius(23)
+          .align(Alignment.Center).onClick(() => this.replayDetailPreview());
+        }
         Column() {
+          if (this.detailPreviewError.length > 0) {
+            Text(this.detailPreviewError).fontSize(13).fontColor(T.inverseInk).backgroundColor('#BB191817')
+              .padding({ left: 12, right: 12, top: 8, bottom: 8 }).borderRadius(14).margin({ bottom: 10 });
+          }
           if (this.statusMessage.length > 0) {
             Text(this.statusMessage).fontSize(13).fontColor(T.inverseInk).backgroundColor('#BB191817')
               .padding({ left: 12, right: 12, top: 8, bottom: 8 }).borderRadius(14).margin({ bottom: 10 });
@@ -841,7 +940,7 @@ struct Index {
             .fontColor(T.ink).backgroundColor(T.accent).borderRadius(27)
             .onClick(() => this.primaryDetailAction(item));
         }
-        .width('100%').padding(16);
+        .width('100%').padding(16).align(Alignment.Bottom);
       }
       .width('100%').layoutWeight(1).borderRadius(T.cardRadius).clip(true).margin({ bottom: 20 });
     }

@@ -53,11 +53,21 @@ private class DetailPreviewView(context: Context,id: Int,args: Map<*,*>,messenge
     private var resumed = true
     private var dead = false
     private var playing = false
+    private var playbackCompleted = type == "VIDEO" && args["autoPlay"] == false
     private var staticReady = false
     private var bitmap: Bitmap? = null
     private var pin: AutoCloseable? = null
     private var content: InstalledPackage? = null
-    private val player = VideoSurfacePlayer(ready = { status("ready") },failed = { status("failed") })
+    private val player = VideoSurfacePlayer(
+        ready = { status("ready") },
+        failed = { playing = false; status("failed") },
+        looping = false,
+        completed = {
+            playing = false
+            playbackCompleted = true
+            status("ended")
+        },
+    )
     private var renderer: ParallaxSurfaceRenderer? = null
     private fun activity(context: Context): Activity? {
         var value = context
@@ -80,7 +90,17 @@ private class DetailPreviewView(context: Context,id: Int,args: Map<*,*>,messenge
         channel.setMethodCallHandler { call,result ->
             when(call.method) {
                 "visible" -> { active = call.arguments == true; if(active) play() else stop(); result.success(null) }
-                "state" -> result.success(mapOf("resourceType" to type,"playing" to player.playing,"rendering" to (staticReady || player.rendered || renderer?.state()?.get("rendering") == true)))
+                "replay" -> {
+                    if(type != "VIDEO" || content == null) result.error("PREVIEW_UNAVAILABLE","视频预览尚未就绪",null)
+                    else {
+                        playbackCompleted = false
+                        player.close()
+                        playing = false
+                        play()
+                        result.success(null)
+                    }
+                }
+                "state" -> result.success(mapOf("resourceType" to type,"playing" to player.playing,"ended" to playbackCompleted,"rendering" to (staticReady || player.rendered || renderer?.state()?.get("rendering") == true)))
                 "configuration" -> {
                     val text=call.argument<String>("config")
                     if(type!="LAYER_PARALLAX" || text==null || text.toByteArray(Charsets.UTF_8).size>65536) result.error("CONFIG_INVALID","参数无法应用",null)
@@ -163,7 +183,7 @@ private class DetailPreviewView(context: Context,id: Int,args: Map<*,*>,messenge
     private fun status(value: String) { if(!dead) channel.invokeMethod("status",value) }
     private fun play() {
         val value = content ?: return
-        if(type == "STATIC_IMAGE" || dead || !active || !resumed || !surface.holder.surface.isValid || playing) return
+        if(type == "STATIC_IMAGE" || dead || !active || !resumed || !surface.holder.surface.isValid || playing || (type == "VIDEO" && playbackCompleted)) return
         playing = true
         if(type == "VIDEO") player.open(value.content("VIDEO"),surface.holder) else renderer?.start(value.id)
     }

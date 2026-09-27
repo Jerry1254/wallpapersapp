@@ -29,6 +29,7 @@ const expectedOperations = {
   '/device/wallpapers/{wallpaperId}/download-tickets': ['post'],
   '/device/wallpapers/{wallpaperId}/preview-tickets': ['post'],
   '/preview/files': ['get'],
+  '/preview/moving-photo/video': ['get'],
   '/delivery/moving-photo/poster': ['get'],
   '/delivery/moving-photo/video': ['get'],
   '/delivery/static-image': ['get'],
@@ -214,7 +215,12 @@ assert.match(
   'HarmonyOS session challenge algorithm must remain RSA_SHA256'
 );
 assert.deepEqual(document.components.schemas.PreviewDescriptor.properties.purpose.enum, ['APP_PREVIEW']);
-assert.deepEqual(document.components.schemas.PreviewDescriptor.properties.durationSeconds.enum, [120]);
+assert.deepEqual(document.components.schemas.PreviewDescriptor.properties.deliveryMode.enum, ['APP_PREVIEW', 'MOVING_PHOTO_PREVIEW']);
+assert.equal(document.components.schemas.PreviewDescriptor.properties.durationSeconds.minimum, 1);
+assert.equal(document.components.schemas.PreviewDescriptor.properties.durationSeconds.maximum, 120);
+assert.equal(document.components.schemas.PreviewDescriptor.properties.package.nullable, true);
+assert.equal(document.components.schemas.PreviewDescriptor.properties.video.nullable, true);
+assert.equal(document.components.schemas.PreviewDescriptor.properties.video.allOf[0].$ref, '#/components/schemas/DeliveryFile');
 assert.deepEqual(document.components.schemas.PreviewPackageMetadata.properties.formatVersion.enum, [3]);
 assert.match(
   document.paths['/device/wallpapers/{wallpaperId}/preview-tickets'].post.description,
@@ -228,6 +234,7 @@ for (const removed of ['depth', 'scale', 'opacity', 'blendMode']) {
   assert.ok(!document.components.schemas.AdminParallaxSourceLayer.properties[removed], `admin source layer still exposes ${removed}`);
 }
 assert.deepEqual(document.paths['/preview/files'].get.security, [{ previewTicketBearer: [] }]);
+assert.deepEqual(document.paths['/preview/moving-photo/video'].get.security, [{ previewTicketBearer: [] }]);
 
 // Generated clients cannot decode an implementation error omitted by the enum.
 const knownErrors = new Set(document.components.schemas.ErrorCode.enum);

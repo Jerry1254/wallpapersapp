@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.7.0
+  version: 2.8.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -2214,10 +2214,11 @@ paths:
       tags:
         - Device Entitlement
       operationId: createPreviewTicket
-      summary: 为 Android App 按精确资源类型签发独立受限效果试用描述
+      summary: 为 App 按精确资源类型签发详情效果预览描述
       description: |
-        需 Android 设备会话与持钥签名，无需权益，不扣兑换额度。服务端按请求的 deliveryPlatform/resourceType 精确选择已发布资源，不读取设备能力档案，也不跨类型回退。
+        需设备会话与持钥签名，无需权益，不扣兑换额度。服务端按请求的 deliveryPlatform/resourceType 精确选择已发布资源，不读取设备能力档案，也不跨类型回退。
         Android、通用资源使用与正式版本绑定一致的媒体 payload；IOS/LIVE_PHOTO 使用发布时从实况视频生成的 H.264 MP4 预览 payload。所有预览都使用独立 APP_PREVIEW 外壳、密钥、票据和临时库；票据有效 90 秒仅用于下载，App 实际预览由单调时钟限制为 120 秒，后台时间继续计入。
+        HarmonyOS/MOVING_PHOTO 返回发布时生成的不超过 2 秒 H.264 MP4 动态片段，鸿蒙 App 缓存后自动播放一次，结束后仅由用户点击重新播放；正式保存仍使用下载接口交付 JPEG 与 MP4 两个文件。
       security:
         - deviceBearer: []
       parameters:
@@ -2290,6 +2291,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /preview/moving-photo/video:
+    get:
+      tags:
+        - Device Entitlement
+      operationId: downloadMovingPhotoPreviewVideo
+      summary: 使用独立试用票据读取鸿蒙动态照片的视频片段
+      description: 仅接受由 HARMONYOS / MOVING_PHOTO 预览描述签发的 previewTicketBearer；票据绑定活跃鸿蒙安装凭据和已发布资源版本，不产生权益。
+      security:
+        - previewTicketBearer: []
+      responses:
+        "200":
+          description: 不超过 2 秒的 H.264 MP4 动态照片视频片段
+          headers:
+            Digest:
+              description: "视频摘要，例如 sha-256=:base64:"
+              schema:
+                type: string
+          content:
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -4545,23 +4576,23 @@ components:
         - durationSeconds
         - wallpaperId
         - ticket
-        - downloadUrl
         - expiresAt
         - resourceVersion
-        - package
       properties:
         deliveryMode:
           type: string
           enum:
             - APP_PREVIEW
+            - MOVING_PHOTO_PREVIEW
         purpose:
           type: string
           enum:
             - APP_PREVIEW
         durationSeconds:
           type: integer
-          enum:
-            - 120
+          minimum: 1
+          maximum: 120
+          description: Android 受限预览窗口为 120 秒；鸿蒙动态照片为实际视频秒数，当前不超过 2 秒。
         wallpaperId:
           $ref: "#/components/schemas/LongId"
         ticket:
@@ -4572,10 +4603,19 @@ components:
           type: string
           enum:
             - /api/v1/preview/files
+          nullable: true
         expiresAt:
           type: string
           format: date-time
         resourceVersion:
           $ref: "#/components/schemas/DownloadResourceVersion"
         package:
-          $ref: "#/components/schemas/PreviewPackageMetadata"
+          type: object
+          allOf:
+            - $ref: "#/components/schemas/PreviewPackageMetadata"
+          nullable: true
+        video:
+          type: object
+          allOf:
+            - $ref: "#/components/schemas/DeliveryFile"
+          nullable: true
