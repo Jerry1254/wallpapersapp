@@ -3,7 +3,7 @@
 **版本：** 1.0.1
 **日期：** 2026-09-17
 **对应任务：** WP-UI13
-**状态：** Java API、OpenAPI 2.1.0、真实 MySQL/Redis 集成验证和 App 接入已完成，等待本地 API 与红米真机验收
+**状态：** 已废止；目录不再计算设备有效能力，统一改按 [API-018](API-018-按安装包平台过滤目录与交付Java交接说明.md) 实施
 
 本文是 API-016 实施后的 App 增量交接依据。设备能力上报、目录可见性、详情、权益、预览和下载的完整规则继续以 [API-015](API-015-设备能力目录与多形式交付App对接说明.md) 为准；机器契约以 [`contracts/openapi/openapi.yaml`](../../contracts/openapi/openapi.yaml) 为准。
 
