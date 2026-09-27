@@ -106,6 +106,38 @@ void main() {
     });
     expect(item.kindLabel, '暂不可用');
   });
+  test('安卓目录整项过滤只有其他平台资源的商品', () {
+    final page = WallpaperPage.fromJson({
+      'items': [
+        {
+          'id': '1',
+          'title': '苹果专属',
+          'cover': {'contentUrl': '/ios'},
+          'availableCapabilities': [
+            {
+              'deliveryPlatform': 'IOS',
+              'resourceType': 'LIVE_PHOTO',
+              'placements': ['LOCK'],
+            },
+          ],
+        },
+        {
+          'id': '2',
+          'title': '安卓资源',
+          'cover': {'contentUrl': '/android'},
+          'availableCapabilities': [
+            {
+              'deliveryPlatform': 'ANDROID',
+              'resourceType': 'VIDEO',
+              'placements': ['HOME'],
+            },
+          ],
+        },
+      ],
+      'page': {'page': 1, 'totalPages': 1},
+    });
+    expect(page.items.map((item) => item.id), ['2']);
+  });
   test('只有明确 FREE 才免兑换，缺失或未知值保持需要兑换', () {
     Map<String, dynamic> json([String? accessType]) {
       return <String, dynamic>{

@@ -78,6 +78,7 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
           .map(
             (e) => Wallpaper.fromJson(e['wallpaper'] as Map<String, dynamic>),
           )
+          .where((item) => item.availableInAndroidPackage)
           .toList();
       final pages = (data['page'] as Map<String, dynamic>)['totalPages'] as int;
       if (!mounted) return;

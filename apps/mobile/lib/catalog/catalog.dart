@@ -56,6 +56,7 @@ class Wallpaper {
   final List<AvailableCapability> availableCapabilities;
   final String? copyright;
   bool get isFree => accessType == 'FREE';
+  bool get availableInAndroidPackage => availableCapabilities.isNotEmpty;
   List<String> get capabilityLabels {
     final labels = availableCapabilities.map((item) => item.label).toSet();
     const order = ['4D壁纸', '安卓动态壁纸', '苹果动态壁纸', '华为动态壁纸', '静态壁纸'];
@@ -103,6 +104,7 @@ class WallpaperPage {
   WallpaperPage.fromJson(Map<String, dynamic> json)
     : items = (json['items'] as List)
           .map((e) => Wallpaper.fromJson(e as Map<String, dynamic>))
+          .where((item) => item.availableInAndroidPackage)
           .toList(),
       page = (json['page'] as Map<String, dynamic>)['page'] as int,
       totalPages = (json['page'] as Map<String, dynamic>)['totalPages'] as int;
@@ -246,9 +248,16 @@ class HttpCatalogRepository implements CatalogRepository {
   Future<WallpaperPage> list(Map<String, String> query) async =>
       WallpaperPage.fromJson(await _get('/public/wallpapers', query));
   @override
-  Future<Wallpaper> detail(String id) async => Wallpaper.fromJson(
-    await _get('/public/wallpapers/${Uri.encodeComponent(_id(id))}'),
-  );
+  Future<Wallpaper> detail(String id) async {
+    final wallpaper = Wallpaper.fromJson(
+      await _get('/public/wallpapers/${Uri.encodeComponent(_id(id))}'),
+    );
+    if (!wallpaper.availableInAndroidPackage) {
+      throw const ApiFailure(404, 'WALLPAPER_NOT_AVAILABLE_FOR_DEVICE');
+    }
+    return wallpaper;
+  }
+
   @override
   Future<List<WallpaperTutorial>> tutorials() async =>
       ((await _get('/public/wallpaper-tutorials', null, false))['items']
