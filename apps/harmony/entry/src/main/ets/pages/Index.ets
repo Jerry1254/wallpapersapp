@@ -81,15 +81,21 @@ struct Index {
     this.loading = true;
     this.errorMessage = '';
     try {
-      this.categories = await (this.api as CatalogApi).categories();
-      this.wallpapers = await (this.api as CatalogApi).wallpapers(this.selectedFilter);
+      const items: WallpaperSummary[] = await (this.api as CatalogApi).wallpapers(this.selectedFilter);
+      this.wallpapers = items.slice();
     } catch (error) {
       this.errorMessage = this.messageFor(error);
       hilog.error(LOG_DOMAIN, 'QingjingApi', 'Home load failed: %{public}s', this.errorMessage);
       this.wallpapers = [];
-      this.categories = [];
     } finally {
       this.loading = false;
+    }
+    if (this.categories.length > 0) return;
+    try {
+      const items: WallpaperCategory[] = await (this.api as CatalogApi).categories();
+      this.categories = items.slice();
+    } catch (error) {
+      hilog.error(LOG_DOMAIN, 'QingjingApi', 'Category load failed: %{public}s', this.messageFor(error));
     }
   }
 
