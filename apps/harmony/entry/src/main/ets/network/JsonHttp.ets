@@ -23,13 +23,14 @@ interface ErrorEnvelope {
 }
 
 export class JsonHttp {
-  static async request(url: string, method: http.RequestMethod, body: Object | null = null,
-    bearer: string = ''): Promise<Object> {
+  static async request(url: string, method: http.RequestMethod, body: Object | string | null = null,
+    bearer: string = '', extraHeaders: Record<string, string> = {}, acceptedStatuses: number[] = []): Promise<Object> {
     const request: http.HttpRequest = http.createHttp();
     const headers: Record<string, string> = {
       'Accept': 'application/json',
       'Content-Type': 'application/json'
     };
+    Object.keys(extraHeaders).forEach((key: string) => headers[key] = extraHeaders[key]);
     if (bearer.length > 0) headers['Authorization'] = 'Bearer ' + bearer;
     try {
       const options: http.HttpRequestOptions = {
@@ -40,11 +41,11 @@ export class JsonHttp {
         usingCache: false,
         expectDataType: http.HttpDataType.STRING
       };
-      if (body !== null) options.extraData = JSON.stringify(body);
+      if (body !== null) options.extraData = typeof body === 'string' ? body : JSON.stringify(body);
       const response: http.HttpResponse = await request.request(url, options);
       const text: string = typeof response.result === 'string' ? response.result : JSON.stringify(response.result);
       const status: number = response.responseCode as number;
-      if (status < 200 || status >= 300) {
+      if ((status < 200 || status >= 300) && acceptedStatuses.indexOf(status) < 0) {
         const code: string = JsonHttp.errorCode(text);
         hilog.error(LOG_DOMAIN, 'QingjingApi', 'HTTP %{public}d %{public}s %{public}s', status, code, text);
         throw new ApiRequestError(status, code, JsonHttp.errorMessage(status, code));

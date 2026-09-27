@@ -11,6 +11,7 @@ import {
 import { CatalogApi } from '../network/CatalogApi';
 import { HarmonyDeviceSession } from '../network/HarmonyDeviceSession';
 import { CustomerSupport } from '../support/CustomerSupport';
+import { DownloadedMovingPhoto, HarmonyDelivery } from '../media/HarmonyDelivery';
 
 interface FailureWithMessage {
   message: string;
@@ -40,9 +41,20 @@ struct Index {
   @State errorMessage: string = '';
   @State statusMessage: string = '';
   @State qrPreview: boolean = false;
+  @State detailOwned: boolean = false;
+  @State redemptionVisible: boolean = false;
+  @State redemptionCode: string = '';
+  @State redemptionMessage: string = '';
+  @State redemptionBusy: boolean = false;
+  @State deliveryVisible: boolean = false;
+  @State deliveryMessage: string = '';
+  @State deliveryProgress: number = 0;
+  @State deliveryReady: boolean = false;
+  @State deliveryJustRedeemed: boolean = false;
   private context: common.UIAbilityContext | null = null;
   private api: CatalogApi | null = null;
   private videoController: VideoController = new VideoController();
+  private pendingMovingPhoto: DownloadedMovingPhoto | null = null;
 
   aboutToAppear(): void {
     const host = this.getUIContext().getHostContext();
@@ -118,6 +130,7 @@ struct Index {
   private async openDetail(item: WallpaperSummary): Promise<void> {
     this.selectedDetail = item;
     this.selectedCapability = item.capabilities[0].label;
+    this.detailOwned = item.free;
     this.page = 'DETAIL';
     this.statusMessage = '';
     if (this.api === null) return;
@@ -125,6 +138,7 @@ struct Index {
       const detail: WallpaperSummary = await (this.api as CatalogApi).wallpaper(item.id);
       this.selectedDetail = detail;
       this.selectedCapability = detail.capabilities[0].label;
+      this.detailOwned = detail.free || await (this.api as CatalogApi).owns(detail.id);
     } catch (error) {
       this.statusMessage = this.messageFor(error);
     }
@@ -184,14 +198,6 @@ struct Index {
     return matched === undefined ? item.capabilities[0] : matched;
   }
 
-  private deliveryHint(item: WallpaperSummary): string {
-    const capability: WallpaperCapability = this.selectedCapabilityFor(item);
-    if (capability.resourceType === 'MOVING_PHOTO') {
-      return '下载完成后保存为鸿蒙动态照片，再从图库设为锁屏壁纸';
-    }
-    return '下载高清静态原图并保存到图库，再从图库设置壁纸';
-  }
-
   private messageFor(error: Object): string {
     if (error instanceof Error && error.message.length > 0) return error.message;
     const failure: FailureWithMessage = error as FailureWithMessage;
@@ -219,6 +225,105 @@ struct Index {
     return this.api === null ? path : (this.api as CatalogApi).mediaUrl(path);
   }
 
+  private openRedemption(): void {
+    this.redemptionCode = '';
+    this.redemptionMessage = '';
+    this.redemptionVisible = true;
+  }
+
+  private async detailAction(item: WallpaperSummary): Promise<void> {
+    if (this.deliveryVisible || this.redemptionBusy) return;
+    const capability: WallpaperCapability = this.selectedCapabilityFor(item);
+    if (capability.resourceType !== 'MOVING_PHOTO') {
+      this.statusMessage = '该静态原图尚未开放鸿蒙下载，请切换鸿蒙动态壁纸';
+      this.toast(this.statusMessage);
+      return;
+    }
+    if (!item.free && !this.detailOwned) {
+      this.openRedemption();
+      return;
+    }
+    await this.downloadSelected(item, false);
+  }
+
+  private async redeemAndDownload(): Promise<void> {
+    if (this.api === null || this.selectedDetail === null || this.redemptionBusy) return;
+    this.redemptionBusy = true;
+    this.redemptionMessage = '';
+    try {
+      const result: string = await (this.api as CatalogApi).redeem(
+        (this.selectedDetail as WallpaperSummary).id, this.redemptionCode);
+      this.detailOwned = true;
+      this.redemptionVisible = false;
+      this.toast(result);
+      await this.downloadSelected(this.selectedDetail as WallpaperSummary, true);
+    } catch (error) {
+      this.redemptionMessage = this.messageFor(error);
+    } finally {
+      this.redemptionBusy = false;
+    }
+  }
+
+  private async downloadSelected(item: WallpaperSummary, justRedeemed: boolean): Promise<void> {
+    if (this.api === null || this.context === null) return;
+    const capability: WallpaperCapability = this.selectedCapabilityFor(item);
+    if (capability.resourceType !== 'MOVING_PHOTO') {
+      this.statusMessage = '该静态原图尚未开放鸿蒙下载，请切换鸿蒙动态壁纸';
+      this.toast(this.statusMessage);
+      return;
+    }
+    this.deliveryVisible = true;
+    this.deliveryReady = false;
+    this.deliveryJustRedeemed = justRedeemed;
+    this.deliveryMessage = '正在准备壁纸资源';
+    this.deliveryProgress = 0;
+    this.statusMessage = '';
+    try {
+      const descriptor = await (this.api as CatalogApi).downloadTicket(item.id, capability);
+      this.deliveryMessage = '正在下载壁纸资源，请勿关闭或切换到别的 App';
+      this.pendingMovingPhoto = await HarmonyDelivery.downloadMovingPhoto(
+        this.context as common.UIAbilityContext, descriptor, item.title,
+        (received: number, total: number) => {
+          this.deliveryProgress = total > 0 ? Math.min(100, Math.floor(received * 100 / total)) : 0;
+        });
+      this.deliveryReady = true;
+      this.deliveryMessage = '资源已下载并校验，请点击保存到图库';
+    } catch (error) {
+      this.deliveryVisible = false;
+      this.deliveryReady = false;
+      this.statusMessage = this.messageFor(error);
+      this.toast(this.statusMessage);
+    }
+  }
+
+  private async saveDownloadedMovingPhoto(): Promise<void> {
+    if (this.context === null || this.pendingMovingPhoto === null) return;
+    this.deliveryReady = false;
+    this.deliveryMessage = '正在保存鸿蒙动态照片';
+    try {
+      await HarmonyDelivery.saveDownloaded(this.context as common.UIAbilityContext,
+        this.pendingMovingPhoto as DownloadedMovingPhoto);
+      this.pendingMovingPhoto = null;
+      this.deliveryVisible = false;
+      this.statusMessage = '已保存到图库，请按设置教程将动态照片设为壁纸';
+      this.toast('下载完成，已保存到图库');
+    } catch (error) {
+      this.pendingMovingPhoto = null;
+      this.deliveryVisible = false;
+      this.statusMessage = this.messageFor(error);
+      this.toast(this.statusMessage);
+    }
+  }
+
+  private async cancelDownloadedMovingPhoto(): Promise<void> {
+    if (this.pendingMovingPhoto !== null) {
+      await HarmonyDelivery.discard(this.pendingMovingPhoto as DownloadedMovingPhoto);
+      this.pendingMovingPhoto = null;
+    }
+    this.deliveryVisible = false;
+    this.deliveryReady = false;
+  }
+
   @Builder
   private BrandHeader(title: string = '倾境') {
     Row() {
@@ -227,18 +332,21 @@ struct Index {
         .fontWeight(FontWeight.Bolder)
         .fontColor(T.ink)
         .layoutWeight(1);
-      Button('客服')
+      Button() {
+        Row({ space: 7 }) {
+          Image($r('app.media.message_circle_more')).width(20).height(20).objectFit(ImageFit.Contain);
+          Text('客服').fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.inverseInk);
+        }
+      }
         .height(44)
         .padding({ left: 16, right: 16 })
-        .fontSize(13)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(T.inverseInk)
         .backgroundColor(T.navigation)
         .borderRadius(22)
         .onClick(() => this.openCustomer(this.page));
     }
     .width('100%')
-    .height(T.topBarHeight);
+    .height(T.topBarHeight)
+    .margin({ bottom: 18 });
   }
 
   @Builder
@@ -270,11 +378,14 @@ struct Index {
         .layoutWeight(1)
         .margin({ left: 8 });
       if (showService) {
-        Button('客服')
+        Button() {
+          Row({ space: 6 }) {
+            Image($r('app.media.message_circle_more')).width(18).height(18).objectFit(ImageFit.Contain);
+            Text('客服').fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.inverseInk);
+          }
+        }
           .height(44)
-          .fontSize(13)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(T.inverseInk)
+          .padding({ left: 14, right: 14 })
           .backgroundColor(T.navigation)
           .borderRadius(22)
           .onClick(() => this.openCustomer(this.page));
@@ -480,6 +591,8 @@ struct Index {
                   });
                 }, (category: WallpaperCategory) => category.id);
               }
+              .width('100%')
+              .justifyContent(FlexAlign.Start);
             }
             .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%');
           }
@@ -590,7 +703,13 @@ struct Index {
           });
         Text(item.title).fontSize(22).fontWeight(FontWeight.Bolder).fontColor(T.ink)
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).margin({ left: 8 });
-        Button('观看设置教程').height(44).fontSize(12).fontWeight(FontWeight.Bold)
+        Button() {
+          Row({ space: 6 }) {
+            Image($r('app.media.circle_play')).width(18).height(18).objectFit(ImageFit.Contain);
+            Text('观看设置教程').fontSize(12).fontWeight(FontWeight.Bold).fontColor(T.accentStrong);
+          }
+        }
+          .height(44)
           .fontColor(T.accentStrong).backgroundColor(T.accentSoft)
           .border({ width: 1, color: T.accent }).borderRadius(22)
           .onClick(() => this.openDetailTutorial());
@@ -614,7 +733,6 @@ struct Index {
         .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%')
         .margin({ top: 12, bottom: 12 });
       }
-      Text(this.deliveryHint(item)).width('100%').fontSize(13).fontColor(T.mutedInk).margin({ bottom: 12 });
       Stack({ alignContent: Alignment.Bottom }) {
         Image(this.mediaUrl(item.coverUrl)).width('100%').height('100%').objectFit(ImageFit.Cover)
           .backgroundColor(T.surfaceMuted);
@@ -623,12 +741,10 @@ struct Index {
             Text(this.statusMessage).fontSize(13).fontColor(T.inverseInk).backgroundColor('#BB191817')
               .padding({ left: 12, right: 12, top: 8, bottom: 8 }).borderRadius(14).margin({ bottom: 10 });
           }
-          Button(item.free ? '下载壁纸' : '兑换并下载')
+          Button(item.free || this.detailOwned ? '下载壁纸' : '兑换并下载')
             .width('100%').height(T.primaryHeight).fontSize(17).fontWeight(FontWeight.Bold)
             .fontColor(T.ink).backgroundColor(T.accent).borderRadius(27)
-            .onClick(() => {
-              this.statusMessage = '鸿蒙资源交付接口正在接入，当前不会生成假下载结果';
-            });
+            .onClick(() => this.detailAction(item));
         }
         .width('100%').padding(16);
       }
@@ -742,6 +858,78 @@ struct Index {
   }
 
   @Builder
+  private RedemptionOverlay() {
+    Column() {
+      Column({ space: 14 }) {
+        Text('兑换这张壁纸').width('100%').fontSize(22).fontWeight(FontWeight.Bolder).fontColor(T.ink);
+        Text('输入客服发送的 20 位兑换码，兑换成功后会自动下载')
+          .width('100%').fontSize(13).fontColor(T.mutedInk);
+        TextInput({ text: this.redemptionCode, placeholder: '请输入兑换码' })
+          .width('100%').height(52).fontSize(16).backgroundColor(T.surfaceMuted)
+          .border({ width: 1, color: T.outlineStrong }).borderRadius(T.controlRadius)
+          .maxLength(32).onChange((value: string) => this.redemptionCode = value);
+        if (this.redemptionMessage.length > 0) {
+          Text(this.redemptionMessage).width('100%').fontSize(13).fontColor('#C33A32');
+        }
+        Row({ space: 10 }) {
+          Button('取消').layoutWeight(1).height(48).fontSize(15).fontWeight(FontWeight.Bold)
+            .fontColor(T.ink).backgroundColor(T.surface)
+            .border({ width: 1, color: T.outlineStrong }).borderRadius(24)
+            .enabled(!this.redemptionBusy)
+            .onClick(() => this.redemptionVisible = false);
+          Button(this.redemptionBusy ? '正在兑换' : '兑换并下载').layoutWeight(1).height(48)
+            .fontSize(15).fontWeight(FontWeight.Bold).fontColor(T.ink).backgroundColor(T.accent).borderRadius(24)
+            .enabled(!this.redemptionBusy)
+            .onClick(() => this.redeemAndDownload());
+        }
+        .width('100%');
+      }
+      .width('100%').padding(22).backgroundColor(T.surface).borderRadius({ topLeft: 28, topRight: 28 });
+    }
+    .width('100%').height('100%').justifyContent(FlexAlign.End).backgroundColor('#88191817');
+  }
+
+  @Builder
+  private DeliveryOverlay() {
+    Column({ space: 16 }) {
+      if (this.deliveryReady) {
+        Text('✓').width(48).height(48).fontSize(26).fontWeight(FontWeight.Bold).fontColor(T.ink)
+          .textAlign(TextAlign.Center).backgroundColor(T.accent).borderRadius(24);
+      } else {
+        LoadingProgress().width(46).height(46).color(T.accentStrong);
+      }
+      Text(this.deliveryReady ? '下载完成' : (this.deliveryJustRedeemed ? '兑换成功' : '正在下载壁纸'))
+        .fontSize(22).fontWeight(FontWeight.Bolder).fontColor(T.ink);
+      Text(this.deliveryMessage).width('100%').fontSize(13).fontColor(T.mutedInk).textAlign(TextAlign.Center);
+      if (this.deliveryReady) {
+        Row({ space: 10 }) {
+          Button('暂不保存').width('48%').height(46).fontSize(14).fontWeight(FontWeight.Bold)
+            .fontColor(T.ink).backgroundColor(T.surface)
+            .border({ width: 1, color: T.outlineStrong }).borderRadius(23)
+            .onClick(() => this.cancelDownloadedMovingPhoto());
+          SaveButton({ text: SaveDescription.SAVE_IMAGE, buttonType: ButtonType.Capsule })
+            .width('48%').height(46).fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.ink)
+            .backgroundColor(T.accent).borderRadius(23)
+            .onClick((event: ClickEvent, result: SaveButtonOnClickResult) => {
+              if (result === SaveButtonOnClickResult.SUCCESS) {
+                this.saveDownloadedMovingPhoto();
+              } else {
+                this.toast('需要允许保存图片才能保存到图库');
+              }
+            });
+        }
+        .width('100%');
+      } else {
+        Progress({ value: this.deliveryProgress, total: 100, type: ProgressType.Linear })
+          .width('100%').height(8).color(T.accentStrong).backgroundColor(T.surfaceMuted).borderRadius(4);
+        Text(this.deliveryProgress.toString() + '%').fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.ink);
+      }
+    }
+    .width('82%').padding(24).backgroundColor(T.surface).borderRadius(T.cardRadius)
+    .shadow({ radius: 34, color: '#2E191817', offsetY: 12 });
+  }
+
+  @Builder
   private BottomNavigation() {
     Row() {
       Button('首页').layoutWeight(1).height(52).fontWeight(FontWeight.Bold)
@@ -798,6 +986,12 @@ struct Index {
         }
         .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .backgroundColor('#EE191817').onClick(() => this.qrPreview = false);
+      }
+      if (this.redemptionVisible) this.RedemptionOverlay();
+      if (this.deliveryVisible) {
+        Column() { this.DeliveryOverlay(); }
+          .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+          .backgroundColor('#99191817');
       }
     }
     .width('100%').height('100%').backgroundColor(T.surface);

@@ -4,12 +4,14 @@ import {
   ApiTutorialPayload,
   ApiWallpaperPayload,
   HarmonyCatalogProjection,
+  WallpaperCapability,
   WallpaperCategory,
   WallpaperSummary,
   WallpaperTutorial
 } from '../model/CatalogModels';
 import { HarmonyDeviceSession } from './HarmonyDeviceSession';
 import { ApiRequestError, JsonHttp } from './JsonHttp';
+import { util } from '@kit.ArkTS';
 
 interface CategoryListResponse {
   items: ApiCategoryPayload[];
@@ -29,6 +31,37 @@ interface EntitlementPayload {
 
 interface EntitlementPageResponse {
   items: EntitlementPayload[];
+}
+
+interface RedemptionResponse {
+  status?: string;
+  idempotencyKey: string;
+  result?: string;
+}
+
+interface RedemptionRequest {
+  wallpaperId: string;
+  code: string;
+}
+
+interface DownloadTicketRequest {
+  deliveryPlatform: string;
+  resourceType: string;
+}
+
+export interface DeliveryFile {
+  url: string;
+  sha256: string;
+  sizeBytes: number;
+  mimeType: string;
+}
+
+export interface DownloadDescriptor {
+  deliveryMode: string;
+  wallpaperId: string;
+  ticket: string;
+  poster?: DeliveryFile;
+  video?: DeliveryFile;
 }
 
 export class CatalogApi {
@@ -97,6 +130,46 @@ export class CatalogApi {
     const source: WallpaperSummary[] = [];
     response.items.forEach((item: EntitlementPayload) => source.push(WallpaperSummary.fromApi(item.wallpaper)));
     return HarmonyCatalogProjection.projectCatalog(source);
+  }
+
+  async owns(wallpaperId: string): Promise<boolean> {
+    const items: WallpaperSummary[] = await this.entitlements();
+    return items.some((item: WallpaperSummary) => item.id === wallpaperId);
+  }
+
+  async redeem(wallpaperId: string, suppliedCode: string): Promise<string> {
+    const code: string = suppliedCode.replace(/[-\s]/g, '').toUpperCase();
+    if (!/^[A-Z0-9]{20}$/.test(code)) throw new Error('请输入 20 位兑换码');
+    const key: string = util.generateRandomUUID();
+    const request: RedemptionRequest = { wallpaperId: wallpaperId, code: code };
+    const headers: Record<string, string> = {};
+    headers['Idempotency-Key'] = key;
+    let response: RedemptionResponse = await this.sessions.signedPost('/device/redemptions',
+      request, headers, [422]) as RedemptionResponse;
+    for (let attempt: number = 0; response.status === 'PROCESSING' && attempt < 4; attempt++) {
+      await new Promise<void>((resolve: () => void) => setTimeout(resolve, 350));
+      response = await this.authenticatedGet('/device/redemptions/' + encodeURIComponent(key)) as RedemptionResponse;
+    }
+    if (response.status === 'PROCESSING') throw new Error('兑换正在处理中，请稍后重试');
+    if (response.idempotencyKey !== key) throw new Error('兑换结果校验失败，请重试');
+    switch (response.result) {
+      case 'GRANTED': return '兑换成功';
+      case 'ALREADY_OWNED': return '已拥有这张壁纸';
+      case 'CODE_NOT_FOUND': throw new Error('兑换码无效');
+      case 'CODE_EXHAUSTED': throw new Error('兑换码额度已用尽');
+      case 'WALLPAPER_UNAVAILABLE': throw new Error('这张壁纸暂不可兑换');
+      case 'WALLPAPER_FREE': return '这张壁纸已经免费';
+      default: throw new Error('兑换未成功，请联系客服');
+    }
+  }
+
+  async downloadTicket(wallpaperId: string, capability: WallpaperCapability): Promise<DownloadDescriptor> {
+    const request: DownloadTicketRequest = {
+      deliveryPlatform: capability.deliveryPlatform,
+      resourceType: capability.resourceType
+    };
+    return await this.sessions.signedPost('/device/wallpapers/' + encodeURIComponent(wallpaperId) +
+      '/download-tickets', request) as DownloadDescriptor;
   }
 
   mediaUrl(path: string): string {

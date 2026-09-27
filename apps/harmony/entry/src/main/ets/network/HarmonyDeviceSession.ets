@@ -87,6 +87,38 @@ export class HarmonyDeviceSession {
     this.accessTokenValue = '';
   }
 
+  async signedPost(path: string, body: Object, extraHeaders: Record<string, string> = {},
+    acceptedStatuses: number[] = []): Promise<Object> {
+    const rawBody: string = JSON.stringify(body);
+    for (let attempt: number = 0; attempt < 2; attempt++) {
+      const token: string = await this.accessToken();
+      const timestamp: string = new Date().toISOString();
+      const nonce: string = util.generateRandomUUID();
+      const bodyHash: string = await this.sha256Hex(new util.TextEncoder().encodeInto(rawBody));
+      const canonicalPath: string = '/api/v1' + path.split('?')[0];
+      const payload: string = 'QJ-SIGNED-REQUEST-V1\nPOST\n' + canonicalPath + '\n' + timestamp + '\n' + nonce +
+        '\n' + bodyHash;
+      const headers: Record<string, string> = {
+        'X-Request-Timestamp': timestamp,
+        'X-Request-Nonce': nonce,
+        'X-Request-Signature': this.base64Url(await this.sign(payload))
+      };
+      Object.keys(extraHeaders).forEach((key: string) => headers[key] = extraHeaders[key]);
+      try {
+        return await JsonHttp.request(HarmonyDeviceSession.BASE_URL + path, http.RequestMethod.POST,
+          rawBody, token, headers, acceptedStatuses);
+      } catch (error) {
+        if (error instanceof ApiRequestError && error.status === 401 && attempt === 0) {
+          this.invalidate();
+          continue;
+        }
+        if (error instanceof Error) throw error;
+        throw new Error('鸿蒙设备签名请求失败');
+      }
+    }
+    throw new Error('鸿蒙设备会话已失效，请重试');
+  }
+
   private async register(store: preferences.Preferences): Promise<string> {
     await this.ensureKey();
     const exported: huks.HuksReturnResult = await huks.exportKeyItem(
