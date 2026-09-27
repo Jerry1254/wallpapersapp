@@ -102,7 +102,7 @@ class _CurrentInstaller extends AndroidPackageInstaller {
 }
 
 void main() {
-  test('详情按后台资源展示全部形式，不用设备能力提前过滤', () {
+  test('安卓安装包只展示安卓形式和通用静态，不用设备能力提前过滤', () {
     final item = wallpaper([
       {
         'deliveryPlatform': 'IOS',
@@ -127,14 +127,13 @@ void main() {
     ]);
     expect(deliveryOptions(item).map((option) => option.label), [
       '安卓动态壁纸',
-      '苹果动态壁纸',
       '静态壁纸',
     ]);
     expect(deliveryEffects(item, ClientPlatform.unknown), [
       WallpaperEffect.video,
       WallpaperEffect.staticImage,
     ]);
-    expect(item.capabilityLabels, ['安卓动态壁纸', '苹果动态壁纸', '静态壁纸']);
+    expect(item.capabilityLabels, ['安卓动态壁纸', '静态壁纸']);
   });
   testWidgets('详情缺失提示且可恢复，不显示假预览或可兑换操作', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -213,7 +212,7 @@ void main() {
     expect(chip('安卓动态壁纸').selected, isTrue);
   });
 
-  testWidgets('后台提供的四种资源按固定顺序显示并切换当前形式', (tester) async {
+  testWidgets('安卓包过滤其他平台资源并按固定顺序切换当前形式', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -225,20 +224,21 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    for (final label in const ['4D壁纸', '安卓动态壁纸', '苹果动态壁纸', '静态壁纸']) {
+    for (final label in const ['4D壁纸', '安卓动态壁纸', '静态壁纸']) {
       expect(find.widgetWithText(QjFilterChip, label), findsOneWidget);
     }
+    expect(find.widgetWithText(QjFilterChip, '苹果动态壁纸'), findsNothing);
     expect(
       tester
           .widget<QjFilterChip>(find.widgetWithText(QjFilterChip, '4D壁纸'))
           .selected,
       isTrue,
     );
-    await tester.tap(find.text('苹果动态壁纸'));
+    await tester.tap(find.text('安卓动态壁纸'));
     await tester.pump();
     expect(
       tester
-          .widget<QjFilterChip>(find.widgetWithText(QjFilterChip, '苹果动态壁纸'))
+          .widget<QjFilterChip>(find.widgetWithText(QjFilterChip, '安卓动态壁纸'))
           .selected,
       isTrue,
     );

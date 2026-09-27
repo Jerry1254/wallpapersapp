@@ -30,14 +30,11 @@ class WallpaperDeliveryOption {
   String get key => '$deliveryPlatform/$resourceType';
   String get label => capability.label;
 
-  bool get canApplyOnAndroid =>
-      (deliveryPlatform == 'ANDROID' &&
-          {'LAYER_PARALLAX', 'VIDEO'}.contains(resourceType)) ||
-      (deliveryPlatform == 'UNIVERSAL' && resourceType == 'STATIC_IMAGE');
+  bool get canApplyOnAndroid => capability.availableInAndroidPackage;
 }
 
-/// The detail page reflects resources published by the backend. Device
-/// probing must never remove a resource tab before the user tries it.
+/// The Android package only exposes Android and universal static resources.
+/// Device probing must never remove a supported resource before the user tries it.
 List<WallpaperDeliveryOption> deliveryOptions(Wallpaper wallpaper) {
   final options = wallpaper.availableCapabilities
       .map((capability) {

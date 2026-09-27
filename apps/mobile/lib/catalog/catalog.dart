@@ -49,6 +49,7 @@ class Wallpaper {
               Map<String, dynamic>.from(item as Map),
             ),
           )
+          .where((item) => item.availableInAndroidPackage)
           .toList(growable: false),
       copyright = json['copyrightNote'] as String?;
   final String id, title, accessType, cover;
@@ -82,6 +83,11 @@ class AvailableCapability {
       );
   final String deliveryPlatform, resourceType;
   final Set<String> placements;
+  bool get availableInAndroidPackage =>
+      (deliveryPlatform == 'ANDROID' &&
+          {'LAYER_PARALLAX', 'VIDEO'}.contains(resourceType)) ||
+      (deliveryPlatform == 'UNIVERSAL' && resourceType == 'STATIC_IMAGE');
+
   String get label => switch (resourceType) {
     'LAYER_PARALLAX' => '4D壁纸',
     'VIDEO' => '安卓动态壁纸',
