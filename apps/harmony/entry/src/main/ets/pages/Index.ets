@@ -970,18 +970,20 @@ struct Index {
             .width(164).height(164).objectFit(ImageFit.Contain).margin({ top: 20 })
             .onClick(() => this.qrPreview = true);
           Text('点击二维码可放大查看').fontSize(12).fontColor(T.mutedInk).margin({ top: 8 });
-          SaveButton({ icon: SaveIconStyle.LINES, text: SaveDescription.SAVE_IMAGE,
-            buttonType: ButtonType.Capsule })
-            .height(44).fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.ink)
-            .backgroundColor(T.surface).borderWidth(1).borderColor(T.outlineStrong)
-            .margin({ top: 12 })
-            .onClick((event: ClickEvent, result: SaveButtonOnClickResult) => {
-              if (result === SaveButtonOnClickResult.SUCCESS) {
-                this.saveQr();
-              } else {
-                this.toast('需要允许保存图片才能保存二维码');
-              }
-            });
+          Row() {
+            SaveButton({ icon: SaveIconStyle.LINES, text: SaveDescription.SAVE_IMAGE,
+              buttonType: ButtonType.Capsule })
+              .height(44).fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.ink)
+              .backgroundColor(T.surface).borderWidth(1).borderColor(T.outlineStrong)
+              .onClick((event: ClickEvent, result: SaveButtonOnClickResult) => {
+                if (result === SaveButtonOnClickResult.SUCCESS) {
+                  this.saveQr();
+                } else {
+                  this.toast('需要允许保存图片才能保存二维码');
+                }
+              });
+          }
+          .margin({ top: 12 });
           Row() {
             Column({ space: 2 }) {
               Text('微信号').width('100%').fontSize(10).fontWeight(FontWeight.Bold).fontColor(T.mutedInk);
