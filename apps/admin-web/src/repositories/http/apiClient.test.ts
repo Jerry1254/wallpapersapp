@@ -228,6 +228,70 @@ describe('adminRepository.saveWallpaper', () => {
     const publish = fetchMock.mock.calls.find(([url]) => url.endsWith('/publish'));
     expect(JSON.parse(String(publish?.[1]?.body))).toEqual({ resourceVersionIds: ['50', '51'] });
   });
+
+  it('鸿蒙动态只上传一个原始视频并由后端返回生成状态', async () => {
+    setCsrfToken('csrf-token');
+    const requests: { url: string; options: RequestInit }[] = [];
+    const harmonyAsset = { ...asset('2', 'harmony.mov'), mimeType: 'video/quicktime' };
+    const movingPhoto = {
+      status: 'READY',
+      video: { mimeType: 'video/mp4', sizeBytes: 120_000, sha256: 'a'.repeat(64) },
+      poster: { mimeType: 'image/jpeg', sizeBytes: 24_000, sha256: 'b'.repeat(64) },
+      durationMs: 1_980,
+      widthPx: 1080,
+      heightPx: 1920,
+      errorCode: null,
+      publishable: true
+    };
+    const version = {
+      id: '50', versionNo: 1, status: 'READY', movingPhoto,
+      bindings: [{ id: '60', role: 'MOVING_PHOTO_SOURCE', ordinal: 0, asset: harmonyAsset }]
+    };
+    const variant = {
+      id: '40', platform: 'HARMONYOS', resourceType: 'MOVING_PHOTO', enabled: true,
+      version: 0, resourceVersions: []
+    };
+    const cover = asset('1', 'list-cover.png');
+    const wallpaper = detail('DRAFT', 1, [variant], cover);
+    const fetchMock = vi.fn(async (urlValue: string | URL | Request, options: RequestInit = {}) => {
+      const url = String(urlValue);
+      requests.push({ url, options });
+      if (url.endsWith('/admin/assets')) return json(harmonyAsset, 201);
+      if (url.endsWith('/admin/wallpapers/30') && options.method === 'PATCH') return json(wallpaper);
+      if (url.endsWith('/admin/variants/40/resource-versions')) return json(version, 201);
+      if (url.endsWith('/admin/wallpapers/30/publish')) return json({
+        ...wallpaper,
+        status: 'PUBLISHED',
+        variants: [{ ...variant, resourceVersions: [{ ...version, status: 'PUBLISHED' }] }]
+      });
+      throw new Error(`unexpected request: ${options.method || 'GET'} ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const source = new File(['moving-photo'], 'harmony.mov', { type: 'video/quicktime' });
+    const input: Wallpaper = {
+      id: '30', title: '鸿蒙动态', slug: 'harmony-moving-photo', categoryId: '20', subcategoryId: '',
+      accessType: 'REDEEM', capabilities: [], status: 'draft', sort: 1, featuredRank: null,
+      coverUrl: '', copyrightNote: '', updatedAt: '', version: 1, variants: [], resources: {
+        cover: { name: cover.originalFilename, assetId: cover.id, size: cover.sizeBytes, mime: cover.mimeType },
+        harmonyVideo: { name: source.name, size: source.size, mime: source.type, nativeFile: source }
+      }
+    };
+
+    const saved = await adminRepository.saveWallpaper(input, true);
+
+    expect(saved.capabilities).toEqual(['harmony_moving_photo']);
+    const upload = requests.find((item) => item.url.endsWith('/admin/assets'))!;
+    expect((upload.options.body as FormData).get('purpose')).toBe('MOVING_PHOTO_SOURCE');
+    const createVersion = requests.find((item) => item.url.endsWith('/admin/variants/40/resource-versions'))!;
+    expect(JSON.parse(String(createVersion.options.body))).toEqual({
+      versionNo: 1,
+      manifestSha256: null,
+      bindings: [{ assetId: '2', role: 'MOVING_PHOTO_SOURCE', ordinal: 0 }]
+    });
+    const publish = requests.find((item) => item.url.endsWith('/admin/wallpapers/30/publish'))!;
+    expect(JSON.parse(String(publish.options.body))).toEqual({ resourceVersionIds: ['50'] });
+  });
+
   it.each([false, true])('4D 编辑保留现有素材，不重复上传或创建版本（含源包：%s）', async (withSource) => {
     setCsrfToken('csrf-token');
     const sourcePackage = withSource ? {

@@ -66,10 +66,13 @@ class SecureDeliveryMigrationIT {
             }
             var throughLatest=Flyway.configure().dataSource(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword())
                     .locations("classpath:db/migration").load().migrate();
-            assertThat(throughLatest.migrationsExecuted).isEqualTo(7);
+            assertThat(throughLatest.migrationsExecuted).isEqualTo(8);
             try(var connection=DriverManager.getConnection(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword());
                 var query=connection.createStatement()) {
                 try (var result=query.executeQuery("SELECT COUNT(*) FROM preview_resource_package")) {
+                    assertThat(result.next()).isTrue();assertThat(result.getInt(1)).isZero();
+                }
+                try (var result=query.executeQuery("SELECT COUNT(*) FROM moving_photo_package")) {
                     assertThat(result.next()).isTrue();assertThat(result.getInt(1)).isZero();
                 }
                 try (var result=query.executeQuery("SELECT COUNT(*) FROM wallpaper_setting_tutorial")) {

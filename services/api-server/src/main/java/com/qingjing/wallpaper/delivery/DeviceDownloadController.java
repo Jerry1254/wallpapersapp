@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import com.qingjing.wallpaper.delivery.DownloadTicketService.MovingPhotoPart;
 
 @RestController
 public class DeviceDownloadController {
@@ -50,5 +51,29 @@ public class DeviceDownloadController {
                 .header("Cache-Control", "no-store")
                 .header("Digest", "sha-256=:" + java.util.Base64.getEncoder().encodeToString(java.util.HexFormat.of().parseHex(file.sha256())) + ":")
                 .body(output -> file.writer().write(output));
+    }
+
+    @GetMapping("/api/v1/delivery/moving-photo/poster")
+    ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> poster(
+            @RequestHeader(value="Authorization",required=false) String authorization) {
+        return movingPhoto(authorization,MovingPhotoPart.POSTER,MediaType.IMAGE_JPEG);
+    }
+
+    @GetMapping("/api/v1/delivery/moving-photo/video")
+    ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> video(
+            @RequestHeader(value="Authorization",required=false) String authorization) {
+        return movingPhoto(authorization,MovingPhotoPart.VIDEO,MediaType.valueOf("video/mp4"));
+    }
+
+    private ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> movingPhoto(
+            String authorization,MovingPhotoPart part,MediaType contentType) {
+        if (authorization == null || !authorization.startsWith("Bearer ") || authorization.length() <= 7) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED,"DOWNLOAD_TICKET_INVALID","A download ticket is required");
+        }
+        var file=tickets.readMovingPhotoFile(authorization.substring(7),part);
+        return ResponseEntity.ok().contentType(contentType).contentLength(file.sizeBytes())
+                .header("Cache-Control","no-store")
+                .header("Digest","sha-256=:"+java.util.Base64.getEncoder().encodeToString(java.util.HexFormat.of().parseHex(file.sha256()))+":")
+                .body(output->file.writer().write(output));
     }
 }

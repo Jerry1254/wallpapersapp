@@ -3,7 +3,8 @@ package com.qingjing.wallpaper.catalog;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.DeliveryCapability;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.DeliveryPlatform;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.ResourceType;
-import com.qingjing.wallpaper.device.DeviceCapabilityDtos.Placement;
+import com.qingjing.wallpaper.catalog.PublicCatalogDtos.Placement;
+import com.qingjing.wallpaper.device.DeviceDtos.DevicePlatform;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -14,7 +15,7 @@ import java.util.Set;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-/** Published delivery inventory. Device capability probing and filtering belongs to the App. */
+/** Published delivery inventory cropped only by the authenticated App package platform. */
 @Component
 public class PublishedResourceCatalog {
 
@@ -25,13 +26,29 @@ public class PublishedResourceCatalog {
         this.jdbc = jdbc;
     }
 
-    public PublishedCatalog resolve() {
+    public PublishedCatalog resolve(DevicePlatform appPlatform) {
         List<VariantRow> variants = jdbc.query("""
                 SELECT DISTINCT v.wallpaper_id, v.platform, v.resource_type
                 FROM wallpaper_variant v
                 JOIN resource_version rv ON rv.variant_id = v.id AND rv.status = 'PUBLISHED'
                 JOIN wallpaper w ON w.id = v.wallpaper_id AND w.status = 'PUBLISHED'
                 WHERE v.enabled = TRUE
+                  AND (
+                    (v.platform IN ('ANDROID', 'UNIVERSAL')
+                      AND EXISTS (SELECT 1 FROM secure_resource_package sp WHERE sp.resource_version_id=rv.id))
+                    OR
+                    (v.platform='IOS' AND v.resource_type='LIVE_PHOTO'
+                      AND EXISTS (SELECT 1 FROM resource_binding rb JOIN asset a ON a.id=rb.asset_id
+                                  WHERE rb.resource_version_id=rv.id AND rb.role='LIVE_PHOTO_IMAGE'
+                                    AND a.validation_status='READY' AND a.deleted_at IS NULL)
+                      AND EXISTS (SELECT 1 FROM resource_binding rb JOIN asset a ON a.id=rb.asset_id
+                                  WHERE rb.resource_version_id=rv.id AND rb.role='LIVE_PHOTO_VIDEO'
+                                    AND a.validation_status='READY' AND a.deleted_at IS NULL))
+                    OR
+                    (v.platform='HARMONYOS' AND v.resource_type='MOVING_PHOTO'
+                      AND EXISTS (SELECT 1 FROM moving_photo_package mp
+                                  WHERE mp.resource_version_id=rv.id AND mp.status='READY'))
+                  )
                 ORDER BY v.wallpaper_id, v.platform, v.resource_type
                 """, (rs, rowNumber) -> new VariantRow(
                 rs.getLong("wallpaper_id"), DeliveryPlatform.valueOf(rs.getString("platform")),
@@ -39,6 +56,7 @@ public class PublishedResourceCatalog {
 
         Map<Long, List<DeliveryCapability>> available = new LinkedHashMap<>();
         for (VariantRow variant : variants) {
+            if (!PlatformResourceScope.visibleTo(appPlatform, variant.platform(), variant.resourceType())) continue;
             available.computeIfAbsent(variant.wallpaperId(), ignored -> new ArrayList<>()).add(
                     new DeliveryCapability(variant.platform(), variant.resourceType(), APP_DECIDES_PLACEMENTS));
         }

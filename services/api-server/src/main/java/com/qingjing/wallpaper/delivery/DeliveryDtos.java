@@ -13,7 +13,7 @@ public final class DeliveryDtos {
     private DeliveryDtos() {
     }
 
-    public enum DeliveryMode { H5_PLACEHOLDER, SECURE_PACKAGE }
+    public enum DeliveryMode { SECURE_PACKAGE, MOVING_PHOTO }
 
     public record CreateDownloadTicketRequest(
             @NotNull DeliveryPlatform deliveryPlatform,
@@ -42,6 +42,13 @@ public final class DeliveryDtos {
             String keyAlgorithm) {
     }
 
+    public record DeliveryFile(
+            String url,
+            String sha256,
+            long sizeBytes,
+            String mimeType) {
+    }
+
     public record DownloadDescriptor(
             DeliveryMode deliveryMode,
             String wallpaperId,
@@ -51,6 +58,8 @@ public final class DeliveryDtos {
             Instant expiresAt,
             DownloadResourceVersion resourceVersion,
             @JsonProperty("package")
-            SecurePackageMetadata packageMetadata) {
+            SecurePackageMetadata packageMetadata,
+            DeliveryFile poster,
+            DeliveryFile video) {
     }
 }

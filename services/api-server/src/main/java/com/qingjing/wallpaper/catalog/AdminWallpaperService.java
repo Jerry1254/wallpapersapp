@@ -589,8 +589,7 @@ public class AdminWallpaperService {
             case FOREGROUND -> mimeType.equals("image/png") || mimeType.equals("image/webp");
             case LIVE_PHOTO_IMAGE -> mimeType.equals("image/jpeg");
             case PARALLAX_CONFIG -> mimeType.equals("application/json");
-            case VIDEO, LIVE_PHOTO_VIDEO -> mimeType.startsWith("video/");
-            case THEME_PACKAGE -> mimeType.equals("application/zip");
+            case VIDEO, LIVE_PHOTO_VIDEO, MOVING_PHOTO_SOURCE -> mimeType.startsWith("video/");
         };
         if (!accepted) {
             throw domainViolation("The bound asset type is incompatible with role " + role);
@@ -603,7 +602,7 @@ public class AdminWallpaperService {
             case VIDEO -> Set.of(AssetRole.VIDEO);
             case LIVE_PHOTO -> Set.of(AssetRole.LIVE_PHOTO_IMAGE, AssetRole.LIVE_PHOTO_VIDEO);
             case STATIC_IMAGE -> Set.of(AssetRole.STATIC_IMAGE);
-            case THEME_PACKAGE -> Set.of(AssetRole.THEME_PACKAGE);
+            case MOVING_PHOTO -> Set.of(AssetRole.MOVING_PHOTO_SOURCE);
         };
     }
 
@@ -611,7 +610,7 @@ public class AdminWallpaperService {
         boolean accepted = (platform == DeliveryPlatform.ANDROID
                 && (resourceType == ResourceType.LAYER_PARALLAX || resourceType == ResourceType.VIDEO))
                 || (platform == DeliveryPlatform.IOS && resourceType == ResourceType.LIVE_PHOTO)
-                || (platform == DeliveryPlatform.HARMONYOS && resourceType == ResourceType.THEME_PACKAGE)
+                || (platform == DeliveryPlatform.HARMONYOS && resourceType == ResourceType.MOVING_PHOTO)
                 || (platform == DeliveryPlatform.UNIVERSAL && resourceType == ResourceType.STATIC_IMAGE);
         if (!accepted) {
             throw domainViolation("The delivery platform and resource type pair is not supported");

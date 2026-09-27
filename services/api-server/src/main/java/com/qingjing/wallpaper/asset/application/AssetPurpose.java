@@ -13,7 +13,7 @@ public enum AssetPurpose {
     LIVE_PHOTO_IMAGE(50L * 1024 * 1024, Set.of(DetectedAssetType.JPEG)),
     LIVE_PHOTO_VIDEO(200L * 1024 * 1024, Set.of(DetectedAssetType.MP4, DetectedAssetType.QUICKTIME)),
     STATIC_IMAGE(50L * 1024 * 1024, Set.of(DetectedAssetType.JPEG, DetectedAssetType.PNG, DetectedAssetType.WEBP)),
-    THEME_PACKAGE(250L * 1024 * 1024, Set.of(DetectedAssetType.ZIP));
+    MOVING_PHOTO_SOURCE(200L * 1024 * 1024, Set.of(DetectedAssetType.MP4, DetectedAssetType.QUICKTIME));
 
     private final long maximumBytes;
     private final Set<DetectedAssetType> allowedTypes;

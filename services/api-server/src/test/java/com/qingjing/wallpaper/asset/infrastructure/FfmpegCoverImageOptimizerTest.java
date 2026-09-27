@@ -25,6 +25,7 @@ class FfmpegCoverImageOptimizerTest {
     void createsBoundedWebpWithoutUpscaling() throws Exception {
         String ffmpeg = System.getenv().getOrDefault("QJ_FFMPEG", "ffmpeg");
         Assumptions.assumeTrue(canRun(ffmpeg), "FFmpeg is required for the real cover optimization test");
+        Assumptions.assumeTrue(supportsWebp(ffmpeg), "FFmpeg libwebp encoder is required");
         var storage = new LocalFileStorage(temporaryDirectory.resolve("storage"));
         byte[] source = png(1080, 2160);
         var staged = storage.stage(new ByteArrayInputStream(source), 20L * 1024 * 1024);
@@ -42,6 +43,19 @@ class FfmpegCoverImageOptimizerTest {
     private static boolean canRun(String executable) {
         try {
             return new ProcessBuilder(executable, "-version").redirectErrorStream(true).start().waitFor() == 0;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static boolean supportsWebp(String executable) {
+        try {
+            Path output = Files.createTempFile("qj-ffmpeg-encoders-", ".txt");
+            try {
+                Process process = new ProcessBuilder(executable, "-hide_banner", "-encoders")
+                        .redirectOutput(output.toFile()).redirectError(ProcessBuilder.Redirect.DISCARD).start();
+                return process.waitFor() == 0 && Files.readString(output).contains("libwebp");
+            } finally { Files.deleteIfExists(output); }
         } catch (Exception ignored) {
             return false;
         }

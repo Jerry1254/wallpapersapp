@@ -23,8 +23,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import javax.imageio.ImageIO;
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -124,7 +122,7 @@ class InfrastructureIntegrationIT {
                 """,
                 String.class);
 
-        assertThat(successfulMigrations).isEqualTo(12);
+        assertThat(successfulMigrations).isEqualTo(13);
         assertThat(tables).containsExactlyInAnyOrder(
                 "admin_account",
                 "anonymous_device",
@@ -136,6 +134,7 @@ class InfrastructureIntegrationIT {
                 "device_encryption_key",
                 "secure_resource_package",
                 "preview_resource_package",
+                "moving_photo_package",
                 "parallax_source_package",
                 "parallax_source_layer",
                 "parallax_storage_cleanup",
@@ -717,10 +716,10 @@ class InfrastructureIntegrationIT {
                     (variant_id, version_no, status, manifest_sha256, published_at, created_by_admin_id)
                 VALUES (?, 1, 'PUBLISHED', ?, UTC_TIMESTAMP(6), ?)
                 """, videoVariantId, securityCrypto.sha256Hex("catalog-video-" + multiCapabilityWallpaper), adminId);
+        Long videoVersionId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        insertPublishedSecurePackage(videoVersionId, "catalog-video-" + multiCapabilityWallpaper);
 
-        DeviceTestSession device = registerAndCreateSession("capability-filter-" + UUID.randomUUID());
-        jdbc.update("DELETE p FROM device_capability_profile p JOIN device_credential c ON c.device_id=p.device_id WHERE c.credential_key_id=?",
-                device.credentialKeyId());
+        DeviceTestSession device = registerAndCreateSession("platform-filter-" + UUID.randomUUID());
         String base = "/api/v1/public/wallpapers?rootCategoryId=" + categoryId;
         JsonNode videoPage = deviceGet(base
                 + "&deliveryPlatform=ANDROID&resourceType=VIDEO&pageSize=1", device).getBody();
@@ -754,6 +753,12 @@ class InfrastructureIntegrationIT {
                 + "&view=FEATURED&accessType=FREE&q=" + slug, device).getBody();
         assertThat(combined.path("items")).hasSize(1);
         assertThat(combined.path("items").get(0).path("id").asLong()).isEqualTo(multiCapabilityWallpaper);
+
+        ResponseEntity<JsonNode> crossPlatform = deviceGet(base
+                + "&deliveryPlatform=IOS&resourceType=LIVE_PHOTO", device);
+        assertThat(crossPlatform.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(crossPlatform.getBody().path("error").path("code").asText())
+                .isEqualTo("RESOURCE_PLATFORM_MISMATCH");
 
         for (String invalidQuery : List.of(
                 "&deliveryPlatform=ANDROID",
@@ -1121,8 +1126,8 @@ class InfrastructureIntegrationIT {
                 owner,
                 null);
         assertThat(descriptor.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(descriptor.getBody().path("deliveryMode").asText()).isEqualTo("H5_PLACEHOLDER");
-        assertThat(descriptor.getBody().has("ticket")).isFalse();
+        assertThat(descriptor.getBody().path("deliveryMode").asText()).isEqualTo("SECURE_PACKAGE");
+        assertThat(descriptor.getBody().path("ticket").asText()).hasSize(43);
 
         DeviceTestSession freeDevice = registerAndCreateSession("integration-free-" + UUID.randomUUID());
         jdbc.update("UPDATE wallpaper SET access_type='FREE', lock_version=lock_version+1 WHERE id=?", wallpaperId);
@@ -1132,7 +1137,7 @@ class InfrastructureIntegrationIT {
                 freeDevice,
                 null);
         assertThat(freeDescriptor.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(freeDescriptor.getBody().path("deliveryMode").asText()).isEqualTo("H5_PLACEHOLDER");
+        assertThat(freeDescriptor.getBody().path("deliveryMode").asText()).isEqualTo("SECURE_PACKAGE");
 
         String freeRedemptionKey = UUID.randomUUID().toString();
         ResponseEntity<JsonNode> freeRedemption = signedPost(
@@ -1203,7 +1208,7 @@ class InfrastructureIntegrationIT {
             connection.serverCommands().flushDb();
             return null;
         });
-        DeviceTestSession renewed = createSession(owner.credentialKeyId(), owner.credentialSecret());
+        DeviceTestSession renewed = createSession(owner.credentialKeyId(), owner.credentialKey());
         ResponseEntity<JsonNode> recovered = http.exchange(
                 "/api/v1/device/redemptions/" + firstKey,
                 HttpMethod.GET,
@@ -1806,50 +1811,57 @@ class InfrastructureIntegrationIT {
                 """,
                 wallpaperId);
         Long variantId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        String manifestHash = securityCrypto.sha256Hex("manifest-" + token);
         jdbc.update(
                 """
                 INSERT INTO resource_version
                     (variant_id, version_no, status, manifest_sha256, published_at, created_by_admin_id)
                 VALUES (?, 1, 'PUBLISHED', ?, UTC_TIMESTAMP(6), ?)
                 """,
-                variantId, securityCrypto.sha256Hex("manifest-" + token), adminId);
+                variantId, manifestHash, adminId);
+        Long resourceVersionId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("""
+                INSERT INTO resource_binding (resource_version_id, asset_id, role, ordinal)
+                VALUES (?, ?, 'STATIC_IMAGE', 0)
+                """, resourceVersionId, assetId);
+        insertPublishedSecurePackage(resourceVersionId, token);
         return wallpaperId;
     }
 
-    private DeviceTestSession registerAndCreateSession(String evidence) throws Exception {
+    private void insertPublishedSecurePackage(long resourceVersionId, String token) {
+        String encryptedHash = securityCrypto.sha256Hex("encrypted-" + token);
+        String plaintextHash = securityCrypto.sha256Hex("plaintext-" + token);
+        String manifestHash = securityCrypto.sha256Hex("manifest-" + token);
+        String contentKey = securityCrypto.encrypt(
+                "secure-package-key-v2:" + resourceVersionId,
+                java.util.HexFormat.of().parseHex(securityCrypto.sha256Hex("content-key-" + token)));
+        jdbc.update("""
+                INSERT INTO secure_resource_package
+                    (resource_version_id, format_version, storage_key, size_bytes, plaintext_size_bytes,
+                     encrypted_sha256, plaintext_sha256, manifest_sha256, signing_key_id, content_key_ciphertext)
+                VALUES (?, 2, ?, 37, 1, ?, ?, ?, 'integration-resource-1', ?)
+                """, resourceVersionId, "integration/packages/" + token + ".qjp",
+                encryptedHash, plaintextHash, manifestHash, contentKey);
+    }
+
+    private DeviceTestSession registerAndCreateSession(String ignoredEvidence) throws Exception {
+        java.security.KeyPairGenerator generator = java.security.KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        java.security.KeyPair credentialKey = generator.generateKeyPair();
         ResponseEntity<JsonNode> registration = http.postForEntity(
                 "/api/v1/device/registrations",
-                Map.of(
-                        "platform", "H5_TEST",
-                        "appInstallScope", "h5-integration",
-                        "credentialType", "H5_TEST_SECRET",
-                        "evidenceToken", evidence),
+                androidRegistration(credentialKey, "com.qingjing.bizhi.internal"),
                 JsonNode.class);
         assertThat(registration.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         String credentialKeyId = registration.getBody().path("credentialKeyId").asText();
-        String credentialSecret = registration.getBody().path("credentialSecret").asText();
-        assertThat(credentialSecret).hasSizeGreaterThanOrEqualTo(32);
-        String storedHash = jdbc.queryForObject(
-                "SELECT secret_hash FROM device_credential WHERE credential_key_id = ?",
-                String.class,
-                credentialKeyId);
-        assertThat(storedHash).hasSize(64).isNotEqualTo(credentialSecret);
-        Long deviceId = jdbc.queryForObject(
-                "SELECT device_id FROM device_credential WHERE credential_key_id = ?",
-                Long.class, credentialKeyId);
-        String capability = "[{\"deliveryPlatform\":\"UNIVERSAL\",\"resourceType\":\"STATIC_IMAGE\",\"runtimeOsVersion\":\"1\",\"placements\":[\"HOME\",\"LOCK\"]}]";
-        jdbc.update("""
-                INSERT INTO device_capability_profile
-                    (device_id, host_os_family, host_os_version, manufacturer, model, execution_mode,
-                     probe_version, feature_flags, reported_capabilities, effective_capabilities,
-                     profile_hash, probed_at, last_verified_at)
-                VALUES (?, 'ANDROID', '1', 'integration', 'h5-test', 'NATIVE', 1,
-                        JSON_ARRAY(), CAST(? AS JSON), CAST(? AS JSON), ?, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
-                """, deviceId, capability, capability, securityCrypto.sha256Hex("profile-" + deviceId));
-        return createSession(credentialKeyId, credentialSecret);
+        assertThat(registration.getBody().path("credentialType").asText()).isEqualTo("PLATFORM_PUBLIC_KEY");
+        DeviceTestSession session = createSession(credentialKeyId, credentialKey);
+        var identity = androidIdentity.requireSession(session.accessToken());
+        encryptionKeys.bind(androidIdentity.principal(identity), publicKeyPem(credentialKey));
+        return session;
     }
 
-    private DeviceTestSession createSession(String credentialKeyId, String credentialSecret) throws Exception {
+    private DeviceTestSession createSession(String credentialKeyId, java.security.KeyPair credentialKey) throws Exception {
         ResponseEntity<JsonNode> challenge = http.postForEntity(
                 "/api/v1/device/session-challenges",
                 Map.of("credentialKeyId", credentialKeyId),
@@ -1859,7 +1871,7 @@ class InfrastructureIntegrationIT {
         String nonce = challenge.getBody().path("nonce").asText();
         String timestamp = Instant.now().toString();
         String payload = "QJ-DEVICE-SESSION-V1\n" + credentialKeyId + "\n" + challengeId + "\n" + nonce + "\n" + timestamp;
-        String proof = hmac(credentialSecret, payload);
+        String proof = androidSign(credentialKey, payload);
         ResponseEntity<JsonNode> session = http.postForEntity(
                 "/api/v1/device/sessions",
                 Map.of(
@@ -1871,7 +1883,7 @@ class InfrastructureIntegrationIT {
         assertThat(session.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         return new DeviceTestSession(
                 credentialKeyId,
-                credentialSecret,
+                credentialKey,
                 session.getBody().path("accessToken").asText());
     }
 
@@ -1890,7 +1902,7 @@ class InfrastructureIntegrationIT {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("X-Request-Timestamp", timestamp);
         headers.set("X-Request-Nonce", nonce);
-        headers.set("X-Request-Signature", hmac(device.credentialSecret(), payload));
+        headers.set("X-Request-Signature", androidSign(device.credentialKey(), payload));
         if (idempotencyKey != null) {
             headers.set("Idempotency-Key", idempotencyKey);
         }
@@ -1905,13 +1917,6 @@ class InfrastructureIntegrationIT {
 
     private ResponseEntity<JsonNode> deviceGet(String path, DeviceTestSession device) {
         return http.exchange(path, HttpMethod.GET, new HttpEntity<>(deviceHeaders(device)), JsonNode.class);
-    }
-
-    private static String hmac(String key, String value) throws Exception {
-        Mac mac = Mac.getInstance("HmacSHA256");
-        mac.init(new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-        return Base64.getUrlEncoder().withoutPadding()
-                .encodeToString(mac.doFinal(value.getBytes(StandardCharsets.UTF_8)));
     }
 
     private static Map<String, Object> orderedMap(Object... values) {
@@ -2051,51 +2056,9 @@ class InfrastructureIntegrationIT {
         HttpHeaders capabilityAuth = new HttpHeaders(); capabilityAuth.setBearerAuth(token);
         assertThat(http.exchange("/api/v1/public/categories", HttpMethod.GET,
                 new HttpEntity<>(capabilityAuth), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
-        String capabilityPath = "/api/v1/device/me/capabilities";
-        List<Map<String,Object>> reportedCapabilities = List.of(
-                orderedMap("deliveryPlatform","ANDROID","resourceType","LAYER_PARALLAX","runtimeOsVersion","35","placements",List.of("HOME"),"evidence","SYSTEM_PROBE"),
-                orderedMap("deliveryPlatform","ANDROID","resourceType","VIDEO","runtimeOsVersion","35","placements",List.of("HOME","LOCK"),"evidence","SUCCESSFUL_SET"),
-                orderedMap("deliveryPlatform","UNIVERSAL","resourceType","STATIC_IMAGE","runtimeOsVersion","35","placements",List.of("HOME","LOCK"),"evidence","SYSTEM_PROBE"));
-        Map<String,Object> classicProfile = orderedMap(
-                "hostOsFamily","HARMONY_CLASSIC","hostOsVersion","3.0","sdkInt",31,
-                "manufacturer","HUAWEI","model","classic-test","executionMode","ANDROID_COMPATIBLE",
-                "probeVersion",1,"probedAt",Instant.now().toString(),"featureFlags",List.of(),"capabilities",reportedCapabilities);
-        String classicJson = objectMapper.writeValueAsString(classicProfile);
-        JsonNode classicEffective = http.exchange(capabilityPath,HttpMethod.PUT,
-                androidSignedEntity(key,token,"PUT",capabilityPath,classicJson),JsonNode.class).getBody();
-        assertThat(classicEffective.path("effectiveCapabilities")).hasSize(3);
-
-        Map<String,Object> containerProfile = new LinkedHashMap<>(classicProfile);
-        containerProfile.put("hostOsFamily","HARMONY_NATIVE");
-        containerProfile.put("hostOsVersion","5.0");
-        containerProfile.put("executionMode","ANDROID_CONTAINER");
-        containerProfile.put("probeVersion",2);
-        containerProfile.put("probedAt",Instant.now().toString());
-        String containerJson = objectMapper.writeValueAsString(containerProfile);
-        JsonNode containerEffective = http.exchange(capabilityPath,HttpMethod.PUT,
-                androidSignedEntity(key,token,"PUT",capabilityPath,containerJson),JsonNode.class).getBody();
-        assertThat(containerEffective.path("effectiveCapabilities")).hasSize(1);
-        assertThat(containerEffective.path("effectiveCapabilities").get(0).path("deliveryPlatform").asText()).isEqualTo("UNIVERSAL");
-
-        Map<String,Object> containerWithoutSystemWallpaper = new LinkedHashMap<>(containerProfile);
-        containerWithoutSystemWallpaper.put("probeVersion",3);
-        containerWithoutSystemWallpaper.put("probedAt",Instant.now().toString());
-        containerWithoutSystemWallpaper.put("capabilities",List.of());
-        String emptyContainerJson = objectMapper.writeValueAsString(containerWithoutSystemWallpaper);
-        JsonNode emptyContainerEffective = http.exchange(capabilityPath,HttpMethod.PUT,
-                androidSignedEntity(key,token,"PUT",capabilityPath,emptyContainerJson),JsonNode.class).getBody();
-        assertThat(emptyContainerEffective.path("effectiveCapabilities")).isEmpty();
-
-        Map<String,Object> androidProfile = new LinkedHashMap<>(classicProfile);
-        androidProfile.put("hostOsFamily","ANDROID");
-        androidProfile.put("hostOsVersion","15");
-        androidProfile.put("executionMode","NATIVE");
-        androidProfile.put("probeVersion",4);
-        androidProfile.put("probedAt",Instant.now().toString());
-        String androidProfileJson = objectMapper.writeValueAsString(androidProfile);
-        JsonNode finalProfile = http.exchange(capabilityPath,HttpMethod.PUT,
-                androidSignedEntity(key,token,"PUT",capabilityPath,androidProfileJson),JsonNode.class).getBody();
-        assertThat(finalProfile.path("effectiveCapabilities")).hasSize(3);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM device_capability_profile p "
+                + "JOIN device_credential c ON c.device_id=p.device_id WHERE c.credential_key_id=?",
+                Integer.class, keyId)).isZero();
         var principal = androidIdentity.requireSession(token);
         var boundPrincipal = new com.qingjing.wallpaper.device.DevicePrincipal(principal.deviceId(), principal.credentialKeyId(), principal.platform(), principal.credentialType());
         var encryptionPair = generator.generateKeyPair();
@@ -2201,23 +2164,6 @@ class InfrastructureIntegrationIT {
         return new HttpEntity<>(json, headers);
     }
 
-    private JsonNode reportAndroidCapabilities(java.security.KeyPair key, String token) throws Exception {
-        String path = "/api/v1/device/me/capabilities";
-        Map<String, Object> body = orderedMap(
-                "hostOsFamily", "ANDROID", "hostOsVersion", "15", "sdkInt", 35,
-                "manufacturer", "integration", "model", "android-test", "executionMode", "NATIVE",
-                "probeVersion", 1, "probedAt", Instant.now().toString(), "featureFlags", List.of(),
-                "capabilities", List.of(
-                        orderedMap("deliveryPlatform", "ANDROID", "resourceType", "LAYER_PARALLAX", "runtimeOsVersion", "35", "placements", List.of("HOME"), "evidence", "SYSTEM_PROBE"),
-                        orderedMap("deliveryPlatform", "ANDROID", "resourceType", "VIDEO", "runtimeOsVersion", "35", "placements", List.of("HOME", "LOCK"), "evidence", "SYSTEM_PROBE"),
-                        orderedMap("deliveryPlatform", "UNIVERSAL", "resourceType", "STATIC_IMAGE", "runtimeOsVersion", "35", "placements", List.of("HOME", "LOCK"), "evidence", "SYSTEM_PROBE")));
-        String json = objectMapper.writeValueAsString(body);
-        ResponseEntity<JsonNode> response = http.exchange(path, HttpMethod.PUT,
-                androidSignedEntity(key, token, "PUT", path, json), JsonNode.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        return response.getBody();
-    }
-
     private ResponseEntity<JsonNode> androidRedemption(java.security.KeyPair key, String token, String requestKey, Map<String, Object> body) throws Exception {
         String json = objectMapper.writeValueAsString(body), timestamp = Instant.now().toString(), nonce = UUID.randomUUID().toString();
         String hash = java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.getBytes(StandardCharsets.UTF_8)));
@@ -2236,8 +2182,12 @@ class InfrastructureIntegrationIT {
         String fingerprint=java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(encoded));
         String payload="QJ-ANDROID-REGISTER-V1\n"+scope+"\n"+fingerprint+"\n"+timestamp+"\n"+nonce;
         String evidence=Base64.getUrlEncoder().withoutPadding().encodeToString(objectMapper.writeValueAsBytes(Map.of("timestamp",timestamp,"nonce",nonce,"proof",androidSign(key,payload))));
-        String pem="-----BEGIN PUBLIC KEY-----\n"+Base64.getMimeEncoder(64,new byte[]{10}).encodeToString(encoded)+"\n-----END PUBLIC KEY-----";
-        return Map.of("platform","ANDROID","appInstallScope",scope,"credentialType","PLATFORM_PUBLIC_KEY","publicKeyPem",pem,"evidenceToken",evidence);
+        return Map.of("platform","ANDROID","appInstallScope",scope,"credentialType","PLATFORM_PUBLIC_KEY","publicKeyPem",publicKeyPem(key),"evidenceToken",evidence);
+    }
+    private static String publicKeyPem(java.security.KeyPair key) {
+        return "-----BEGIN PUBLIC KEY-----\n"
+                + Base64.getMimeEncoder(64,new byte[]{10}).encodeToString(key.getPublic().getEncoded())
+                + "\n-----END PUBLIC KEY-----";
     }
     private static String androidSign(java.security.KeyPair key, String payload) throws Exception {
         java.security.Signature signer=java.security.Signature.getInstance("SHA256withRSA");
@@ -2248,6 +2198,6 @@ class InfrastructureIntegrationIT {
     private record AdminTestSession(String cookie, String csrf) {
     }
 
-    private record DeviceTestSession(String credentialKeyId, String credentialSecret, String accessToken) {
+    private record DeviceTestSession(String credentialKeyId, java.security.KeyPair credentialKey, String accessToken) {
     }
 }

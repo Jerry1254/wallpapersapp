@@ -235,13 +235,12 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
 .featured-controls .el-input-number { width: 120px; }
 .featured-controls small { flex-basis: 100%; color: var(--admin-muted); line-height: 1.6; }
 .kind-picker { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); grid-auto-rows: 1fr; gap: 12px; }
-.capability-card.el-checkbox {
+.capability-card {
   width: 100%; min-height: 92px; height: auto; margin: 0; padding: 16px;
   align-items: flex-start; border: 1px solid var(--admin-line); border-radius: 12px;
-  background: #fff; cursor: pointer; transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease;
+  background: #fff; transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease;
 }
-.capability-card.el-checkbox:hover { border-color: #d2a45e; transform: translateY(-1px); }
-.capability-card.el-checkbox.is-checked { border-color: var(--admin-accent-deep); background: #fff9ef; box-shadow: 0 0 0 3px rgba(233,145,8,.12); }
+.capability-card.is-checked { border-color: var(--admin-accent-deep); background: #fff9ef; box-shadow: 0 0 0 3px rgba(233,145,8,.12); }
 .capability-card .el-checkbox__input { margin-top: 2px; }
 .capability-card .el-checkbox__inner { width: 18px; height: 18px; border-radius: 5px; }
 .capability-card .el-checkbox__label { min-width: 0; padding-left: 12px; color: var(--admin-ink); white-space: normal; }

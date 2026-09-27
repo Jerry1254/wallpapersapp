@@ -10,7 +10,9 @@ public final class PublicCatalogDtos {
 
     public enum DeliveryPlatform { ANDROID, IOS, HARMONYOS, UNIVERSAL }
 
-    public enum ResourceType { LAYER_PARALLAX, VIDEO, LIVE_PHOTO, STATIC_IMAGE, THEME_PACKAGE }
+    public enum ResourceType { LAYER_PARALLAX, VIDEO, LIVE_PHOTO, STATIC_IMAGE, MOVING_PHOTO }
+
+    public enum Placement { HOME, LOCK }
 
     public record CategorySummary(String id, String name, String slug) {
     }
@@ -47,7 +49,7 @@ public final class PublicCatalogDtos {
     public record DeliveryCapability(
             DeliveryPlatform deliveryPlatform,
             ResourceType resourceType,
-            List<com.qingjing.wallpaper.device.DeviceCapabilityDtos.Placement> placements) {
+            List<Placement> placements) {
     }
 
     public record PublicWallpaperSummary(

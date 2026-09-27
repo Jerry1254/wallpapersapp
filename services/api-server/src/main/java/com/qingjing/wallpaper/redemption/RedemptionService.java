@@ -10,6 +10,7 @@ import com.qingjing.wallpaper.redemption.RedemptionDtos.RedemptionResultCode;
 import com.qingjing.wallpaper.shared.security.RedisRateLimiter;
 import com.qingjing.wallpaper.shared.security.SecurityCrypto;
 import com.qingjing.wallpaper.shared.web.ApiException;
+import com.qingjing.wallpaper.device.DeviceDtos.DevicePlatform;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.time.Duration;
@@ -55,9 +56,11 @@ public class RedemptionService {
         rateLimiter.require("redemption-device", Long.toString(deviceId), 20, Duration.ofMinutes(1));
         rateLimiter.require("redemption-code", codeHash, 60, Duration.ofMinutes(1));
 
-        String deviceStatus = jdbc.queryForObject(
-                "SELECT status FROM anonymous_device WHERE id = ? FOR UPDATE", String.class, deviceId);
-        if (!"ACTIVE".equals(deviceStatus)) {
+        DeviceRow device = jdbc.queryForObject(
+                "SELECT status,platform FROM anonymous_device WHERE id = ? FOR UPDATE",
+                (rs, row) -> new DeviceRow(rs.getString("status"), DevicePlatform.valueOf(rs.getString("platform"))),
+                deviceId);
+        if (device == null || !"ACTIVE".equals(device.status())) {
             throw new ApiException(HttpStatus.FORBIDDEN, "DEVICE_DISABLED", "The device is not active");
         }
         // The device row serializes requests from the same device. A locking read on a
@@ -95,7 +98,7 @@ public class RedemptionService {
         if (wallpapers.isEmpty()) {
             throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_FOUND", "The wallpaper was not found");
         }
-        boolean hasPublishedResource = publishedResources.resolve().contains(wallpaperId);
+        boolean hasPublishedResource = publishedResources.resolve(device.platform()).contains(wallpaperId);
         WallpaperRow wallpaper=wallpapers.get(0);
         if (!wallpaper.status().equals("PUBLISHED") || !hasPublishedResource) {
             complete(
@@ -321,6 +324,9 @@ public class RedemptionService {
     }
 
     private record WallpaperRow(String status,String accessType) {
+    }
+
+    private record DeviceRow(String status, DevicePlatform platform) {
     }
 
     private record EventRow(

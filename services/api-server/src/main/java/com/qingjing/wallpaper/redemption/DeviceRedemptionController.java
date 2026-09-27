@@ -37,7 +37,7 @@ public class DeviceRedemptionController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize,
             HttpServletRequest request) {
-        return entitlements.list(principal(request).deviceId(), page, pageSize);
+        return entitlements.list(principal(request), page, pageSize);
     }
 
     @PostMapping("/redemptions")

@@ -161,6 +161,8 @@ public final class AdminContentDtos {
             List<AdminResourceBinding> bindings,
             @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS)
             com.qingjing.wallpaper.parallax.ParallaxPackageDtos.SourcePackage sourcePackage,
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS)
+            MovingPhotoStatus movingPhoto,
             Instant publishedAt,
             Instant retiredAt,
             Instant createdAt,
@@ -168,6 +170,20 @@ public final class AdminContentDtos {
     }
 
     public record ValidationError(String code, String message) {
+    }
+
+    public record MovingPhotoStatus(
+            String status,
+            GeneratedMediaFile video,
+            GeneratedMediaFile poster,
+            Long durationMs,
+            Integer widthPx,
+            Integer heightPx,
+            String errorCode,
+            boolean publishable) {
+    }
+
+    public record GeneratedMediaFile(String mimeType, long sizeBytes, String sha256) {
     }
 
     public record AdminResourceBinding(String id, AssetRole role, int ordinal, AdminAssetView asset) {
@@ -192,7 +208,7 @@ public final class AdminContentDtos {
         VIDEO,
         LIVE_PHOTO,
         STATIC_IMAGE,
-        THEME_PACKAGE
+        MOVING_PHOTO
     }
 
     public enum AssetRole {
@@ -204,7 +220,7 @@ public final class AdminContentDtos {
         LIVE_PHOTO_IMAGE,
         LIVE_PHOTO_VIDEO,
         STATIC_IMAGE,
-        THEME_PACKAGE
+        MOVING_PHOTO_SOURCE
     }
 
     public enum ResourceVersionStatus {

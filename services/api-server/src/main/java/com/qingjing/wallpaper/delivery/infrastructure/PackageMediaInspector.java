@@ -28,6 +28,58 @@ public final class PackageMediaInspector {
         this.mapper = mapper; this.ffprobe = ffprobe; this.ffmpeg = ffmpeg;
     }
     public record Media(int width, int height, boolean alpha) {}
+    public record MovingPhoto(byte[] video, byte[] poster, int width, int height, long durationMs) {}
+
+    /** Normalizes one operator upload into the two files required by HarmonyOS Moving Photo. */
+    public MovingPhoto movingPhoto(byte[] content) {
+        Path input = null, video = null, poster = null, metadata = null;
+        try {
+            input = Files.createTempFile("qj-moving-photo-source-", ".bin");
+            video = Files.createTempFile("qj-moving-photo-video-", ".mp4");
+            poster = Files.createTempFile("qj-moving-photo-poster-", ".jpg");
+            metadata = Files.createTempFile("qj-moving-photo-probe-", ".json");
+            Files.write(input, content);
+            inspectVideoSource(input);
+            runQuietly(List.of(
+                    ffmpeg, "-v", "error", "-xerror", "-y", "-nostdin",
+                    "-protocol_whitelist", "file,pipe", "-threads", "1", "-i", input.toString(),
+                    "-map", "0:v:0", "-an", "-t", "2", "-r", "30",
+                    "-vf", "scale='min(1080,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+                    "-c:v", "libx264", "-profile:v", "high", "-level:v", "4.2", "-pix_fmt", "yuv420p",
+                    "-preset", "veryfast", "-crf", "20", "-maxrate", "8M", "-bufsize", "16M",
+                    "-map_metadata", "-1", "-movflags", "+faststart", video.toString()), Duration.ofSeconds(90));
+            runQuietly(List.of(
+                    ffmpeg, "-v", "error", "-xerror", "-y", "-nostdin",
+                    "-protocol_whitelist", "file,pipe", "-threads", "1", "-i", video.toString(),
+                    "-map", "0:v:0", "-frames:v", "1", "-q:v", "2", poster.toString()), Duration.ofSeconds(30));
+            run(List.of(ffprobe, "-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries",
+                    "stream=codec_name,codec_type,width,height,pix_fmt,avg_frame_rate:format=duration",
+                    "-of", "json", video.toString()), metadata, Duration.ofSeconds(15));
+            JsonNode root = mapper.readTree(Files.readAllBytes(metadata));
+            JsonNode streams = root.path("streams");
+            if (!streams.isArray() || streams.size() != 1) throw invalid();
+            JsonNode stream = streams.get(0);
+            int width = stream.path("width").asInt();
+            int height = stream.path("height").asInt();
+            long durationMs = Math.round(root.path("format").path("duration").asDouble(Double.NaN) * 1000d);
+            byte[] normalizedVideo = Files.readAllBytes(video);
+            byte[] firstFrame = Files.readAllBytes(poster);
+            if (width < 1 || height < 1 || durationMs < 1 || durationMs > 2000
+                    || normalizedVideo.length < 1 || normalizedVideo.length > MAX_PACKAGE_VIDEO_BYTES
+                    || firstFrame.length < 1 || firstFrame.length > 10L * 1024 * 1024) throw invalid();
+            inspect(normalizedVideo, true);
+            inspect(firstFrame, false);
+            return new MovingPhoto(normalizedVideo, firstFrame, width, height, durationMs);
+        } catch (ApiException exception) { throw exception; }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw invalid(); }
+        catch (Exception exception) { throw invalid(); }
+        finally {
+            try { if (input != null) Files.deleteIfExists(input); } catch (java.io.IOException ignored) { }
+            try { if (video != null) Files.deleteIfExists(video); } catch (java.io.IOException ignored) { }
+            try { if (poster != null) Files.deleteIfExists(poster); } catch (java.io.IOException ignored) { }
+            try { if (metadata != null) Files.deleteIfExists(metadata); } catch (java.io.IOException ignored) { }
+        }
+    }
 
     /**
      * Keeps already compatible Android MP4 bytes unchanged and normalizes common phone exports

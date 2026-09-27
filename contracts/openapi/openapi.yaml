@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.4.1
+  version: 2.5.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -16,7 +16,7 @@ servers:
 security: []
 tags:
   - name: Public Catalog
-    description: 向已认证 App 返回全部已发布资源能力与封面；设备适配由 App 本地判断
+    description: 按已认证安装包平台返回已发布资源能力与封面
   - name: Public Tutorial
     description: 无需设备会话的壁纸设置教程与视频流
   - name: Device Identity
@@ -455,57 +455,6 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
-  /device/me/capabilities:
-    get:
-      tags: [Device Identity]
-      operationId: getDeviceCapabilityProfile
-      summary: 查询当前设备的有效设置能力档案
-      security:
-        - deviceBearer: []
-      responses:
-        '200':
-          description: 当前设备能力档案
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DeviceCapabilityProfile'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '428':
-          $ref: '#/components/responses/PreconditionRequired'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-    put:
-      tags: [Device Identity]
-      operationId: reportDeviceCapabilityProfile
-      summary: 上报系统探测所得的精确设置能力
-      description: 服务端按宿主系统、运行方式和稳定策略收敛 reported capabilities；应用运行在 Android 容器中不等于具备 Android 系统壁纸能力。
-      security:
-        - deviceBearer: []
-      parameters:
-        - $ref: '#/components/parameters/RequestTimestamp'
-        - $ref: '#/components/parameters/RequestNonce'
-        - $ref: '#/components/parameters/RequestSignature'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DeviceCapabilityReportRequest'
-      responses:
-        '200':
-          description: 已保存并返回服务端生效能力
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DeviceCapabilityProfile'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-
   /device/me/entitlements:
     get:
       tags: [Device Entitlement]
@@ -733,6 +682,48 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalError'
+
+  /delivery/moving-photo/poster:
+    get:
+      tags: [Device Entitlement]
+      operationId: downloadMovingPhotoPoster
+      summary: 使用鸿蒙短时票据下载 Moving Photo JPEG 首帧
+      security:
+        - downloadTicketBearer: []
+      responses:
+        '200':
+          description: 与同一资源视频配套的 JPEG 首帧；不构成通用静态壁纸。
+          headers:
+            Digest:
+              schema: { type: string }
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /delivery/moving-photo/video:
+    get:
+      tags: [Device Entitlement]
+      operationId: downloadMovingPhotoVideo
+      summary: 使用鸿蒙短时票据下载 Moving Photo H.264 MP4
+      security:
+        - downloadTicketBearer: []
+      responses:
+        '200':
+          description: 最长 2 秒的 H.264 MP4
+          headers:
+            Digest:
+              schema: { type: string }
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /admin/sessions:
     post:
@@ -1806,6 +1797,35 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /admin/resource-versions/{resourceVersionId}/moving-photo:
+    post:
+      tags: [Admin Catalog]
+      operationId: buildAdminMovingPhoto
+      summary: 从一个鸿蒙原视频生成 Moving Photo 双文件
+      description: 生成最长 2 秒的 H.264 MP4 与 JPEG 首帧，并记录哈希、时长、分辨率和可发布状态。JPEG 只属于该 Moving Photo。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceVersionId'
+      responses:
+        '200':
+          description: 资源版本及生成状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminResourceVersion'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
   /admin/resource-versions/{resourceVersionId}:
     get:
       tags: [Admin Catalog]
@@ -2441,12 +2461,6 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorEnvelope'
-    PreconditionRequired:
-      description: 当前设备尚未上报有效设置能力档案
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorEnvelope'
     UnprocessableEntity:
       description: 请求格式正确但不满足领域或安全校验规则
       content:
@@ -2607,7 +2621,10 @@ components:
         - PARALLAX_PACKAGE_INVALID
         - PARALLAX_PACKAGE_IN_USE
         - CONFIG_INVALID
-        - DEVICE_CAPABILITY_PROFILE_REQUIRED
+        - RESOURCE_PLATFORM_MISMATCH
+        - RESOURCE_NOT_AVAILABLE
+        - WALLPAPER_NOT_AVAILABLE_FOR_PLATFORM
+        - MOVING_PHOTO_PROCESSING_FAILED
 
     WallpaperKind:
       type: string
@@ -2636,7 +2653,7 @@ components:
 
     ResourceType:
       type: string
-      enum: [LAYER_PARALLAX, VIDEO, LIVE_PHOTO, STATIC_IMAGE, THEME_PACKAGE]
+      enum: [LAYER_PARALLAX, VIDEO, LIVE_PHOTO, STATIC_IMAGE, MOVING_PHOTO]
 
     AssetRole:
       type: string
@@ -2650,7 +2667,7 @@ components:
         - LIVE_PHOTO_IMAGE
         - LIVE_PHOTO_VIDEO
         - STATIC_IMAGE
-        - THEME_PACKAGE
+        - MOVING_PHOTO_SOURCE
 
     AssetPurpose:
       type: string
@@ -2665,7 +2682,7 @@ components:
         - LIVE_PHOTO_IMAGE
         - LIVE_PHOTO_VIDEO
         - STATIC_IMAGE
-        - THEME_PACKAGE
+        - MOVING_PHOTO_SOURCE
 
     CategorySummary:
       type: object
@@ -2822,7 +2839,7 @@ components:
           minimum: 0
           maximum: 999999
         availableCapabilities:
-          description: 该作品全部已发布且已启用的资源组合；未按当前设备能力、系统版本或探测档案过滤。
+          description: 按已认证安装包平台裁剪后的已发布资源组合；包含本平台专属资源及 UNIVERSAL / STATIC_IMAGE。
           type: array
           minItems: 1
           items:
@@ -2946,144 +2963,6 @@ components:
         platform:
           $ref: '#/components/schemas/DevicePlatform'
 
-    HostOsFamily:
-      type: string
-      enum: [ANDROID, EMUI, HARMONY_CLASSIC, HARMONY_NATIVE, IOS]
-
-    ExecutionMode:
-      type: string
-      enum: [NATIVE, ANDROID_COMPATIBLE, ANDROID_CONTAINER]
-
-    ReportedDeviceCapability:
-      type: object
-      required: [deliveryPlatform, resourceType, runtimeOsVersion, placements, evidence]
-      properties:
-        deliveryPlatform:
-          $ref: '#/components/schemas/DeliveryPlatform'
-        resourceType:
-          $ref: '#/components/schemas/ResourceType'
-        runtimeOsVersion:
-          type: string
-          pattern: '^[0-9]{1,6}(?:\.[0-9]{1,6}){0,3}$'
-          maxLength: 32
-          description: 执行该设置能力的运行时版本。早期鸿蒙兼容 Android 能力时填写 Android 兼容层版本。
-        placements:
-          type: array
-          minItems: 1
-          maxItems: 2
-          uniqueItems: true
-          items:
-            $ref: '#/components/schemas/Placement'
-        evidence:
-          type: string
-          enum: [SYSTEM_PROBE, SUCCESSFUL_SET]
-
-    EffectiveDeviceCapability:
-      type: object
-      required: [deliveryPlatform, resourceType, runtimeOsVersion, placements]
-      properties:
-        deliveryPlatform:
-          $ref: '#/components/schemas/DeliveryPlatform'
-        resourceType:
-          $ref: '#/components/schemas/ResourceType'
-        runtimeOsVersion:
-          type: string
-          maxLength: 32
-        placements:
-          type: array
-          minItems: 1
-          maxItems: 2
-          uniqueItems: true
-          items:
-            $ref: '#/components/schemas/Placement'
-
-    DeviceCapabilityReportRequest:
-      type: object
-      required: [hostOsFamily, hostOsVersion, manufacturer, model, executionMode, probeVersion, probedAt, capabilities]
-      properties:
-        hostOsFamily:
-          $ref: '#/components/schemas/HostOsFamily'
-        hostOsVersion:
-          type: string
-          minLength: 1
-          maxLength: 32
-        sdkInt:
-          type: integer
-          minimum: 1
-          maximum: 10000
-          nullable: true
-        manufacturer:
-          type: string
-          minLength: 1
-          maxLength: 64
-        model:
-          type: string
-          minLength: 1
-          maxLength: 96
-        executionMode:
-          $ref: '#/components/schemas/ExecutionMode'
-        probeVersion:
-          type: integer
-          minimum: 1
-        probedAt:
-          $ref: '#/components/schemas/Timestamp'
-        featureFlags:
-          type: array
-          maxItems: 64
-          uniqueItems: true
-          items:
-            type: string
-            minLength: 1
-            maxLength: 64
-        capabilities:
-          type: array
-          maxItems: 16
-          items:
-            $ref: '#/components/schemas/ReportedDeviceCapability'
-
-    DeviceCapabilityProfile:
-      type: object
-      required: [version, profileHash, hostOsFamily, hostOsVersion, manufacturer, model, executionMode, probeVersion, probedAt, featureFlags, effectiveCapabilities, recheckRequired]
-      properties:
-        version:
-          type: integer
-          format: int64
-          minimum: 0
-        profileHash:
-          type: string
-          pattern: '^[a-f0-9]{64}$'
-        hostOsFamily:
-          $ref: '#/components/schemas/HostOsFamily'
-        hostOsVersion:
-          type: string
-          maxLength: 32
-        sdkInt:
-          type: integer
-          nullable: true
-        manufacturer:
-          type: string
-          maxLength: 64
-        model:
-          type: string
-          maxLength: 96
-        executionMode:
-          $ref: '#/components/schemas/ExecutionMode'
-        probeVersion:
-          type: integer
-          minimum: 1
-        probedAt:
-          $ref: '#/components/schemas/Timestamp'
-        featureFlags:
-          type: array
-          items:
-            type: string
-        effectiveCapabilities:
-          type: array
-          items:
-            $ref: '#/components/schemas/EffectiveDeviceCapability'
-        recheckRequired:
-          type: boolean
-
     EntitlementSummary:
       type: object
       required: [id, wallpaper, grantedAt]
@@ -3176,7 +3055,7 @@ components:
       properties:
         deliveryMode:
           type: string
-          enum: [SECURE_PACKAGE]
+          enum: [SECURE_PACKAGE, MOVING_PHOTO]
         wallpaperId:
           $ref: '#/components/schemas/LongId'
         cover:
@@ -3208,6 +3087,35 @@ components:
           allOf:
             - $ref: '#/components/schemas/SecurePackageMetadata'
           nullable: true
+        poster:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/DeliveryFile'
+          nullable: true
+          description: MOVING_PHOTO 的 JPEG 首帧；不构成通用静态壁纸能力。
+        video:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/DeliveryFile'
+          nullable: true
+
+    DeliveryFile:
+      type: object
+      required: [url, sha256, sizeBytes, mimeType]
+      properties:
+        url:
+          type: string
+          format: uri-reference
+        sha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+        mimeType:
+          type: string
+          enum: [image/jpeg, video/mp4]
 
     DownloadResourceVersion:
       type: object
@@ -3896,7 +3804,7 @@ components:
 
     AdminResourceVersion:
       type: object
-      required: [id, versionNo, status, bindings, sourcePackage, createdAt, version]
+      required: [id, versionNo, status, bindings, sourcePackage, movingPhoto, createdAt, version]
       properties:
         id:
           $ref: '#/components/schemas/LongId'
@@ -3932,6 +3840,12 @@ components:
             - $ref: '#/components/schemas/AdminParallaxSourcePackage'
           nullable: true
           description: ZIP 导入来源；旧版手工创建资源显式返回 null。
+        movingPhoto:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/AdminMovingPhotoStatus'
+          nullable: true
+          description: 仅 HARMONYOS / MOVING_PHOTO 资源版本存在。
         publishedAt:
           type: string
           allOf:
@@ -3948,6 +3862,59 @@ components:
           type: integer
           format: int64
           minimum: 0
+
+    AdminMovingPhotoStatus:
+      type: object
+      required: [status, publishable]
+      properties:
+        status:
+          type: string
+          enum: [PROCESSING, READY, REJECTED]
+        video:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/AdminGeneratedMediaFile'
+          nullable: true
+        poster:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/AdminGeneratedMediaFile'
+          nullable: true
+        durationMs:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 2000
+          nullable: true
+        widthPx:
+          type: integer
+          minimum: 1
+          nullable: true
+        heightPx:
+          type: integer
+          minimum: 1
+          nullable: true
+        errorCode:
+          type: string
+          maxLength: 64
+          nullable: true
+        publishable:
+          type: boolean
+
+    AdminGeneratedMediaFile:
+      type: object
+      required: [mimeType, sizeBytes, sha256]
+      properties:
+        mimeType:
+          type: string
+          enum: [video/mp4, image/jpeg]
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+        sha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
 
     AdminParallaxSourcePackage:
       type: object

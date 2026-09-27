@@ -4,7 +4,6 @@ import static com.qingjing.wallpaper.asset.application.AssetValidationException.
 import static com.qingjing.wallpaper.asset.application.AssetValidationException.Code.INVALID_JSON;
 import static com.qingjing.wallpaper.asset.application.AssetValidationException.Code.INVALID_VIDEO;
 import static com.qingjing.wallpaper.asset.application.AssetValidationException.Code.TYPE_NOT_ALLOWED_FOR_PURPOSE;
-import static com.qingjing.wallpaper.asset.application.AssetValidationException.Code.UNSAFE_ARCHIVE_ENTRY;
 import static com.qingjing.wallpaper.asset.application.AssetValidationException.Code.VIDEO_DURATION_EXCEEDED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -19,9 +18,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Map;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -164,25 +160,6 @@ class AssetUploadServiceTest {
     }
 
     @Test
-    void validatesSafeArchiveAndRejectsTraversalEntry() throws Exception {
-        ValidatedAsset stored = service.upload(
-                new ByteArrayInputStream(zip(Map.of("manifest.json", "{}", "assets/cover.txt", "ok"))),
-                "theme.zip",
-                "application/zip",
-                AssetPurpose.THEME_PACKAGE);
-        assertThat(stored.mimeType()).isEqualTo("application/zip");
-
-        assertThatThrownBy(() -> service.upload(
-                        new ByteArrayInputStream(zip(Map.of("../escape.txt", "unsafe"))),
-                        "unsafe.zip",
-                        "application/zip",
-                        AssetPurpose.THEME_PACKAGE))
-                .isInstanceOfSatisfying(
-                        AssetValidationException.class,
-                        exception -> assertThat(exception.code()).isEqualTo(UNSAFE_ARCHIVE_ENTRY));
-    }
-
-    @Test
     void validatesTutorialMp4AndRecordsDuration() throws Exception {
         ValidatedAsset stored = service.upload(
                 new ByteArrayInputStream(mp4(73_000)),
@@ -262,18 +239,6 @@ class AssetUploadServiceTest {
         bytes[offset] = (byte) value;
         bytes[offset + 1] = (byte) (value >>> 8);
         bytes[offset + 2] = (byte) (value >>> 16);
-    }
-
-    private static byte[] zip(Map<String, String> entries) throws IOException {
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        try (ZipOutputStream zip = new ZipOutputStream(output)) {
-            for (Map.Entry<String, String> entry : entries.entrySet()) {
-                zip.putNextEntry(new ZipEntry(entry.getKey()));
-                zip.write(entry.getValue().getBytes(StandardCharsets.UTF_8));
-                zip.closeEntry();
-            }
-        }
-        return output.toByteArray();
     }
 
     private static byte[] mp4(int durationMs) throws IOException {

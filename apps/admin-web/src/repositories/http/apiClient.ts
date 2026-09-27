@@ -68,13 +68,13 @@ const throwResponseError = async (response: Response): Promise<never> => {
 };
 
 // 包括响应体读取，避免服务无响应时一直保持“保存中”。上传给予更长窗口。
-const executeRequest = async <T>(path: string, options: RequestInit, read: (response: Response) => Promise<T>): Promise<T> => {
+const executeRequest = async <T>(path: string, options: RequestInit, read: (response: Response) => Promise<T>, timeoutMs?: number): Promise<T> => {
   const controller = new AbortController();
   let timedOut = false;
   const abort = () => controller.abort();
   if (options.signal?.aborted) abort();
   options.signal?.addEventListener('abort', abort, { once: true });
-  const timer = setTimeout(() => { timedOut = true; abort(); }, options.body instanceof FormData ? 60_000 : 15_000);
+  const timer = setTimeout(() => { timedOut = true; abort(); }, timeoutMs ?? (options.body instanceof FormData ? 60_000 : 15_000));
   try {
     const response = await fetch(`${apiBaseUrl}/api/v1${path}`, { ...options, signal: controller.signal, credentials: 'include', cache: 'no-store' });
     if (!response.ok) return await throwResponseError(response);
@@ -92,7 +92,7 @@ const executeRequest = async <T>(path: string, options: RequestInit, read: (resp
 
 export const apiRequest = async <T>(
   path: string,
-  options: RequestInit & { csrf?: boolean } = {}
+  options: RequestInit & { csrf?: boolean; timeoutMs?: number } = {}
 ): Promise<ApiResponse<T>> => {
   const headers = new Headers(options.headers);
   headers.set('Accept', 'application/json');
@@ -118,7 +118,7 @@ export const apiRequest = async <T>(
   }, async (response) => {
     const data = response.status === 204 ? undefined as T : await response.json() as T;
     return { data, etag: response.headers.get('ETag') };
-  });
+  }, options.timeoutMs);
 };
 
 export const apiDownload = async (

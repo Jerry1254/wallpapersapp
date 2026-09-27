@@ -12,6 +12,8 @@ import static com.qingjing.wallpaper.catalog.AdminContentDtos.DeliveryPlatform;
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.ResourceType;
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.ResourceVersionStatus;
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.WallpaperStatus;
+import static com.qingjing.wallpaper.catalog.AdminContentDtos.GeneratedMediaFile;
+import static com.qingjing.wallpaper.catalog.AdminContentDtos.MovingPhotoStatus;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -121,7 +123,7 @@ public class AdminContentViewReader {
                 """
                 SELECT id, wallpaper_id, platform, resource_type, minimum_os_version,
                        capability_requirements, enabled, lock_version
-                FROM wallpaper_variant WHERE id = ?
+                FROM wallpaper_variant WHERE id = ? AND resource_type <> 'THEME_PACKAGE'
                 """,
                 this::mapVariant,
                 variantId);
@@ -136,7 +138,7 @@ public class AdminContentViewReader {
                 """
                 SELECT id, wallpaper_id, platform, resource_type, minimum_os_version,
                        capability_requirements, enabled, lock_version
-                FROM wallpaper_variant WHERE id = ?
+                FROM wallpaper_variant WHERE id = ? AND resource_type <> 'THEME_PACKAGE'
                 """,
                 this::mapVariant,
                 variantId);
@@ -182,7 +184,7 @@ public class AdminContentViewReader {
                         SELECT id, wallpaper_id, platform, resource_type, minimum_os_version,
                                capability_requirements, enabled, lock_version
                         FROM wallpaper_variant
-                        WHERE wallpaper_id = ?
+                        WHERE wallpaper_id = ? AND resource_type <> 'THEME_PACKAGE'
                         ORDER BY id
                         """,
                         this::mapVariant,
@@ -235,10 +237,29 @@ public class AdminContentViewReader {
                 List.of(),
                 bindings,
                 sourcePackages.forVersion(row.id()),
+                movingPhoto(row.id()),
                 instant(row.publishedAt()),
                 instant(row.retiredAt()),
                 row.createdAt().toInstant(),
                 row.lockVersion());
+    }
+
+    private MovingPhotoStatus movingPhoto(long resourceVersionId) {
+        return jdbc.query("""
+                SELECT status, video_size_bytes, video_sha256, poster_size_bytes, poster_sha256,
+                       duration_ms, width_px, height_px, error_code
+                FROM moving_photo_package WHERE resource_version_id=?
+                """, (rs, row) -> {
+            String status = rs.getString("status");
+            GeneratedMediaFile video = rs.getObject("video_size_bytes") == null ? null
+                    : new GeneratedMediaFile("video/mp4", rs.getLong("video_size_bytes"), rs.getString("video_sha256"));
+            GeneratedMediaFile poster = rs.getObject("poster_size_bytes") == null ? null
+                    : new GeneratedMediaFile("image/jpeg", rs.getLong("poster_size_bytes"), rs.getString("poster_sha256"));
+            return new MovingPhotoStatus(
+                    status, video, poster, rs.getObject("duration_ms", Long.class),
+                    rs.getObject("width_px", Integer.class), rs.getObject("height_px", Integer.class),
+                    rs.getString("error_code"), status.equals("READY") && video != null && poster != null);
+        }, resourceVersionId).stream().findFirst().orElse(null);
     }
 
     private List<DeliveryCapability> capabilities(long wallpaperId) {
@@ -247,7 +268,7 @@ public class AdminContentViewReader {
                 SELECT v.platform, v.resource_type, v.minimum_os_version, v.capability_requirements
                 FROM wallpaper_variant v
                 JOIN resource_version rv ON rv.variant_id = v.id AND rv.status = 'PUBLISHED'
-                WHERE v.wallpaper_id = ?
+                WHERE v.wallpaper_id = ? AND v.enabled=TRUE AND v.resource_type <> 'THEME_PACKAGE'
                 ORDER BY v.id
                 """,
                 (resultSet, rowNumber) -> new DeliveryCapability(

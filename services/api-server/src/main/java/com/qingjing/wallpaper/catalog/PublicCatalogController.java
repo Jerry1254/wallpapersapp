@@ -29,7 +29,7 @@ public class PublicCatalogController {
 
     @GetMapping("/categories")
     PublicCategoryList categories(HttpServletRequest request) {
-        return catalog.categories(principal(request).deviceId());
+        return catalog.categories(principal(request).platform());
     }
 
     @GetMapping("/wallpapers")
@@ -46,7 +46,7 @@ public class PublicCatalogController {
             @RequestParam(defaultValue = "DEFAULT") CatalogSort sort,
             HttpServletRequest request) {
         return catalog.wallpapers(
-                principal(request).deviceId(),
+                principal(request).platform(),
                 page,
                 pageSize,
                 optionalId(rootCategoryId, "rootCategoryId"),
@@ -64,7 +64,7 @@ public class PublicCatalogController {
             @PathVariable String wallpaperId,
             HttpServletRequest request) {
         return catalog.wallpaper(
-                principal(request).deviceId(), Ids.parse(wallpaperId, "wallpaperId"));
+                principal(request).platform(), Ids.parse(wallpaperId, "wallpaperId"));
     }
 
     private Long optionalId(String value, String field) {

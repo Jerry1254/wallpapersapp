@@ -6,6 +6,8 @@ import com.qingjing.wallpaper.catalog.PublishedResourceCatalog;
 import com.qingjing.wallpaper.entitlement.EntitlementDtos.EntitlementPage;
 import com.qingjing.wallpaper.entitlement.EntitlementDtos.EntitlementSummary;
 import com.qingjing.wallpaper.shared.web.ApiException;
+import com.qingjing.wallpaper.device.DeviceDtos.DevicePlatform;
+import com.qingjing.wallpaper.device.DevicePrincipal;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -32,16 +34,16 @@ public class DeviceEntitlementService {
     }
 
     @Transactional(readOnly = true)
-    public EntitlementPage list(long deviceId, int page, int pageSize) {
+    public EntitlementPage list(DevicePrincipal principal, int page, int pageSize) {
         if (page < 1 || pageSize < 1 || pageSize > 100) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "page and pageSize are outside the accepted range");
         }
-        var visible = publishedResources.resolve();
+        var visible = publishedResources.resolve(principal.platform());
         if (visible.wallpaperIds().isEmpty()) {
             return new EntitlementPage(List.of(), new PageMetadata(page, pageSize, 0, 0));
         }
         MapSqlParameterSource parameters = new MapSqlParameterSource()
-                .addValue("deviceId", deviceId)
+                .addValue("deviceId", principal.deviceId())
                 .addValue("wallpaperIds", visible.wallpaperIds());
         Long total = namedJdbc.queryForObject(
                 "SELECT COUNT(*) FROM device_entitlement WHERE device_id = :deviceId AND status = 'ACTIVE' AND wallpaper_id IN (:wallpaperIds)",
@@ -71,7 +73,9 @@ public class DeviceEntitlementService {
     }
 
     public EntitlementSummary summary(long deviceId, long entitlementId, long wallpaperId, Instant grantedAt) {
-        var visible = publishedResources.resolve();
+        DevicePlatform platform = DevicePlatform.valueOf(jdbc.queryForObject(
+                "SELECT platform FROM anonymous_device WHERE id=?", String.class, deviceId));
+        var visible = publishedResources.resolve(platform);
         if (!visible.contains(wallpaperId)) {
             throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_FOUND",
                     "The wallpaper was not found");

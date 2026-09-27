@@ -115,8 +115,8 @@ onMounted(load);
           <header class="panel-heading"><div><h2>上传规则</h2><p>五种设置能力可独立组合</p></div></header>
           <div class="kind-guide">
             <article class="kind-guide__item"><header><strong>Android</strong><ElTag size="small">4D / 动态</ElTag></header><p>4D 上传模拟器导出的完整 ZIP；动态上传 MP4。两项能力可同时发布。</p></article>
-            <article class="kind-guide__item"><header><strong>iOS / HarmonyOS</strong><ElTag size="small" type="warning">平台原生</ElTag></header><p>iOS 上传 MOV 与 JPEG；鸿蒙上传主题资源包。</p></article>
-            <article class="kind-guide__item"><header><strong>全平台静态</strong><ElTag size="small" type="info">独立能力</ElTag></header><p>只有勾选并上传高清原图后，商品才具备静态设置能力。</p></article>
+            <article class="kind-guide__item"><header><strong>iOS / HarmonyOS</strong><ElTag size="small" type="warning">平台原生</ElTag></header><p>iOS 上传 MOV 与 JPEG；鸿蒙上传一个原始视频，由后端生成 Moving Photo。</p></article>
+            <article class="kind-guide__item"><header><strong>全平台静态</strong><ElTag size="small" type="info">独立能力</ElTag></header><p>只有单独上传高清静态原图后，商品才具备静态设置能力。</p></article>
           </div>
         </section>
       </div>

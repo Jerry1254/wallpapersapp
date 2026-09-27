@@ -22,7 +22,6 @@ const expectedOperations = {
   '/device/registrations': ['post'],
   '/device/session-challenges': ['post'],
   '/device/sessions': ['post'],
-  '/device/me/capabilities': ['get', 'put'],
   '/device/me/entitlements': ['get'],
   '/device/encryption-key': ['put'],
   '/device/redemptions': ['post'],
@@ -30,6 +29,8 @@ const expectedOperations = {
   '/device/wallpapers/{wallpaperId}/download-tickets': ['post'],
   '/device/wallpapers/{wallpaperId}/preview-tickets': ['post'],
   '/preview/files': ['get'],
+  '/delivery/moving-photo/poster': ['get'],
+  '/delivery/moving-photo/video': ['get'],
   '/admin/sessions': ['get', 'post', 'delete'],
   '/admin/assets': ['post'],
   '/admin/parallax-packages': ['post'],
@@ -130,7 +131,6 @@ for (const [path, method] of [
 }
 
 const sensitiveDeviceOperations = [
-  document.paths['/device/me/capabilities'].put,
   document.paths['/device/encryption-key'].put,
   document.paths['/device/redemptions'].post,
   document.paths['/device/wallpapers/{wallpaperId}/download-tickets'].post,
@@ -173,7 +173,7 @@ assert.equal(
   true,
   'legacy redemption codes without recoverable material must remain representable'
 );
-assert.deepEqual(document.components.schemas.DownloadDescriptor.properties.deliveryMode.enum, ['SECURE_PACKAGE']);
+assert.deepEqual(document.components.schemas.DownloadDescriptor.properties.deliveryMode.enum, ['SECURE_PACKAGE', 'MOVING_PHOTO']);
 assert.ok(!document.components.schemas.PublicWallpaperSummary.properties.kind, 'wallpaper kind must not remain exclusive');
 assert.ok(document.components.schemas.PublicWallpaperSummary.properties.availableCapabilities);
 for (const path of ['/public/categories', '/public/wallpapers', '/public/wallpapers/{wallpaperId}']) {
@@ -181,10 +181,11 @@ for (const path of ['/public/categories', '/public/wallpapers', '/public/wallpap
 }
 assert.match(
   document.components.schemas.PublicWallpaperSummary.properties.availableCapabilities.description,
-  /全部已发布/,
-  'availableCapabilities must describe the complete published inventory'
+  /安装包平台/,
+  'availableCapabilities must describe the authenticated App platform scope'
 );
-assert.ok(document.components.schemas.DeviceCapabilityReportRequest);
+assert.ok(!document.paths['/device/me/capabilities']);
+assert.ok(!document.components.schemas.DeviceCapabilityReportRequest);
 assert.deepEqual(document.components.schemas.PreviewDescriptor.properties.purpose.enum, ['APP_PREVIEW']);
 assert.deepEqual(document.components.schemas.PreviewDescriptor.properties.durationSeconds.enum, [120]);
 assert.deepEqual(document.components.schemas.PreviewPackageMetadata.properties.formatVersion.enum, [3]);

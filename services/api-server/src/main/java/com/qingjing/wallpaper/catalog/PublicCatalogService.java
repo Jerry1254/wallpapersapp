@@ -12,6 +12,7 @@ import com.qingjing.wallpaper.catalog.PublicCatalogDtos.PublicWallpaperSummary;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.DeliveryPlatform;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.ResourceType;
 import com.qingjing.wallpaper.shared.web.ApiException;
+import com.qingjing.wallpaper.device.DeviceDtos.DevicePlatform;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -46,8 +47,8 @@ public class PublicCatalogService {
     }
 
     @Transactional(readOnly = true)
-    public PublicCategoryList categories(long deviceId) {
-        PublishedCatalog visible = publishedResources.resolve();
+    public PublicCategoryList categories(DevicePlatform appPlatform) {
+        PublishedCatalog visible = publishedResources.resolve(appPlatform);
         if (visible.wallpaperIds().isEmpty()) return new PublicCategoryList(List.of());
         Map<Long, Long> rootCounts = new HashMap<>();
         Map<Long, Long> childCounts = new HashMap<>();
@@ -92,7 +93,7 @@ public class PublicCatalogService {
 
     @Transactional(readOnly = true)
     public PublicWallpaperPage wallpapers(
-            long deviceId,
+            DevicePlatform appPlatform,
             int page,
             int pageSize,
             Long rootCategoryId,
@@ -107,7 +108,12 @@ public class PublicCatalogService {
         validateCategories(rootCategoryId, childCategoryId);
         validateCapabilityFilter(deliveryPlatform, resourceType);
         String normalizedQuery = normalizeQuery(query);
-        PublishedCatalog visible = publishedResources.resolve();
+        PublishedCatalog visible = publishedResources.resolve(appPlatform);
+        if (deliveryPlatform != null
+                && !PlatformResourceScope.visibleTo(appPlatform, deliveryPlatform, resourceType)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "RESOURCE_PLATFORM_MISMATCH",
+                    "The requested resource does not belong to the authenticated App platform");
+        }
         List<Long> scopedWallpaperIds = deliveryPlatform == null
                 ? List.copyOf(visible.wallpaperIds())
                 : visible.capabilitiesByWallpaper().entrySet().stream()
@@ -165,12 +171,7 @@ public class PublicCatalogService {
     }
 
     @Transactional(readOnly = true)
-    public PublicWallpaperDetail wallpaper(long deviceId, long wallpaperId) {
-        PublishedCatalog visible = publishedResources.resolve();
-        if (!visible.contains(wallpaperId)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_FOUND",
-                    "The wallpaper was not found");
-        }
+    public PublicWallpaperDetail wallpaper(DevicePlatform appPlatform, long wallpaperId) {
         List<DetailRow> rows = jdbc.query("""
                 SELECT copyright_note, published_at FROM wallpaper
                 WHERE id = ? AND status = 'PUBLISHED'
@@ -178,6 +179,11 @@ public class PublicCatalogService {
                 rs.getString("copyright_note"), rs.getTimestamp("published_at")), wallpaperId);
         if (rows.isEmpty()) {
             throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_FOUND", "The wallpaper was not found");
+        }
+        PublishedCatalog visible = publishedResources.resolve(appPlatform);
+        if (!visible.contains(wallpaperId)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_AVAILABLE_FOR_PLATFORM",
+                    "The wallpaper is not available for this App platform");
         }
         DetailRow row = rows.get(0);
         return PublicWallpaperDetail.from(
@@ -222,7 +228,7 @@ public class PublicCatalogService {
         boolean valid = (platform == DeliveryPlatform.ANDROID
                 && (resourceType == ResourceType.LAYER_PARALLAX || resourceType == ResourceType.VIDEO))
                 || (platform == DeliveryPlatform.IOS && resourceType == ResourceType.LIVE_PHOTO)
-                || (platform == DeliveryPlatform.HARMONYOS && resourceType == ResourceType.THEME_PACKAGE)
+                || (platform == DeliveryPlatform.HARMONYOS && resourceType == ResourceType.MOVING_PHOTO)
                 || (platform == DeliveryPlatform.UNIVERSAL && resourceType == ResourceType.STATIC_IMAGE);
         if (!valid) throw validation("Unsupported deliveryPlatform/resourceType pair");
     }

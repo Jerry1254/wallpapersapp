@@ -67,6 +67,32 @@ class PackageMediaInspectorTest {
         } finally { Files.deleteIfExists(source); }
     }
 
+    @Test
+    void createsBoundedHarmonyMovingPhotoPair() throws Exception {
+        Assumptions.assumeTrue(canRun(ffmpeg, "-version") && canRun(ffprobe, "-version"),
+                "FFmpeg and FFprobe are required");
+        Path source = Files.createTempFile("qj-moving-photo-source-", ".mov");
+        try {
+            Process process = new ProcessBuilder(List.of(
+                    ffmpeg, "-v", "error", "-y", "-nostdin", "-f", "lavfi", "-i",
+                    "testsrc2=size=64x96:rate=12", "-t", "3", "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p", "-threads", "1", source.toString()))
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            assertThat(process.waitFor(30, TimeUnit.SECONDS)).isTrue();
+            assertThat(process.exitValue()).isZero();
+
+            var result = new PackageMediaInspector(new ObjectMapper(), ffprobe, ffmpeg)
+                    .movingPhoto(Files.readAllBytes(source));
+
+            assertThat(result.durationMs()).isBetween(1L, 2000L);
+            assertThat(result.width()).isEqualTo(64);
+            assertThat(result.height()).isEqualTo(96);
+            assertThat(streamTypes(result.video())).containsExactly("h264,video");
+            assertThat(result.poster()).startsWith((byte) 0xff, (byte) 0xd8, (byte) 0xff);
+        } finally { Files.deleteIfExists(source); }
+    }
+
     private List<String> streamTypes(byte[] content) throws Exception {
         Path input = Files.createTempFile("qj-normalized-", ".mp4");
         Path output = Files.createTempFile("qj-normalized-", ".csv");

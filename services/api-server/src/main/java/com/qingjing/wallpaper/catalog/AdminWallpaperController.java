@@ -38,9 +38,13 @@ public class AdminWallpaperController {
     private final AdminWallpaperService wallpapers;
 
     private final com.qingjing.wallpaper.delivery.SecurePackagePublisher packages;
+    private final com.qingjing.wallpaper.delivery.MovingPhotoPublisher movingPhotos;
 
-    public AdminWallpaperController(AdminWallpaperService wallpapers, com.qingjing.wallpaper.delivery.SecurePackagePublisher packages) {
+    public AdminWallpaperController(AdminWallpaperService wallpapers,
+            com.qingjing.wallpaper.delivery.SecurePackagePublisher packages,
+            com.qingjing.wallpaper.delivery.MovingPhotoPublisher movingPhotos) {
         this.packages = packages;
+        this.movingPhotos = movingPhotos;
         this.wallpapers = wallpapers;
     }
 
@@ -94,7 +98,11 @@ public class AdminWallpaperController {
             @PathVariable String wallpaperId,
             @RequestHeader("If-Match") String ifMatch,
             @Valid @RequestBody PublishWallpaperRequest request) {
-        request.resourceVersionIds().forEach(id -> packages.prepareForPublication(Ids.parse(id, "resourceVersionIds")));
+        request.resourceVersionIds().forEach(id -> {
+            long versionId = Ids.parse(id, "resourceVersionIds");
+            movingPhotos.prepareForPublication(versionId);
+            packages.prepareForPublication(versionId);
+        });
         AdminWallpaperDetail wallpaper = wallpapers.publish(
                 Ids.parse(wallpaperId, "wallpaperId"),
                 EntityTags.parseRequired(ifMatch),
@@ -174,13 +182,22 @@ public class AdminWallpaperController {
                 Ids.parse(variantId, "variantId"),
                 request,
                 admin.id());
-        return ResponseEntity.status(201).body(created);
+        long id = Ids.parse(created.id(), "resourceVersionId");
+        movingPhotos.buildIfSupported(id);
+        return ResponseEntity.status(201).body(wallpapers.getResourceVersion(id));
     }
 
     @PostMapping("/resource-versions/{resourceVersionId}/secure-package")
     AdminResourceVersion buildSecurePackage(@PathVariable String resourceVersionId) {
         long id = Ids.parse(resourceVersionId, "resourceVersionId");
         packages.build(id);
+        return wallpapers.getResourceVersion(id);
+    }
+
+    @PostMapping("/resource-versions/{resourceVersionId}/moving-photo")
+    AdminResourceVersion buildMovingPhoto(@PathVariable String resourceVersionId) {
+        long id = Ids.parse(resourceVersionId, "resourceVersionId");
+        movingPhotos.buildIfSupported(id);
         return wallpapers.getResourceVersion(id);
     }
 

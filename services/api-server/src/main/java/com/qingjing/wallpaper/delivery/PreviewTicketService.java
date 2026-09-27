@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.qingjing.wallpaper.asset.application.FileStorage;
 import com.qingjing.wallpaper.asset.application.StorageKey;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.DeliveryPlatform;
+import com.qingjing.wallpaper.catalog.PublicCatalogDtos.ResourceType;
 import com.qingjing.wallpaper.catalog.PublicWallpaperViewReader;
+import com.qingjing.wallpaper.catalog.PlatformResourceScope;
 import com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec;
 import com.qingjing.wallpaper.device.*;
 import com.qingjing.wallpaper.shared.security.RedisRateLimiter;
@@ -32,6 +34,10 @@ public class PreviewTicketService {
     }
     public PreviewDtos.PreviewDescriptor create(DevicePrincipal principal,long wallpaperId,PreviewDtos.CreatePreviewTicketRequest request) {
         limiter.require("preview-ticket",Long.toString(principal.deviceId()),6,Duration.ofMinutes(1));
+        if(!PlatformResourceScope.visibleTo(principal.platform(),request.deliveryPlatform(),request.resourceType())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,"RESOURCE_PLATFORM_MISMATCH",
+                    "The requested resource does not belong to the authenticated App platform");
+        }
         if(principal.platform()!=DeviceDtos.DevicePlatform.ANDROID || !devices.isAndroidEnabled()) throw unavailable();
         wallpapers.summary(wallpaperId);
         var publicKey=keys.require(principal);String fingerprint=SecurePackageCodec.sha256(publicKey.getEncoded());
@@ -41,7 +47,8 @@ public class PreviewTicketService {
         try { wrapped=Base64.getUrlEncoder().withoutPadding().encodeToString(SecurePackageCodec.wrapContentKey(key,publicKey)); }
         finally { Arrays.fill(key,(byte)0); }
         Instant expiry=Instant.now().plus(TTL);String token=crypto.randomToken(32);
-        Ticket state=new Ticket(principal.deviceId(),principal.credentialKeyId(),wallpaperId,selected.version(),fingerprint,expiry.toString());validate(state);
+        Ticket state=new Ticket(principal.deviceId(),principal.credentialKeyId(),wallpaperId,selected.version(),fingerprint,
+                request.deliveryPlatform(),request.resourceType(),expiry.toString());validate(state);
         try { redis.opsForValue().set(ticketKey(token),mapper.writeValueAsString(state),TTL); }
         catch(com.fasterxml.jackson.core.JsonProcessingException error) { throw new IllegalStateException("Cannot serialize preview grant"); }
         return new PreviewDtos.PreviewDescriptor("APP_PREVIEW","APP_PREVIEW",120,Long.toString(wallpaperId),token,"/api/v1/preview/files",expiry,
@@ -70,7 +77,8 @@ public class PreviewTicketService {
         catch(Exception error) { throw invalid(); }
     }
     private Package validate(Ticket ticket) {
-        if(!devices.isAndroidEnabled()) throw invalid();
+        if(!devices.isAndroidEnabled()
+                || !PlatformResourceScope.visibleTo(DeviceDtos.DevicePlatform.ANDROID,ticket.resourcePlatform(),ticket.resourceType())) throw invalid();
         var scopes=jdbc.queryForList("""
             SELECT d.app_install_scope FROM anonymous_device d JOIN device_credential c ON c.device_id=d.id JOIN device_encryption_key k ON k.credential_id=c.id
             WHERE d.id=? AND d.status='ACTIVE' AND d.platform='ANDROID' AND c.credential_key_id=? AND c.status='ACTIVE' AND k.public_key_sha256=?
@@ -78,7 +86,10 @@ public class PreviewTicketService {
         if(scopes.size()!=1 || !devices.isAndroidScopeAllowed(scopes.get(0))) throw invalid();
         var rows=jdbc.query(SELECT+" WHERE r.id=? AND w.id=? AND w.status='PUBLISHED' AND r.status='PUBLISHED' AND v.enabled=TRUE",PreviewTicketService::row,ticket.version(),ticket.wallpaper());
         if(rows.size()!=1) throw invalid();
-        return rows.get(0);
+        Package selected=rows.get(0);
+        if(!selected.platform().equals(ticket.resourcePlatform().name())
+                || !selected.type().equals(ticket.resourceType().name())) throw invalid();
+        return selected;
     }
     private String ticketKey(String token) { return "preview-ticket-v1:"+crypto.hmacHex("preview-ticket-v1",token); }
     private static final String SELECT="""
@@ -90,8 +101,9 @@ public class PreviewTicketService {
         return new Package(rs.getLong("id"),rs.getLong("variant_id"),rs.getInt("version_no"),rs.getString("platform"),rs.getString("resource_type"),rs.getString("minimum_os_version"),rs.getInt("requirement_count"),
             rs.getString("storage_key"),rs.getLong("size_bytes"),rs.getLong("plaintext_size_bytes"),rs.getString("encrypted_sha256"),rs.getString("plaintext_sha256"),rs.getString("manifest_sha256"),rs.getString("signing_key_id"),rs.getString("content_key_ciphertext"));
     }
-    public record Ticket(long device,String credential,long wallpaper,long version,String fingerprint,String expires) { }
+    public record Ticket(long device,String credential,long wallpaper,long version,String fingerprint,
+            DeliveryPlatform resourcePlatform,ResourceType resourceType,String expires) { }
     private record Package(long version,long variant,int number,String platform,String type,String minimum,int requirements,String storage,long size,long plainSize,String encryptedHash,String plainHash,String manifest,String signing,String encryptedKey) { }
-    private static ApiException unavailable() { return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,"PREVIEW_RESOURCE_NOT_READY","A compatible app preview is unavailable"); }
+    private static ApiException unavailable() { return new ApiException(HttpStatus.NOT_FOUND,"RESOURCE_NOT_AVAILABLE","The requested resource is not available"); }
     private static ApiException invalid() { return new ApiException(HttpStatus.UNAUTHORIZED,"PREVIEW_TICKET_INVALID","The preview grant is invalid or expired"); }
 }
