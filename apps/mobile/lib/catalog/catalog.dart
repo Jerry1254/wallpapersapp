@@ -58,8 +58,17 @@ class Wallpaper {
   bool get isFree => accessType == 'FREE';
   bool get availableInAndroidPackage => availableCapabilities.isNotEmpty;
   List<String> get capabilityLabels {
-    final labels = availableCapabilities.map((item) => item.label).toSet();
-    const order = ['4D壁纸', '安卓动态壁纸', '苹果动态壁纸', '华为动态壁纸', '静态壁纸'];
+    final labels = availableCapabilities
+        .map(
+          (item) => switch (item.resourceType) {
+            'STATIC_IMAGE' => null,
+            'LAYER_PARALLAX' => '4D壁纸',
+            _ => '动态壁纸',
+          },
+        )
+        .whereType<String>()
+        .toSet();
+    const order = ['4D壁纸', '动态壁纸'];
     return order.where(labels.contains).toList(growable: false);
   }
 

@@ -133,7 +133,7 @@ void main() {
       WallpaperEffect.video,
       WallpaperEffect.staticImage,
     ]);
-    expect(item.capabilityLabels, ['安卓动态壁纸', '静态壁纸']);
+    expect(item.capabilityLabels, ['动态壁纸']);
   });
   testWidgets('详情缺失提示且可恢复，不显示假预览或可兑换操作', (tester) async {
     tester.view.physicalSize = const Size(390, 844);

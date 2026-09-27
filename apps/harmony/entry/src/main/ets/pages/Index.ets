@@ -645,6 +645,15 @@ struct Index {
       .borderRadius(12);
   }
 
+  private thumbnailCapabilities(item: WallpaperSummary): WallpaperCapability[] {
+    return item.capabilities.filter((capability: WallpaperCapability) => capability.resourceType !== 'STATIC_IMAGE');
+  }
+
+  private thumbnailCapabilityLabel(capability: WallpaperCapability): string {
+    if (capability.resourceType === 'LAYER_PARALLAX') return '4D壁纸';
+    return '动态壁纸';
+  }
+
   @Builder
   private WallpaperCard(item: WallpaperSummary) {
     Column() {
@@ -655,8 +664,8 @@ struct Index {
           .objectFit(ImageFit.Cover)
           .backgroundColor(T.surfaceMuted);
         Row({ space: 5 }) {
-          ForEach(item.capabilities, (capability: WallpaperCapability) => {
-            this.CapabilityBadge(capability.label);
+          ForEach(this.thumbnailCapabilities(item), (capability: WallpaperCapability) => {
+            this.CapabilityBadge(this.thumbnailCapabilityLabel(capability));
           }, (capability: WallpaperCapability) => capability.deliveryPlatform + capability.resourceType);
           if (item.free) this.CapabilityBadge('免费', true);
         }
@@ -852,8 +861,8 @@ struct Index {
                 Image(this.mediaUrl(item.coverUrl)).width(76).height(96).objectFit(ImageFit.Cover).borderRadius(16);
                 Column({ space: 8 }) {
                   Row({ space: 5 }) {
-                    ForEach(item.capabilities, (capability: WallpaperCapability) => {
-                      this.CapabilityBadge(capability.label);
+                    ForEach(this.thumbnailCapabilities(item), (capability: WallpaperCapability) => {
+                      this.CapabilityBadge(this.thumbnailCapabilityLabel(capability));
                     });
                   }
                   Text(item.title).width('100%').fontSize(16).fontWeight(FontWeight.Bold).fontColor(T.ink);
