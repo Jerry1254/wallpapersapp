@@ -60,6 +60,7 @@ struct Index {
   @State detailPreviewPath: string = '';
   @State detailPreviewLoading: boolean = false;
   @State detailPreviewEnded: boolean = false;
+  @State detailPreviewDuration: number = 0;
   @State detailPreviewError: string = '';
   private context: common.UIAbilityContext | null = null;
   private api: CatalogApi | null = null;
@@ -276,6 +277,7 @@ struct Index {
         await HarmonyDelivery.discardPreview(path);
         return;
       }
+      this.detailPreviewDuration = descriptor.durationSeconds;
       this.detailPreviewPath = path;
       this.detailPreviewLoading = false;
       this.detailPreviewEnded = false;
@@ -290,8 +292,27 @@ struct Index {
   private replayDetailPreview(): void {
     if (this.detailPreviewPath.length === 0) return;
     this.detailPreviewEnded = false;
+    this.detailPreviewError = '';
     this.detailVideoController.stop();
+    this.detailVideoController.setCurrentTime(0);
     this.detailVideoController.start();
+  }
+
+  private finishDetailPreview(): void {
+    if (this.detailPreviewPath.length === 0 || this.detailPreviewEnded) return;
+    this.detailPreviewEnded = true;
+  }
+
+  private scheduleDetailPreviewFinish(): void {
+    const generation: number = this.detailPreviewGeneration;
+    const path: string = this.detailPreviewPath;
+    const duration: number = this.detailPreviewDuration;
+    if (path.length === 0 || duration <= 0) return;
+    setTimeout(() => {
+      if (generation === this.detailPreviewGeneration && path === this.detailPreviewPath) {
+        this.finishDetailPreview();
+      }
+    }, Math.ceil(duration * 1000) + 250);
   }
 
   private clearDetailPreview(): void {
@@ -301,6 +322,7 @@ struct Index {
     this.detailPreviewPath = '';
     this.detailPreviewLoading = false;
     this.detailPreviewEnded = false;
+    this.detailPreviewDuration = 0;
     this.detailPreviewError = '';
     if (previous.length > 0) HarmonyDelivery.discardPreview(previous);
   }
@@ -901,8 +923,20 @@ struct Index {
           Video({ src: 'file://' + this.detailPreviewPath, controller: this.detailVideoController })
             .width('100%').height('100%').objectFit(ImageFit.Cover).controls(false)
             .autoPlay(!this.detailPreviewEnded).loop(false).muted(true)
+            .onPrepared((info: PreparedInfo) => {
+              if (info.duration > 0) this.detailPreviewDuration = info.duration;
+            })
+            .onStart(() => {
+              this.detailPreviewEnded = false;
+              this.scheduleDetailPreviewFinish();
+            })
+            .onUpdate((info: PlaybackInfo) => {
+              if (this.detailPreviewDuration > 0 && info.time >= this.detailPreviewDuration) {
+                this.finishDetailPreview();
+              }
+            })
             .onFinish(() => {
-              this.detailPreviewEnded = true;
+              this.finishDetailPreview();
             })
             .onError(() => {
               this.detailPreviewError = '动态效果暂时无法播放';
@@ -919,7 +953,7 @@ struct Index {
         if (this.detailPreviewEnded) {
           Button() {
             Row({ space: 8 }) {
-              Text('↻').fontSize(22).fontWeight(FontWeight.Bold).fontColor(T.inverseInk);
+              Image($r('app.media.replay_round')).width(22).height(22).objectFit(ImageFit.Contain);
               Text('重新播放').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.inverseInk);
             }
           }
