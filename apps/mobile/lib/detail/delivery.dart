@@ -11,7 +11,7 @@ WallpaperEffect? effectForResource(String type) => switch (type) {
 String effectLabel(WallpaperEffect effect) => switch (effect) {
   WallpaperEffect.staticImage => '静态壁纸',
   WallpaperEffect.video => '动态壁纸',
-  WallpaperEffect.parallax => '4D 壁纸',
+  WallpaperEffect.parallax => '4D壁纸',
 };
 
 String targetLabel(WallpaperTarget target) => switch (target) {
@@ -28,7 +28,7 @@ class WallpaperDeliveryOption {
   String get resourceType => capability.resourceType;
   Set<String> get placements => capability.placements;
   String get key => '$deliveryPlatform/$resourceType';
-  String get label => capability.label;
+  String get label => effectLabel(effect);
 
   bool get canApplyOnAndroid => capability.availableInAndroidPackage;
 }

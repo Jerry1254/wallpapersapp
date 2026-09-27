@@ -60,25 +60,17 @@ class _DetailScreenState extends State<DetailScreen> {
   String? ownershipError, _ownershipKey;
   final Map<String, String?> installedIds = {};
   final Set<String> _checkingInstalled = {};
-  final scroll = ScrollController();
-  bool previewActive = true;
   String? selectedPreviewKey;
   List<WallpaperTutorial>? tutorialCache;
   @override
   void initState() {
     super.initState();
     future = widget.repository.detail(widget.id);
-    scroll.addListener(_scrolled);
     widget.downloads?.addListener(_downloadChanged);
   }
 
   void _downloadChanged() {
     if (mounted) setState(() {});
-  }
-
-  void _scrolled() {
-    final active = scroll.offset < (MediaQuery.sizeOf(context).width - 40) * 2;
-    if (active != previewActive) setState(() => previewActive = active);
   }
 
   Future<void> _ownership() async {
@@ -265,7 +257,7 @@ class _DetailScreenState extends State<DetailScreen> {
           option.deliveryPlatform,
           type,
           cover,
-          previewActive,
+          true,
         ) ??
         DetailPreview(
           key: ValueKey('${wallpaper.id}-${option.key}'),
@@ -273,7 +265,7 @@ class _DetailScreenState extends State<DetailScreen> {
           wallpaperId: wallpaper.id,
           deliveryPlatform: option.deliveryPlatform,
           resourceType: type,
-          active: previewActive,
+          active: true,
           cover: cover,
         );
   }
@@ -281,7 +273,6 @@ class _DetailScreenState extends State<DetailScreen> {
   @override
   void dispose() {
     widget.downloads?.removeListener(_downloadChanged);
-    scroll.dispose();
     if (widget.trials == null) trials?.dispose();
     super.dispose();
   }
@@ -383,158 +374,133 @@ class _DetailScreenState extends State<DetailScreen> {
                             installedIds[previewOption.key] != null)
                   ? '设置壁纸'
                   : '下载壁纸';
-              final mediaQuery = MediaQuery.of(context);
-              final safeViewportHeight =
-                  mediaQuery.size.height - mediaQuery.viewPadding.vertical;
-              final contentWidth = mediaQuery.size.width > T.sizeContentMax
-                  ? T.sizeContentMax
-                  : mediaQuery.size.width;
-              final naturalPreviewHeight = (contentWidth - T.space5 * 2) * 2;
-              final reservedHeight =
-                  T.sizeTopBar +
-                  T.space4 +
-                  T.space6 +
-                  (showsPreviewTabs ? T.sizeTouchTargetMin + T.space3 : 0);
-              final availablePreviewHeight =
-                  safeViewportHeight - reservedHeight;
-              final fittedPreviewHeight =
-                  availablePreviewHeight < naturalPreviewHeight
-                  ? availablePreviewHeight
-                  : naturalPreviewHeight;
-              final previewHeight = fittedPreviewHeight < 320
-                  ? 320.0
-                  : fittedPreviewHeight;
-              return ListView(
-                controller: scroll,
+              return Padding(
                 padding: const EdgeInsets.fromLTRB(
                   T.space5,
                   0,
                   T.space5,
-                  T.space6,
+                  T.space4,
                 ),
-                children: [
-                  QjPageHeader(
-                    title: wallpaper.title,
-                    actionLabel: '观看设置教程',
-                    onAction: () => _openTutorial(wallpaper),
-                  ),
-                  const SizedBox(height: T.space4),
-                  if (showsPreviewTabs) ...[
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: previewTabs
-                            .map(
-                              (option) => Padding(
-                                padding: EdgeInsets.only(
-                                  right: option == previewTabs.last
-                                      ? 0
-                                      : T.space2,
-                                ),
-                                child: QjFilterChip(
-                                  label: option.label,
-                                  selected: option.key == previewOption?.key,
-                                  onPressed: () => setState(
-                                    () => selectedPreviewKey = option.key,
+                child: Column(
+                  children: [
+                    QjPageHeader(
+                      title: wallpaper.title,
+                      actionLabel: '观看设置教程',
+                      onAction: () => _openTutorial(wallpaper),
+                    ),
+                    const SizedBox(height: T.space4),
+                    if (showsPreviewTabs) ...[
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: previewTabs
+                              .map(
+                                (option) => Padding(
+                                  padding: EdgeInsets.only(
+                                    right: option == previewTabs.last
+                                        ? 0
+                                        : T.space2,
                                   ),
-                                ),
-                              ),
-                            )
-                            .toList(growable: false),
-                      ),
-                    ),
-                    const SizedBox(height: T.space3),
-                  ],
-                  Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(T.radiusCard),
-                      boxShadow: const [T.shadowCard],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(T.radiusCard),
-                      child: SizedBox(
-                        height: previewHeight,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            if (widget.downloads != null &&
-                                previewOption != null &&
-                                previewOption.canApplyOnAndroid)
-                              _preview(
-                                wallpaper,
-                                previewOption,
-                                CatalogImage(
-                                  repository: widget.repository,
-                                  path: wallpaper.cover,
-                                ),
-                              )
-                            else
-                              CatalogImage(
-                                repository: widget.repository,
-                                path: wallpaper.cover,
-                              ),
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              height: 132,
-                              child: IgnorePointer(
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                      colors: [
-                                        Colors.transparent,
-                                        T.colorScrim.withValues(alpha: .38),
-                                      ],
+                                  child: QjFilterChip(
+                                    label: option.label,
+                                    selected: option.key == previewOption?.key,
+                                    onPressed: () => setState(
+                                      () => selectedPreviewKey = option.key,
                                     ),
                                   ),
                                 ),
+                              )
+                              .toList(growable: false),
+                        ),
+                      ),
+                      const SizedBox(height: T.space3),
+                    ],
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, available) {
+                          final widthFromPage = available.maxWidth * .82;
+                          final widthFromHeight = available.maxHeight * 9 / 16;
+                          final previewWidth = widthFromPage < widthFromHeight
+                              ? widthFromPage
+                              : widthFromHeight;
+                          return Center(
+                            child: Container(
+                              key: const ValueKey('detail-preview'),
+                              width: previewWidth,
+                              height: previewWidth * 16 / 9,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(
+                                  T.radiusCard,
+                                ),
+                                boxShadow: const [T.shadowCard],
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(
+                                  T.radiusCard,
+                                ),
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    if (widget.downloads != null &&
+                                        previewOption != null &&
+                                        previewOption.canApplyOnAndroid)
+                                      _preview(
+                                        wallpaper,
+                                        previewOption,
+                                        CatalogImage(
+                                          repository: widget.repository,
+                                          path: wallpaper.cover,
+                                        ),
+                                      )
+                                    else
+                                      CatalogImage(
+                                        repository: widget.repository,
+                                        path: wallpaper.cover,
+                                      ),
+                                  ],
+                                ),
                               ),
                             ),
-                            Positioned(
-                              left: T.space4,
-                              right: T.space4,
-                              bottom: T.space4,
-                              child: QjPrimaryAction(
-                                label: label,
-                                accent: true,
-                                loading: waitsForOwnership,
-                                onPressed:
-                                    usable &&
-                                        !waitsForOwnership &&
-                                        !downloadingCurrent &&
-                                        (wallpaper.isFree ||
-                                            ownershipError == null)
-                                    ? () => _action(wallpaper, previewOption!)
-                                    : null,
+                          );
+                        },
+                      ),
+                    ),
+                    if (!wallpaper.isFree && ownershipError != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: T.space3),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                ownershipError!,
+                                style: Theme.of(context).textTheme.bodySmall,
                               ),
+                            ),
+                            TextButton(
+                              onPressed: _ownership,
+                              child: const Text('重新加载'),
                             ),
                           ],
                         ),
                       ),
-                    ),
-                  ),
-                  if (!wallpaper.isFree && ownershipError != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: T.space3),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              ownershipError!,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: _ownership,
-                            child: const Text('重新加载'),
-                          ),
-                        ],
+                    const SizedBox(height: T.space3),
+                    FractionallySizedBox(
+                      widthFactor: .82,
+                      child: QjPrimaryAction(
+                        label: label,
+                        accent: true,
+                        loading: waitsForOwnership,
+                        onPressed:
+                            usable &&
+                                !waitsForOwnership &&
+                                !downloadingCurrent &&
+                                (wallpaper.isFree || ownershipError == null)
+                            ? () => _action(wallpaper, previewOption!)
+                            : null,
                       ),
                     ),
-                ],
+                  ],
+                ),
               );
             },
           ),

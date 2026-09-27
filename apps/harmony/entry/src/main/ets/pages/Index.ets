@@ -654,6 +654,12 @@ struct Index {
     return '动态壁纸';
   }
 
+  private detailCapabilityLabel(capability: WallpaperCapability): string {
+    if (capability.resourceType === 'STATIC_IMAGE') return '静态壁纸';
+    if (capability.resourceType === 'LAYER_PARALLAX') return '4D壁纸';
+    return '动态壁纸';
+  }
+
   @Builder
   private WallpaperCard(item: WallpaperSummary) {
     Column() {
@@ -910,7 +916,7 @@ struct Index {
         Scroll() {
           Row({ space: 8 }) {
             ForEach(item.capabilities, (capability: WallpaperCapability) => {
-              Button(capability.label).height(38).fontSize(13).fontWeight(FontWeight.Bold)
+              Button(this.detailCapabilityLabel(capability)).height(38).fontSize(13).fontWeight(FontWeight.Bold)
                 .fontColor(this.selectedCapability === capability.label ? T.inverseInk : T.ink)
                 .backgroundColor(this.selectedCapability === capability.label ? T.navigation : T.surface)
                 .border({ width: 1, color: T.outlineStrong }).borderRadius(19)
@@ -923,69 +929,75 @@ struct Index {
         .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%')
         .margin({ top: 12, bottom: 12 });
       }
-      Stack({ alignContent: Alignment.Bottom }) {
-        Image(this.mediaUrl(item.coverUrl)).width('100%').height('100%').objectFit(ImageFit.Cover)
-          .backgroundColor(T.surfaceMuted);
-        if (this.detailPreviewPath.length > 0) {
-          Video({ src: 'file://' + this.detailPreviewPath, controller: this.detailVideoController })
-            .width('100%').height('100%').objectFit(ImageFit.Cover).controls(false)
-            .autoPlay(!this.detailPreviewEnded).loop(false).muted(true)
-            .onStart(() => {
-              this.detailPreviewEnded = false;
-              this.scheduleDetailPreviewFinish();
-            })
-            .onUpdate((info: PlaybackInfo) => {
-              if (info.time >= DETAIL_PREVIEW_SECONDS) {
+      Column() {
+        Stack({ alignContent: Alignment.Bottom }) {
+          Image(this.mediaUrl(item.coverUrl)).width('100%').height('100%').objectFit(ImageFit.Cover)
+            .backgroundColor(T.surfaceMuted);
+          if (this.detailPreviewPath.length > 0) {
+            Video({ src: 'file://' + this.detailPreviewPath, controller: this.detailVideoController })
+              .width('100%').height('100%').objectFit(ImageFit.Cover).controls(false)
+              .autoPlay(!this.detailPreviewEnded).loop(false).muted(true)
+              .onStart(() => {
+                this.detailPreviewEnded = false;
+                this.scheduleDetailPreviewFinish();
+              })
+              .onUpdate((info: PlaybackInfo) => {
+                if (info.time >= DETAIL_PREVIEW_SECONDS) {
+                  this.finishDetailPreview();
+                }
+              })
+              .onFinish(() => {
                 this.finishDetailPreview();
-              }
-            })
-            .onFinish(() => {
-              this.finishDetailPreview();
-            })
-            .onError(() => {
-              this.detailPreviewError = '动态效果暂时无法播放';
-            });
-        }
-        Stack({ alignContent: Alignment.Center }) {
-          if (this.detailPreviewLoading) {
-            Row({ space: 8 }) {
-              LoadingProgress().width(20).height(20).color(T.inverseInk);
-              Text('正在加载动态效果').fontSize(13).fontColor(T.inverseInk);
-            }
-            .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-            .backgroundColor('#BB191817').borderRadius(18);
+              })
+              .onError(() => {
+                this.detailPreviewError = '动态效果暂时无法播放';
+              });
           }
-          if (this.detailPreviewEnded) {
-            Button() {
+          Stack({ alignContent: Alignment.Center }) {
+            if (this.detailPreviewLoading) {
               Row({ space: 8 }) {
-                Image($r('app.media.replay_round')).width(22).height(22).objectFit(ImageFit.Contain);
-                Text('重新播放').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.inverseInk);
+                LoadingProgress().width(20).height(20).color(T.inverseInk);
+                Text('正在加载动态效果').fontSize(13).fontColor(T.inverseInk);
               }
+              .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+              .backgroundColor('#BB191817').borderRadius(18);
             }
-            .height(46).padding({ left: 18, right: 18 }).backgroundColor('#CC191817').borderRadius(23)
-            .onClick(() => this.replayDetailPreview());
+            if (this.detailPreviewEnded) {
+              Button() {
+                Row({ space: 8 }) {
+                  Image($r('app.media.replay_round')).width(22).height(22).objectFit(ImageFit.Contain);
+                  Text('重新播放').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.inverseInk);
+                }
+              }
+              .height(46).padding({ left: 18, right: 18 }).backgroundColor('#CC191817').borderRadius(23)
+              .onClick(() => this.replayDetailPreview());
+            }
           }
+          .width('100%').height('100%');
+          Column() {
+            if (this.detailPreviewError.length > 0) {
+              Text(this.detailPreviewError).fontSize(13).fontColor(T.inverseInk).backgroundColor('#BB191817')
+                .padding({ left: 12, right: 12, top: 8, bottom: 8 }).borderRadius(14).margin({ bottom: 10 });
+            }
+            if (this.statusMessage.length > 0) {
+              Text(this.statusMessage).fontSize(13).fontColor(T.inverseInk).backgroundColor('#BB191817')
+                .padding({ left: 12, right: 12, top: 8, bottom: 8 }).borderRadius(14).margin({ bottom: 10 });
+            }
+          }
+          .width('100%').padding(12).align(Alignment.Bottom);
         }
-        .width('100%').height('100%');
-        Column() {
-          if (this.detailPreviewError.length > 0) {
-            Text(this.detailPreviewError).fontSize(13).fontColor(T.inverseInk).backgroundColor('#BB191817')
-              .padding({ left: 12, right: 12, top: 8, bottom: 8 }).borderRadius(14).margin({ bottom: 10 });
-          }
-          if (this.statusMessage.length > 0) {
-            Text(this.statusMessage).fontSize(13).fontColor(T.inverseInk).backgroundColor('#BB191817')
-              .padding({ left: 12, right: 12, top: 8, bottom: 8 }).borderRadius(14).margin({ bottom: 10 });
-          }
-          Button(this.detailActionLabel(item))
-            .width('100%').height(T.primaryHeight).fontSize(17).fontWeight(FontWeight.Bold)
-            .fontColor(T.ink).backgroundColor(T.accent).borderRadius(27)
-            .onClick(() => this.primaryDetailAction(item));
-        }
-        .width('100%').padding(16).align(Alignment.Bottom);
+        .width('82%').aspectRatio(9 / 16).borderRadius(T.cardRadius).clip(true);
       }
-      .width('100%').layoutWeight(1).borderRadius(T.cardRadius).clip(true).margin({ bottom: 20 });
+      .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+      .margin({ top: 12 });
+      Button(this.detailActionLabel(item))
+        .width('82%').height(T.primaryHeight).fontSize(17).fontWeight(FontWeight.Bold)
+        .fontColor(T.ink).backgroundColor(T.accent).borderRadius(27)
+        .margin({ top: 12, bottom: 20 })
+        .onClick(() => this.primaryDetailAction(item));
     }
-    .width('100%').height('100%').padding({ left: T.gutter, right: T.gutter });
+    .width('100%').height('100%').alignItems(HorizontalAlign.Center)
+    .padding({ left: T.gutter, right: T.gutter });
   }
 
   @Builder

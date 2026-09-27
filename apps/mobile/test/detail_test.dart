@@ -126,7 +126,7 @@ void main() {
       },
     ]);
     expect(deliveryOptions(item).map((option) => option.label), [
-      '安卓动态壁纸',
+      '动态壁纸',
       '静态壁纸',
     ]);
     expect(deliveryEffects(item, ClientPlatform.unknown), [
@@ -204,15 +204,22 @@ void main() {
     QjFilterChip chip(String label) =>
         tester.widget<QjFilterChip>(find.widgetWithText(QjFilterChip, label));
     expect(chip('4D壁纸').selected, isTrue);
-    expect(chip('安卓动态壁纸').selected, isFalse);
+    expect(chip('动态壁纸').selected, isFalse);
+    final preview = find.byKey(const ValueKey('detail-preview'));
     final action = find.widgetWithText(QjPrimaryAction, '下载壁纸');
+    expect(preview, findsOneWidget);
     expect(action, findsOneWidget);
-    expect(tester.getBottomRight(action).dy, lessThanOrEqualTo(844));
+    final previewRect = tester.getRect(preview);
+    final actionRect = tester.getRect(action);
+    expect(previewRect.width / previewRect.height, closeTo(9 / 16, .001));
+    expect(previewRect.width, lessThan(350));
+    expect(actionRect.top, greaterThan(previewRect.bottom));
+    expect(actionRect.bottom, lessThanOrEqualTo(844));
 
-    await tester.tap(find.text('安卓动态壁纸').first);
+    await tester.tap(find.text('动态壁纸').first);
     await tester.pump();
     expect(chip('4D壁纸').selected, isFalse);
-    expect(chip('安卓动态壁纸').selected, isTrue);
+    expect(chip('动态壁纸').selected, isTrue);
   });
 
   testWidgets('安卓包过滤其他平台资源并按固定顺序切换当前形式', (tester) async {
@@ -227,7 +234,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    for (final label in const ['4D壁纸', '安卓动态壁纸', '静态壁纸']) {
+    for (final label in const ['4D壁纸', '动态壁纸', '静态壁纸']) {
       expect(find.widgetWithText(QjFilterChip, label), findsOneWidget);
     }
     expect(find.widgetWithText(QjFilterChip, '苹果动态壁纸'), findsNothing);
@@ -237,11 +244,11 @@ void main() {
           .selected,
       isTrue,
     );
-    await tester.tap(find.text('安卓动态壁纸'));
+    await tester.tap(find.text('动态壁纸'));
     await tester.pump();
     expect(
       tester
-          .widget<QjFilterChip>(find.widgetWithText(QjFilterChip, '安卓动态壁纸'))
+          .widget<QjFilterChip>(find.widgetWithText(QjFilterChip, '动态壁纸'))
           .selected,
       isTrue,
     );
