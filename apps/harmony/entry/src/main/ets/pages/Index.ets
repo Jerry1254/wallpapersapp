@@ -182,6 +182,16 @@ struct Index {
     this.qrPreview = false;
   }
 
+  private goBack(): void {
+    if (this.page === 'DETAIL') {
+      this.page = this.activeTab === 0 ? 'HOME' : 'MINE';
+      this.selectedDetail = null;
+      return;
+    }
+    this.page = this.returnPage;
+    this.selectedTutorial = null;
+  }
+
   private async copyWechat(): Promise<void> {
     try {
       await CustomerSupport.copyWechat();
@@ -423,23 +433,16 @@ struct Index {
   @Builder
   private PageHeader(title: string, showService: boolean = false) {
     Row() {
-      Button('‹')
+      Button() {
+        Image($r('app.media.chevron_left')).width(20).height(20).objectFit(ImageFit.Contain);
+      }
         .width(44)
         .height(44)
-        .fontSize(30)
-        .fontColor(T.ink)
+        .padding(0)
         .backgroundColor(T.surface)
         .border({ width: 1, color: T.outline })
         .borderRadius(22)
-        .onClick(() => {
-          if (this.page === 'DETAIL') {
-            this.page = this.activeTab === 0 ? 'HOME' : 'MINE';
-            this.selectedDetail = null;
-          } else {
-            this.page = this.returnPage;
-            this.selectedTutorial = null;
-          }
-        });
+        .onClick(() => this.goBack());
       Text(title)
         .fontSize(22)
         .fontWeight(FontWeight.Bolder)
@@ -766,21 +769,21 @@ struct Index {
   private DetailPage(item: WallpaperSummary) {
     Column() {
       Row() {
-        Button('‹').width(44).height(44).fontSize(30).fontColor(T.ink).backgroundColor(T.surface)
+        Button() {
+          Image($r('app.media.chevron_left')).width(20).height(20).objectFit(ImageFit.Contain);
+        }
+          .width(44).height(44).padding(0).backgroundColor(T.surface)
           .border({ width: 1, color: T.outline }).borderRadius(22)
-          .onClick(() => {
-            this.page = this.activeTab === 0 ? 'HOME' : 'MINE';
-            this.selectedDetail = null;
-          });
+          .onClick(() => this.goBack());
         Text(item.title).fontSize(22).fontWeight(FontWeight.Bolder).fontColor(T.ink)
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).margin({ left: 8 });
         Button() {
-          Row({ space: 6 }) {
-            Image($r('app.media.circle_play')).width(18).height(18).objectFit(ImageFit.Contain);
+          Row({ space: 8 }) {
+            Image($r('app.media.circle_play')).width(17).height(17).objectFit(ImageFit.Contain);
             Text('观看设置教程').fontSize(12).fontWeight(FontWeight.Bold).fontColor(T.accentStrong);
           }
         }
-          .height(44)
+          .width(142).height(44).padding({ left: 13, right: 13 })
           .fontColor(T.accentStrong).backgroundColor(T.accentSoft)
           .border({ width: 1, color: T.accent }).borderRadius(22)
           .onClick(() => this.openDetailTutorial());
@@ -896,7 +899,8 @@ struct Index {
             .onClick(() => this.qrPreview = true);
           Text('点击二维码可放大查看').fontSize(12).fontColor(T.mutedInk).margin({ top: 8 });
           Row() {
-            SaveButton({ text: SaveDescription.SAVE_IMAGE, buttonType: ButtonType.Capsule })
+            SaveButton({ icon: SaveIconStyle.LINES, text: SaveDescription.SAVE_IMAGE,
+              buttonType: ButtonType.Capsule })
               .height(44).fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.ink)
               .backgroundColor(T.surface).borderWidth(1).borderColor(T.outlineStrong)
               .onClick((event: ClickEvent, result: SaveButtonOnClickResult) => {
@@ -919,6 +923,11 @@ struct Index {
           }
           .width('100%').height(62).padding({ left: 16, right: 10 }).backgroundColor(T.surfaceMuted)
           .borderRadius(T.controlRadius).margin({ top: 24 });
+          Row({ space: 7 }) {
+            Image($r('app.media.clock')).width(17).height(17).objectFit(ImageFit.Contain);
+            Text('服务时间 09:00-21:00').fontSize(12).fontColor(T.mutedInk);
+          }
+          .margin({ top: 14 });
         }
         .width('100%').padding(20).backgroundColor(T.surface).border({ width: 1, color: T.outline })
         .borderRadius(T.cardRadius).margin({ top: 20 });
