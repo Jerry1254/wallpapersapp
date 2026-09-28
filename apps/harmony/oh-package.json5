@@ -1,7 +1,7 @@
 {
   "modelVersion": "6.0.2",
   "name": "qingjing-harmony",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "倾境动态壁纸 HarmonyOS 原生客户端",
   "dependencies": {},
   "devDependencies": {
