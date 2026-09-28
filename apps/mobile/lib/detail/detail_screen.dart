@@ -383,49 +383,97 @@ class _DetailScreenState extends State<DetailScreen> {
                 ),
                 child: Column(
                   children: [
-                    QjPageHeader(
-                      title: '',
-                      actionLabel: '观看设置教程',
-                      onAction: () => _openTutorial(wallpaper),
-                    ),
-                    const SizedBox(height: T.space4),
-                    if (showsPreviewTabs) ...[
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: previewTabs
-                              .map(
-                                (option) => Padding(
-                                  padding: EdgeInsets.only(
-                                    right: option == previewTabs.last
-                                        ? 0
-                                        : T.space2,
-                                  ),
-                                  child: QjFilterChip(
-                                    label: option.label,
-                                    selected: option.key == previewOption?.key,
-                                    onPressed: () => setState(
-                                      () => selectedPreviewKey = option.key,
+                    SizedBox(
+                      height: T.sizeTopBar,
+                      child: Row(
+                        children: [
+                          IconButton(
+                            tooltip: '返回',
+                            onPressed: () => Navigator.maybePop(context),
+                            style: IconButton.styleFrom(
+                              side: const BorderSide(color: T.colorOutline),
+                              minimumSize: const Size(44, 44),
+                            ),
+                            icon: const QjIcon('chevron-left', size: 22),
+                          ),
+                          const SizedBox(width: T.space2),
+                          Expanded(
+                            child: showsPreviewTabs
+                                ? SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: Row(
+                                      children: previewTabs
+                                          .map(
+                                            (option) => Padding(
+                                              padding: EdgeInsets.only(
+                                                right:
+                                                    option == previewTabs.last
+                                                    ? 0
+                                                    : T.space2,
+                                              ),
+                                              child: QjFilterChip(
+                                                label: option.label,
+                                                selected:
+                                                    option.key ==
+                                                    previewOption?.key,
+                                                onPressed: () => setState(
+                                                  () => selectedPreviewKey =
+                                                      option.key,
+                                                ),
+                                              ),
+                                            ),
+                                          )
+                                          .toList(growable: false),
                                     ),
-                                  ),
+                                  )
+                                : const SizedBox.shrink(),
+                          ),
+                          const SizedBox(width: T.space2),
+                          OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: T.colorAccentStrong,
+                              backgroundColor: T.colorAccentSoft,
+                              side: const BorderSide(color: T.colorAccent),
+                              minimumSize: const Size(0, 44),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                              ),
+                              textStyle: QjTheme.type(
+                                12,
+                                FontWeight.w700,
+                                T.lineHeightCaption,
+                              ),
+                            ),
+                            onPressed: () => _openTutorial(wallpaper),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                QjIcon(
+                                  'circle-play',
+                                  size: 16,
+                                  color: T.colorAccentStrong,
                                 ),
-                              )
-                              .toList(growable: false),
-                        ),
+                                SizedBox(width: 5),
+                                Text('教程'),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: T.space3),
-                    ],
+                    ),
+                    const SizedBox(height: T.space3),
                     FractionallySizedBox(
                       widthFactor: .82,
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          wallpaper.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w700),
-                        ),
+                      child: Text(
+                        wallpaper.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: T.colorAccentStrong,
+                            ),
                       ),
                     ),
                     const SizedBox(height: T.space2),

@@ -6,6 +6,7 @@ import 'package:qingjing_wallpaper/device/device_session.dart';
 import 'package:qingjing_wallpaper/detail/delivery.dart';
 import 'package:qingjing_wallpaper/detail/detail_screen.dart';
 import 'package:qingjing_wallpaper/design_system/qj_components.dart';
+import 'package:qingjing_wallpaper/design_system/qj_theme.dart';
 import 'package:qingjing_wallpaper/downloads/download_manager.dart';
 import 'package:qingjing_wallpaper/downloads/download_panel.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
@@ -213,6 +214,8 @@ void main() {
     expect(preview, findsOneWidget);
     expect(action, findsOneWidget);
     expect(title, findsOneWidget);
+    expect(find.text('观看设置教程'), findsNothing);
+    expect(find.text('教程'), findsOneWidget);
     final previewRect = tester.getRect(preview);
     final actionRect = tester.getRect(action);
     final titleRect = tester.getRect(title);
@@ -224,6 +227,12 @@ void main() {
     );
     expect(titleRect.bottom, lessThan(previewRect.top));
     expect(tester.widget<Text>(title).maxLines, 2);
+    expect(tester.widget<Text>(title).textAlign, TextAlign.center);
+    expect(tester.widget<Text>(title).style?.color, T.colorAccentStrong);
+    expect(
+      tester.getCenter(find.byTooltip('返回')).dy,
+      closeTo(tester.getCenter(find.text('教程')).dy, 1),
+    );
     expect(actionRect.top, greaterThan(previewRect.bottom));
     expect(actionRect.bottom, lessThanOrEqualTo(844));
 

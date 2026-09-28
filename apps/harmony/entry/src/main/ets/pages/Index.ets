@@ -899,44 +899,48 @@ struct Index {
           .width(44).height(44).padding(0).backgroundColor(T.surface)
           .border({ width: 1, color: T.outline }).borderRadius(22)
           .onClick(() => this.goBack());
+        if (item.capabilities.length > 1) {
+          Scroll() {
+            Row({ space: 8 }) {
+              ForEach(item.capabilities, (capability: WallpaperCapability) => {
+                Button(this.detailCapabilityLabel(capability)).height(38).fontSize(13).fontWeight(FontWeight.Bold)
+                  .fontColor(this.selectedCapability === capability.label ? T.inverseInk : T.ink)
+                  .backgroundColor(this.selectedCapability === capability.label ? T.navigation : T.surface)
+                  .border({ width: 1, color: T.outlineStrong }).borderRadius(19)
+                  .onClick(() => {
+                    this.selectDetailCapability(item, capability);
+                  });
+              }, (capability: WallpaperCapability) => capability.deliveryPlatform + capability.resourceType);
+            }
+          }
+          .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).layoutWeight(1)
+          .margin({ left: 8, right: 8 });
+        } else {
+          Row() {
+          }
+          .layoutWeight(1);
+        }
         Button() {
-          Row({ space: 8 }) {
+          Row({ space: 5 }) {
             Image($r('app.media.circle_play')).width(17).height(17).objectFit(ImageFit.Contain);
-            Text('观看设置教程').fontSize(12).fontWeight(FontWeight.Bold).fontColor(T.accentStrong);
+            Text('教程').fontSize(12).fontWeight(FontWeight.Bold).fontColor(T.accentStrong);
           }
         }
-          .width(142).height(44).padding({ left: 13, right: 13 })
+          .height(44).padding({ left: 11, right: 11 })
           .fontColor(T.accentStrong).backgroundColor(T.accentSoft)
           .border({ width: 1, color: T.accent }).borderRadius(22)
           .onClick(() => this.openDetailTutorial());
       }
-      .width('100%').height(T.topBarHeight).justifyContent(FlexAlign.SpaceBetween);
-      if (item.capabilities.length > 1) {
-        Scroll() {
-          Row({ space: 8 }) {
-            ForEach(item.capabilities, (capability: WallpaperCapability) => {
-              Button(this.detailCapabilityLabel(capability)).height(38).fontSize(13).fontWeight(FontWeight.Bold)
-                .fontColor(this.selectedCapability === capability.label ? T.inverseInk : T.ink)
-                .backgroundColor(this.selectedCapability === capability.label ? T.navigation : T.surface)
-                .border({ width: 1, color: T.outlineStrong }).borderRadius(19)
-                .onClick(() => {
-                  this.selectDetailCapability(item, capability);
-                });
-            }, (capability: WallpaperCapability) => capability.deliveryPlatform + capability.resourceType);
-          }
-        }
-        .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%')
-        .margin({ top: 12, bottom: 12 });
-      }
+      .width('100%').height(T.topBarHeight);
       Text(item.title)
         .width('82%')
         .fontSize(17)
         .fontWeight(FontWeight.Bold)
-        .fontColor(T.ink)
+        .fontColor(T.accentStrong)
         .maxLines(2)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .textAlign(TextAlign.Start)
-        .margin({ top: item.capabilities.length > 1 ? 0 : 12 });
+        .textAlign(TextAlign.Center)
+        .margin({ top: 12 });
       Column() {
         Stack({ alignContent: Alignment.Bottom }) {
           Image(this.mediaUrl(item.coverUrl)).width('100%').height('100%').objectFit(ImageFit.Cover)
