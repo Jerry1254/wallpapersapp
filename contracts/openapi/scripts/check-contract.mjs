@@ -68,6 +68,25 @@ assert.equal(new Set(operationIds).size, operationIds.length, 'operationId value
 
 assert.equal(document.components.schemas.LongId.type, 'string', 'LongId must remain a JSON string');
 assert.deepEqual(
+  document.components.schemas.DevicePlatform.enum,
+  ['ANDROID', 'IOS', 'HARMONYOS'],
+  'device identity platforms drifted'
+);
+assert.ok(
+  document.components.schemas.DeviceRegistrationRequest.required.includes('publicKeyPem'),
+  'formal device registration must require an installation public key'
+);
+assert.ok(
+  document.components.schemas.DeviceSessionChallenge.properties.algorithm.enum.includes('ECDSA_P256_SHA256'),
+  'iOS challenge algorithm must remain part of the public contract'
+);
+assert.ok(
+  applicationConfiguration.includes('ios-enabled: ${QJ_DEVICE_IOS_ENABLED:true}')
+    && applicationConfiguration.includes('${QJ_DEVICE_IOS_PROD_SCOPE:com.qingjing.bizhi}')
+    && applicationConfiguration.includes('${QJ_DEVICE_IOS_TEST_SCOPE:com.qingjing.livephotolab}'),
+  'runtime iOS provider scopes must match the public identity contract'
+);
+assert.deepEqual(
   document.components.schemas.RedemptionResultCode.enum,
   ['GRANTED', 'ALREADY_OWNED', 'CODE_NOT_FOUND', 'CODE_EXHAUSTED', 'WALLPAPER_UNAVAILABLE', 'WALLPAPER_FREE', 'FAILED'],
   'redemption result enum drifted from DM-001'

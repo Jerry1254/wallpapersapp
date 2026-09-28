@@ -37,6 +37,7 @@ public class DeviceIdentityService {
     private final DeviceProperties properties;
     private final AndroidCredentialProof androidProof;
     private final HarmonyCredentialProof harmonyProof;
+    private final IosCredentialProof iosProof;
 
     public DeviceIdentityService(
             JdbcTemplate jdbc,
@@ -44,7 +45,10 @@ public class DeviceIdentityService {
             ObjectMapper objectMapper,
             SecurityCrypto crypto,
             RedisRateLimiter rateLimiter,
-            DeviceProperties properties, AndroidCredentialProof androidProof, HarmonyCredentialProof harmonyProof) {
+            DeviceProperties properties,
+            AndroidCredentialProof androidProof,
+            HarmonyCredentialProof harmonyProof,
+            IosCredentialProof iosProof) {
         this.jdbc = jdbc;
         this.redis = redis;
         this.objectMapper = objectMapper;
@@ -53,12 +57,14 @@ public class DeviceIdentityService {
         this.properties = properties;
         this.androidProof = androidProof;
         this.harmonyProof = harmonyProof;
+        this.iosProof = iosProof;
     }
 
     @Transactional
     public DeviceRegistrationResponse register(DeviceRegistrationRequest request, String remoteAddress) {
         if (request.platform() == DevicePlatform.ANDROID) return registerAndroid(request, remoteAddress);
         if (request.platform() == DevicePlatform.HARMONYOS) return registerHarmony(request, remoteAddress);
+        if (request.platform() == DevicePlatform.IOS) return registerIos(request, remoteAddress);
         validateRegistration(request);
         String scope = request.appInstallScope().strip();
         String evidenceHash = crypto.hmacHex("device-evidence-v1", request.evidenceToken());
@@ -118,7 +124,7 @@ public class DeviceIdentityService {
         Instant expiresAt = Instant.now().plus(properties.getChallengeTtl());
         ChallengeData data = new ChallengeData(credentialKeyId, nonce, expiresAt);
         redis.opsForValue().set(CHALLENGE_PREFIX + challengeId, write(data), properties.getChallengeTtl());
-        return new DeviceSessionChallenge(challengeId, nonce, credential.credentialType() == CredentialType.PLATFORM_PUBLIC_KEY ? ChallengeAlgorithm.RSA_SHA256 : ChallengeAlgorithm.HMAC_SHA256, expiresAt);
+        return new DeviceSessionChallenge(challengeId, nonce, challengeAlgorithm(credential), expiresAt);
     }
 
     @Transactional
@@ -253,6 +259,7 @@ public class DeviceIdentityService {
         boolean allowed = type == CredentialType.PLATFORM_PUBLIC_KEY
                 ? (platform == DevicePlatform.ANDROID && properties.isAndroidEnabled())
                     || (platform == DevicePlatform.HARMONYOS && properties.isHarmonyEnabled())
+                    || (platform == DevicePlatform.IOS && properties.isIosEnabled())
                 : platform == DevicePlatform.H5_TEST && properties.isH5TestEnabled();
         if (!allowed) throw new ApiException(HttpStatus.FORBIDDEN, "DEVICE_PROVIDER_UNAVAILABLE", "The credential provider is not available");
     }
@@ -286,6 +293,19 @@ public class DeviceIdentityService {
                 request.evidenceToken(), Instant.now(), properties.getClockSkew());
         return persistPublicKeyRegistration(DevicePlatform.HARMONYOS, scope, proof.fingerprint(), proof.nonce(),
                 proof.publicKeyPem(), "device:harmony-registration-nonce:", "harmonyos-installation-v1");
+    }
+
+    private DeviceRegistrationResponse registerIos(DeviceRegistrationRequest request, String remoteAddress) {
+        String scope = request.appInstallScope().strip();
+        if (!properties.isIosEnabled() || request.credentialType() != CredentialType.PLATFORM_PUBLIC_KEY
+                || !properties.isIosScopeAllowed(scope)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "DEVICE_PROVIDER_NOT_ALLOWED", "The iOS provider is not enabled for this scope");
+        }
+        rateLimiter.require("ios-registration", remoteAddress, 30, Duration.ofMinutes(1));
+        IosCredentialProof.Registration proof = iosProof.verifyRegistration(scope, request.publicKeyPem(),
+                request.evidenceToken(), Instant.now(), properties.getClockSkew());
+        return persistPublicKeyRegistration(DevicePlatform.IOS, scope, proof.fingerprint(), proof.nonce(),
+                proof.publicKeyPem(), "device:ios-registration-nonce:", "ios-installation-v1");
     }
 
     private DeviceRegistrationResponse persistPublicKeyRegistration(
@@ -331,8 +351,18 @@ public class DeviceIdentityService {
     private boolean verifyPlatformSignature(CredentialRow credential, String payload, String suppliedSignature) {
         return switch (credential.platform()) {
             case ANDROID, HARMONYOS -> androidProof.verify(credential.publicKeyPem(), payload, suppliedSignature);
+            case IOS -> iosProof.verify(credential.publicKeyPem(), payload, suppliedSignature);
             default -> false;
         };
+    }
+
+    private ChallengeAlgorithm challengeAlgorithm(CredentialRow credential) {
+        if (credential.credentialType() != CredentialType.PLATFORM_PUBLIC_KEY) {
+            return ChallengeAlgorithm.HMAC_SHA256;
+        }
+        return credential.platform() == DevicePlatform.IOS
+                ? ChallengeAlgorithm.ECDSA_P256_SHA256
+                : ChallengeAlgorithm.RSA_SHA256;
     }
 
     private void validateRegistration(DeviceRegistrationRequest request) {

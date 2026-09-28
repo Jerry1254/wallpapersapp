@@ -2287,6 +2287,77 @@ class InfrastructureIntegrationIT {
         assertThat(signedRequest.getBody().path("error").path("code").asText()).isEqualTo("WALLPAPER_NOT_FOUND");
     }
 
+    @Test
+    void iosInstallationProofSessionAndSignedRequestUseRealInfrastructure() throws Exception {
+        java.security.KeyPairGenerator generator = java.security.KeyPairGenerator.getInstance("EC");
+        generator.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
+
+        assertThat(http.postForEntity(
+                "/api/v1/device/registrations",
+                iosRegistration(generator.generateKeyPair(), "com.qingjing.bizhi"),
+                JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(http.postForEntity(
+                "/api/v1/device/registrations",
+                iosRegistration(generator.generateKeyPair(), "com.qingjing.unknown"),
+                JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        java.security.KeyPair key = generator.generateKeyPair();
+        Map<String, Object> registration = iosRegistration(key, "com.qingjing.livephotolab");
+        ResponseEntity<JsonNode> registered = http.postForEntity(
+                "/api/v1/device/registrations", registration, JsonNode.class);
+        assertThat(registered.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(registered.getBody().path("credentialType").asText()).isEqualTo("PLATFORM_PUBLIC_KEY");
+        String keyId = registered.getBody().path("credentialKeyId").asText();
+
+        ResponseEntity<JsonNode> replay = http.postForEntity(
+                "/api/v1/device/registrations", registration, JsonNode.class);
+        assertThat(replay.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(replay.getBody().path("error").path("code").asText()).isEqualTo("REQUEST_NONCE_REUSED");
+
+        ResponseEntity<JsonNode> restored = http.postForEntity(
+                "/api/v1/device/registrations",
+                iosRegistration(key, "com.qingjing.livephotolab"),
+                JsonNode.class);
+        assertThat(restored.getBody().path("credentialKeyId").asText()).isEqualTo(keyId);
+
+        ResponseEntity<JsonNode> challenge = http.postForEntity(
+                "/api/v1/device/session-challenges", Map.of("credentialKeyId", keyId), JsonNode.class);
+        assertThat(challenge.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(challenge.getBody().path("algorithm").asText()).isEqualTo("ECDSA_P256_SHA256");
+
+        String timestamp = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
+        String challengeId = challenge.getBody().path("challengeId").asText();
+        String sessionPayload = "QJ-DEVICE-SESSION-V1\n" + keyId + "\n" + challengeId + "\n"
+                + challenge.getBody().path("nonce").asText() + "\n" + timestamp;
+        ResponseEntity<JsonNode> session = http.postForEntity(
+                "/api/v1/device/sessions",
+                Map.of(
+                        "credentialKeyId", keyId,
+                        "challengeId", challengeId,
+                        "clientTimestamp", timestamp,
+                        "proof", iosSign(key, sessionPayload)),
+                JsonNode.class);
+        assertThat(session.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(session.getBody().path("platform").asText()).isEqualTo("IOS");
+        String token = session.getBody().path("accessToken").asText();
+
+        HttpHeaders auth = new HttpHeaders();
+        auth.setBearerAuth(token);
+        assertThat(http.exchange("/api/v1/public/categories", HttpMethod.GET,
+                new HttpEntity<>(auth), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        String ticketPath = "/api/v1/device/wallpapers/999999999/download-tickets";
+        String ticketBody = objectMapper.writeValueAsString(
+                Map.of("deliveryPlatform", "IOS", "resourceType", "LIVE_PHOTO"));
+        ResponseEntity<JsonNode> signedRequest = http.exchange(
+                ticketPath,
+                HttpMethod.POST,
+                iosSignedEntity(key, token, "POST", ticketPath, ticketBody),
+                JsonNode.class);
+        assertThat(signedRequest.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(signedRequest.getBody().path("error").path("code").asText()).isEqualTo("WALLPAPER_NOT_FOUND");
+    }
+
     private HttpEntity<String> androidSignedEntity(java.security.KeyPair key, String token, String method, String path, String json) throws Exception {
         String timestamp = Instant.now().toString(), nonce = UUID.randomUUID().toString();
         String hash = java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.getBytes(StandardCharsets.UTF_8)));
@@ -2336,6 +2407,46 @@ class InfrastructureIntegrationIT {
                 "publicKeyPem", publicKeyPem(key),
                 "evidenceToken", evidence);
     }
+    private Map<String, Object> iosRegistration(java.security.KeyPair key, String scope) throws Exception {
+        String timestamp = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
+        String nonce = UUID.randomUUID().toString();
+        byte[] encoded = key.getPublic().getEncoded();
+        String fingerprint = java.util.HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(encoded));
+        String payload = "QJ-IOS-REGISTER-V1\n" + scope + "\n" + fingerprint + "\n"
+                + timestamp + "\n" + nonce;
+        String evidence = Base64.getUrlEncoder().withoutPadding().encodeToString(
+                objectMapper.writeValueAsBytes(Map.of(
+                        "timestamp", timestamp,
+                        "nonce", nonce,
+                        "proof", iosSign(key, payload))));
+        return Map.of(
+                "platform", "IOS",
+                "appInstallScope", scope,
+                "credentialType", "PLATFORM_PUBLIC_KEY",
+                "publicKeyPem", publicKeyPem(key),
+                "evidenceToken", evidence);
+    }
+    private HttpEntity<String> iosSignedEntity(
+            java.security.KeyPair key,
+            String token,
+            String method,
+            String path,
+            String json) throws Exception {
+        String timestamp = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
+        String nonce = UUID.randomUUID().toString();
+        String hash = java.util.HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(json.getBytes(StandardCharsets.UTF_8)));
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Request-Timestamp", timestamp);
+        headers.set("X-Request-Nonce", nonce);
+        headers.set("X-Request-Signature", iosSign(key,
+                "QJ-SIGNED-REQUEST-V1\n" + method + "\n" + path + "\n"
+                        + timestamp + "\n" + nonce + "\n" + hash));
+        return new HttpEntity<>(json, headers);
+    }
     private static String publicKeyPem(java.security.KeyPair key) {
         return "-----BEGIN PUBLIC KEY-----\n"
                 + Base64.getMimeEncoder(64,new byte[]{10}).encodeToString(key.getPublic().getEncoded())
@@ -2344,6 +2455,12 @@ class InfrastructureIntegrationIT {
     private static String androidSign(java.security.KeyPair key, String payload) throws Exception {
         java.security.Signature signer=java.security.Signature.getInstance("SHA256withRSA");
         signer.initSign(key.getPrivate()); signer.update(payload.getBytes(StandardCharsets.UTF_8));
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(signer.sign());
+    }
+    private static String iosSign(java.security.KeyPair key, String payload) throws Exception {
+        java.security.Signature signer = java.security.Signature.getInstance("SHA256withECDSA");
+        signer.initSign(key.getPrivate());
+        signer.update(payload.getBytes(StandardCharsets.UTF_8));
         return Base64.getUrlEncoder().withoutPadding().encodeToString(signer.sign());
     }
 

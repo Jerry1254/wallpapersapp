@@ -31,6 +31,16 @@ public class DeviceProperties {
         return allowedHarmonyScopes.contains(scope);
     }
 
+    private boolean iosEnabled;
+    private List<String> allowedIosScopes = new ArrayList<>();
+    public boolean isIosEnabled() { return iosEnabled; }
+    public void setIosEnabled(boolean value) { iosEnabled = value; }
+    public List<String> getAllowedIosScopes() { return List.copyOf(allowedIosScopes); }
+    public void setAllowedIosScopes(List<String> value) { allowedIosScopes = new ArrayList<>(value); }
+    public boolean isIosScopeAllowed(String scope) {
+        return allowedIosScopes.contains(scope);
+    }
+
     private boolean h5TestEnabled;
     private List<String> allowedH5Scopes = new ArrayList<>();
     private Duration challengeTtl = Duration.ofMinutes(2);
