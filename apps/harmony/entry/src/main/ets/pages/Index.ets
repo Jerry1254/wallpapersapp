@@ -898,8 +898,6 @@ struct Index {
           .width(44).height(44).padding(0).backgroundColor(T.surface)
           .border({ width: 1, color: T.outline }).borderRadius(22)
           .onClick(() => this.goBack());
-        Text(item.title).fontSize(22).fontWeight(FontWeight.Bolder).fontColor(T.ink)
-          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).margin({ left: 8 });
         Button() {
           Row({ space: 8 }) {
             Image($r('app.media.circle_play')).width(17).height(17).objectFit(ImageFit.Contain);
@@ -911,7 +909,7 @@ struct Index {
           .border({ width: 1, color: T.accent }).borderRadius(22)
           .onClick(() => this.openDetailTutorial());
       }
-      .width('100%').height(T.topBarHeight);
+      .width('100%').height(T.topBarHeight).justifyContent(FlexAlign.SpaceBetween);
       if (item.capabilities.length > 1) {
         Scroll() {
           Row({ space: 8 }) {
@@ -929,6 +927,15 @@ struct Index {
         .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%')
         .margin({ top: 12, bottom: 12 });
       }
+      Text(item.title)
+        .width('82%')
+        .fontSize(17)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(T.ink)
+        .maxLines(2)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .textAlign(TextAlign.Start)
+        .margin({ top: item.capabilities.length > 1 ? 0 : 12 });
       Column() {
         Stack({ alignContent: Alignment.Bottom }) {
           Image(this.mediaUrl(item.coverUrl)).width('100%').height('100%').objectFit(ImageFit.Cover)
@@ -989,7 +996,7 @@ struct Index {
         .width('82%').aspectRatio(9 / 16).borderRadius(T.cardRadius).clip(true);
       }
       .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
-      .margin({ top: 12 });
+      .margin({ top: 8 });
       Button(this.detailActionLabel(item))
         .width('82%').height(T.primaryHeight).fontSize(17).fontWeight(FontWeight.Bold)
         .fontColor(T.ink).backgroundColor(T.accent).borderRadius(27)

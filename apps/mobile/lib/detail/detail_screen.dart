@@ -384,7 +384,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 child: Column(
                   children: [
                     QjPageHeader(
-                      title: wallpaper.title,
+                      title: '',
                       actionLabel: '观看设置教程',
                       onAction: () => _openTutorial(wallpaper),
                     ),
@@ -415,6 +415,20 @@ class _DetailScreenState extends State<DetailScreen> {
                       ),
                       const SizedBox(height: T.space3),
                     ],
+                    FractionallySizedBox(
+                      widthFactor: .82,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          wallpaper.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: T.space2),
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, available) {

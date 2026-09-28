@@ -12,13 +12,15 @@ import 'package:wallpaper_android/wallpaper_android.dart';
 import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
 import 'catalog_test.dart' show FakeCatalog;
 
-Wallpaper wallpaper(List<Map<String, dynamic>> capabilities) =>
-    Wallpaper.fromJson({
-      'id': '1',
-      'title': '静态测试',
-      'cover': {'contentUrl': '/image'},
-      'availableCapabilities': capabilities,
-    });
+Wallpaper wallpaper(
+  List<Map<String, dynamic>> capabilities, {
+  String title = '静态测试',
+}) => Wallpaper.fromJson({
+  'id': '1',
+  'title': title,
+  'cover': {'contentUrl': '/image'},
+  'availableCapabilities': capabilities,
+});
 
 class DetailCatalog extends FakeCatalog {
   int attempts = 0;
@@ -50,7 +52,7 @@ class DualEffectDetailCatalog extends FakeCatalog {
       'resourceType': 'VIDEO',
       'placements': ['HOME'],
     },
-  ]);
+  ], title: '这是一个较长的壁纸标题用于验证详情页标题布局');
 }
 
 class MultiFormatDetailCatalog extends FakeCatalog {
@@ -207,12 +209,21 @@ void main() {
     expect(chip('动态壁纸').selected, isFalse);
     final preview = find.byKey(const ValueKey('detail-preview'));
     final action = find.widgetWithText(QjPrimaryAction, '下载壁纸');
+    final title = find.text('这是一个较长的壁纸标题用于验证详情页标题布局');
     expect(preview, findsOneWidget);
     expect(action, findsOneWidget);
+    expect(title, findsOneWidget);
     final previewRect = tester.getRect(preview);
     final actionRect = tester.getRect(action);
+    final titleRect = tester.getRect(title);
     expect(previewRect.width / previewRect.height, closeTo(9 / 16, .001));
     expect(previewRect.width, lessThan(350));
+    expect(
+      titleRect.top,
+      greaterThan(tester.getBottomLeft(find.text('动态壁纸').first).dy),
+    );
+    expect(titleRect.bottom, lessThan(previewRect.top));
+    expect(tester.widget<Text>(title).maxLines, 2);
     expect(actionRect.top, greaterThan(previewRect.bottom));
     expect(actionRect.bottom, lessThanOrEqualTo(844));
 
