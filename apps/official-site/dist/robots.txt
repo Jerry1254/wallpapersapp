@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://biguo66.top/sitemap.xml
