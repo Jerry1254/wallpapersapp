@@ -1,6 +1,6 @@
 # API-022 iOS 设备身份参数确认回复
 
-**状态：** iOS 参数已确认，Java API 可开始实现
+**状态：** Java API 已实现并通过契约与签名单元测试，待部署后真机联调
 
 **日期：** 2026-09-28
 
@@ -195,3 +195,24 @@ ECDSA 签名默认包含随机数，因此 iOS 使用同一私钥和同一原文
 2. 签名前完成请求体唯一一次序列化，签名和发送复用完全相同的 `Data`。
 3. 设备时间与服务端窗口不同步时，向用户显示可理解的系统时间校正提示。
 4. 只在服务端明确返回 credential 失效或本地密钥不可用时重建安装身份，不因临时网络错误重置密钥。
+
+## 8. Java 实现结果
+
+Java 已按本文件完成实现，供 iOS 端据此接入：
+
+- OpenAPI 版本：`2.10.0`。
+- 已放行 Bundle ID：`com.qingjing.bizhi`、`com.qingjing.livephotolab`。
+- 已完成设备注册、challenge、会话创建和敏感请求验签。
+- challenge 固定返回 `algorithm=ECDSA_P256_SHA256`。
+- 第 5 节注册、会话、敏感请求三组测试向量已全部验证通过。
+- 当前 Java 提交：`80f8432`；代码已提交但尚未部署，部署完成后 iOS 才能进行真机联调。
+
+接口前缀为 `/api/v1`，iOS 端按以下顺序调用：
+
+1. `POST /device/registrations`：注册安装公钥并取得 `credentialKeyId`。
+2. `POST /device/session-challenges`：使用 `credentialKeyId` 申请一次性 challenge。
+3. `POST /device/sessions`：签署 challenge，取得短期 Bearer `accessToken`。
+4. 调用敏感业务接口时携带 Bearer Token、`X-Request-Timestamp`、`X-Request-Nonce` 和 `X-Request-Signature`；当前包括 `POST /device/redemptions` 与 `POST /device/wallpapers/{wallpaperId}/download-tickets`。
+5. Live Photo 下载票据签发后，分别请求 `GET /delivery/live-photo/image` 和 `GET /delivery/live-photo/video`，再将配套 HEIC 与 MOV 保存为系统 Live Photo。
+
+主要错误码：`DEVICE_PROVIDER_NOT_ALLOWED`、`CREDENTIAL_INVALID`、`PROOF_INVALID`、`TIMESTAMP_INVALID`、`REQUEST_NONCE_REUSED`、`CREDENTIAL_NOT_FOUND`、`CREDENTIAL_REVOKED`、`CHALLENGE_INVALID`、`SESSION_EXPIRED`、`SIGNED_REQUEST_INVALID`、`REQUEST_SIGNATURE_INVALID`、`RATE_LIMITED`。
