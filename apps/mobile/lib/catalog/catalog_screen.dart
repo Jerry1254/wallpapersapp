@@ -175,18 +175,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
             padding: const EdgeInsets.symmetric(horizontal: T.space5),
             sliver: SliverList.list(
               children: [
-                if (!nested) ...[
-                  QjBrandHeader(
-                    onService: () => Navigator.push(
-                      context,
-                      MaterialPageRoute<void>(
-                        builder: (_) => const HelpScreen(customerService: true),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: T.space5),
-                  QjSearchBar(controller: searchText, onSearch: _search),
-                ] else ...[
+                if (nested) ...[
                   QjPageHeader(
                     title: widget.category?.name ?? '搜索壁纸',
                     serviceAction: true,
@@ -380,7 +369,29 @@ class _CatalogScreenState extends State<CatalogScreen> {
               ),
             ),
           )
-        : content;
+        : Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: T.space5),
+                child: Column(
+                  children: [
+                    QjBrandHeader(
+                      onService: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              const HelpScreen(customerService: true),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: T.space5),
+                    QjSearchBar(controller: searchText, onSearch: _search),
+                  ],
+                ),
+              ),
+              Expanded(child: content),
+            ],
+          );
   }
 
   Widget _heading(String title, {String? trailing}) => Row(
@@ -434,7 +445,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
         (T.colorSurfaceMuted, T.colorInkSoft),
       ];
       const icons = ['sparkles', 'mountain', 'flower-2', 'flame', 'image'];
-      final width = (constraints.maxWidth - T.space2 * 4) / 5;
+      final width = (constraints.maxWidth - T.space2 * 3) / 4;
       return Wrap(
         spacing: T.space2,
         runSpacing: T.space3,

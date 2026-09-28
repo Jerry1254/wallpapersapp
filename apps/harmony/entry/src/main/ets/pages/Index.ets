@@ -800,38 +800,46 @@ struct Index {
       .columnsTemplate('1fr 1fr')
       .columnsGap(12)
       .rowsGap(20)
-      .height(Math.ceil(this.wallpapers.length / 2) * 250);
+      .height(Math.ceil(this.wallpapers.length / 2) * 265 - 20);
     }
   }
 
   @Builder
   private HomePage() {
-    Scroll() {
+    Column() {
       Column() {
         this.BrandHeader();
         this.SearchBar();
+      }
+      .width('100%')
+      .padding({ left: T.gutter, right: T.gutter });
+      Scroll() {
+        Column() {
         if (this.errorMessage.length > 0) {
           Column() { this.LoadingOrState(''); }
-            .width('100%').margin({ top: 28, bottom: 110 });
+            .width('100%').margin({ top: 28, bottom: 24 });
         } else {
           Text('壁纸分类')
             .width('100%').fontSize(20).fontWeight(FontWeight.Bold).fontColor(T.ink)
             .margin({ top: 28, bottom: 12 });
           if (this.categories.length > 0) {
-            Scroll() {
-              Row({ space: 18 }) {
+            Grid() {
                 ForEach(this.categories, (category: WallpaperCategory) => {
-                  Column({ space: 8 }) {
-                    if (category.iconUrl.length > 0) {
-                      Image(this.mediaUrl(category.iconUrl))
-                        .width(T.categoryIcon).height(T.categoryIcon).objectFit(ImageFit.Cover).borderRadius(18);
-                    } else {
-                      Text(category.name.substring(0, 1))
-                        .width(T.categoryIcon).height(T.categoryIcon).fontSize(22).fontWeight(FontWeight.Bold)
-                        .fontColor(T.ink).textAlign(TextAlign.Center)
-                        .backgroundColor(T.surfaceMuted).borderRadius(18);
+                  GridItem() {
+                    Column({ space: 8 }) {
+                      if (category.iconUrl.length > 0) {
+                        Image(this.mediaUrl(category.iconUrl))
+                          .width(T.categoryIcon).height(T.categoryIcon).objectFit(ImageFit.Cover).borderRadius(18);
+                      } else {
+                        Text(category.name.substring(0, 1))
+                          .width(T.categoryIcon).height(T.categoryIcon).fontSize(22).fontWeight(FontWeight.Bold)
+                          .fontColor(T.ink).textAlign(TextAlign.Center)
+                          .backgroundColor(T.surfaceMuted).borderRadius(18);
+                      }
+                      Text(category.name).width('100%').fontSize(13).fontColor(T.mutedInk)
+                        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).textAlign(TextAlign.Center);
                     }
-                    Text(category.name).fontSize(13).fontColor(T.mutedInk);
+                    .width('100%');
                   }
                   .onClick(() => {
                     this.currentTitle = category.name;
@@ -841,11 +849,11 @@ struct Index {
                     this.loadWallpapers(HarmonyCatalogProjection.FILTER_FEATURED, '', category.id);
                   });
                 }, (category: WallpaperCategory) => category.id);
-              }
-              .width('100%')
-              .justifyContent(FlexAlign.Start);
             }
-            .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%');
+            .columnsTemplate('1fr 1fr 1fr 1fr')
+            .rowsGap(12)
+            .width('100%')
+            .height(Math.ceil(this.categories.length / 4) * 96);
           }
           Text(this.selectedFilter === HarmonyCatalogProjection.FILTER_FEATURED ? '精选壁纸' : this.selectedFilter)
             .width('100%').fontSize(20).fontWeight(FontWeight.Bold).fontColor(T.ink)
@@ -862,13 +870,15 @@ struct Index {
           Column() {
             this.CatalogWallpaperGrid('暂时没有符合条件的已发布壁纸');
           }
-          .width('100%').margin({ top: 16, bottom: 110 });
+          .width('100%').margin({ top: 16, bottom: 24 });
         }
+        }
+        .width('100%')
+        .padding({ left: T.gutter, right: T.gutter });
       }
-      .width('100%').constraintSize({ minHeight: '100%' })
-      .padding({ left: T.gutter, right: T.gutter });
+      .width('100%').layoutWeight(1).scrollBar(BarState.Off);
     }
-    .width('100%').height('100%').scrollBar(BarState.Off);
+    .width('100%').height('100%');
   }
 
   @Builder
@@ -975,10 +985,10 @@ struct Index {
         Button() {
           Row({ space: 5 }) {
             Image($r('app.media.circle_play')).width(17).height(17).objectFit(ImageFit.Contain);
-            Text('教程').fontSize(12).fontWeight(FontWeight.Bold).fontColor(T.accentStrong);
+            Text('观看设置教程').fontSize(12).fontWeight(FontWeight.Bold).fontColor(T.accentStrong);
           }
         }
-          .height(44).padding({ left: 11, right: 11 })
+          .height(44).padding({ left: 13, right: 13 })
           .fontColor(T.accentStrong).backgroundColor(T.accentSoft)
           .border({ width: 1, color: T.accent }).borderRadius(22)
           .onClick(() => this.openDetailTutorial());

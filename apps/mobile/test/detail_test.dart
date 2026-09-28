@@ -214,8 +214,7 @@ void main() {
     expect(preview, findsOneWidget);
     expect(action, findsOneWidget);
     expect(title, findsOneWidget);
-    expect(find.text('观看设置教程'), findsNothing);
-    expect(find.text('教程'), findsOneWidget);
+    expect(find.text('观看设置教程'), findsOneWidget);
     final previewRect = tester.getRect(preview);
     final actionRect = tester.getRect(action);
     final titleRect = tester.getRect(title);
@@ -232,7 +231,7 @@ void main() {
     expect(tester.widget<Text>(title).style?.color, T.colorAccentStrong);
     expect(
       tester.getCenter(find.byTooltip('返回')).dy,
-      closeTo(tester.getCenter(find.text('教程')).dy, 1),
+      closeTo(tester.getCenter(find.text('观看设置教程')).dy, 1),
     );
     expect(actionRect.top, greaterThan(previewRect.bottom));
     expect(actionRect.top - previewRect.bottom, closeTo(24, 1));

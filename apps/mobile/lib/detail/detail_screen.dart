@@ -424,7 +424,7 @@ class _DetailScreenState extends State<DetailScreen> {
                                   color: T.colorAccentStrong,
                                 ),
                                 SizedBox(width: 5),
-                                Text('教程'),
+                                Text('观看设置教程'),
                               ],
                             ),
                           ),
