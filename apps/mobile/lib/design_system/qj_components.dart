@@ -966,8 +966,13 @@ class QjSettingTutorialCard extends StatelessWidget {
 }
 
 class QjCustomerServiceCard extends StatelessWidget {
-  const QjCustomerServiceCard({super.key, required this.onCopy});
+  const QjCustomerServiceCard({
+    super.key,
+    required this.onCopy,
+    required this.onPreview,
+  });
   final VoidCallback onCopy;
+  final VoidCallback onPreview;
   @override
   Widget build(BuildContext context) => QjSurface(
     padding: const EdgeInsets.all(T.space5),
@@ -995,15 +1000,47 @@ class QjCustomerServiceCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('邮箱客服', style: Theme.of(context).textTheme.titleMedium),
+                  Text('微信客服', style: Theme.of(context).textTheme.titleMedium),
                   Text(
-                    '发送邮件获取兑换码或处理设备恢复',
+                    '添加客服获取兑换码或处理设备恢复',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
               ),
             ),
           ],
+        ),
+        const SizedBox(height: T.space5),
+        InkWell(
+          onTap: onPreview,
+          borderRadius: BorderRadius.circular(T.radiusMedia),
+          child: Container(
+            width: 164,
+            constraints: const BoxConstraints(minHeight: 184),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: T.colorSurfaceMuted,
+              border: Border.all(color: T.colorOutline),
+              borderRadius: BorderRadius.circular(T.radiusMedia),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset(
+                  'assets/ui-reference/customer-service-qr.png',
+                  width: 132,
+                  height: 132,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '点击查看二维码',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
         ),
         const SizedBox(height: T.space5),
         Container(
@@ -1021,13 +1058,13 @@ class QjCustomerServiceCard extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      '联系邮箱',
+                      '微信号',
                       style: Theme.of(
                         context,
                       ).textTheme.labelSmall?.copyWith(color: T.colorMutedInk),
                     ),
                     Text(
-                      'qingjingwallpaper@126.com',
+                      'jykj992',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -1052,6 +1089,18 @@ class QjCustomerServiceCard extends StatelessWidget {
               ),
             ],
           ),
+        ),
+        const SizedBox(height: T.space3),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const QjIcon('clock-3', size: 16, color: T.colorMutedInk),
+            const SizedBox(width: 6),
+            Text(
+              '服务时间 09:00–21:00',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
         ),
       ],
     ),

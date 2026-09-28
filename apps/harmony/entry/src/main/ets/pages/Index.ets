@@ -55,6 +55,7 @@ struct Index {
   @State errorMessage: string = '';
   @State statusMessage: string = '';
   @State customerDialogVisible: boolean = false;
+  @State qrPreview: boolean = false;
   @State consentChecked: boolean = false;
   @State consentAccepted: boolean = false;
   @State consentBusy: boolean = false;
@@ -280,6 +281,7 @@ struct Index {
   private openCustomer(fromPage: string): void {
     this.returnPage = fromPage;
     this.page = 'CUSTOMER';
+    this.qrPreview = false;
   }
 
   private goBack(): void {
@@ -293,12 +295,12 @@ struct Index {
     this.selectedTutorial = null;
   }
 
-  private async copyEmail(): Promise<void> {
+  private async copyWechat(): Promise<void> {
     try {
-      await CustomerSupport.copyEmail();
-      this.toast('客服邮箱已复制');
+      await CustomerSupport.copyWechat();
+      this.toast('客服微信已复制');
     } catch (error) {
-      this.toast('复制失败，请手动复制邮箱');
+      this.toast('复制失败，请手动复制微信号');
     }
   }
 
@@ -1146,28 +1148,37 @@ struct Index {
   private CustomerPage() {
     Scroll() {
       Column() {
-        this.PageHeader('邮箱客服', false);
+        this.PageHeader('微信客服', false);
         Column() {
           Row() {
             Image($r('app.media.message_circle_more_dark')).width(22).height(22).objectFit(ImageFit.Contain);
             Column({ space: 3 }) {
-              Text('邮箱客服').width('100%').fontSize(17).fontWeight(FontWeight.Bold).fontColor(T.ink);
-              Text('发送邮件获取兑换码或处理设备恢复').width('100%').fontSize(12).fontColor(T.mutedInk);
+              Text('微信客服').width('100%').fontSize(17).fontWeight(FontWeight.Bold).fontColor(T.ink);
+              Text('添加客服获取兑换码或处理设备恢复').width('100%').fontSize(12).fontColor(T.mutedInk);
             }
             .alignItems(HorizontalAlign.Start).layoutWeight(1).margin({ left: 12 });
           }
           .width('100%');
+          Image($r('app.media.customer_service_qr'))
+            .width(164).height(164).objectFit(ImageFit.Contain).margin({ top: 24 })
+            .onClick(() => this.qrPreview = true);
+          Text('点击二维码可放大查看').fontSize(12).fontColor(T.mutedInk).margin({ top: 8 });
           Row() {
             Column({ space: 2 }) {
-              Text('联系邮箱').width('100%').fontSize(10).fontWeight(FontWeight.Bold).fontColor(T.mutedInk);
-              Text(CustomerSupport.EMAIL).width('100%').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.ink);
+              Text('微信号').width('100%').fontSize(10).fontWeight(FontWeight.Bold).fontColor(T.mutedInk);
+              Text(CustomerSupport.WECHAT_ID).width('100%').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.ink);
             }
             .alignItems(HorizontalAlign.Start).layoutWeight(1);
             Button('复制').height(38).fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.inverseInk)
-              .backgroundColor(T.navigation).borderRadius(19).onClick(() => this.copyEmail());
+              .backgroundColor(T.navigation).borderRadius(19).onClick(() => this.copyWechat());
           }
           .width('100%').height(62).padding({ left: 16, right: 10 }).backgroundColor(T.surfaceMuted)
           .borderRadius(T.controlRadius).margin({ top: 24 });
+          Row({ space: 7 }) {
+            Image($r('app.media.clock')).width(17).height(17).objectFit(ImageFit.Contain);
+            Text('服务时间 09:00-21:00').fontSize(12).fontColor(T.mutedInk);
+          }
+          .margin({ top: 14 });
         }
         .width('100%').padding(20).backgroundColor(T.surface).border({ width: 1, color: T.outline })
         .borderRadius(T.cardRadius).margin({ top: 20 });
@@ -1191,23 +1202,32 @@ struct Index {
       Row() {
         Image($r('app.media.message_circle_more_dark')).width(22).height(22).objectFit(ImageFit.Contain);
         Column({ space: 3 }) {
-          Text('邮箱客服').width('100%').fontSize(17).fontWeight(FontWeight.Bold).fontColor(T.ink);
-          Text('发送邮件获取兑换码或处理设备恢复').width('100%').fontSize(12).fontColor(T.mutedInk);
+          Text('微信客服').width('100%').fontSize(17).fontWeight(FontWeight.Bold).fontColor(T.ink);
+          Text('添加客服获取兑换码或处理设备恢复').width('100%').fontSize(12).fontColor(T.mutedInk);
         }
         .alignItems(HorizontalAlign.Start).layoutWeight(1).margin({ left: 12 });
       }
       .width('100%');
+      Image($r('app.media.customer_service_qr'))
+        .width(164).height(164).objectFit(ImageFit.Contain).margin({ top: 20 })
+        .onClick(() => this.qrPreview = true);
+      Text('点击二维码可放大查看').fontSize(12).fontColor(T.mutedInk).margin({ top: 8 });
       Row() {
         Column({ space: 2 }) {
-          Text('联系邮箱').width('100%').fontSize(10).fontWeight(FontWeight.Bold).fontColor(T.mutedInk);
-          Text(CustomerSupport.EMAIL).width('100%').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.ink);
+          Text('微信号').width('100%').fontSize(10).fontWeight(FontWeight.Bold).fontColor(T.mutedInk);
+          Text(CustomerSupport.WECHAT_ID).width('100%').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.ink);
         }
         .alignItems(HorizontalAlign.Start).layoutWeight(1);
         Button('复制').height(38).fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.inverseInk)
-          .backgroundColor(T.navigation).borderRadius(19).onClick(() => this.copyEmail());
+          .backgroundColor(T.navigation).borderRadius(19).onClick(() => this.copyWechat());
       }
       .width('100%').height(62).padding({ left: 16, right: 10 }).backgroundColor(T.surfaceMuted)
       .borderRadius(T.controlRadius).margin({ top: 20 });
+      Row({ space: 7 }) {
+        Image($r('app.media.clock')).width(17).height(17).objectFit(ImageFit.Contain);
+        Text('服务时间 09:00-21:00').fontSize(12).fontColor(T.mutedInk);
+      }
+      .margin({ top: 14 });
     }
     .width('88%').padding(20).backgroundColor(T.surface).borderRadius(T.cardRadius)
     .shadow({ radius: 34, color: '#2E191817', offsetY: 12 });
@@ -1452,6 +1472,16 @@ struct Index {
           Column() { this.CustomerDialogOverlay(); }
             .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
             .backgroundColor('#99191817');
+        }
+        if (this.qrPreview) {
+          Column() {
+            Button('关闭').height(44).fontColor(T.inverseInk).backgroundColor('#99191817').borderRadius(22)
+              .onClick(() => this.qrPreview = false);
+            Image($r('app.media.customer_service_qr')).width(320).height(320).objectFit(ImageFit.Contain)
+              .margin({ top: 20 });
+          }
+          .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+          .backgroundColor('#EE191817').onClick(() => this.qrPreview = false);
         }
         if (this.deliveryVisible) {
           Column() { this.DeliveryOverlay(); }

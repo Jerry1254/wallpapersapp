@@ -276,7 +276,8 @@ void main() {
 
     expect(find.byType(QjCustomerServiceCard), findsOneWidget);
     expect(find.text('保存二维码'), findsNothing);
-    expect(find.text('qingjingwallpaper@126.com'), findsOneWidget);
+    expect(find.text('微信客服'), findsOneWidget);
+    expect(find.text('jykj992'), findsOneWidget);
     expect(find.byType(RedemptionDialog), findsOneWidget);
     await tester.tap(find.byTooltip('关闭'));
     await tester.pumpAndSettle();

@@ -21,7 +21,7 @@ class HelpScreen extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(T.space5, 0, T.space5, T.space6),
             children: [
               QjPageHeader(
-                title: customerService ? '邮箱客服' : '壁纸设置教程',
+                title: customerService ? '微信客服' : '壁纸设置教程',
                 serviceAction: !customerService,
                 onAction: () => Navigator.push(
                   context,
@@ -32,7 +32,10 @@ class HelpScreen extends StatelessWidget {
               ),
               const SizedBox(height: T.space6),
               if (customerService) ...[
-                QjCustomerServiceCard(onCopy: () => copyCustomerEmail(context)),
+                QjCustomerServiceCard(
+                  onCopy: () => copyCustomerWechat(context),
+                  onPreview: () => previewCustomerQr(context),
+                ),
               ] else
                 _TutorialCatalog(repository: repository),
             ],
