@@ -91,7 +91,7 @@ class QjSurface extends StatelessWidget {
   );
 }
 
-enum QjBadgeTone { dark, amber, success, light }
+enum QjBadgeTone { dark, amber, success, light, muted }
 
 class QjTypeBadge extends StatelessWidget {
   const QjTypeBadge(this.label, {super.key, this.tone = QjBadgeTone.dark});
@@ -107,6 +107,7 @@ class QjTypeBadge extends StatelessWidget {
         T.colorSurface.withValues(alpha: .9),
         T.colorInkSoft,
       ),
+      QjBadgeTone.muted => (const Color(0x99191817), T.colorInverseInk),
     };
     return Container(
       constraints: const BoxConstraints(minHeight: 24),
@@ -874,26 +875,29 @@ class QjOwnedRow extends StatelessWidget {
           ),
           const SizedBox(width: T.space3),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final label in wallpaper.capabilityLabels)
-                      QjTypeBadge(label, tone: QjBadgeTone.light),
-                  ],
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  wallpaper.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              ],
+            child: SizedBox(
+              height: 96,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final label in wallpaper.capabilityLabels)
+                        QjTypeBadge(label, tone: QjBadgeTone.muted),
+                    ],
+                  ),
+                  const SizedBox(height: 7),
+                  Text(
+                    wallpaper.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ],
+              ),
             ),
           ),
           const QjIcon('chevron-right'),

@@ -873,6 +873,7 @@ struct Index {
                   }
                   Text(item.title).width('100%').fontSize(16).fontWeight(FontWeight.Bold).fontColor(T.ink);
                 }
+                .height(96).justifyContent(FlexAlign.Start)
                 .alignItems(HorizontalAlign.Start).layoutWeight(1).margin({ left: 12 });
                 Text('›').fontSize(28).fontColor(T.mutedInk);
               }
