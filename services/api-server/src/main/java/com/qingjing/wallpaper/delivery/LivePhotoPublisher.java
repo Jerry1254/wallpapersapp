@@ -17,15 +17,15 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-/** Builds the two derived delivery files for one HarmonyOS Moving Photo resource version. */
+/** Builds the paired HEIC and metadata-bearing MOV for one iOS Live Photo version. */
 @Service
-public final class MovingPhotoPublisher {
+public final class LivePhotoPublisher {
     private final JdbcTemplate jdbc;
     private final FileStorage storage;
     private final DynamicPhotoMediaProcessor media;
     private final Semaphore slots = new Semaphore(1);
 
-    public MovingPhotoPublisher(JdbcTemplate jdbc, FileStorage storage, DynamicPhotoMediaProcessor media) {
+    public LivePhotoPublisher(JdbcTemplate jdbc, FileStorage storage, DynamicPhotoMediaProcessor media) {
         this.jdbc = jdbc;
         this.storage = storage;
         this.media = media;
@@ -34,7 +34,7 @@ public final class MovingPhotoPublisher {
     @Transactional(noRollbackFor = ApiException.class)
     public void buildIfSupported(long versionId) {
         Version version = version(versionId);
-        if (!version.platform().equals("HARMONYOS") || !version.resourceType().equals("MOVING_PHOTO")) return;
+        if (!version.platform().equals("IOS") || !version.resourceType().equals("LIVE_PHOTO")) return;
         build(version);
     }
 
@@ -46,23 +46,17 @@ public final class MovingPhotoPublisher {
     private void build(Version version) {
         if (!slots.tryAcquire()) {
             throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "RATE_LIMITED",
-                    "Another Moving Photo is being prepared");
+                    "Another Live Photo is being prepared");
         }
+        StoredObject photoObject = null;
         StoredObject videoObject = null;
-        StoredObject posterObject = null;
         try {
-            jdbc.update("INSERT IGNORE INTO moving_photo_package (resource_version_id, status) VALUES (?, 'PROCESSING')",
+            jdbc.update("INSERT IGNORE INTO live_photo_package (resource_version_id, status) VALUES (?, 'PROCESSING')",
                     version.id());
             PackageRow current = packageRowForUpdate(version.id());
             if (current != null && current.status().equals("READY")) return;
-            if (current != null && current.status().equals("REJECTED")) {
-                deleteQuietly(current.videoStorageKey());
-                deleteQuietly(current.posterStorageKey());
-            }
             jdbc.update("""
-                    UPDATE moving_photo_package SET status='PROCESSING', video_storage_key=NULL,
-                        video_size_bytes=NULL, video_sha256=NULL, poster_storage_key=NULL,
-                        poster_size_bytes=NULL, poster_sha256=NULL, error_code=NULL,
+                    UPDATE live_photo_package SET status='PROCESSING', error_code=NULL,
                         updated_at=UTC_TIMESTAMP(6) WHERE resource_version_id=?
                     """, version.id());
             Binding source = source(version.id());
@@ -78,33 +72,35 @@ public final class MovingPhotoPublisher {
             if (bytes.length != source.sizeBytes()
                     || !SecurePackageCodec.sha256(bytes).equals(source.sha256())) throw invalid();
 
-            DynamicPhotoMediaProcessor.MovingPhoto generated = media.movingPhoto(bytes);
-            videoObject = store(generated.video(), "mp4", 60L * 1024 * 1024);
-            posterObject = store(generated.poster(), "jpg", 10L * 1024 * 1024);
+            DynamicPhotoMediaProcessor.LivePhoto generated = media.livePhoto(bytes);
+            photoObject = store(generated.photo(), "heic", 20L * 1024 * 1024);
+            videoObject = store(generated.video(), "mov", 80L * 1024 * 1024);
+            deleteOnRollback(photoObject);
             deleteOnRollback(videoObject);
-            deleteOnRollback(posterObject);
             int updated = jdbc.update("""
-                    UPDATE moving_photo_package
-                    SET status='READY', video_storage_key=?, video_size_bytes=?, video_sha256=?,
-                        poster_storage_key=?, poster_size_bytes=?, poster_sha256=?,
+                    UPDATE live_photo_package
+                    SET status='READY', photo_storage_key=?, photo_size_bytes=?, photo_sha256=?,
+                        video_storage_key=?, video_size_bytes=?, video_sha256=?, asset_identifier=?,
                         duration_ms=?, width_px=?, height_px=?, input_video_codec=?, output_video_codec=?,
                         frame_rate=?, processing_mode=?, error_code=NULL
                     WHERE resource_version_id=? AND status='PROCESSING'
                     """,
+                    photoObject.storageKey().value(), photoObject.sizeBytes(), photoObject.sha256(),
                     videoObject.storageKey().value(), videoObject.sizeBytes(), videoObject.sha256(),
-                    posterObject.storageKey().value(), posterObject.sizeBytes(), posterObject.sha256(),
-                    generated.durationMs(), generated.width(), generated.height(), generated.inputVideoCodec(),
-                    generated.outputVideoCodec(), generated.frameRate(), generated.processingMode().name(), version.id());
+                    generated.assetIdentifier(), generated.durationMs(), generated.width(), generated.height(),
+                    generated.inputVideoCodec(), generated.outputVideoCodec(), generated.frameRate(),
+                    generated.processingMode().name(), version.id());
             if (updated != 1) throw invalid();
         } catch (RuntimeException failure) {
+            deleteQuietly(photoObject);
             deleteQuietly(videoObject);
-            deleteQuietly(posterObject);
             jdbc.update("""
-                    UPDATE moving_photo_package
-                    SET status='REJECTED', video_storage_key=NULL, video_size_bytes=NULL, video_sha256=NULL,
-                        poster_storage_key=NULL, poster_size_bytes=NULL, poster_sha256=NULL,
-                        duration_ms=NULL, width_px=NULL, height_px=NULL, input_video_codec=NULL,
-                        output_video_codec=NULL, frame_rate=NULL, processing_mode=NULL, error_code=?
+                    UPDATE live_photo_package
+                    SET status='REJECTED', photo_storage_key=NULL, photo_size_bytes=NULL, photo_sha256=NULL,
+                        video_storage_key=NULL, video_size_bytes=NULL, video_sha256=NULL,
+                        asset_identifier=NULL, duration_ms=NULL, width_px=NULL, height_px=NULL,
+                        input_video_codec=NULL, output_video_codec=NULL, frame_rate=NULL,
+                        processing_mode=NULL, error_code=?
                     WHERE resource_version_id=?
                     """, errorCode(failure), version.id());
             if (failure instanceof ApiException api) throw api;
@@ -147,9 +143,9 @@ public final class MovingPhotoPublisher {
         List<Binding> rows = jdbc.query("""
                 SELECT a.storage_key, a.size_bytes, a.sha256
                 FROM resource_binding rb JOIN asset a ON a.id=rb.asset_id
-                WHERE rb.resource_version_id=? AND rb.role='MOVING_PHOTO_SOURCE'
+                WHERE rb.resource_version_id=? AND rb.role='LIVE_PHOTO_SOURCE'
                   AND rb.ordinal=0 AND a.deleted_at IS NULL AND a.validation_status='READY'
-                  AND a.purpose='MOVING_PHOTO_SOURCE'
+                  AND a.purpose='LIVE_PHOTO_SOURCE'
                 """, (rs, row) -> new Binding(
                 rs.getString("storage_key"), rs.getLong("size_bytes"), rs.getString("sha256")), versionId);
         if (rows.size() != 1) throw invalid();
@@ -157,20 +153,14 @@ public final class MovingPhotoPublisher {
     }
 
     private PackageRow packageRowForUpdate(long versionId) {
-        return jdbc.query("SELECT status,video_storage_key,poster_storage_key FROM moving_photo_package WHERE resource_version_id=? FOR UPDATE",
-                (rs, row) -> new PackageRow(rs.getString("status"), rs.getString("video_storage_key"),
-                        rs.getString("poster_storage_key")), versionId)
+        return jdbc.query("SELECT status FROM live_photo_package WHERE resource_version_id=? FOR UPDATE",
+                (rs, row) -> new PackageRow(rs.getString("status")), versionId)
                 .stream().findFirst().orElse(null);
     }
 
     private void deleteQuietly(StoredObject object) {
         if (object == null) return;
         try { storage.delete(object.storageKey()); } catch (RuntimeException ignored) { }
-    }
-
-    private void deleteQuietly(String storageKey) {
-        if (storageKey == null) return;
-        try { storage.delete(new StorageKey(storageKey)); } catch (RuntimeException ignored) { }
     }
 
     private void deleteOnRollback(StoredObject object) {
@@ -183,20 +173,20 @@ public final class MovingPhotoPublisher {
         });
     }
 
-    private static ApiException invalid() {
-        return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "MOVING_PHOTO_PROCESSING_FAILED",
-                "The Moving Photo source cannot be processed");
-    }
-
     private static String errorCode(RuntimeException failure) {
         if (failure instanceof ApiException api
                 && List.of("DYNAMIC_SOURCE_FORMAT_INVALID", "DYNAMIC_SOURCE_DURATION_INVALID").contains(api.code())) {
             return api.code();
         }
-        return "MOVING_PHOTO_PROCESSING_FAILED";
+        return "LIVE_PHOTO_PROCESSING_FAILED";
+    }
+
+    private static ApiException invalid() {
+        return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "LIVE_PHOTO_PROCESSING_FAILED",
+                "The Live Photo source cannot be processed");
     }
 
     private record Version(long id, String status, String platform, String resourceType) { }
     private record Binding(String storageKey, long sizeBytes, String sha256) { }
-    private record PackageRow(String status, String videoStorageKey, String posterStorageKey) { }
+    private record PackageRow(String status) { }
 }

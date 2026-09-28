@@ -14,6 +14,7 @@ import static com.qingjing.wallpaper.catalog.AdminContentDtos.ResourceVersionSta
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.WallpaperStatus;
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.GeneratedMediaFile;
 import static com.qingjing.wallpaper.catalog.AdminContentDtos.MovingPhotoStatus;
+import static com.qingjing.wallpaper.catalog.AdminContentDtos.LivePhotoStatus;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -238,6 +239,7 @@ public class AdminContentViewReader {
                 bindings,
                 sourcePackages.forVersion(row.id()),
                 movingPhoto(row.id()),
+                livePhoto(row.id()),
                 instant(row.publishedAt()),
                 instant(row.retiredAt()),
                 row.createdAt().toInstant(),
@@ -247,7 +249,8 @@ public class AdminContentViewReader {
     private MovingPhotoStatus movingPhoto(long resourceVersionId) {
         return jdbc.query("""
                 SELECT status, video_size_bytes, video_sha256, poster_size_bytes, poster_sha256,
-                       duration_ms, width_px, height_px, error_code
+                       duration_ms, width_px, height_px, input_video_codec, output_video_codec,
+                       frame_rate, processing_mode, error_code
                 FROM moving_photo_package WHERE resource_version_id=?
                 """, (rs, row) -> {
             String status = rs.getString("status");
@@ -258,7 +261,33 @@ public class AdminContentViewReader {
             return new MovingPhotoStatus(
                     status, video, poster, rs.getObject("duration_ms", Long.class),
                     rs.getObject("width_px", Integer.class), rs.getObject("height_px", Integer.class),
+                    rs.getString("input_video_codec"), rs.getString("output_video_codec"),
+                    rs.getObject("frame_rate") == null ? null : rs.getDouble("frame_rate"),
+                    rs.getString("processing_mode"),
                     rs.getString("error_code"), status.equals("READY") && video != null && poster != null);
+        }, resourceVersionId).stream().findFirst().orElse(null);
+    }
+
+    private LivePhotoStatus livePhoto(long resourceVersionId) {
+        return jdbc.query("""
+                SELECT status, photo_size_bytes, photo_sha256, video_size_bytes, video_sha256,
+                       asset_identifier, duration_ms, width_px, height_px, input_video_codec,
+                       output_video_codec, frame_rate, processing_mode, error_code
+                FROM live_photo_package WHERE resource_version_id=?
+                """, (rs, row) -> {
+            String status = rs.getString("status");
+            GeneratedMediaFile photo = rs.getObject("photo_size_bytes") == null ? null
+                    : new GeneratedMediaFile("image/heic", rs.getLong("photo_size_bytes"), rs.getString("photo_sha256"));
+            GeneratedMediaFile video = rs.getObject("video_size_bytes") == null ? null
+                    : new GeneratedMediaFile("video/quicktime", rs.getLong("video_size_bytes"), rs.getString("video_sha256"));
+            return new LivePhotoStatus(
+                    status, photo, video, rs.getString("asset_identifier"),
+                    rs.getObject("duration_ms", Long.class), rs.getObject("width_px", Integer.class),
+                    rs.getObject("height_px", Integer.class), rs.getString("input_video_codec"),
+                    rs.getString("output_video_codec"),
+                    rs.getObject("frame_rate") == null ? null : rs.getDouble("frame_rate"),
+                    rs.getString("processing_mode"), rs.getString("error_code"),
+                    status.equals("READY") && photo != null && video != null);
         }, resourceVersionId).stream().findFirst().orElse(null);
     }
 

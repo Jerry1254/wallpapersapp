@@ -1,5 +1,16 @@
 FROM eclipse-temurin:21-jre-jammy
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ffmpeg \
+        gpac \
+        libheif-examples \
+        libimage-exiftool-perl \
+    && command -v ffmpeg \
+    && command -v ffprobe \
+    && command -v MP4Box \
+    && command -v heif-enc \
+    && command -v exiftool \
+    && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system qingjing \
     && useradd --system --gid qingjing --home-dir /app --create-home qingjing
 WORKDIR /app

@@ -32,6 +32,8 @@ const expectedOperations = {
   '/preview/moving-photo/video': ['get'],
   '/delivery/moving-photo/poster': ['get'],
   '/delivery/moving-photo/video': ['get'],
+  '/delivery/live-photo/image': ['get'],
+  '/delivery/live-photo/video': ['get'],
   '/delivery/static-image': ['get'],
   '/admin/sessions': ['get', 'post', 'delete'],
   '/admin/assets': ['post'],
@@ -175,8 +177,10 @@ assert.equal(
   true,
   'legacy redemption codes without recoverable material must remain representable'
 );
-assert.deepEqual(document.components.schemas.DownloadDescriptor.properties.deliveryMode.enum, ['SECURE_PACKAGE', 'MOVING_PHOTO', 'STATIC_IMAGE']);
+assert.deepEqual(document.components.schemas.DownloadDescriptor.properties.deliveryMode.enum, ['SECURE_PACKAGE', 'MOVING_PHOTO', 'LIVE_PHOTO', 'STATIC_IMAGE']);
 assert.ok(document.components.schemas.DownloadDescriptor.properties.image, 'static image delivery metadata is required');
+assert.ok(document.components.schemas.DownloadDescriptor.properties.photo, 'Live Photo image delivery metadata is required');
+assert.ok(document.paths['/admin/resource-versions/{resourceVersionId}/live-photo/build'].post, 'Live Photo build operation is required');
 assert.match(
   document.paths['/device/wallpapers/{wallpaperId}/download-tickets'].post.description,
   /UNIVERSAL \/ STATIC_IMAGE.*所有平台/s,

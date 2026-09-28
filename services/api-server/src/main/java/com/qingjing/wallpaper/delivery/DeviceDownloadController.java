@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.qingjing.wallpaper.delivery.DownloadTicketService.MovingPhotoPart;
+import com.qingjing.wallpaper.delivery.DownloadTicketService.LivePhotoPart;
 
 @RestController
 public class DeviceDownloadController {
@@ -76,9 +77,30 @@ public class DeviceDownloadController {
                 .body(output->file.writer().write(output));
     }
 
+    @GetMapping("/api/v1/delivery/live-photo/image")
+    ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> livePhotoImage(
+            @RequestHeader(value="Authorization",required=false) String authorization) {
+        return livePhoto(authorization,LivePhotoPart.PHOTO,MediaType.valueOf("image/heic"));
+    }
+
+    @GetMapping("/api/v1/delivery/live-photo/video")
+    ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> livePhotoVideo(
+            @RequestHeader(value="Authorization",required=false) String authorization) {
+        return livePhoto(authorization,LivePhotoPart.VIDEO,MediaType.valueOf("video/quicktime"));
+    }
+
     private ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> movingPhoto(
             String authorization,MovingPhotoPart part,MediaType contentType) {
         var file=tickets.readMovingPhotoFile(requireTicket(authorization),part);
+        return ResponseEntity.ok().contentType(contentType).contentLength(file.sizeBytes())
+                .header("Cache-Control","no-store")
+                .header("Digest","sha-256=:"+java.util.Base64.getEncoder().encodeToString(java.util.HexFormat.of().parseHex(file.sha256()))+":")
+                .body(output->file.writer().write(output));
+    }
+
+    private ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> livePhoto(
+            String authorization,LivePhotoPart part,MediaType contentType) {
+        var file=tickets.readLivePhotoFile(requireTicket(authorization),part);
         return ResponseEntity.ok().contentType(contentType).contentLength(file.sizeBytes())
                 .header("Cache-Control","no-store")
                 .header("Digest","sha-256=:"+java.util.Base64.getEncoder().encodeToString(java.util.HexFormat.of().parseHex(file.sha256()))+":")

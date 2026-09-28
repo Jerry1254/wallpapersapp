@@ -179,12 +179,21 @@ describe('adminRepository.saveWallpaper', () => {
     expect(JSON.parse(String(requests[3].options.body))).toEqual({ versionNo: 1, sourcePackageId: '90' });
   });
 
-  it('iOS 动态壁纸一次发布静态原图与动态多角色资源', async () => {
+  it('iOS 动态壁纸一次发布静态原图与单个 Live Photo 源视频', async () => {
     setCsrfToken('csrf-token');
-    const roles = ['LIVE_PHOTO_IMAGE', 'LIVE_PHOTO_VIDEO'];
     const staticAsset = asset('1', 'wallpaper.png');
     const staticVersion = { id: '50', versionNo: 1, status: 'READY', bindings: [{ id: '60', role: 'STATIC_IMAGE', ordinal: 0, asset: staticAsset }] };
-    const liveVersion = { id: '51', versionNo: 1, status: 'READY', bindings: roles.map((role, index) => ({ id: String(61 + index), role, ordinal: 0, asset: asset(String(index + 2), 'resource') })) };
+    const livePhoto = {
+      status: 'READY',
+      photo: { mimeType: 'image/heic', sizeBytes: 68, sha256: 'a'.repeat(64) },
+      video: { mimeType: 'video/quicktime', sizeBytes: 128, sha256: 'b'.repeat(64) },
+      assetIdentifier: '60F4980E-85CF-410A-8CD6-E9007DE24554', durationMs: 1_000,
+      widthPx: 1080, heightPx: 1920, inputVideoCodec: 'h264', outputVideoCodec: 'h264',
+      frameRate: 30, processingMode: 'REMUX', errorCode: null, publishable: true
+    };
+    const liveSource = asset('2', 'live-photo-source.mp4');
+    const liveVersion = { id: '51', versionNo: 1, status: 'READY', livePhoto,
+      bindings: [{ id: '61', role: 'LIVE_PHOTO_SOURCE', ordinal: 0, asset: liveSource }] };
     const staticVariant = { id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', enabled: true, version: 0, resourceVersions: [] };
     const liveVariant = { id: '41', platform: 'IOS', resourceType: 'LIVE_PHOTO', enabled: true, version: 0, resourceVersions: [] };
     const listCover = asset('9', 'list-cover.png');
@@ -197,9 +206,7 @@ describe('adminRepository.saveWallpaper', () => {
       }
       if (url.endsWith('/admin/variants/41/resource-versions')) {
         const body = JSON.parse(String(options.body));
-        if (body.bindings.some((binding: { ordinal: number }) => binding.ordinal !== 0)) {
-          return json({ error: { code: 'DOMAIN_RULE_VIOLATION', message: 'Every role must use ordinal zero' } }, 422);
-        }
+        expect(body.bindings).toEqual([{ assetId: '2', role: 'LIVE_PHOTO_SOURCE', ordinal: 0 }]);
         return json(liveVersion, 201);
       }
       if (url.endsWith('/admin/resource-versions/50/secure-package')) return json(staticVersion);
@@ -214,17 +221,16 @@ describe('adminRepository.saveWallpaper', () => {
       return json(wallpaper);
     });
     vi.stubGlobal('fetch', fetchMock);
-    const resources = Object.fromEntries(['iosPhoto', 'iosMov'].map((key, index) => [key, { name: key, assetId: String(index + 2), size: 68, mime: 'image/png' }]));
     const input: Wallpaper = { id: '30', title: '多角色发布', slug: 'multi-role', categoryId: '20', subcategoryId: '',
       accessType: 'REDEEM', capabilities: ['universal_static', 'ios_live_photo'], status: 'draft', sort: 1, featuredRank: null,
       coverUrl: '', copyrightNote: '本地测试', updatedAt: '', version: 0, variants: [], resources: {
-        ...resources,
         cover: { name: 'list-cover.png', assetId: '9', size: 68, mime: 'image/png' },
+        iosVideo: { name: liveSource.originalFilename, assetId: liveSource.id, size: liveSource.sizeBytes, mime: liveSource.mimeType },
         staticImage: { name: 'wallpaper.png', assetId: '1', size: 68, mime: 'image/png' }
       } };
     expect((await adminRepository.saveWallpaper(input, true)).status).toBe('published');
     const created = fetchMock.mock.calls.find(([url]) => url.endsWith('/admin/variants/41/resource-versions'));
-    expect(JSON.parse(String(created?.[1]?.body)).bindings).toEqual(roles.map((role, index) => ({ role, ordinal: 0, assetId: String(index + 2) })));
+    expect(JSON.parse(String(created?.[1]?.body)).bindings).toEqual([{ role: 'LIVE_PHOTO_SOURCE', ordinal: 0, assetId: '2' }]);
     const publish = fetchMock.mock.calls.find(([url]) => url.endsWith('/publish'));
     expect(JSON.parse(String(publish?.[1]?.body))).toEqual({ resourceVersionIds: ['50', '51'] });
   });
@@ -232,7 +238,7 @@ describe('adminRepository.saveWallpaper', () => {
   it('鸿蒙动态只上传一个原始视频并由后端返回生成状态', async () => {
     setCsrfToken('csrf-token');
     const requests: { url: string; options: RequestInit }[] = [];
-    const harmonyAsset = { ...asset('2', 'harmony.mov'), mimeType: 'video/quicktime' };
+    const harmonyAsset = { ...asset('2', 'harmony.mp4'), mimeType: 'video/mp4' };
     const movingPhoto = {
       status: 'READY',
       video: { mimeType: 'video/mp4', sizeBytes: 120_000, sha256: 'a'.repeat(64) },
@@ -267,7 +273,7 @@ describe('adminRepository.saveWallpaper', () => {
       throw new Error(`unexpected request: ${options.method || 'GET'} ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);
-    const source = new File(['moving-photo'], 'harmony.mov', { type: 'video/quicktime' });
+    const source = new File(['moving-photo'], 'harmony.mp4', { type: 'video/mp4' });
     const input: Wallpaper = {
       id: '30', title: '鸿蒙动态', slug: 'harmony-moving-photo', categoryId: '20', subcategoryId: '',
       accessType: 'REDEEM', capabilities: [], status: 'draft', sort: 1, featuredRank: null,

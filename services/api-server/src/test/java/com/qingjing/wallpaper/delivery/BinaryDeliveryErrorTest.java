@@ -126,4 +126,34 @@ class BinaryDeliveryErrorTest {
                 .andExpect(header().string("Digest", "sha-256=:IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI=:"))
                 .andExpect(content().bytes(bytes));
     }
+
+    @Test
+    void livePhotoPairUsesOneTicketWithExactAppleMimeTypes() throws Exception {
+        byte[] photo = {1, 3, 5};
+        byte[] video = {2, 4, 6, 8};
+        when(downloads.readLivePhotoFile("live-ticket", DownloadTicketService.LivePhotoPart.PHOTO))
+                .thenReturn(new DownloadTicketService.ProtectedFile(
+                        photo.length, "33".repeat(32), output -> output.write(photo)));
+        when(downloads.readLivePhotoFile("live-ticket", DownloadTicketService.LivePhotoPart.VIDEO))
+                .thenReturn(new DownloadTicketService.ProtectedFile(
+                        video.length, "44".repeat(32), output -> output.write(video)));
+
+        var imagePending = mvc.perform(get("/api/v1/delivery/live-photo/image")
+                        .header("Authorization", "Bearer live-ticket").accept("image/heic"))
+                .andExpect(request().asyncStarted()).andReturn();
+        mvc.perform(asyncDispatch(imagePending))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("image/heic"))
+                .andExpect(header().string("Content-Length", "3"))
+                .andExpect(content().bytes(photo));
+
+        var videoPending = mvc.perform(get("/api/v1/delivery/live-photo/video")
+                        .header("Authorization", "Bearer live-ticket").accept("video/quicktime"))
+                .andExpect(request().asyncStarted()).andReturn();
+        mvc.perform(asyncDispatch(videoPending))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("video/quicktime"))
+                .andExpect(header().string("Content-Length", "4"))
+                .andExpect(content().bytes(video));
+    }
 }

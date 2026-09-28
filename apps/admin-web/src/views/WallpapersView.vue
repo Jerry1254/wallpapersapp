@@ -107,7 +107,7 @@ const requiredResources = (value: Wallpaper) => {
     && variant.resourceVersions.some((version) => ['READY', 'PUBLISHED'].includes(version.status)));
   if (value.capabilities.includes('android_parallax')) result.push(value.resources.parallaxPackage || (existing('LAYER_PARALLAX') ? '现有 4D 资源' : undefined));
   if (value.capabilities.includes('android_video')) result.push(value.resources.androidVideo || (existing('VIDEO') ? '现有 Android 视频' : undefined));
-  if (value.capabilities.includes('ios_live_photo')) result.push(value.resources.iosMov || (existing('LIVE_PHOTO') ? '现有 iOS 视频' : undefined), value.resources.iosPhoto || (existing('LIVE_PHOTO') ? '现有 iOS 照片' : undefined));
+  if (value.capabilities.includes('ios_live_photo')) result.push(value.resources.iosVideo || (existing('LIVE_PHOTO') ? '现有 iOS Live Photo' : undefined));
   if (value.capabilities.includes('harmony_moving_photo')) result.push(value.resources.harmonyVideo || (existing('MOVING_PHOTO') ? '现有鸿蒙动态' : undefined));
   if (value.capabilities.includes('universal_static')) result.push(value.resources.staticImage || (existing('STATIC_IMAGE') ? '现有静态原图' : undefined));
   return result;

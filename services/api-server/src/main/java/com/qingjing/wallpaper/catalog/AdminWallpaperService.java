@@ -550,6 +550,12 @@ public class AdminWallpaperService {
                 throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "ASSET_NOT_READY", "Every bound asset must be ready");
             }
             validateAssetRoleType(request.role(), asset.mimeType());
+            if (request.role() == AssetRole.LIVE_PHOTO_SOURCE || request.role() == AssetRole.MOVING_PHOTO_SOURCE) {
+                String purpose = jdbc.queryForObject("SELECT purpose FROM asset WHERE id=?", String.class, assetId);
+                if (!request.role().name().equals(purpose)) {
+                    throw domainViolation("The platform dynamic-photo source purpose does not match its role");
+                }
+            }
             resolved.add(new ResolvedBinding(assetId, request.role(), request.ordinal(), asset.sha256()));
         }
 
@@ -589,7 +595,7 @@ public class AdminWallpaperService {
             case FOREGROUND -> mimeType.equals("image/png") || mimeType.equals("image/webp");
             case LIVE_PHOTO_IMAGE -> mimeType.equals("image/jpeg");
             case PARALLAX_CONFIG -> mimeType.equals("application/json");
-            case VIDEO, LIVE_PHOTO_VIDEO, MOVING_PHOTO_SOURCE -> mimeType.startsWith("video/");
+            case VIDEO, LIVE_PHOTO_VIDEO, LIVE_PHOTO_SOURCE, MOVING_PHOTO_SOURCE -> mimeType.startsWith("video/");
         };
         if (!accepted) {
             throw domainViolation("The bound asset type is incompatible with role " + role);
@@ -600,7 +606,7 @@ public class AdminWallpaperService {
         return switch (resourceType) {
             case LAYER_PARALLAX -> Set.of(AssetRole.BACKGROUND, AssetRole.FOREGROUND, AssetRole.PARALLAX_CONFIG);
             case VIDEO -> Set.of(AssetRole.VIDEO);
-            case LIVE_PHOTO -> Set.of(AssetRole.LIVE_PHOTO_IMAGE, AssetRole.LIVE_PHOTO_VIDEO);
+            case LIVE_PHOTO -> Set.of(AssetRole.LIVE_PHOTO_SOURCE);
             case STATIC_IMAGE -> Set.of(AssetRole.STATIC_IMAGE);
             case MOVING_PHOTO -> Set.of(AssetRole.MOVING_PHOTO_SOURCE);
         };

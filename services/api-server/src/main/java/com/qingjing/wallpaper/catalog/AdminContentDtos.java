@@ -163,6 +163,8 @@ public final class AdminContentDtos {
             com.qingjing.wallpaper.parallax.ParallaxPackageDtos.SourcePackage sourcePackage,
             @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS)
             MovingPhotoStatus movingPhoto,
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS)
+            LivePhotoStatus livePhoto,
             Instant publishedAt,
             Instant retiredAt,
             Instant createdAt,
@@ -179,6 +181,26 @@ public final class AdminContentDtos {
             Long durationMs,
             Integer widthPx,
             Integer heightPx,
+            String inputVideoCodec,
+            String outputVideoCodec,
+            Double frameRate,
+            String processingMode,
+            String errorCode,
+            boolean publishable) {
+    }
+
+    public record LivePhotoStatus(
+            String status,
+            GeneratedMediaFile photo,
+            GeneratedMediaFile video,
+            String assetIdentifier,
+            Long durationMs,
+            Integer widthPx,
+            Integer heightPx,
+            String inputVideoCodec,
+            String outputVideoCodec,
+            Double frameRate,
+            String processingMode,
             String errorCode,
             boolean publishable) {
     }
@@ -219,6 +241,7 @@ public final class AdminContentDtos {
         VIDEO,
         LIVE_PHOTO_IMAGE,
         LIVE_PHOTO_VIDEO,
+        LIVE_PHOTO_SOURCE,
         STATIC_IMAGE,
         MOVING_PHOTO_SOURCE
     }

@@ -24,6 +24,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Assumptions;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -1514,17 +1515,18 @@ class InfrastructureIntegrationIT {
 
     @Test
     void livePhotoPublicationCreatesExactAndroidPlayableVideoPreviewWithoutFormalPackage() throws Exception {
+        Assumptions.assumeTrue(livePhotoToolsAvailable(), "Live Photo native media tools are required");
         ensureAdmin(); var admin=login();
         long wallpaperId=createPublishedWallpaperFixture();
         long variantId=jdbc.queryForObject("SELECT id FROM wallpaper_variant WHERE wallpaper_id=?",Long.class,wallpaperId);
         jdbc.update("UPDATE wallpaper_variant SET platform='IOS',resource_type='LIVE_PHOTO' WHERE id=?",variantId);
-        JsonNode photo=uploadAsset(admin,"LIVE_PHOTO_IMAGE","live-photo.jpg",jpeg(64,64));
-        JsonNode movie=uploadAsset(admin,"LIVE_PHOTO_VIDEO","live-photo.mp4",testVideo());
+        JsonNode source=uploadAsset(admin,"LIVE_PHOTO_SOURCE","live-photo.mp4",testVideo());
         var created=jsonExchange("/api/v1/admin/variants/"+variantId+"/resource-versions",HttpMethod.POST,
                 Map.of("versionNo",2,"bindings",List.of(
-                        Map.of("role","LIVE_PHOTO_IMAGE","ordinal",0,"assetId",photo.path("id").asText()),
-                        Map.of("role","LIVE_PHOTO_VIDEO","ordinal",0,"assetId",movie.path("id").asText()))),admin,null);
+                        Map.of("role","LIVE_PHOTO_SOURCE","ordinal",0,"assetId",source.path("id").asText()))),admin,null);
         assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(created.getBody().path("livePhoto").path("status").asText()).isEqualTo("READY");
+        assertThat(created.getBody().path("livePhoto").path("durationMs").asLong()).isEqualTo(1000);
         long versionId=created.getBody().path("id").asLong();
         var published=jsonExchange("/api/v1/admin/wallpapers/"+wallpaperId+"/publish",HttpMethod.POST,
                 Map.of("resourceVersionIds",List.of(Long.toString(versionId))),admin,"\"0\"");
@@ -1550,6 +1552,25 @@ class InfrastructureIntegrationIT {
         String bindPath="/api/v1/device/encryption-key";
         assertThat(http.exchange(bindPath,HttpMethod.PUT,androidSignedEntity(signing,token,"PUT",bindPath,objectMapper.writeValueAsString(Map.of("publicKeyPem",pem))),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
         verifyUnownedPreview(signing,encryption,token,deviceId,wallpaperId,versionId,"LIVE_PHOTO");
+    }
+
+    private boolean livePhotoToolsAvailable() {
+        String mp4Box=System.getenv().getOrDefault("QJ_MP4BOX","MP4Box");
+        String exifTool=System.getenv().getOrDefault("QJ_EXIFTOOL","exiftool");
+        String heifEncoder=System.getenv().getOrDefault("QJ_HEIF_ENCODER","heif-enc");
+        boolean heic=canRun(heifEncoder,"--version")
+                || (System.getProperty("os.name","").toLowerCase().contains("mac")
+                    && java.nio.file.Files.isExecutable(java.nio.file.Path.of("/usr/bin/sips")));
+        return canRun(mp4Box,"-version") && canRun(exifTool,"-ver") && heic;
+    }
+
+    private boolean canRun(String executable,String argument) {
+        try {
+            Process process=new ProcessBuilder(executable,argument)
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            return process.waitFor(10,java.util.concurrent.TimeUnit.SECONDS) && process.exitValue()==0;
+        } catch (Exception ignored) { return false; }
     }
 
     private DecodedPackage decodeStoredPackage(Map<String,Object> stored,long versionId,
@@ -1948,7 +1969,7 @@ class InfrastructureIntegrationIT {
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add("purpose", purpose);
         HttpHeaders fileHeaders = new HttpHeaders();
-        fileHeaders.setContentType(purpose.contains("VIDEO") ? MediaType.valueOf("video/mp4")
+        fileHeaders.setContentType((purpose.contains("VIDEO") || purpose.equals("LIVE_PHOTO_SOURCE") || purpose.equals("MOVING_PHOTO_SOURCE")) ? MediaType.valueOf("video/mp4")
                 : purpose.equals("LIVE_PHOTO_IMAGE") ? MediaType.IMAGE_JPEG
                 : purpose.equals("PARALLAX_CONFIG") ? MediaType.APPLICATION_JSON : MediaType.IMAGE_PNG);
         fileHeaders.setContentDispositionFormData("file", filename);
