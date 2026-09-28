@@ -397,37 +397,7 @@ class _DetailScreenState extends State<DetailScreen> {
                             icon: const QjIcon('chevron-left', size: 22),
                           ),
                           const SizedBox(width: T.space2),
-                          Expanded(
-                            child: showsPreviewTabs
-                                ? SingleChildScrollView(
-                                    scrollDirection: Axis.horizontal,
-                                    child: Row(
-                                      children: previewTabs
-                                          .map(
-                                            (option) => Padding(
-                                              padding: EdgeInsets.only(
-                                                right:
-                                                    option == previewTabs.last
-                                                    ? 0
-                                                    : T.space2,
-                                              ),
-                                              child: QjFilterChip(
-                                                label: option.label,
-                                                selected:
-                                                    option.key ==
-                                                    previewOption?.key,
-                                                onPressed: () => setState(
-                                                  () => selectedPreviewKey =
-                                                      option.key,
-                                                ),
-                                              ),
-                                            ),
-                                          )
-                                          .toList(growable: false),
-                                    ),
-                                  )
-                                : const SizedBox.shrink(),
-                          ),
+                          const Spacer(),
                           const SizedBox(width: T.space2),
                           OutlinedButton(
                             style: OutlinedButton.styleFrom(
@@ -461,6 +431,47 @@ class _DetailScreenState extends State<DetailScreen> {
                         ],
                       ),
                     ),
+                    if (showsPreviewTabs) ...[
+                      const SizedBox(height: T.space2),
+                      SizedBox(
+                        height: 40,
+                        child: LayoutBuilder(
+                          builder: (context, available) =>
+                              SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    minWidth: available.maxWidth,
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: previewTabs
+                                        .map(
+                                          (option) => Padding(
+                                            padding: EdgeInsets.only(
+                                              right: option == previewTabs.last
+                                                  ? 0
+                                                  : T.space2,
+                                            ),
+                                            child: QjFilterChip(
+                                              label: option.label,
+                                              selected:
+                                                  option.key ==
+                                                  previewOption?.key,
+                                              onPressed: () => setState(
+                                                () => selectedPreviewKey =
+                                                    option.key,
+                                              ),
+                                            ),
+                                          ),
+                                        )
+                                        .toList(growable: false),
+                                  ),
+                                ),
+                              ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: T.space3),
                     FractionallySizedBox(
                       widthFactor: .82,
@@ -476,89 +487,118 @@ class _DetailScreenState extends State<DetailScreen> {
                             ),
                       ),
                     ),
-                    const SizedBox(height: T.space2),
+                    const SizedBox(height: 10),
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, available) {
                           final widthFromPage = available.maxWidth * .82;
-                          final widthFromHeight = available.maxHeight * 9 / 16;
+                          final errorHeight =
+                              !wallpaper.isFree && ownershipError != null
+                              ? 56.0 + T.space3
+                              : 0.0;
+                          final availablePreviewHeight =
+                              available.maxHeight -
+                              T.sizePrimaryControl -
+                              T.space3 -
+                              errorHeight;
+                          final widthFromHeight =
+                              (availablePreviewHeight > 0
+                                  ? availablePreviewHeight
+                                  : 0) *
+                              9 /
+                              16;
                           final previewWidth = widthFromPage < widthFromHeight
                               ? widthFromPage
                               : widthFromHeight;
-                          return Center(
-                            child: Container(
-                              key: const ValueKey('detail-preview'),
-                              width: previewWidth,
-                              height: previewWidth * 16 / 9,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(
-                                  T.radiusCard,
+                          return Align(
+                            alignment: Alignment.topCenter,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  key: const ValueKey('detail-preview'),
+                                  width: previewWidth,
+                                  height: previewWidth * 16 / 9,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(
+                                      T.radiusCard,
+                                    ),
+                                    boxShadow: const [T.shadowCard],
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(
+                                      T.radiusCard,
+                                    ),
+                                    child: Stack(
+                                      fit: StackFit.expand,
+                                      children: [
+                                        if (widget.downloads != null &&
+                                            previewOption != null &&
+                                            previewOption.canApplyOnAndroid)
+                                          _preview(
+                                            wallpaper,
+                                            previewOption,
+                                            CatalogImage(
+                                              repository: widget.repository,
+                                              path: wallpaper.cover,
+                                            ),
+                                          )
+                                        else
+                                          CatalogImage(
+                                            repository: widget.repository,
+                                            path: wallpaper.cover,
+                                          ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
-                                boxShadow: const [T.shadowCard],
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(
-                                  T.radiusCard,
-                                ),
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  children: [
-                                    if (widget.downloads != null &&
-                                        previewOption != null &&
-                                        previewOption.canApplyOnAndroid)
-                                      _preview(
-                                        wallpaper,
-                                        previewOption,
-                                        CatalogImage(
-                                          repository: widget.repository,
-                                          path: wallpaper.cover,
-                                        ),
-                                      )
-                                    else
-                                      CatalogImage(
-                                        repository: widget.repository,
-                                        path: wallpaper.cover,
+                                if (!wallpaper.isFree && ownershipError != null)
+                                  SizedBox(
+                                    width: available.maxWidth,
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(
+                                        top: T.space3,
                                       ),
-                                  ],
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              ownershipError!,
+                                              style: Theme.of(
+                                                context,
+                                              ).textTheme.bodySmall,
+                                            ),
+                                          ),
+                                          TextButton(
+                                            onPressed: _ownership,
+                                            child: const Text('重新加载'),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                const SizedBox(height: T.space3),
+                                SizedBox(
+                                  width: available.maxWidth * .82,
+                                  child: QjPrimaryAction(
+                                    label: label,
+                                    accent: true,
+                                    loading: waitsForOwnership,
+                                    onPressed:
+                                        usable &&
+                                            !waitsForOwnership &&
+                                            !downloadingCurrent &&
+                                            (wallpaper.isFree ||
+                                                ownershipError == null)
+                                        ? () =>
+                                              _action(wallpaper, previewOption!)
+                                        : null,
+                                  ),
                                 ),
-                              ),
+                              ],
                             ),
                           );
                         },
-                      ),
-                    ),
-                    if (!wallpaper.isFree && ownershipError != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: T.space3),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                ownershipError!,
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: _ownership,
-                              child: const Text('重新加载'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    const SizedBox(height: T.space3),
-                    FractionallySizedBox(
-                      widthFactor: .82,
-                      child: QjPrimaryAction(
-                        label: label,
-                        accent: true,
-                        loading: waitsForOwnership,
-                        onPressed:
-                            usable &&
-                                !waitsForOwnership &&
-                                !downloadingCurrent &&
-                                (wallpaper.isFree || ownershipError == null)
-                            ? () => _action(wallpaper, previewOption!)
-                            : null,
                       ),
                     ),
                   ],

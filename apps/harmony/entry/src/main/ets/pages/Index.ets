@@ -899,27 +899,9 @@ struct Index {
           .width(44).height(44).padding(0).backgroundColor(T.surface)
           .border({ width: 1, color: T.outline }).borderRadius(22)
           .onClick(() => this.goBack());
-        if (item.capabilities.length > 1) {
-          Scroll() {
-            Row({ space: 8 }) {
-              ForEach(item.capabilities, (capability: WallpaperCapability) => {
-                Button(this.detailCapabilityLabel(capability)).height(38).fontSize(13).fontWeight(FontWeight.Bold)
-                  .fontColor(this.selectedCapability === capability.label ? T.inverseInk : T.ink)
-                  .backgroundColor(this.selectedCapability === capability.label ? T.navigation : T.surface)
-                  .border({ width: 1, color: T.outlineStrong }).borderRadius(19)
-                  .onClick(() => {
-                    this.selectDetailCapability(item, capability);
-                  });
-              }, (capability: WallpaperCapability) => capability.deliveryPlatform + capability.resourceType);
-            }
-          }
-          .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).layoutWeight(1)
-          .margin({ left: 8, right: 8 });
-        } else {
-          Row() {
-          }
-          .layoutWeight(1);
+        Row() {
         }
+        .layoutWeight(1);
         Button() {
           Row({ space: 5 }) {
             Image($r('app.media.circle_play')).width(17).height(17).objectFit(ImageFit.Contain);
@@ -932,6 +914,24 @@ struct Index {
           .onClick(() => this.openDetailTutorial());
       }
       .width('100%').height(T.topBarHeight);
+      if (item.capabilities.length > 1) {
+        Scroll() {
+          Row({ space: 8 }) {
+            ForEach(item.capabilities, (capability: WallpaperCapability) => {
+              Button(this.detailCapabilityLabel(capability)).height(38).fontSize(13).fontWeight(FontWeight.Bold)
+                .fontColor(this.selectedCapability === capability.label ? T.inverseInk : T.ink)
+                .backgroundColor(this.selectedCapability === capability.label ? T.navigation : T.surface)
+                .border({ width: 1, color: T.outlineStrong }).borderRadius(19)
+                .onClick(() => {
+                  this.selectDetailCapability(item, capability);
+                });
+            }, (capability: WallpaperCapability) => capability.deliveryPlatform + capability.resourceType);
+          }
+          .width('100%').justifyContent(FlexAlign.Center);
+        }
+        .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%').height(40)
+        .margin({ top: 8 });
+      }
       Text(item.title)
         .width('82%')
         .fontSize(17)
@@ -999,14 +999,14 @@ struct Index {
           .width('100%').padding(12).align(Alignment.Bottom);
         }
         .width('82%').aspectRatio(9 / 16).borderRadius(T.cardRadius).clip(true);
+        Button(this.detailActionLabel(item))
+          .width('82%').height(T.primaryHeight).fontSize(17).fontWeight(FontWeight.Bold)
+          .fontColor(T.ink).backgroundColor(T.accent).borderRadius(27)
+          .margin({ top: 12, bottom: 16 })
+          .onClick(() => this.primaryDetailAction(item));
       }
-      .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
-      .margin({ top: 8 });
-      Button(this.detailActionLabel(item))
-        .width('82%').height(T.primaryHeight).fontSize(17).fontWeight(FontWeight.Bold)
-        .fontColor(T.ink).backgroundColor(T.accent).borderRadius(27)
-        .margin({ top: 12, bottom: 20 })
-        .onClick(() => this.primaryDetailAction(item));
+      .width('100%').layoutWeight(1).justifyContent(FlexAlign.Start).alignItems(HorizontalAlign.Center)
+      .margin({ top: 10 });
     }
     .width('100%').height('100%').alignItems(HorizontalAlign.Center)
     .padding({ left: T.gutter, right: T.gutter });
