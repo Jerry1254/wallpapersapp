@@ -1,0 +1,51 @@
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{OFFICIAL_HOST}};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+        default_type text/plain;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name {{OFFICIAL_HOST}};
+
+    ssl_certificate /etc/letsencrypt/live/{{OFFICIAL_HOST}}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{OFFICIAL_HOST}}/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    root /opt/qingjing/official-site/current;
+    index index.html;
+
+    add_header Strict-Transport-Security "max-age=15552000" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'none'" always;
+
+    location ~* \.(?:jpg|jpeg|png|svg|webp|ico)$ {
+        try_files $uri =404;
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location = /styles.css {
+        try_files $uri =404;
+        expires 1h;
+        add_header Cache-Control "public";
+    }
+
+    location / {
+        try_files $uri $uri/ =404;
+        add_header Cache-Control "no-store";
+    }
+}
