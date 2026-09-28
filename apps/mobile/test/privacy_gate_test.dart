@@ -22,12 +22,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(businessBuilds, 0);
-    expect(find.text('用户协议与隐私政策'), findsOneWidget);
+    expect(find.text('隐私政策与用户协议'), findsOneWidget);
     expect(await store.acceptedVersion(), isNull);
+
+    final policyLinks = tester
+        .widgetList<TextButton>(find.byType(TextButton))
+        .map((button) => ((button.child as Text).data))
+        .toList();
+    expect(policyLinks, ['《隐私政策》', '《用户协议》']);
 
     await tester.tap(find.text('《隐私政策》'));
     await tester.pumpAndSettle();
-    expect(find.text('一、我们收集的信息'), findsOneWidget);
+    expect(find.text('重要提示'), findsOneWidget);
     await tester.tap(find.byTooltip('返回'));
     await tester.pumpAndSettle();
 
@@ -50,7 +56,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('用户协议与隐私政策'), findsOneWidget);
+    expect(find.text('隐私政策与用户协议'), findsOneWidget);
     expect(find.text('业务首页'), findsNothing);
   });
 }

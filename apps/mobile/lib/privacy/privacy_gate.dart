@@ -189,7 +189,7 @@ class _ConsentScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '用户协议与隐私政策',
+                          '隐私政策与用户协议',
                           style: Theme.of(context).textTheme.headlineSmall,
                         ),
                         const SizedBox(height: T.space3),
@@ -208,13 +208,13 @@ class _ConsentScreen extends StatelessWidget {
                           children: [
                             const Text('点击同意即表示您已阅读并同意'),
                             TextButton(
-                              onPressed: () => _open(context, userAgreement),
-                              child: const Text('《用户协议》'),
+                              onPressed: () => _open(context, privacyPolicy),
+                              child: const Text('《隐私政策》'),
                             ),
                             const Text('和'),
                             TextButton(
-                              onPressed: () => _open(context, privacyPolicy),
-                              child: const Text('《隐私政策》'),
+                              onPressed: () => _open(context, userAgreement),
+                              child: const Text('《用户协议》'),
                             ),
                           ],
                         ),
@@ -268,9 +268,9 @@ class PolicyCenterScreen extends StatelessWidget {
             children: [
               QjPageHeader(title: '协议与隐私'),
               const SizedBox(height: T.space5),
-              _PolicyLink(document: userAgreement),
-              const SizedBox(height: T.space3),
               _PolicyLink(document: privacyPolicy),
+              const SizedBox(height: T.space3),
+              _PolicyLink(document: userAgreement),
               const SizedBox(height: T.space4),
               Text(
                 '联系邮箱：$qingjingSupportEmail',

@@ -906,16 +906,16 @@ struct Index {
         .borderRadius(T.cardRadius).shadow({ radius: 24, color: '#1231281F', offsetY: 8 })
         .onClick(() => this.openTutorials('MINE'));
         Column() {
-          Text('用户协议与隐私政策').width('100%').fontSize(16).fontWeight(FontWeight.Bold).fontColor(T.ink);
+          Text('隐私政策与用户协议').width('100%').fontSize(16).fontWeight(FontWeight.Bold).fontColor(T.ink);
           Text('查看倾境壁纸的服务规则与信息处理说明')
             .width('100%').fontSize(12).fontColor(T.mutedInk).margin({ top: 5 });
           Row({ space: 8 }) {
-            Button('用户协议').layoutWeight(1).height(38).fontSize(13).fontWeight(FontWeight.Bold)
-              .fontColor(T.ink).backgroundColor(T.surfaceMuted).borderRadius(19)
-              .onClick(() => this.policyDocumentKey = 'AGREEMENT');
             Button('隐私政策').layoutWeight(1).height(38).fontSize(13).fontWeight(FontWeight.Bold)
               .fontColor(T.ink).backgroundColor(T.surfaceMuted).borderRadius(19)
               .onClick(() => this.policyDocumentKey = 'PRIVACY');
+            Button('用户协议').layoutWeight(1).height(38).fontSize(13).fontWeight(FontWeight.Bold)
+              .fontColor(T.ink).backgroundColor(T.surfaceMuted).borderRadius(19)
+              .onClick(() => this.policyDocumentKey = 'AGREEMENT');
           }
           .width('100%').margin({ top: 12 });
         }
@@ -1208,19 +1208,19 @@ struct Index {
     Column() {
       Scroll() {
         Column() {
-          Text('用户协议与隐私政策').width('100%').fontSize(23).fontWeight(FontWeight.Bolder).fontColor(T.ink);
+          Text('隐私政策与用户协议').width('100%').fontSize(23).fontWeight(FontWeight.Bolder).fontColor(T.ink);
           Text('欢迎使用倾境壁纸。请您在使用前阅读并同意以下协议。')
             .width('100%').fontSize(14).fontColor(T.ink).margin({ top: 14 });
           Text('为了识别当前安装、保护兑换权益并提供下载服务，您同意后 App 将生成匿名安装凭据，并处理平台类型、App 生成的公钥或凭据、兑换、下载及安全记录。我们不读取通讯录、短信、通话记录、位置、摄像头、麦克风或相册内容。')
             .width('100%').fontSize(12).fontColor(T.mutedInk).margin({ top: 12 });
           Text('请分别点击查看完整内容：').width('100%').fontSize(12).fontColor(T.mutedInk).margin({ top: 14 });
           Row({ space: 8 }) {
-            Button('《用户协议》').layoutWeight(1).height(40).fontSize(13).fontWeight(FontWeight.Bold)
-              .fontColor(T.accentStrong).backgroundColor(T.accentSoft).borderRadius(20)
-              .onClick(() => this.policyDocumentKey = 'AGREEMENT');
             Button('《隐私政策》').layoutWeight(1).height(40).fontSize(13).fontWeight(FontWeight.Bold)
               .fontColor(T.accentStrong).backgroundColor(T.accentSoft).borderRadius(20)
               .onClick(() => this.policyDocumentKey = 'PRIVACY');
+            Button('《用户协议》').layoutWeight(1).height(40).fontSize(13).fontWeight(FontWeight.Bold)
+              .fontColor(T.accentStrong).backgroundColor(T.accentSoft).borderRadius(20)
+              .onClick(() => this.policyDocumentKey = 'AGREEMENT');
           }
           .width('100%').margin({ top: 8 });
           Text('点击“同意并继续”即表示您已阅读、理解并同意上述协议。')
