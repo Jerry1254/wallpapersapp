@@ -13,6 +13,7 @@ import 'entitlements/redemption.dart';
 import 'entitlements/entitlements_screen.dart';
 import 'downloads/download_manager.dart';
 import 'downloads/global_download_dialog.dart';
+import 'privacy/privacy_gate.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
 
 void main() {
@@ -25,9 +26,15 @@ void main() {
 }
 
 class QingjingApp extends StatefulWidget {
-  const QingjingApp({super.key, required this.config, this.repository});
+  const QingjingApp({
+    super.key,
+    required this.config,
+    this.repository,
+    this.privacyConsentStore = const PlatformPrivacyConsentStore(),
+  });
   final AppConfig config;
   final CatalogRepository? repository;
+  final PrivacyConsentStore privacyConsentStore;
   @override
   State<QingjingApp> createState() => _QingjingAppState();
 }
@@ -48,12 +55,15 @@ class _QingjingAppState extends State<QingjingApp> {
     debugShowCheckedModeBanner: false,
     navigatorObservers: [detailPreviewRouteObserver],
     theme: QjTheme.light,
-    home: HomeShell(
-      repository: repository,
-      sessions: sessions,
-      apiBase: widget.config.apiBase,
-      playback: playback,
-      labMode: widget.config.environment == 'lab',
+    home: PrivacyGate(
+      store: widget.privacyConsentStore,
+      builder: (_) => HomeShell(
+        repository: repository,
+        sessions: sessions,
+        apiBase: widget.config.apiBase,
+        playback: playback,
+        labMode: widget.config.environment == 'lab',
+      ),
     ),
   );
 }

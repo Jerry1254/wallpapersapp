@@ -4,6 +4,8 @@ import 'catalog_test.dart' show FakeCatalog;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qingjing_wallpaper/config/app_config.dart';
 import 'package:qingjing_wallpaper/main.dart';
+import 'package:qingjing_wallpaper/privacy/policies.dart';
+import 'package:qingjing_wallpaper/privacy/privacy_gate.dart';
 import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
 
 void main() {
@@ -12,6 +14,7 @@ void main() {
     await tester.pumpWidget(
       QingjingApp(
         repository: repository,
+        privacyConsentStore: MemoryPrivacyConsentStore(accepted: policyVersion),
         config: AppConfig(
           environment: 'local',
           apiBase: Uri.parse('http://127.0.0.1:8080/api/v1'),
@@ -40,6 +43,7 @@ void main() {
     await tester.pumpWidget(
       QingjingApp(
         repository: repository,
+        privacyConsentStore: MemoryPrivacyConsentStore(accepted: policyVersion),
         config: AppConfig(
           environment: 'local',
           apiBase: Uri.parse('http://127.0.0.1:8080/api/v1'),
@@ -61,6 +65,7 @@ void main() {
     await tester.pumpWidget(
       QingjingApp(
         repository: repository,
+        privacyConsentStore: MemoryPrivacyConsentStore(accepted: policyVersion),
         config: AppConfig(
           environment: 'local',
           apiBase: Uri.parse('http://127.0.0.1:8080/api/v1'),

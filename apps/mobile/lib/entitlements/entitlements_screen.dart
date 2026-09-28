@@ -7,6 +7,7 @@ import '../detail/detail_screen.dart';
 import '../detail/help_screen.dart';
 import '../device/device_session.dart';
 import '../downloads/download_manager.dart';
+import '../privacy/privacy_gate.dart';
 import 'redemption.dart';
 
 class EntitlementsScreen extends StatefulWidget {
@@ -156,6 +157,26 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
             context,
             MaterialPageRoute<void>(
               builder: (_) => HelpScreen(repository: widget.catalog),
+            ),
+          ),
+        ),
+        const SizedBox(height: T.space3),
+        QjSurface(
+          padding: EdgeInsets.zero,
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: T.space4,
+              vertical: T.space2,
+            ),
+            leading: const QjIcon('shield-check'),
+            title: const Text('用户协议与隐私政策'),
+            subtitle: const Text('查看倾境壁纸的服务规则与信息处理说明'),
+            trailing: const QjIcon('chevron-right'),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => const PolicyCenterScreen(),
+              ),
             ),
           ),
         ),

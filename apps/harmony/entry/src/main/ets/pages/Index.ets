@@ -13,6 +13,14 @@ import { CatalogApi } from '../network/CatalogApi';
 import { HarmonyDeviceSession } from '../network/HarmonyDeviceSession';
 import { CustomerSupport } from '../support/CustomerSupport';
 import { DownloadedMovingPhoto, DownloadedStaticImage, HarmonyDelivery } from '../media/HarmonyDelivery';
+import {
+  POLICY_EFFECTIVE_DATE,
+  POLICY_VERSION,
+  PRIVACY_POLICY,
+  PolicyDocument,
+  PolicySection,
+  USER_AGREEMENT
+} from '../privacy/PolicyDocuments';
 
 interface FailureWithMessage {
   message: string;
@@ -22,6 +30,8 @@ const LOG_DOMAIN: number = 0x514A;
 const DELIVERY_PREFERENCES: string = 'qingjing_delivery_state';
 const SAVED_MOVING_PHOTO_KEYS: string = 'saved_moving_photo_keys';
 const DETAIL_PREVIEW_SECONDS: number = 2;
+const PRIVACY_PREFERENCES: string = 'qingjing_privacy_state';
+const ACCEPTED_POLICY_VERSION: string = 'accepted_policy_version';
 
 @Entry
 @Component
@@ -44,8 +54,12 @@ struct Index {
   @State loading: boolean = false;
   @State errorMessage: string = '';
   @State statusMessage: string = '';
-  @State qrPreview: boolean = false;
   @State customerDialogVisible: boolean = false;
+  @State consentChecked: boolean = false;
+  @State consentAccepted: boolean = false;
+  @State consentBusy: boolean = false;
+  @State consentError: string = '';
+  @State policyDocumentKey: string = '';
   @State detailOwned: boolean = false;
   @State redemptionVisible: boolean = false;
   @State redemptionCode: string = '';
@@ -80,14 +94,65 @@ struct Index {
       return;
     }
     this.context = host as common.UIAbilityContext;
-    const sessions: HarmonyDeviceSession = new HarmonyDeviceSession(this.context as common.UIAbilityContext);
-    this.api = new CatalogApi(sessions);
-    this.startInitialLoad();
+    this.loadPrivacyConsent();
   }
 
   onPageShow(): void {
     this.pageVisible = true;
+    if (this.consentAccepted) this.startInitialLoad();
+  }
+
+  private async loadPrivacyConsent(): Promise<void> {
+    if (this.context === null) return;
+    try {
+      const store: preferences.Preferences = await preferences.getPreferences(
+        this.context as common.UIAbilityContext, PRIVACY_PREFERENCES);
+      const acceptedVersion: string = String(await store.get(ACCEPTED_POLICY_VERSION, ''));
+      this.consentAccepted = acceptedVersion === POLICY_VERSION;
+      this.consentError = '';
+    } catch (error) {
+      this.consentAccepted = false;
+      this.consentError = '无法读取本地同意记录，请重试';
+    } finally {
+      this.consentChecked = true;
+    }
+    if (this.consentAccepted) this.initializeAfterConsent();
+  }
+
+  private initializeAfterConsent(): void {
+    if (this.context === null) return;
+    if (this.api === null) {
+      const sessions: HarmonyDeviceSession = new HarmonyDeviceSession(this.context as common.UIAbilityContext);
+      this.api = new CatalogApi(sessions);
+    }
     this.startInitialLoad();
+  }
+
+  private async acceptPrivacyPolicy(): Promise<void> {
+    if (this.context === null || this.consentBusy) return;
+    this.consentBusy = true;
+    this.consentError = '';
+    try {
+      const store: preferences.Preferences = await preferences.getPreferences(
+        this.context as common.UIAbilityContext, PRIVACY_PREFERENCES);
+      await store.put(ACCEPTED_POLICY_VERSION, POLICY_VERSION);
+      await store.flush();
+      this.consentAccepted = true;
+      this.initializeAfterConsent();
+    } catch (error) {
+      this.consentError = '暂时无法保存选择，请重试';
+    } finally {
+      this.consentBusy = false;
+    }
+  }
+
+  private async rejectPrivacyPolicy(): Promise<void> {
+    if (this.context === null || this.consentBusy) return;
+    try {
+      await (this.context as common.UIAbilityContext).terminateSelf();
+    } catch (error) {
+      this.consentError = '无法自动退出，请手动关闭应用';
+    }
   }
 
   private startInitialLoad(): void {
@@ -215,7 +280,6 @@ struct Index {
   private openCustomer(fromPage: string): void {
     this.returnPage = fromPage;
     this.page = 'CUSTOMER';
-    this.qrPreview = false;
   }
 
   private goBack(): void {
@@ -229,12 +293,12 @@ struct Index {
     this.selectedTutorial = null;
   }
 
-  private async copyWechat(): Promise<void> {
+  private async copyEmail(): Promise<void> {
     try {
-      await CustomerSupport.copyWechat();
-      this.toast('客服微信已复制');
+      await CustomerSupport.copyEmail();
+      this.toast('客服邮箱已复制');
     } catch (error) {
-      this.toast('复制失败，请手动复制微信号');
+      this.toast('复制失败，请手动复制邮箱');
     }
   }
 
@@ -841,6 +905,22 @@ struct Index {
         .width('100%').padding(18).backgroundColor(T.surface).border({ width: 1, color: T.outline })
         .borderRadius(T.cardRadius).shadow({ radius: 24, color: '#1231281F', offsetY: 8 })
         .onClick(() => this.openTutorials('MINE'));
+        Column() {
+          Text('用户协议与隐私政策').width('100%').fontSize(16).fontWeight(FontWeight.Bold).fontColor(T.ink);
+          Text('查看倾境壁纸的服务规则与信息处理说明')
+            .width('100%').fontSize(12).fontColor(T.mutedInk).margin({ top: 5 });
+          Row({ space: 8 }) {
+            Button('用户协议').layoutWeight(1).height(38).fontSize(13).fontWeight(FontWeight.Bold)
+              .fontColor(T.ink).backgroundColor(T.surfaceMuted).borderRadius(19)
+              .onClick(() => this.policyDocumentKey = 'AGREEMENT');
+            Button('隐私政策').layoutWeight(1).height(38).fontSize(13).fontWeight(FontWeight.Bold)
+              .fontColor(T.ink).backgroundColor(T.surfaceMuted).borderRadius(19)
+              .onClick(() => this.policyDocumentKey = 'PRIVACY');
+          }
+          .width('100%').margin({ top: 12 });
+        }
+        .width('100%').padding(18).backgroundColor(T.surface).border({ width: 1, color: T.outline })
+        .borderRadius(T.cardRadius).margin({ top: 12 });
         Row() {
           Text('已获得壁纸').fontSize(20).fontWeight(FontWeight.Bold).fontColor(T.ink).layoutWeight(1);
           Button('刷新权益').height(40).fontSize(13).backgroundColor(T.surface)
@@ -859,7 +939,7 @@ struct Index {
                   Row({ space: 5 }) {
                     ForEach(this.thumbnailCapabilities(item), (capability: WallpaperCapability) => {
                       this.CapabilityBadge(this.thumbnailCapabilityLabel(capability));
-                    });
+                    }, (capability: WallpaperCapability) => capability.deliveryPlatform + ':' + capability.resourceType);
                   }
                   Text(item.title).width('100%').fontSize(16).fontWeight(FontWeight.Bold).fontColor(T.ink);
                 }
@@ -1056,38 +1136,28 @@ struct Index {
   private CustomerPage() {
     Scroll() {
       Column() {
-        this.PageHeader('微信客服', false);
+        this.PageHeader('邮箱客服', false);
         Column() {
           Row() {
-            Text('✦').width(44).height(44).fontSize(20).textAlign(TextAlign.Center)
-              .backgroundColor(T.accentSoft).fontColor(T.accentStrong).borderRadius(15);
+            Image($r('app.media.message_circle_more_dark')).width(22).height(22).objectFit(ImageFit.Contain);
             Column({ space: 3 }) {
-              Text('微信客服').width('100%').fontSize(17).fontWeight(FontWeight.Bold).fontColor(T.ink);
-              Text('添加客服获取兑换码或处理设备恢复').width('100%').fontSize(12).fontColor(T.mutedInk);
+              Text('邮箱客服').width('100%').fontSize(17).fontWeight(FontWeight.Bold).fontColor(T.ink);
+              Text('发送邮件获取兑换码或处理设备恢复').width('100%').fontSize(12).fontColor(T.mutedInk);
             }
             .alignItems(HorizontalAlign.Start).layoutWeight(1).margin({ left: 12 });
           }
           .width('100%');
-          Image($r('app.media.customer_service_qr'))
-            .width(164).height(164).objectFit(ImageFit.Contain).margin({ top: 24 })
-            .onClick(() => this.qrPreview = true);
-          Text('点击二维码可放大查看').fontSize(12).fontColor(T.mutedInk).margin({ top: 8 });
           Row() {
             Column({ space: 2 }) {
-              Text('微信号').width('100%').fontSize(10).fontWeight(FontWeight.Bold).fontColor(T.mutedInk);
-              Text(CustomerSupport.WECHAT_ID).width('100%').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.ink);
+              Text('联系邮箱').width('100%').fontSize(10).fontWeight(FontWeight.Bold).fontColor(T.mutedInk);
+              Text(CustomerSupport.EMAIL).width('100%').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.ink);
             }
             .alignItems(HorizontalAlign.Start).layoutWeight(1);
             Button('复制').height(38).fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.inverseInk)
-              .backgroundColor(T.navigation).borderRadius(19).onClick(() => this.copyWechat());
+              .backgroundColor(T.navigation).borderRadius(19).onClick(() => this.copyEmail());
           }
           .width('100%').height(62).padding({ left: 16, right: 10 }).backgroundColor(T.surfaceMuted)
           .borderRadius(T.controlRadius).margin({ top: 24 });
-          Row({ space: 7 }) {
-            Image($r('app.media.clock')).width(17).height(17).objectFit(ImageFit.Contain);
-            Text('服务时间 09:00-21:00').fontSize(12).fontColor(T.mutedInk);
-          }
-          .margin({ top: 14 });
         }
         .width('100%').padding(20).backgroundColor(T.surface).border({ width: 1, color: T.outline })
         .borderRadius(T.cardRadius).margin({ top: 20 });
@@ -1108,44 +1178,107 @@ struct Index {
           .onClick(() => this.customerDialogVisible = false);
       }
       .width('100%').margin({ bottom: 16 });
+      Row() {
+        Image($r('app.media.message_circle_more_dark')).width(22).height(22).objectFit(ImageFit.Contain);
+        Column({ space: 3 }) {
+          Text('邮箱客服').width('100%').fontSize(17).fontWeight(FontWeight.Bold).fontColor(T.ink);
+          Text('发送邮件获取兑换码或处理设备恢复').width('100%').fontSize(12).fontColor(T.mutedInk);
+        }
+        .alignItems(HorizontalAlign.Start).layoutWeight(1).margin({ left: 12 });
+      }
+      .width('100%');
+      Row() {
+        Column({ space: 2 }) {
+          Text('联系邮箱').width('100%').fontSize(10).fontWeight(FontWeight.Bold).fontColor(T.mutedInk);
+          Text(CustomerSupport.EMAIL).width('100%').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.ink);
+        }
+        .alignItems(HorizontalAlign.Start).layoutWeight(1);
+        Button('复制').height(38).fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.inverseInk)
+          .backgroundColor(T.navigation).borderRadius(19).onClick(() => this.copyEmail());
+      }
+      .width('100%').height(62).padding({ left: 16, right: 10 }).backgroundColor(T.surfaceMuted)
+      .borderRadius(T.controlRadius).margin({ top: 20 });
+    }
+    .width('88%').padding(20).backgroundColor(T.surface).borderRadius(T.cardRadius)
+    .shadow({ radius: 34, color: '#2E191817', offsetY: 12 });
+  }
+
+  @Builder
+  private PrivacyConsentGate() {
+    Column() {
       Scroll() {
         Column() {
-          Row() {
-            Image($r('app.media.message_circle_more_dark')).width(22).height(22).objectFit(ImageFit.Contain);
-            Column({ space: 3 }) {
-              Text('微信客服').width('100%').fontSize(17).fontWeight(FontWeight.Bold).fontColor(T.ink);
-              Text('添加客服获取兑换码或处理设备恢复').width('100%').fontSize(12).fontColor(T.mutedInk);
-            }
-            .alignItems(HorizontalAlign.Start).layoutWeight(1).margin({ left: 12 });
+          Text('用户协议与隐私政策').width('100%').fontSize(23).fontWeight(FontWeight.Bolder).fontColor(T.ink);
+          Text('欢迎使用倾境壁纸。请您在使用前阅读并同意以下协议。')
+            .width('100%').fontSize(14).fontColor(T.ink).margin({ top: 14 });
+          Text('为了识别当前安装、保护兑换权益并提供下载服务，您同意后 App 将生成匿名安装凭据，并处理平台类型、App 生成的公钥或凭据、兑换、下载及安全记录。我们不读取通讯录、短信、通话记录、位置、摄像头、麦克风或相册内容。')
+            .width('100%').fontSize(12).fontColor(T.mutedInk).margin({ top: 12 });
+          Text('请分别点击查看完整内容：').width('100%').fontSize(12).fontColor(T.mutedInk).margin({ top: 14 });
+          Row({ space: 8 }) {
+            Button('《用户协议》').layoutWeight(1).height(40).fontSize(13).fontWeight(FontWeight.Bold)
+              .fontColor(T.accentStrong).backgroundColor(T.accentSoft).borderRadius(20)
+              .onClick(() => this.policyDocumentKey = 'AGREEMENT');
+            Button('《隐私政策》').layoutWeight(1).height(40).fontSize(13).fontWeight(FontWeight.Bold)
+              .fontColor(T.accentStrong).backgroundColor(T.accentSoft).borderRadius(20)
+              .onClick(() => this.policyDocumentKey = 'PRIVACY');
           }
-          .width('100%');
-          Image($r('app.media.customer_service_qr'))
-            .width(164).height(164).objectFit(ImageFit.Contain).margin({ top: 20 })
-            .onClick(() => this.qrPreview = true);
-          Text('点击二维码可放大查看').fontSize(12).fontColor(T.mutedInk).margin({ top: 8 });
-          Row() {
-            Column({ space: 2 }) {
-              Text('微信号').width('100%').fontSize(10).fontWeight(FontWeight.Bold).fontColor(T.mutedInk);
-              Text(CustomerSupport.WECHAT_ID).width('100%').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.ink);
-            }
-            .alignItems(HorizontalAlign.Start).layoutWeight(1);
-            Button('复制').height(38).fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.inverseInk)
-              .backgroundColor(T.navigation).borderRadius(19).onClick(() => this.copyWechat());
+          .width('100%').margin({ top: 8 });
+          Text('点击“同意并继续”即表示您已阅读、理解并同意上述协议。')
+            .width('100%').fontSize(12).fontColor(T.mutedInk).margin({ top: 14 });
+          if (this.consentError.length > 0) {
+            Text(this.consentError).width('100%').fontSize(12).fontColor('#C33A32').margin({ top: 10 });
           }
-          .width('100%').height(62).padding({ left: 16, right: 10 }).backgroundColor(T.surfaceMuted)
-          .borderRadius(T.controlRadius).margin({ top: 20 });
-          Row({ space: 7 }) {
-            Image($r('app.media.clock')).width(17).height(17).objectFit(ImageFit.Contain);
-            Text('服务时间 09:00-21:00').fontSize(12).fontColor(T.mutedInk);
-          }
-          .margin({ top: 14, bottom: 4 });
+          Button(this.consentBusy ? '正在保存' : '同意并继续')
+            .width('100%').height(48).fontSize(15).fontWeight(FontWeight.Bold)
+            .fontColor(T.inverseInk).backgroundColor(T.navigation).borderRadius(24)
+            .margin({ top: 20 }).enabled(!this.consentBusy)
+            .onClick(() => this.acceptPrivacyPolicy());
+          Button('不同意并退出')
+            .width('100%').height(46).fontSize(14).fontWeight(FontWeight.Bold)
+            .fontColor(T.ink).backgroundColor(T.surface)
+            .border({ width: 1, color: T.outlineStrong }).borderRadius(23)
+            .margin({ top: 10 }).enabled(!this.consentBusy)
+            .onClick(() => this.rejectPrivacyPolicy());
         }
         .width('100%');
       }
-      .width('100%').layoutWeight(1).scrollBar(BarState.Off);
+      .width('100%').scrollBar(BarState.Off);
     }
-    .width('88%').height('76%').padding(20).backgroundColor(T.surface).borderRadius(T.cardRadius)
+    .width('88%').constraintSize({ maxHeight: '84%' }).padding(22)
+    .backgroundColor(T.surface).borderRadius(T.cardRadius)
     .shadow({ radius: 34, color: '#2E191817', offsetY: 12 });
+  }
+
+  @Builder
+  private PolicyOverlay(document: PolicyDocument) {
+    Column() {
+      Row() {
+        Button() {
+          Image($r('app.media.chevron_left')).width(20).height(20).objectFit(ImageFit.Contain);
+        }
+        .width(44).height(44).padding(0).backgroundColor(T.surface)
+        .border({ width: 1, color: T.outline }).borderRadius(22)
+        .onClick(() => this.policyDocumentKey = '');
+        Text(document.title).fontSize(22).fontWeight(FontWeight.Bolder).fontColor(T.ink)
+          .layoutWeight(1).margin({ left: 10 });
+      }
+      .width('100%');
+      Scroll() {
+        Column() {
+          Text('生效日期：' + POLICY_EFFECTIVE_DATE).width('100%').fontSize(12).fontColor(T.mutedInk);
+          Text(document.introduction).width('100%').fontSize(14).fontColor(T.ink).margin({ top: 14 });
+          ForEach(document.sections, (section: PolicySection) => {
+            Text(section.title).width('100%').fontSize(17).fontWeight(FontWeight.Bold)
+              .fontColor(T.ink).margin({ top: 22 });
+            Text(section.body).width('100%').fontSize(14).fontColor(T.ink).margin({ top: 8 });
+          }, (section: PolicySection) => section.title);
+        }
+        .width('100%').padding({ bottom: 30 });
+      }
+      .width('100%').layoutWeight(1).scrollBar(BarState.Off).margin({ top: 16 });
+    }
+    .width('100%').height('100%').padding({ left: T.gutter, right: T.gutter })
+    .backgroundColor(T.surface);
   }
 
   @Builder
@@ -1270,49 +1403,60 @@ struct Index {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      Column() {
-        Stack({ alignContent: Alignment.TopStart }) {
-          if (this.page === 'HOME') this.HomePage();
-          if (this.page === 'MINE') this.MinePage();
-          if (this.page === 'CATEGORY' || this.page === 'SEARCH') this.ResultPage();
-          if (this.page === 'DETAIL' && this.selectedDetail !== null) {
-            this.DetailPage(this.selectedDetail as WallpaperSummary);
-          }
-          if (this.page === 'TUTORIALS') this.TutorialsPage();
-          if (this.page === 'TUTORIAL_PLAYER' && this.selectedTutorial !== null) {
-            this.TutorialPlayerPage(this.selectedTutorial as WallpaperTutorial);
-          }
-          if (this.page === 'CUSTOMER') this.CustomerPage();
-        }
-        .width('100%').layoutWeight(1);
-        if (this.page === 'HOME' || this.page === 'MINE') {
-          Row() { this.BottomNavigation(); }
-            .width('100%').padding({ left: T.gutter, right: T.gutter, bottom: 12 });
-        }
-      }
-      .width('100%').height('100%');
-      if (this.redemptionVisible) this.RedemptionOverlay();
-      if (this.customerDialogVisible) {
-        Column() { this.CustomerDialogOverlay(); }
-          .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
-          .backgroundColor('#99191817');
-      }
-      if (this.qrPreview) {
+      if (!this.consentChecked) {
         Column() {
-          Button('关闭').height(44).fontColor(T.inverseInk).backgroundColor('#99191817').borderRadius(22)
-            .onClick(() => this.qrPreview = false);
-          Image($r('app.media.customer_service_qr')).width(320).height(320).objectFit(ImageFit.Contain)
-            .margin({ top: 20 });
+          LoadingProgress().width(42).height(42).color(T.accentStrong);
         }
         .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
-        .backgroundColor('#EE191817').onClick(() => this.qrPreview = false);
+        .backgroundColor(T.surface);
+      } else if (!this.consentAccepted) {
+        Column() {
+          this.PrivacyConsentGate();
+        }
+        .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+        .backgroundColor(T.surfaceMuted);
+      } else {
+        Column() {
+          Stack({ alignContent: Alignment.TopStart }) {
+            if (this.page === 'HOME') this.HomePage();
+            if (this.page === 'MINE') this.MinePage();
+            if (this.page === 'CATEGORY' || this.page === 'SEARCH') this.ResultPage();
+            if (this.page === 'DETAIL' && this.selectedDetail !== null) {
+              this.DetailPage(this.selectedDetail as WallpaperSummary);
+            }
+            if (this.page === 'TUTORIALS') this.TutorialsPage();
+            if (this.page === 'TUTORIAL_PLAYER' && this.selectedTutorial !== null) {
+              this.TutorialPlayerPage(this.selectedTutorial as WallpaperTutorial);
+            }
+            if (this.page === 'CUSTOMER') this.CustomerPage();
+          }
+          .width('100%').layoutWeight(1);
+          if (this.page === 'HOME' || this.page === 'MINE') {
+            Row() { this.BottomNavigation(); }
+              .width('100%').padding({ left: T.gutter, right: T.gutter, bottom: 12 });
+          }
+        }
+        .width('100%').height('100%');
+        if (this.redemptionVisible) this.RedemptionOverlay();
+        if (this.customerDialogVisible) {
+          Column() { this.CustomerDialogOverlay(); }
+            .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+            .backgroundColor('#99191817');
+        }
+        if (this.deliveryVisible) {
+          Column() { this.DeliveryOverlay(); }
+            .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+            .backgroundColor('#99191817');
+        }
       }
-      if (this.deliveryVisible) {
-        Column() { this.DeliveryOverlay(); }
-          .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
-          .backgroundColor('#99191817');
+      if (this.policyDocumentKey === 'AGREEMENT') {
+        this.PolicyOverlay(USER_AGREEMENT);
+      }
+      if (this.policyDocumentKey === 'PRIVACY') {
+        this.PolicyOverlay(PRIVACY_POLICY);
       }
     }
     .width('100%').height('100%').backgroundColor(T.surface);
   }
+
 }
