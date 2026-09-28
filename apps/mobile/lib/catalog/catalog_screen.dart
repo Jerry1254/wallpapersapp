@@ -172,7 +172,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(T.space5, 0, T.space5, T.space6),
+            padding: const EdgeInsets.symmetric(horizontal: T.space5),
             sliver: SliverList.list(
               children: [
                 if (!nested) ...[
@@ -285,7 +285,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     ),
                   ),
                 if (controller.items.isNotEmpty)
-                  const SizedBox(height: T.space5),
+                  const SizedBox(height: T.space4),
               ],
             ),
           ),
