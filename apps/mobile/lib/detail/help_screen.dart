@@ -35,7 +35,6 @@ class HelpScreen extends StatelessWidget {
                 QjCustomerServiceCard(
                   onCopy: () => copyCustomerWechat(context),
                   onPreview: () => previewCustomerQr(context),
-                  onSave: () => saveCustomerQr(context),
                 ),
               ] else
                 _TutorialCatalog(repository: repository),

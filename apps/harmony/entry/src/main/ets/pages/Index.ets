@@ -238,16 +238,6 @@ struct Index {
     }
   }
 
-  private async saveQr(): Promise<void> {
-    if (this.context === null) return;
-    try {
-      await CustomerSupport.saveQr(this.context as common.UIAbilityContext);
-      this.toast('二维码已保存，请检查图库');
-    } catch (error) {
-      this.toast('保存二维码失败，请重试');
-    }
-  }
-
   private selectedCapabilityFor(item: WallpaperSummary): WallpaperCapability {
     const matched: WallpaperCapability | undefined = item.capabilities.find((capability: WallpaperCapability) =>
       capability.label === this.selectedCapability);
@@ -1083,20 +1073,6 @@ struct Index {
             .onClick(() => this.qrPreview = true);
           Text('点击二维码可放大查看').fontSize(12).fontColor(T.mutedInk).margin({ top: 8 });
           Row() {
-            SaveButton({ icon: SaveIconStyle.LINES, text: SaveDescription.SAVE_IMAGE,
-              buttonType: ButtonType.Capsule })
-              .height(44).fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.ink)
-              .backgroundColor(T.surface).borderWidth(1).borderColor(T.outlineStrong)
-              .onClick((event: ClickEvent, result: SaveButtonOnClickResult) => {
-                if (result === SaveButtonOnClickResult.SUCCESS) {
-                  this.saveQr();
-                } else {
-                  this.toast('需要允许保存图片才能保存二维码');
-                }
-              });
-          }
-          .margin({ top: 12 });
-          Row() {
             Column({ space: 2 }) {
               Text('微信号').width('100%').fontSize(10).fontWeight(FontWeight.Bold).fontColor(T.mutedInk);
               Text(CustomerSupport.WECHAT_ID).width('100%').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.ink);
@@ -1147,20 +1123,6 @@ struct Index {
             .width(164).height(164).objectFit(ImageFit.Contain).margin({ top: 20 })
             .onClick(() => this.qrPreview = true);
           Text('点击二维码可放大查看').fontSize(12).fontColor(T.mutedInk).margin({ top: 8 });
-          Row() {
-            SaveButton({ icon: SaveIconStyle.LINES, text: SaveDescription.SAVE_IMAGE,
-              buttonType: ButtonType.Capsule })
-              .height(44).fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.ink)
-              .backgroundColor(T.surface).borderWidth(1).borderColor(T.outlineStrong)
-              .onClick((event: ClickEvent, result: SaveButtonOnClickResult) => {
-                if (result === SaveButtonOnClickResult.SUCCESS) {
-                  this.saveQr();
-                } else {
-                  this.toast('需要允许保存图片才能保存二维码');
-                }
-              });
-          }
-          .margin({ top: 12 });
           Row() {
             Column({ space: 2 }) {
               Text('微信号').width('100%').fontSize(10).fontWeight(FontWeight.Bold).fontColor(T.mutedInk);

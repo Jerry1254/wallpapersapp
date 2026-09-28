@@ -970,9 +970,8 @@ class QjCustomerServiceCard extends StatelessWidget {
     super.key,
     required this.onCopy,
     required this.onPreview,
-    required this.onSave,
   });
-  final VoidCallback onCopy, onPreview, onSave;
+  final VoidCallback onCopy, onPreview;
   @override
   Widget build(BuildContext context) => QjSurface(
     padding: const EdgeInsets.all(T.space5),
@@ -1041,12 +1040,6 @@ class QjCustomerServiceCard extends StatelessWidget {
               ],
             ),
           ),
-        ),
-        const SizedBox(height: T.space2),
-        OutlinedButton.icon(
-          onPressed: onSave,
-          icon: const QjIcon('download', size: 16),
-          label: const Text('保存二维码'),
         ),
         const SizedBox(height: T.space5),
         Container(

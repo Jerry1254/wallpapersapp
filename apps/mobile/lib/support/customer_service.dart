@@ -5,7 +5,6 @@ import '../design_system/qj_theme.dart';
 
 const customerWechatId = 'qingjing_service';
 const _customerQrAsset = 'assets/ui-reference/customer-service-qr.png';
-const _channel = MethodChannel('qingjing/wallpaper_android');
 
 Future<void> copyCustomerWechat(BuildContext context) async {
   try {
@@ -85,7 +84,6 @@ Future<void> showCustomerServiceDialog(BuildContext context) =>
                       child: QjCustomerServiceCard(
                         onCopy: () => copyCustomerWechat(dialogContext),
                         onPreview: () => previewCustomerQr(dialogContext),
-                        onSave: () => saveCustomerQr(dialogContext),
                       ),
                     ),
                   ),
@@ -96,17 +94,6 @@ Future<void> showCustomerServiceDialog(BuildContext context) =>
         ),
       ),
     );
-
-Future<void> saveCustomerQr(BuildContext context) async {
-  try {
-    final data = await rootBundle.load(_customerQrAsset);
-    final bytes = Uint8List.sublistView(data);
-    await _channel.invokeMethod<String>('saveCustomerQr', {'bytes': bytes});
-    if (context.mounted) _notice(context, '二维码已保存，请检查相册');
-  } catch (_) {
-    if (context.mounted) _notice(context, '保存二维码失败，请重试');
-  }
-}
 
 void _notice(BuildContext context, String message) {
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
