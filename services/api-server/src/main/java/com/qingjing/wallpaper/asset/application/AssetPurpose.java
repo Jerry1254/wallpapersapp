@@ -12,8 +12,9 @@ public enum AssetPurpose {
     TUTORIAL_VIDEO(200L * 1024 * 1024, Set.of(DetectedAssetType.MP4)),
     LIVE_PHOTO_IMAGE(50L * 1024 * 1024, Set.of(DetectedAssetType.JPEG)),
     LIVE_PHOTO_VIDEO(200L * 1024 * 1024, Set.of(DetectedAssetType.MP4, DetectedAssetType.QUICKTIME)),
+    LIVE_PHOTO_SOURCE(200L * 1024 * 1024, Set.of(DetectedAssetType.MP4)),
     STATIC_IMAGE(50L * 1024 * 1024, Set.of(DetectedAssetType.JPEG, DetectedAssetType.PNG, DetectedAssetType.WEBP)),
-    MOVING_PHOTO_SOURCE(200L * 1024 * 1024, Set.of(DetectedAssetType.MP4, DetectedAssetType.QUICKTIME));
+    MOVING_PHOTO_SOURCE(200L * 1024 * 1024, Set.of(DetectedAssetType.MP4));
 
     private final long maximumBytes;
     private final Set<DetectedAssetType> allowedTypes;

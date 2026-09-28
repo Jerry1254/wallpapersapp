@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.8.0
+  version: 2.10.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -315,6 +315,8 @@ paths:
         正式 App 提交平台公钥和设备证明。
         Android 使用 SEC-002 安装级 RSA 2048 持钥证明；同公钥新证明恢复原 ACTIVE 凭据，撤销后不可重建。
         HarmonyOS 使用 HUKS RSA-2048、SHA-256 和 PKCS#1 v1.5，固定 appInstallScope 为 com.qingjing.bizhi。
+        iOS 使用 Secure Enclave P-256、ECDSA SHA-256 和 ASN.1 DER 签名，允许正式包 com.qingjing.bizhi
+        及联调包 com.qingjing.livephotolab。
         证明不等同硬件或 APK 来源认证，清数据/卸载后不自动恢复旧权益。
       parameters:
         - $ref: '#/components/parameters/RequestId'
@@ -608,7 +610,8 @@ paths:
       description: |
         客户端必须选择详情 availableCapabilities 中的精确 deliveryPlatform/resourceType 组合。
         服务端不做跨平台或资源类型回退，也不读取设备能力档案；只校验权益、资源已发布及交付文件可用。
-        UNIVERSAL / STATIC_IMAGE 对所有平台开放；Android 延续安全包交付，HarmonyOS 和后续 iOS 会话领取原始静态图。
+        UNIVERSAL / STATIC_IMAGE 对所有平台开放；Android 延续安全包交付，HarmonyOS 和 iOS 会话领取原始静态图。
+        HARMONYOS / MOVING_PHOTO 返回 JPEG + MP4；IOS / LIVE_PHOTO 返回共用一份票据的 HEIC + MOV。
       security:
         - deviceBearer: []
       parameters:
@@ -721,6 +724,50 @@ paths:
               schema: { type: string }
           content:
             video/mp4:
+              schema: { type: string, format: binary }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /delivery/live-photo/image:
+    get:
+      tags: [Device Entitlement]
+      operationId: downloadLivePhotoImage
+      summary: 使用 iOS 短时票据下载 Live Photo HEIC 照片
+      description: 与同一交付的 MOV 共用 asset identifier；不构成通用静态壁纸。
+      security:
+        - downloadTicketBearer: []
+      responses:
+        '200':
+          description: 带 Apple MakerNote 17 资产标识的 HEIC
+          headers:
+            Digest:
+              schema: { type: string }
+          content:
+            image/heic:
+              schema: { type: string, format: binary }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /delivery/live-photo/video:
+    get:
+      tags: [Device Entitlement]
+      operationId: downloadLivePhotoVideo
+      summary: 使用 iOS 短时票据下载 Live Photo MOV
+      description: 1 秒 MOV，包含 content identifier、still-image-time 和 Live Photo metadata 轨。
+      security:
+        - downloadTicketBearer: []
+      responses:
+        '200':
+          description: 可与配套 HEIC 注册为 Live Photo 的 MOV
+          headers:
+            Digest:
+              schema: { type: string }
+          content:
+            video/quicktime:
               schema: { type: string, format: binary }
         '401':
           $ref: '#/components/responses/Unauthorized'
@@ -1856,6 +1903,35 @@ paths:
         '429':
           $ref: '#/components/responses/TooManyRequests'
 
+  /admin/resource-versions/{resourceVersionId}/live-photo/build:
+    post:
+      tags: [Admin Catalog]
+      operationId: buildAdminLivePhoto
+      summary: 从一个 iOS 原始 MP4 生成 Live Photo 双文件
+      description: 精确截取前 1 秒，在约 0.5 秒取帧生成 HEIC，并生成具有匹配资产标识和 Apple 元数据轨的 MOV。失败后可用同一端点重试。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceVersionId'
+      responses:
+        '200':
+          description: 资源版本及 Live Photo 生成状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminResourceVersion'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
   /admin/resource-versions/{resourceVersionId}:
     get:
       tags: [Admin Catalog]
@@ -2686,6 +2762,10 @@ components:
         - RESOURCE_NOT_AVAILABLE
         - WALLPAPER_NOT_AVAILABLE_FOR_PLATFORM
         - MOVING_PHOTO_PROCESSING_FAILED
+        - LIVE_PHOTO_PROCESSING_FAILED
+        - LIVE_PHOTO_NOT_READY
+        - DYNAMIC_SOURCE_FORMAT_INVALID
+        - DYNAMIC_SOURCE_DURATION_INVALID
 
     WallpaperKind:
       type: string
@@ -2727,6 +2807,7 @@ components:
         - TUTORIAL_VIDEO
         - LIVE_PHOTO_IMAGE
         - LIVE_PHOTO_VIDEO
+        - LIVE_PHOTO_SOURCE
         - STATIC_IMAGE
         - MOVING_PHOTO_SOURCE
 
@@ -2742,6 +2823,7 @@ components:
         - VIDEO
         - LIVE_PHOTO_IMAGE
         - LIVE_PHOTO_VIDEO
+        - LIVE_PHOTO_SOURCE
         - STATIC_IMAGE
         - MOVING_PHOTO_SOURCE
 
@@ -2932,7 +3014,7 @@ components:
 
     DeviceRegistrationRequest:
       type: object
-      required: [platform, appInstallScope, credentialType, evidenceToken]
+      required: [platform, appInstallScope, credentialType, publicKeyPem, evidenceToken]
       properties:
         platform:
           $ref: '#/components/schemas/DevicePlatform'
@@ -2940,7 +3022,9 @@ components:
           type: string
           minLength: 1
           maxLength: 64
-          description: 应用签名和发行渠道的服务端允许值；HarmonyOS 固定为 com.qingjing.bizhi。
+          description: |
+            服务端精确匹配的安装包标识。HarmonyOS 固定为 com.qingjing.bizhi；
+            iOS 允许 com.qingjing.bizhi 和 com.qingjing.livephotolab，不支持通配符。
         credentialType:
           type: string
           enum: [PLATFORM_PUBLIC_KEY]
@@ -2948,11 +3032,13 @@ components:
           type: string
           minLength: 64
           maxLength: 8192
-          nullable: true
           description: |
-            正式客户端必填的 RSA-2048 安装公钥。
+            正式客户端必填的安装公钥。
+            Android 和 HarmonyOS 使用 RSA-2048 X.509 SubjectPublicKeyInfo PEM。
             HarmonyOS 将 huks.exportKeyItem 返回的 X.509 SubjectPublicKeyInfo 原始字节用
             -----BEGIN PUBLIC KEY----- 和 -----END PUBLIC KEY----- 包装为 PEM。
+            iOS 将 Secure Enclave 导出的 P-256 X9.63 未压缩公钥包装为 X.509
+            SubjectPublicKeyInfo DER，再输出 PUBLIC KEY PEM。
         evidenceToken:
           type: string
           minLength: 16
@@ -2963,6 +3049,8 @@ components:
             HarmonyOS proof 使用 HUKS RSA-2048 / SHA-256 / PKCS#1 v1.5 签署，再做 Base64URL 无填充编码。
             鸿蒙注册原文为 QJ-HARMONYOS-REGISTER-V1、appInstallScope、
             SHA-256(huks.exportKeyItem 原始字节)小写十六进制、timestamp 和 nonce，每项以换行分隔。
+            iOS proof 使用 P-256 / ECDSA SHA-256 ASN.1 DER 签名，再做 Base64URL 无填充编码；
+            注册域为 QJ-IOS-REGISTER-V1，公钥指纹是 SHA-256(SPKI DER) 小写十六进制。
             服务端只保留身份 keyed hash，不持久化完整证明。
 
     DeviceRegistrationResponse:
@@ -2992,7 +3080,7 @@ components:
         algorithm:
           type: string
           enum: [ED25519, ECDSA_P256_SHA256, RSA_SHA256, HMAC_SHA256]
-          description: Android 和 HarmonyOS 的 PLATFORM_PUBLIC_KEY 凭据返回 RSA_SHA256。
+          description: Android 和 HarmonyOS 返回 RSA_SHA256；iOS 返回 ECDSA_P256_SHA256。
         expiresAt:
           $ref: '#/components/schemas/Timestamp'
 
@@ -3016,6 +3104,7 @@ components:
           description: |
             对 QJ-DEVICE-SESSION-V1 规范原文生成的 Base64URL 无填充签名或 HMAC。
             HarmonyOS 使用 HUKS RSA-2048 / SHA-256 / PKCS#1 v1.5。
+            iOS 使用 Secure Enclave P-256 / ECDSA SHA-256，签名字节为 ASN.1 DER。
 
     DeviceSession:
       type: object
@@ -3126,7 +3215,7 @@ components:
       properties:
         deliveryMode:
           type: string
-          enum: [SECURE_PACKAGE, MOVING_PHOTO, STATIC_IMAGE]
+          enum: [SECURE_PACKAGE, MOVING_PHOTO, LIVE_PHOTO, STATIC_IMAGE]
         wallpaperId:
           $ref: '#/components/schemas/LongId'
         cover:
@@ -3164,6 +3253,12 @@ components:
             - $ref: '#/components/schemas/DeliveryFile'
           nullable: true
           description: MOVING_PHOTO 的 JPEG 首帧；不构成通用静态壁纸能力。
+        photo:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/DeliveryFile'
+          nullable: true
+          description: LIVE_PHOTO 的 HEIC 照片；与 video 共用同一 asset identifier。
         video:
           type: object
           allOf:
@@ -3192,7 +3287,7 @@ components:
           minimum: 1
         mimeType:
           type: string
-          enum: [image/jpeg, image/png, image/webp, video/mp4]
+          enum: [image/jpeg, image/png, image/webp, image/heic, video/mp4, video/quicktime]
 
     DownloadResourceVersion:
       type: object
@@ -3881,7 +3976,7 @@ components:
 
     AdminResourceVersion:
       type: object
-      required: [id, versionNo, status, bindings, sourcePackage, movingPhoto, createdAt, version]
+      required: [id, versionNo, status, bindings, sourcePackage, movingPhoto, livePhoto, createdAt, version]
       properties:
         id:
           $ref: '#/components/schemas/LongId'
@@ -3923,6 +4018,12 @@ components:
             - $ref: '#/components/schemas/AdminMovingPhotoStatus'
           nullable: true
           description: 仅 HARMONYOS / MOVING_PHOTO 资源版本存在。
+        livePhoto:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/AdminLivePhotoStatus'
+          nullable: true
+          description: 仅 IOS / LIVE_PHOTO 资源版本存在。
         publishedAt:
           type: string
           allOf:
@@ -3971,6 +4072,84 @@ components:
           type: integer
           minimum: 1
           nullable: true
+        inputVideoCodec:
+          type: string
+          enum: [h264, hevc]
+          nullable: true
+        outputVideoCodec:
+          type: string
+          enum: [h264, hevc]
+          nullable: true
+        frameRate:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 60
+          nullable: true
+        processingMode:
+          type: string
+          enum: [PASSTHROUGH, REMUX, TRANSCODE]
+          nullable: true
+        errorCode:
+          type: string
+          maxLength: 64
+          nullable: true
+        publishable:
+          type: boolean
+
+    AdminLivePhotoStatus:
+      type: object
+      required: [status, publishable]
+      properties:
+        status:
+          type: string
+          enum: [PROCESSING, READY, REJECTED]
+        photo:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/AdminGeneratedMediaFile'
+          nullable: true
+        video:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/AdminGeneratedMediaFile'
+          nullable: true
+        assetIdentifier:
+          type: string
+          format: uuid
+          nullable: true
+        durationMs:
+          type: integer
+          format: int64
+          minimum: 1000
+          maximum: 1000
+          nullable: true
+        widthPx:
+          type: integer
+          minimum: 1
+          nullable: true
+        heightPx:
+          type: integer
+          minimum: 1
+          nullable: true
+        inputVideoCodec:
+          type: string
+          enum: [h264, hevc]
+          nullable: true
+        outputVideoCodec:
+          type: string
+          enum: [h264, hevc]
+          nullable: true
+        frameRate:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 60
+          nullable: true
+        processingMode:
+          type: string
+          enum: [PASSTHROUGH, REMUX, TRANSCODE]
+          nullable: true
         errorCode:
           type: string
           maxLength: 64
@@ -3984,7 +4163,7 @@ components:
       properties:
         mimeType:
           type: string
-          enum: [video/mp4, image/jpeg]
+          enum: [video/mp4, image/jpeg, image/heic, video/quicktime]
         sizeBytes:
           type: integer
           format: int64

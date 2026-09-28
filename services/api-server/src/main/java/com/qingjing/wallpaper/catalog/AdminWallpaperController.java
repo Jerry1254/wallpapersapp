@@ -39,12 +39,15 @@ public class AdminWallpaperController {
 
     private final com.qingjing.wallpaper.delivery.SecurePackagePublisher packages;
     private final com.qingjing.wallpaper.delivery.MovingPhotoPublisher movingPhotos;
+    private final com.qingjing.wallpaper.delivery.LivePhotoPublisher livePhotos;
 
     public AdminWallpaperController(AdminWallpaperService wallpapers,
             com.qingjing.wallpaper.delivery.SecurePackagePublisher packages,
-            com.qingjing.wallpaper.delivery.MovingPhotoPublisher movingPhotos) {
+            com.qingjing.wallpaper.delivery.MovingPhotoPublisher movingPhotos,
+            com.qingjing.wallpaper.delivery.LivePhotoPublisher livePhotos) {
         this.packages = packages;
         this.movingPhotos = movingPhotos;
+        this.livePhotos = livePhotos;
         this.wallpapers = wallpapers;
     }
 
@@ -101,6 +104,7 @@ public class AdminWallpaperController {
         request.resourceVersionIds().forEach(id -> {
             long versionId = Ids.parse(id, "resourceVersionIds");
             movingPhotos.prepareForPublication(versionId);
+            livePhotos.prepareForPublication(versionId);
             packages.prepareForPublication(versionId);
         });
         AdminWallpaperDetail wallpaper = wallpapers.publish(
@@ -184,6 +188,7 @@ public class AdminWallpaperController {
                 admin.id());
         long id = Ids.parse(created.id(), "resourceVersionId");
         movingPhotos.buildIfSupported(id);
+        livePhotos.buildIfSupported(id);
         return ResponseEntity.status(201).body(wallpapers.getResourceVersion(id));
     }
 
@@ -198,6 +203,13 @@ public class AdminWallpaperController {
     AdminResourceVersion buildMovingPhoto(@PathVariable String resourceVersionId) {
         long id = Ids.parse(resourceVersionId, "resourceVersionId");
         movingPhotos.buildIfSupported(id);
+        return wallpapers.getResourceVersion(id);
+    }
+
+    @PostMapping("/resource-versions/{resourceVersionId}/live-photo/build")
+    AdminResourceVersion buildLivePhoto(@PathVariable String resourceVersionId) {
+        long id = Ids.parse(resourceVersionId, "resourceVersionId");
+        livePhotos.buildIfSupported(id);
         return wallpapers.getResourceVersion(id);
     }
 

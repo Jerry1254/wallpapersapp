@@ -46,12 +46,8 @@ public class PublishedResourceCatalog {
                            OR EXISTS (SELECT 1 FROM secure_resource_package sp WHERE sp.resource_version_id=rv.id)))
                     OR
                     (v.platform='IOS' AND v.resource_type='LIVE_PHOTO'
-                      AND EXISTS (SELECT 1 FROM resource_binding rb JOIN asset a ON a.id=rb.asset_id
-                                  WHERE rb.resource_version_id=rv.id AND rb.role='LIVE_PHOTO_IMAGE'
-                                    AND a.validation_status='READY' AND a.deleted_at IS NULL)
-                      AND EXISTS (SELECT 1 FROM resource_binding rb JOIN asset a ON a.id=rb.asset_id
-                                  WHERE rb.resource_version_id=rv.id AND rb.role='LIVE_PHOTO_VIDEO'
-                                    AND a.validation_status='READY' AND a.deleted_at IS NULL))
+                      AND EXISTS (SELECT 1 FROM live_photo_package lp
+                                  WHERE lp.resource_version_id=rv.id AND lp.status='READY'))
                     OR
                     (v.platform='HARMONYOS' AND v.resource_type='MOVING_PHOTO'
                       AND EXISTS (SELECT 1 FROM moving_photo_package mp

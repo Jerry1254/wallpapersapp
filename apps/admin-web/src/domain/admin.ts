@@ -59,8 +59,7 @@ export interface WallpaperResources {
   staticImage?: ResourceFile;
   parallaxPackage?: ParallaxPackageFile;
   androidVideo?: ResourceFile;
-  iosMov?: ResourceFile;
-  iosPhoto?: ResourceFile;
+  iosVideo?: ResourceFile;
   harmonyVideo?: ResourceFile;
 }
 
@@ -71,6 +70,26 @@ export interface MovingPhotoStatus {
   durationMs?: number | null;
   widthPx?: number | null;
   heightPx?: number | null;
+  inputVideoCodec?: string | null;
+  outputVideoCodec?: string | null;
+  frameRate?: number | null;
+  processingMode?: 'PASSTHROUGH' | 'REMUX' | 'TRANSCODE' | null;
+  errorCode?: string | null;
+  publishable: boolean;
+}
+
+export interface LivePhotoStatus {
+  status: 'PROCESSING' | 'READY' | 'REJECTED';
+  photo?: { mimeType: string; sizeBytes: number; sha256: string } | null;
+  video?: { mimeType: string; sizeBytes: number; sha256: string } | null;
+  assetIdentifier?: string | null;
+  durationMs?: number | null;
+  widthPx?: number | null;
+  heightPx?: number | null;
+  inputVideoCodec?: string | null;
+  outputVideoCodec?: string | null;
+  frameRate?: number | null;
+  processingMode?: 'PASSTHROUGH' | 'REMUX' | 'TRANSCODE' | null;
   errorCode?: string | null;
   publishable: boolean;
 }
@@ -80,6 +99,7 @@ export interface ResourceVersion {
   versionNo: number;
   status: ResourceVersionStatus;
   movingPhoto?: MovingPhotoStatus | null;
+  livePhoto?: LivePhotoStatus | null;
 }
 
 export interface WallpaperVariant {

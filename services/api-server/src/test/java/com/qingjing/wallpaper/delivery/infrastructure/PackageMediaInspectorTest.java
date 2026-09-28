@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.time.Duration;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Assumptions;
@@ -82,14 +84,66 @@ class PackageMediaInspectorTest {
             assertThat(process.waitFor(30, TimeUnit.SECONDS)).isTrue();
             assertThat(process.exitValue()).isZero();
 
-            var result = new PackageMediaInspector(new ObjectMapper(), ffprobe, ffmpeg)
+            var result = new DynamicPhotoMediaProcessor(new ObjectMapper(), ffprobe, ffmpeg,
+                    "MP4Box", "heif-enc", "exiftool")
                     .movingPhoto(Files.readAllBytes(source));
 
-            assertThat(result.durationMs()).isBetween(1L, 2000L);
+            assertThat(result.durationMs()).isEqualTo(2000L);
             assertThat(result.width()).isEqualTo(64);
             assertThat(result.height()).isEqualTo(96);
+            assertThat(result.inputVideoCodec()).isEqualTo("h264");
+            assertThat(result.outputVideoCodec()).isEqualTo("h264");
+            assertThat(result.frameRate()).isEqualTo(12d);
+            assertThat(result.processingMode()).isIn(
+                    DynamicPhotoMediaProcessor.ProcessingMode.REMUX,
+                    DynamicPhotoMediaProcessor.ProcessingMode.TRANSCODE);
             assertThat(streamTypes(result.video())).containsExactly("h264,video");
             assertThat(result.poster()).startsWith((byte) 0xff, (byte) 0xd8, (byte) 0xff);
+        } finally { Files.deleteIfExists(source); }
+    }
+
+    @Test
+    void shipsTheApprovedLivePhotoMetadataFixture() throws Exception {
+        byte[] fixture;
+        try (var input = getClass().getResourceAsStream("/live-photo/wallpaper-metadata-template.mov")) {
+            assertThat(input).isNotNull();
+            fixture = input.readAllBytes();
+        }
+        assertThat(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(fixture)))
+                .isEqualTo("39b7239d8cb0a442b659948ac2e47eaba05e5922771f12614355042ae073a1f0");
+    }
+
+    @Test
+    void createsOneSecondLivePhotoWithMatchingAppleMetadata() throws Exception {
+        String mp4Box = System.getenv().getOrDefault("QJ_MP4BOX", "MP4Box");
+        String heifEncoder = System.getenv().getOrDefault("QJ_HEIF_ENCODER", "heif-enc");
+        String exifTool = System.getenv().getOrDefault("QJ_EXIFTOOL", "exiftool");
+        boolean canCreateHeic = canRun(heifEncoder, "--version")
+                || (System.getProperty("os.name", "").toLowerCase().contains("mac")
+                    && Files.isExecutable(Path.of("/usr/bin/sips")));
+        Assumptions.assumeTrue(canRun(ffmpeg, "-version") && canRun(ffprobe, "-version")
+                        && canRun(mp4Box, "-version") && canRun(exifTool, "-ver") && canCreateHeic,
+                "Live Photo native media tools are required");
+        Path source = Files.createTempFile("qj-live-photo-source-", ".mp4");
+        try {
+            Process process = new ProcessBuilder(List.of(
+                    ffmpeg, "-v", "error", "-y", "-nostdin", "-f", "lavfi", "-i",
+                    "testsrc2=size=64x96:rate=12", "-t", "2", "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p", "-threads", "1", source.toString()))
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            assertThat(process.waitFor(30, TimeUnit.SECONDS)).isTrue();
+            assertThat(process.exitValue()).isZero();
+
+            var result = new DynamicPhotoMediaProcessor(new ObjectMapper(), ffprobe, ffmpeg,
+                    mp4Box, heifEncoder, exifTool).livePhoto(Files.readAllBytes(source));
+
+            assertThat(result.durationMs()).isEqualTo(1000L);
+            assertThat(result.width()).isEqualTo(64);
+            assertThat(result.height()).isEqualTo(96);
+            assertThat(result.assetIdentifier()).matches("[0-9A-F-]{36}");
+            assertThat(result.photo()).isNotEmpty();
+            assertThat(result.video()).isNotEmpty();
         } finally { Files.deleteIfExists(source); }
     }
 

@@ -24,6 +24,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Assumptions;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -1514,17 +1515,18 @@ class InfrastructureIntegrationIT {
 
     @Test
     void livePhotoPublicationCreatesExactAndroidPlayableVideoPreviewWithoutFormalPackage() throws Exception {
+        Assumptions.assumeTrue(livePhotoToolsAvailable(), "Live Photo native media tools are required");
         ensureAdmin(); var admin=login();
         long wallpaperId=createPublishedWallpaperFixture();
         long variantId=jdbc.queryForObject("SELECT id FROM wallpaper_variant WHERE wallpaper_id=?",Long.class,wallpaperId);
         jdbc.update("UPDATE wallpaper_variant SET platform='IOS',resource_type='LIVE_PHOTO' WHERE id=?",variantId);
-        JsonNode photo=uploadAsset(admin,"LIVE_PHOTO_IMAGE","live-photo.jpg",jpeg(64,64));
-        JsonNode movie=uploadAsset(admin,"LIVE_PHOTO_VIDEO","live-photo.mp4",testVideo());
+        JsonNode source=uploadAsset(admin,"LIVE_PHOTO_SOURCE","live-photo.mp4",testVideo());
         var created=jsonExchange("/api/v1/admin/variants/"+variantId+"/resource-versions",HttpMethod.POST,
                 Map.of("versionNo",2,"bindings",List.of(
-                        Map.of("role","LIVE_PHOTO_IMAGE","ordinal",0,"assetId",photo.path("id").asText()),
-                        Map.of("role","LIVE_PHOTO_VIDEO","ordinal",0,"assetId",movie.path("id").asText()))),admin,null);
+                        Map.of("role","LIVE_PHOTO_SOURCE","ordinal",0,"assetId",source.path("id").asText()))),admin,null);
         assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(created.getBody().path("livePhoto").path("status").asText()).isEqualTo("READY");
+        assertThat(created.getBody().path("livePhoto").path("durationMs").asLong()).isEqualTo(1000);
         long versionId=created.getBody().path("id").asLong();
         var published=jsonExchange("/api/v1/admin/wallpapers/"+wallpaperId+"/publish",HttpMethod.POST,
                 Map.of("resourceVersionIds",List.of(Long.toString(versionId))),admin,"\"0\"");
@@ -1550,6 +1552,25 @@ class InfrastructureIntegrationIT {
         String bindPath="/api/v1/device/encryption-key";
         assertThat(http.exchange(bindPath,HttpMethod.PUT,androidSignedEntity(signing,token,"PUT",bindPath,objectMapper.writeValueAsString(Map.of("publicKeyPem",pem))),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
         verifyUnownedPreview(signing,encryption,token,deviceId,wallpaperId,versionId,"LIVE_PHOTO");
+    }
+
+    private boolean livePhotoToolsAvailable() {
+        String mp4Box=System.getenv().getOrDefault("QJ_MP4BOX","MP4Box");
+        String exifTool=System.getenv().getOrDefault("QJ_EXIFTOOL","exiftool");
+        String heifEncoder=System.getenv().getOrDefault("QJ_HEIF_ENCODER","heif-enc");
+        boolean heic=canRun(heifEncoder,"--version")
+                || (System.getProperty("os.name","").toLowerCase().contains("mac")
+                    && java.nio.file.Files.isExecutable(java.nio.file.Path.of("/usr/bin/sips")));
+        return canRun(mp4Box,"-version") && canRun(exifTool,"-ver") && heic;
+    }
+
+    private boolean canRun(String executable,String argument) {
+        try {
+            Process process=new ProcessBuilder(executable,argument)
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            return process.waitFor(10,java.util.concurrent.TimeUnit.SECONDS) && process.exitValue()==0;
+        } catch (Exception ignored) { return false; }
     }
 
     private DecodedPackage decodeStoredPackage(Map<String,Object> stored,long versionId,
@@ -1948,7 +1969,7 @@ class InfrastructureIntegrationIT {
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add("purpose", purpose);
         HttpHeaders fileHeaders = new HttpHeaders();
-        fileHeaders.setContentType(purpose.contains("VIDEO") ? MediaType.valueOf("video/mp4")
+        fileHeaders.setContentType((purpose.contains("VIDEO") || purpose.equals("LIVE_PHOTO_SOURCE") || purpose.equals("MOVING_PHOTO_SOURCE")) ? MediaType.valueOf("video/mp4")
                 : purpose.equals("LIVE_PHOTO_IMAGE") ? MediaType.IMAGE_JPEG
                 : purpose.equals("PARALLAX_CONFIG") ? MediaType.APPLICATION_JSON : MediaType.IMAGE_PNG);
         fileHeaders.setContentDispositionFormData("file", filename);
@@ -2266,6 +2287,77 @@ class InfrastructureIntegrationIT {
         assertThat(signedRequest.getBody().path("error").path("code").asText()).isEqualTo("WALLPAPER_NOT_FOUND");
     }
 
+    @Test
+    void iosInstallationProofSessionAndSignedRequestUseRealInfrastructure() throws Exception {
+        java.security.KeyPairGenerator generator = java.security.KeyPairGenerator.getInstance("EC");
+        generator.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
+
+        assertThat(http.postForEntity(
+                "/api/v1/device/registrations",
+                iosRegistration(generator.generateKeyPair(), "com.qingjing.bizhi"),
+                JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(http.postForEntity(
+                "/api/v1/device/registrations",
+                iosRegistration(generator.generateKeyPair(), "com.qingjing.unknown"),
+                JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        java.security.KeyPair key = generator.generateKeyPair();
+        Map<String, Object> registration = iosRegistration(key, "com.qingjing.livephotolab");
+        ResponseEntity<JsonNode> registered = http.postForEntity(
+                "/api/v1/device/registrations", registration, JsonNode.class);
+        assertThat(registered.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(registered.getBody().path("credentialType").asText()).isEqualTo("PLATFORM_PUBLIC_KEY");
+        String keyId = registered.getBody().path("credentialKeyId").asText();
+
+        ResponseEntity<JsonNode> replay = http.postForEntity(
+                "/api/v1/device/registrations", registration, JsonNode.class);
+        assertThat(replay.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(replay.getBody().path("error").path("code").asText()).isEqualTo("REQUEST_NONCE_REUSED");
+
+        ResponseEntity<JsonNode> restored = http.postForEntity(
+                "/api/v1/device/registrations",
+                iosRegistration(key, "com.qingjing.livephotolab"),
+                JsonNode.class);
+        assertThat(restored.getBody().path("credentialKeyId").asText()).isEqualTo(keyId);
+
+        ResponseEntity<JsonNode> challenge = http.postForEntity(
+                "/api/v1/device/session-challenges", Map.of("credentialKeyId", keyId), JsonNode.class);
+        assertThat(challenge.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(challenge.getBody().path("algorithm").asText()).isEqualTo("ECDSA_P256_SHA256");
+
+        String timestamp = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
+        String challengeId = challenge.getBody().path("challengeId").asText();
+        String sessionPayload = "QJ-DEVICE-SESSION-V1\n" + keyId + "\n" + challengeId + "\n"
+                + challenge.getBody().path("nonce").asText() + "\n" + timestamp;
+        ResponseEntity<JsonNode> session = http.postForEntity(
+                "/api/v1/device/sessions",
+                Map.of(
+                        "credentialKeyId", keyId,
+                        "challengeId", challengeId,
+                        "clientTimestamp", timestamp,
+                        "proof", iosSign(key, sessionPayload)),
+                JsonNode.class);
+        assertThat(session.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(session.getBody().path("platform").asText()).isEqualTo("IOS");
+        String token = session.getBody().path("accessToken").asText();
+
+        HttpHeaders auth = new HttpHeaders();
+        auth.setBearerAuth(token);
+        assertThat(http.exchange("/api/v1/public/categories", HttpMethod.GET,
+                new HttpEntity<>(auth), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        String ticketPath = "/api/v1/device/wallpapers/999999999/download-tickets";
+        String ticketBody = objectMapper.writeValueAsString(
+                Map.of("deliveryPlatform", "IOS", "resourceType", "LIVE_PHOTO"));
+        ResponseEntity<JsonNode> signedRequest = http.exchange(
+                ticketPath,
+                HttpMethod.POST,
+                iosSignedEntity(key, token, "POST", ticketPath, ticketBody),
+                JsonNode.class);
+        assertThat(signedRequest.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(signedRequest.getBody().path("error").path("code").asText()).isEqualTo("WALLPAPER_NOT_FOUND");
+    }
+
     private HttpEntity<String> androidSignedEntity(java.security.KeyPair key, String token, String method, String path, String json) throws Exception {
         String timestamp = Instant.now().toString(), nonce = UUID.randomUUID().toString();
         String hash = java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.getBytes(StandardCharsets.UTF_8)));
@@ -2315,6 +2407,46 @@ class InfrastructureIntegrationIT {
                 "publicKeyPem", publicKeyPem(key),
                 "evidenceToken", evidence);
     }
+    private Map<String, Object> iosRegistration(java.security.KeyPair key, String scope) throws Exception {
+        String timestamp = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
+        String nonce = UUID.randomUUID().toString();
+        byte[] encoded = key.getPublic().getEncoded();
+        String fingerprint = java.util.HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(encoded));
+        String payload = "QJ-IOS-REGISTER-V1\n" + scope + "\n" + fingerprint + "\n"
+                + timestamp + "\n" + nonce;
+        String evidence = Base64.getUrlEncoder().withoutPadding().encodeToString(
+                objectMapper.writeValueAsBytes(Map.of(
+                        "timestamp", timestamp,
+                        "nonce", nonce,
+                        "proof", iosSign(key, payload))));
+        return Map.of(
+                "platform", "IOS",
+                "appInstallScope", scope,
+                "credentialType", "PLATFORM_PUBLIC_KEY",
+                "publicKeyPem", publicKeyPem(key),
+                "evidenceToken", evidence);
+    }
+    private HttpEntity<String> iosSignedEntity(
+            java.security.KeyPair key,
+            String token,
+            String method,
+            String path,
+            String json) throws Exception {
+        String timestamp = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
+        String nonce = UUID.randomUUID().toString();
+        String hash = java.util.HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(json.getBytes(StandardCharsets.UTF_8)));
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Request-Timestamp", timestamp);
+        headers.set("X-Request-Nonce", nonce);
+        headers.set("X-Request-Signature", iosSign(key,
+                "QJ-SIGNED-REQUEST-V1\n" + method + "\n" + path + "\n"
+                        + timestamp + "\n" + nonce + "\n" + hash));
+        return new HttpEntity<>(json, headers);
+    }
     private static String publicKeyPem(java.security.KeyPair key) {
         return "-----BEGIN PUBLIC KEY-----\n"
                 + Base64.getMimeEncoder(64,new byte[]{10}).encodeToString(key.getPublic().getEncoded())
@@ -2323,6 +2455,12 @@ class InfrastructureIntegrationIT {
     private static String androidSign(java.security.KeyPair key, String payload) throws Exception {
         java.security.Signature signer=java.security.Signature.getInstance("SHA256withRSA");
         signer.initSign(key.getPrivate()); signer.update(payload.getBytes(StandardCharsets.UTF_8));
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(signer.sign());
+    }
+    private static String iosSign(java.security.KeyPair key, String payload) throws Exception {
+        java.security.Signature signer = java.security.Signature.getInstance("SHA256withECDSA");
+        signer.initSign(key.getPrivate());
+        signer.update(payload.getBytes(StandardCharsets.UTF_8));
         return Base64.getUrlEncoder().withoutPadding().encodeToString(signer.sign());
     }
 

@@ -20,6 +20,10 @@ qingjing:
     harmony-enabled: true
     allowed-harmony-scopes:
       - com.qingjing.bizhi
+    ios-enabled: true
+    allowed-ios-scopes:
+      - com.qingjing.bizhi
+      - com.qingjing.livephotolab
     h5-test-enabled: true
     allowed-h5-scopes:
       - h5-integration

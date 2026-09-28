@@ -23,6 +23,7 @@ import type {
   ResourceType,
   ResourceVersionStatus,
   MovingPhotoStatus,
+  LivePhotoStatus,
   Wallpaper,
   WallpaperAccessType,
   WallpaperCapability,
@@ -36,9 +37,9 @@ import { ApiError, apiDownload, apiRequest, apiResourceUrl } from '@/repositorie
 
 type AssetPurpose = 'CATEGORY_ICON' | 'WALLPAPER_COVER' | 'BACKGROUND' | 'FOREGROUND'
   | 'PARALLAX_CONFIG' | 'VIDEO' | 'LIVE_PHOTO_IMAGE' | 'LIVE_PHOTO_VIDEO'
-  | 'STATIC_IMAGE' | 'MOVING_PHOTO_SOURCE' | 'TUTORIAL_VIDEO';
+  | 'LIVE_PHOTO_SOURCE' | 'STATIC_IMAGE' | 'MOVING_PHOTO_SOURCE' | 'TUTORIAL_VIDEO';
 type AssetRole = 'BACKGROUND' | 'FOREGROUND' | 'PARALLAX_CONFIG' | 'VIDEO'
-  | 'LIVE_PHOTO_IMAGE' | 'LIVE_PHOTO_VIDEO' | 'STATIC_IMAGE' | 'MOVING_PHOTO_SOURCE';
+  | 'LIVE_PHOTO_IMAGE' | 'LIVE_PHOTO_VIDEO' | 'LIVE_PHOTO_SOURCE' | 'STATIC_IMAGE' | 'MOVING_PHOTO_SOURCE';
 
 interface ApiAsset {
   id: string;
@@ -105,6 +106,7 @@ interface ApiResourceVersion {
   bindings: ApiResourceBinding[];
   sourcePackage?: ApiParallaxPackage | null;
   movingPhoto?: MovingPhotoStatus | null;
+  livePhoto?: LivePhotoStatus | null;
 }
 
 interface ApiParallaxPackage {
@@ -272,8 +274,7 @@ const resourcesFromApi = (value: ApiWallpaperDetail): WallpaperResources => {
     for (const binding of version.bindings) {
       const resource = toResource(binding.asset);
       if (binding.role === 'VIDEO' && variant.platform === 'ANDROID') resources.androidVideo = resource;
-      if (binding.role === 'LIVE_PHOTO_VIDEO') resources.iosMov = resource;
-      if (binding.role === 'LIVE_PHOTO_IMAGE') resources.iosPhoto = resource;
+      if (binding.role === 'LIVE_PHOTO_SOURCE') resources.iosVideo = resource;
       if (binding.role === 'STATIC_IMAGE') resources.staticImage = resource;
       if (binding.role === 'MOVING_PHOTO_SOURCE') resources.harmonyVideo = resource;
     }
@@ -307,7 +308,8 @@ const wallpaperFromApi = (value: ApiWallpaperDetail): Wallpaper => {
         id: version.id,
         versionNo: version.versionNo,
         status: version.status,
-        movingPhoto: version.movingPhoto
+        movingPhoto: version.movingPhoto,
+        livePhoto: version.livePhoto
       })),
       version: item.version
     }))
@@ -318,7 +320,8 @@ const variantSpecs = (value: Wallpaper): VariantSpec[] => {
   const result: VariantSpec[] = [];
   const existing = (platform: ApiPlatform, resourceType: ResourceType) => value.variants.some((variant) =>
     variant.enabled && variant.platform === platform && variant.resourceType === resourceType
-    && variant.resourceVersions.some((version) => ['READY', 'PUBLISHED'].includes(version.status)));
+    && variant.resourceVersions.some((version) => ['READY', 'PUBLISHED'].includes(version.status)
+      && (resourceType !== 'LIVE_PHOTO' || version.livePhoto?.publishable)));
   if (value.resources.parallaxPackage || existing('ANDROID', 'LAYER_PARALLAX')) result.push({
       platform: 'ANDROID',
       resourceType: 'LAYER_PARALLAX',
@@ -334,10 +337,9 @@ const variantSpecs = (value: Wallpaper): VariantSpec[] => {
     platform: 'ANDROID', resourceType: 'VIDEO',
     bindings: [{ role: 'VIDEO', purpose: 'VIDEO', resource: value.resources.androidVideo }]
   });
-  if (value.resources.iosMov || value.resources.iosPhoto || existing('IOS', 'LIVE_PHOTO')) result.push({
+  if (value.resources.iosVideo || existing('IOS', 'LIVE_PHOTO')) result.push({
     platform: 'IOS', resourceType: 'LIVE_PHOTO', bindings: [
-      { role: 'LIVE_PHOTO_IMAGE', purpose: 'LIVE_PHOTO_IMAGE', resource: value.resources.iosPhoto },
-      { role: 'LIVE_PHOTO_VIDEO', purpose: 'LIVE_PHOTO_VIDEO', resource: value.resources.iosMov }
+      { role: 'LIVE_PHOTO_SOURCE', purpose: 'LIVE_PHOTO_SOURCE', resource: value.resources.iosVideo }
     ]
   });
   if (value.resources.harmonyVideo || existing('HARMONYOS', 'MOVING_PHOTO')) result.push({
@@ -597,7 +599,7 @@ export const adminRepository = {
             }
             version = (await apiRequest<ApiResourceVersion>(`/admin/variants/${variant.id}/resource-versions`, {
               method: 'POST', body: jsonBody({ versionNo, manifestSha256: null, bindings }), csrf: true,
-              timeoutMs: spec.resourceType === 'MOVING_PHOTO' ? 120_000 : undefined
+              timeoutMs: ['MOVING_PHOTO', 'LIVE_PHOTO'].includes(spec.resourceType) ? 180_000 : undefined
             })).data;
           }
         }
@@ -653,6 +655,20 @@ export const adminRepository = {
       method: 'POST', headers: { 'If-Match': ifMatch(detail.version) }, body: jsonBody({ resourceVersionIds }), csrf: true
     })).data;
     return wallpaperFromApi(published);
+  },
+
+  async rebuildLivePhoto(versionId: string) {
+    const { data } = await apiRequest<ApiResourceVersion>(`/admin/resource-versions/${versionId}/live-photo/build`, {
+      method: 'POST', csrf: true, timeoutMs: 180_000
+    });
+    return data.livePhoto ?? null;
+  },
+
+  async rebuildMovingPhoto(versionId: string) {
+    const { data } = await apiRequest<ApiResourceVersion>(`/admin/resource-versions/${versionId}/moving-photo`, {
+      method: 'POST', csrf: true, timeoutMs: 180_000
+    });
+    return data.movingPhoto ?? null;
   },
 
   async offlineWallpaper(id: string) {

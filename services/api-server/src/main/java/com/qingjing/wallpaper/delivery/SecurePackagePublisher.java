@@ -71,12 +71,20 @@ public class SecurePackagePublisher {
         if (!version.status().equals("READY") && !version.status().equals("PUBLISHED")) throw new ApiException(HttpStatus.CONFLICT,"STATE_CONFLICT","Only a ready or published version may be prepared");
         if (skipUnsupported && existingPreview!=null && (!fullSupported || fullExists)) return;
         signing.privateKey();
-        var bindings = jdbc.query("""
-                SELECT b.role,b.ordinal,a.storage_key,a.mime_type,a.sha256,a.size_bytes,a.validation_status,a.deleted_at
-                FROM resource_binding b JOIN asset a ON a.id=b.asset_id
-                WHERE b.resource_version_id=? AND b.role <> 'COVER' ORDER BY b.role,b.ordinal
-                """,(rs,n) -> new Binding(rs.getString("role"),rs.getInt("ordinal"),rs.getString("storage_key"),rs.getString("mime_type"),
-                rs.getString("sha256"),rs.getLong("size_bytes"),rs.getString("validation_status").equals("READY") && rs.getTimestamp("deleted_at")==null),versionId);
+        var bindings = livePhotoPreview
+                ? jdbc.query("""
+                    SELECT 'LIVE_PHOTO_VIDEO' AS role,0 AS ordinal,video_storage_key AS storage_key,
+                           'video/quicktime' AS mime_type,video_sha256 AS sha256,video_size_bytes AS size_bytes,
+                           'READY' AS validation_status,NULL AS deleted_at
+                    FROM live_photo_package WHERE resource_version_id=? AND status='READY'
+                    """,(rs,n) -> new Binding(rs.getString("role"),rs.getInt("ordinal"),rs.getString("storage_key"),rs.getString("mime_type"),
+                        rs.getString("sha256"),rs.getLong("size_bytes"),true),versionId)
+                : jdbc.query("""
+                    SELECT b.role,b.ordinal,a.storage_key,a.mime_type,a.sha256,a.size_bytes,a.validation_status,a.deleted_at
+                    FROM resource_binding b JOIN asset a ON a.id=b.asset_id
+                    WHERE b.resource_version_id=? AND b.role <> 'COVER' ORDER BY b.role,b.ordinal
+                    """,(rs,n) -> new Binding(rs.getString("role"),rs.getInt("ordinal"),rs.getString("storage_key"),rs.getString("mime_type"),
+                        rs.getString("sha256"),rs.getLong("size_bytes"),rs.getString("validation_status").equals("READY") && rs.getTimestamp("deleted_at")==null),versionId);
         if (bindings.isEmpty() || bindings.size()>16) throw invalid();
         List<SecurePackageCodec.Payload> payloads = new ArrayList<>();
         Map<String,PackageMediaInspector.Media> images = new HashMap<>();

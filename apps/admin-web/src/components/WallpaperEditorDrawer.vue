@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Check, PictureFilled } from '@element-plus/icons-vue';
+import { ElMessage } from 'element-plus';
 import { computed, reactive, ref, toRaw, watch } from 'vue';
 
 import ResourceFileField from '@/components/ResourceFileField.vue';
@@ -11,6 +12,8 @@ import {
   type Wallpaper,
   type WallpaperCapability
 } from '@/domain/admin';
+import { readableApiError } from '@/repositories/http/apiClient';
+import { adminRepository } from '@/repositories/http/adminRepository';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -44,7 +47,7 @@ const secondaryCategories = computed(() => props.categories
 const capabilityOptions: { value: WallpaperCapability; title: string; text: string }[] = [
   { value: 'android_parallax', title: 'Android 4D', text: '分层视差资源包' },
   { value: 'android_video', title: 'Android 动态', text: 'MP4 动态壁纸' },
-  { value: 'ios_live_photo', title: 'iOS 实况', text: 'MOV + JPEG 实况照片' },
+  { value: 'ios_live_photo', title: 'iOS 实况', text: '原始 MP4 生成 Live Photo' },
   { value: 'harmony_moving_photo', title: '鸿蒙动态', text: 'Moving Photo 视频 + 首帧' },
   { value: 'universal_static', title: '全平台静态', text: '高清静态原图' }
 ];
@@ -61,7 +64,8 @@ const hasExisting = (value: WallpaperCapability) => {
   const [platform, resourceType] = pairForCapability[value];
   return form.variants.some((variant) => variant.enabled && variant.platform === platform && variant.resourceType === resourceType
     && variant.resourceVersions.some((version) => ['READY', 'PUBLISHED'].includes(version.status)
-      && (value !== 'harmony_moving_photo' || version.movingPhoto?.publishable)));
+      && (value !== 'harmony_moving_photo' || version.movingPhoto?.publishable)
+      && (value !== 'ios_live_photo' || version.livePhoto?.publishable)));
 };
 const derivedCapabilities = computed<WallpaperCapability[]>(() => capabilityOptions
   .map((item) => item.value)
@@ -69,16 +73,15 @@ const derivedCapabilities = computed<WallpaperCapability[]>(() => capabilityOpti
     if (hasExisting(value)) return true;
     if (value === 'android_parallax') return Boolean(form.resources.parallaxPackage);
     if (value === 'android_video') return Boolean(form.resources.androidVideo);
-    if (value === 'ios_live_photo') return Boolean(form.resources.iosMov && form.resources.iosPhoto);
+    if (value === 'ios_live_photo') return Boolean(form.resources.iosVideo);
     if (value === 'harmony_moving_photo') return Boolean(form.resources.harmonyVideo);
     return Boolean(form.resources.staticImage);
   }));
 
 const coverPreviewSrc = computed(() => form.resources.cover?.url
   || form.resources.staticImage?.url
-  || form.resources.iosPhoto?.url
   || form.coverUrl);
-const dynamicPreviewSrc = computed(() => form.resources.androidVideo?.url || form.resources.iosMov?.url);
+const dynamicPreviewSrc = computed(() => form.resources.androidVideo?.url || form.resources.iosVideo?.url);
 const previewHasContent = computed(() => Boolean(dynamicPreviewSrc.value || coverPreviewSrc.value));
 
 const cloneIntoForm = (value?: Wallpaper) => {
@@ -111,10 +114,7 @@ const validate = () => {
   if (hasCapability('android_video') && !form.resources.androidVideo && !hasExisting('android_video')) {
     next.androidVideo = '请上传 Android MP4';
   }
-  if (hasCapability('ios_live_photo') && !form.resources.iosMov && !hasExisting('ios_live_photo')) next.iosMov = '请上传 iOS MOV';
-  if (hasCapability('ios_live_photo') && !form.resources.iosPhoto && !hasExisting('ios_live_photo')) next.iosPhoto = '请上传 iOS JPEG';
-  if (form.resources.iosMov && !form.resources.iosPhoto && !hasExisting('ios_live_photo')) next.iosPhoto = '请同时上传 iOS JPEG';
-  if (form.resources.iosPhoto && !form.resources.iosMov && !hasExisting('ios_live_photo')) next.iosMov = '请同时上传 iOS MOV';
+  if (hasCapability('ios_live_photo') && !form.resources.iosVideo && !hasExisting('ios_live_photo')) next.iosVideo = '请上传 iOS 原始 MP4';
   if (hasCapability('harmony_moving_photo') && !form.resources.harmonyVideo && !hasExisting('harmony_moving_photo')) {
     next.harmonyVideo = '请上传 HarmonyOS 原始视频';
   }
@@ -136,17 +136,49 @@ const resourceRows = computed(() => {
   const rows: { label: string; ready: boolean }[] = [];
   if (hasCapability('android_parallax')) rows.push({ label: 'Android 4D ZIP', ready: Boolean(form.resources.parallaxPackage || hasExisting('android_parallax')) });
   if (hasCapability('android_video')) rows.push({ label: 'Android MP4', ready: Boolean(form.resources.androidVideo || hasExisting('android_video')) });
-  if (hasCapability('ios_live_photo')) rows.push(
-    { label: 'iOS MOV', ready: Boolean(form.resources.iosMov || hasExisting('ios_live_photo')) },
-    { label: 'iOS JPEG', ready: Boolean(form.resources.iosPhoto || hasExisting('ios_live_photo')) }
-  );
+  if (hasCapability('ios_live_photo')) rows.push({ label: 'iOS Live Photo', ready: Boolean(form.resources.iosVideo || hasExisting('ios_live_photo')) });
   if (hasCapability('harmony_moving_photo')) rows.push({ label: '鸿蒙 Moving Photo', ready: Boolean(form.resources.harmonyVideo || hasExisting('harmony_moving_photo')) });
   if (hasCapability('universal_static')) rows.push({ label: '静态原图', ready: Boolean(form.resources.staticImage || hasExisting('universal_static')) });
   return rows;
 });
 const harmonyStatus = computed(() => form.variants
   .find((variant) => variant.platform === 'HARMONYOS' && variant.resourceType === 'MOVING_PHOTO')
-  ?.resourceVersions.find((version) => ['READY', 'PUBLISHED'].includes(version.status))?.movingPhoto);
+  ?.resourceVersions.slice().sort((a, b) => b.versionNo - a.versionNo)[0]?.movingPhoto);
+const harmonyVersion = computed(() => form.variants
+  .find((variant) => variant.platform === 'HARMONYOS' && variant.resourceType === 'MOVING_PHOTO')
+  ?.resourceVersions.slice().sort((a, b) => b.versionNo - a.versionNo)[0]);
+const iosVersion = computed(() => form.variants
+  .find((variant) => variant.platform === 'IOS' && variant.resourceType === 'LIVE_PHOTO')
+  ?.resourceVersions.slice().sort((a, b) => b.versionNo - a.versionNo)[0]);
+const iosStatus = computed(() => iosVersion.value?.livePhoto);
+const rebuildingLivePhoto = ref(false);
+const rebuildingMovingPhoto = ref(false);
+const rebuildLivePhoto = async () => {
+  if (!iosVersion.value) return;
+  rebuildingLivePhoto.value = true;
+  try {
+    iosVersion.value.livePhoto = await adminRepository.rebuildLivePhoto(iosVersion.value.id);
+    if (form.resources.iosVideo) form.resources.iosVideo.nativeFile = undefined;
+    ElMessage.success('iOS Live Photo 已重新生成');
+  } catch (cause) {
+    ElMessage.error(readableApiError(cause, 'iOS Live Photo 重新生成失败'));
+  } finally {
+    rebuildingLivePhoto.value = false;
+  }
+};
+const rebuildMovingPhoto = async () => {
+  if (!harmonyVersion.value) return;
+  rebuildingMovingPhoto.value = true;
+  try {
+    harmonyVersion.value.movingPhoto = await adminRepository.rebuildMovingPhoto(harmonyVersion.value.id);
+    if (form.resources.harmonyVideo) form.resources.harmonyVideo.nativeFile = undefined;
+    ElMessage.success('鸿蒙动态照片已重新生成');
+  } catch (cause) {
+    ElMessage.error(readableApiError(cause, '鸿蒙动态照片重新生成失败'));
+  } finally {
+    rebuildingMovingPhoto.value = false;
+  }
+};
 </script>
 
 <template>
@@ -204,18 +236,35 @@ const harmonyStatus = computed(() => form.variants
               <ResourceFileField :model-value="form.resources.androidVideo" label="Android 动态视频" hint="MP4，H.264" accept="video/mp4" @update:model-value="setResource('androidVideo', $event)" />
               <p v-if="errors.androidVideo" class="field-error">{{ errors.androidVideo }}</p>
             </div>
-            <div class="resource-grid__item"><ResourceFileField :model-value="form.resources.iosMov" label="iOS 实况视频" hint="MOV；与实况照片同时上传" accept="video/quicktime,.mov" @update:model-value="setResource('iosMov', $event)" /><p v-if="errors.iosMov" class="field-error">{{ errors.iosMov }}</p></div>
-            <div class="resource-grid__item"><ResourceFileField :model-value="form.resources.iosPhoto" label="iOS 实况照片" hint="JPEG；与实况视频同时上传" accept="image/jpeg" @update:model-value="setResource('iosPhoto', $event)" /><p v-if="errors.iosPhoto" class="field-error">{{ errors.iosPhoto }}</p></div>
             <div class="resource-grid__item span-2">
-              <ResourceFileField :model-value="form.resources.harmonyVideo" label="HarmonyOS 动态原始视频" hint="MP4 / MOV；保存后自动生成最长 2 秒 H.264 MP4 和 JPEG 首帧" accept="video/mp4,video/quicktime,.mov" @update:model-value="setResource('harmonyVideo', $event)" />
+              <ResourceFileField :model-value="form.resources.iosVideo" label="iOS 实况原始视频" hint="MP4，至少 1 秒；保存后自动生成 1 秒 HEIC + MOV Live Photo" accept="video/mp4" @update:model-value="setResource('iosVideo', $event)" />
+              <p v-if="errors.iosVideo" class="field-error">{{ errors.iosVideo }}</p>
+              <small v-if="iosStatus" :class="iosStatus.publishable ? 'success-text' : 'warning-text'">
+                生成状态：{{ iosStatus.status }} · HEIC {{ iosStatus.photo ? '已生成' : '未生成' }} · MOV {{ iosStatus.video ? '已生成' : '未生成' }}
+                <template v-if="iosStatus.durationMs"> · {{ iosStatus.durationMs }}ms</template>
+                <template v-if="iosStatus.widthPx && iosStatus.heightPx"> · {{ iosStatus.widthPx }}×{{ iosStatus.heightPx }}</template>
+                <template v-if="iosStatus.frameRate"> · {{ iosStatus.frameRate }}fps</template>
+                <template v-if="iosStatus.processingMode"> · {{ iosStatus.processingMode }}</template>
+                · {{ iosStatus.publishable ? '可发布' : '不可发布' }}
+                <template v-if="iosStatus.errorCode"> · {{ iosStatus.errorCode }}</template>
+              </small>
+              <small v-else-if="form.resources.iosVideo">保存后由后端生成 HEIC 照片和包含 Apple 元数据轨的 MOV。</small>
+              <div v-if="iosStatus?.status === 'REJECTED'" class="resource-retry"><ElButton :loading="rebuildingLivePhoto" @click="rebuildLivePhoto">重新生成</ElButton></div>
+            </div>
+            <div class="resource-grid__item span-2">
+              <ResourceFileField :model-value="form.resources.harmonyVideo" label="HarmonyOS 动态原始视频" hint="MP4，至少 2 秒；保存后截取前 2 秒并生成 JPEG 首帧，优先保留原分辨率与帧率" accept="video/mp4" @update:model-value="setResource('harmonyVideo', $event)" />
               <p v-if="errors.harmonyVideo" class="field-error">{{ errors.harmonyVideo }}</p>
               <small v-if="harmonyStatus" :class="harmonyStatus.publishable ? 'success-text' : 'warning-text'">
                 生成状态：{{ harmonyStatus.status }} · 视频 {{ harmonyStatus.video ? '已生成' : '未生成' }} · JPEG {{ harmonyStatus.poster ? '已生成' : '未生成' }}
                 <template v-if="harmonyStatus.durationMs"> · {{ harmonyStatus.durationMs }}ms</template>
                 <template v-if="harmonyStatus.widthPx && harmonyStatus.heightPx"> · {{ harmonyStatus.widthPx }}×{{ harmonyStatus.heightPx }}</template>
+                <template v-if="harmonyStatus.frameRate"> · {{ harmonyStatus.frameRate }}fps</template>
+                <template v-if="harmonyStatus.processingMode"> · {{ harmonyStatus.processingMode }}</template>
                 · {{ harmonyStatus.publishable ? '可发布' : '不可发布' }}
+                <template v-if="harmonyStatus.errorCode"> · {{ harmonyStatus.errorCode }}</template>
               </small>
               <small v-else-if="form.resources.harmonyVideo">保存后由后端生成视频和 JPEG 首帧。</small>
+              <div v-if="harmonyStatus?.status === 'REJECTED'" class="resource-retry"><ElButton :loading="rebuildingMovingPhoto" @click="rebuildMovingPhoto">重新生成</ElButton></div>
             </div>
             <div class="resource-grid__item span-2"><ResourceFileField :model-value="form.resources.staticImage" label="全平台高清静态原图" hint="JPG / PNG / WebP；只有这里上传的图片才算静态壁纸" accept="image/jpeg,image/png,image/webp" @update:model-value="setResource('staticImage', $event)" /><p v-if="errors.staticImage" class="field-error">{{ errors.staticImage }}</p></div>
           </div>

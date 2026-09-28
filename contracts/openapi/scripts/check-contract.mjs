@@ -32,6 +32,8 @@ const expectedOperations = {
   '/preview/moving-photo/video': ['get'],
   '/delivery/moving-photo/poster': ['get'],
   '/delivery/moving-photo/video': ['get'],
+  '/delivery/live-photo/image': ['get'],
+  '/delivery/live-photo/video': ['get'],
   '/delivery/static-image': ['get'],
   '/admin/sessions': ['get', 'post', 'delete'],
   '/admin/assets': ['post'],
@@ -65,6 +67,25 @@ assert.ok(operationIds.every(Boolean), 'every operation must define operationId'
 assert.equal(new Set(operationIds).size, operationIds.length, 'operationId values must be unique');
 
 assert.equal(document.components.schemas.LongId.type, 'string', 'LongId must remain a JSON string');
+assert.deepEqual(
+  document.components.schemas.DevicePlatform.enum,
+  ['ANDROID', 'IOS', 'HARMONYOS'],
+  'device identity platforms drifted'
+);
+assert.ok(
+  document.components.schemas.DeviceRegistrationRequest.required.includes('publicKeyPem'),
+  'formal device registration must require an installation public key'
+);
+assert.ok(
+  document.components.schemas.DeviceSessionChallenge.properties.algorithm.enum.includes('ECDSA_P256_SHA256'),
+  'iOS challenge algorithm must remain part of the public contract'
+);
+assert.ok(
+  applicationConfiguration.includes('ios-enabled: ${QJ_DEVICE_IOS_ENABLED:true}')
+    && applicationConfiguration.includes('${QJ_DEVICE_IOS_PROD_SCOPE:com.qingjing.bizhi}')
+    && applicationConfiguration.includes('${QJ_DEVICE_IOS_TEST_SCOPE:com.qingjing.livephotolab}'),
+  'runtime iOS provider scopes must match the public identity contract'
+);
 assert.deepEqual(
   document.components.schemas.RedemptionResultCode.enum,
   ['GRANTED', 'ALREADY_OWNED', 'CODE_NOT_FOUND', 'CODE_EXHAUSTED', 'WALLPAPER_UNAVAILABLE', 'WALLPAPER_FREE', 'FAILED'],
@@ -175,8 +196,10 @@ assert.equal(
   true,
   'legacy redemption codes without recoverable material must remain representable'
 );
-assert.deepEqual(document.components.schemas.DownloadDescriptor.properties.deliveryMode.enum, ['SECURE_PACKAGE', 'MOVING_PHOTO', 'STATIC_IMAGE']);
+assert.deepEqual(document.components.schemas.DownloadDescriptor.properties.deliveryMode.enum, ['SECURE_PACKAGE', 'MOVING_PHOTO', 'LIVE_PHOTO', 'STATIC_IMAGE']);
 assert.ok(document.components.schemas.DownloadDescriptor.properties.image, 'static image delivery metadata is required');
+assert.ok(document.components.schemas.DownloadDescriptor.properties.photo, 'Live Photo image delivery metadata is required');
+assert.ok(document.paths['/admin/resource-versions/{resourceVersionId}/live-photo/build'].post, 'Live Photo build operation is required');
 assert.match(
   document.paths['/device/wallpapers/{wallpaperId}/download-tickets'].post.description,
   /UNIVERSAL \/ STATIC_IMAGE.*所有平台/s,
