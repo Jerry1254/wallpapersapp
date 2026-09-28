@@ -113,13 +113,14 @@ VIDEO_RESOURCE  = video.mp4
 
 ### 4.3 元数据模板
 
-已验证可设置动态锁屏的模板位于：
+已验证可设置动态锁屏的参考模板已作为后端测试资源入库：
 
 ```text
-apps/ios-live-photo-lab/QingjingLivePhotoLab/Resources/wallpaper-metadata-template.mov
+services/api-server/src/test/resources/live-photo/wallpaper-metadata-template.mov
+SHA-256: 39b7239d8cb0a442b659948ac2e47eaba05e5922771f12614355042ae073a1f0
 ```
 
-后端可复用其元数据轨结构，但每份产物必须生成新的 `assetIdentifier`，不能把模板的标识符原样复制给多个商品。不能只使用 FFmpeg 生成普通 MOV 就视为完成；必须验证 HEIC/MOV 配对标识和上述元数据轨。
+该文件只用于解析、对照和自动测试，不得将其视频画面作为正式商品产物。后端可复用其元数据轨结构，但每份产物必须生成新的 `assetIdentifier`，不能把模板的标识符原样复制给多个商品。不能只使用 FFmpeg 生成普通 MOV 就视为完成；必须验证 HEIC/MOV 配对标识和上述元数据轨。
 
 后端可在 Java 进程中调用经固定版本、受控参数和超时限制的本地媒体 worker。具体库或工具不作为 API 契约，但输出必须通过本文档的自动检查和真机验收。
 
