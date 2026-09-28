@@ -472,7 +472,7 @@ class _DetailScreenState extends State<DetailScreen> {
                         ),
                       ),
                     ],
-                    const SizedBox(height: T.space3),
+                    const SizedBox(height: T.space6),
                     FractionallySizedBox(
                       widthFactor: .82,
                       child: Text(
@@ -487,7 +487,7 @@ class _DetailScreenState extends State<DetailScreen> {
                             ),
                       ),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: T.space6),
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, available) {
@@ -499,7 +499,7 @@ class _DetailScreenState extends State<DetailScreen> {
                           final availablePreviewHeight =
                               available.maxHeight -
                               T.sizePrimaryControl -
-                              T.space3 -
+                              T.space6 -
                               errorHeight;
                           final widthFromHeight =
                               (availablePreviewHeight > 0
@@ -577,7 +577,7 @@ class _DetailScreenState extends State<DetailScreen> {
                                       ),
                                     ),
                                   ),
-                                const SizedBox(height: T.space3),
+                                const SizedBox(height: T.space6),
                                 SizedBox(
                                   width: available.maxWidth * .82,
                                   child: QjPrimaryAction(

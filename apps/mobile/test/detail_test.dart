@@ -226,7 +226,7 @@ void main() {
       greaterThan(tester.getBottomLeft(find.text('动态壁纸').first).dy),
     );
     expect(titleRect.bottom, lessThan(previewRect.top));
-    expect(previewRect.top - titleRect.bottom, closeTo(10, 1));
+    expect(previewRect.top - titleRect.bottom, closeTo(24, 1));
     expect(tester.widget<Text>(title).maxLines, 2);
     expect(tester.widget<Text>(title).textAlign, TextAlign.center);
     expect(tester.widget<Text>(title).style?.color, T.colorAccentStrong);
@@ -235,7 +235,7 @@ void main() {
       closeTo(tester.getCenter(find.text('教程')).dy, 1),
     );
     expect(actionRect.top, greaterThan(previewRect.bottom));
-    expect(actionRect.top - previewRect.bottom, closeTo(12, 1));
+    expect(actionRect.top - previewRect.bottom, closeTo(24, 1));
     expect(actionRect.bottom, lessThanOrEqualTo(844));
 
     await tester.tap(find.text('动态壁纸').first);

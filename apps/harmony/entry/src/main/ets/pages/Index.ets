@@ -940,7 +940,7 @@ struct Index {
         .maxLines(2)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .textAlign(TextAlign.Center)
-        .margin({ top: 12 });
+        .margin({ top: 24 });
       Column() {
         Stack({ alignContent: Alignment.Bottom }) {
           Image(this.mediaUrl(item.coverUrl)).width('100%').height('100%').objectFit(ImageFit.Cover)
@@ -1002,11 +1002,11 @@ struct Index {
         Button(this.detailActionLabel(item))
           .width('82%').height(T.primaryHeight).fontSize(17).fontWeight(FontWeight.Bold)
           .fontColor(T.ink).backgroundColor(T.accent).borderRadius(27)
-          .margin({ top: 12, bottom: 16 })
+          .margin({ top: 24, bottom: 16 })
           .onClick(() => this.primaryDetailAction(item));
       }
       .width('100%').layoutWeight(1).justifyContent(FlexAlign.Start).alignItems(HorizontalAlign.Center)
-      .margin({ top: 10 });
+      .margin({ top: 24 });
     }
     .width('100%').height('100%').alignItems(HorizontalAlign.Center)
     .padding({ left: T.gutter, right: T.gutter });
