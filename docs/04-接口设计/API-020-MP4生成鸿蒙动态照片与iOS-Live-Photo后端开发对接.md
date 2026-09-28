@@ -1,6 +1,6 @@
 # API-020 MP4 生成鸿蒙动态照片与 iOS Live Photo 后端开发对接
 
-**版本：** 1.0.0
+**版本：** 1.1.0
 
 **日期：** 2026-09-28
 
@@ -12,59 +12,69 @@
 
 管理员在后台为每个平台上传一个已经剪好的 MP4，后端生成该平台系统相册要求的成对资源。App 兑换后下载成对资源，再保存成一张系统动态照片。
 
-- HarmonyOS：单 MP4 源文件 → JPEG 封面＋H.264 MP4，最终保存为 Moving Photo。
-- iOS：单 MP4 源文件 → HEIC 封面＋带 Live Photo 元数据的 HEVC MOV，最终保存为 Live Photo。
+- HarmonyOS：单 MP4 源文件 → JPEG 封面＋平台可用的 MP4，最终保存为 Moving Photo。
+- iOS：单 MP4 源文件 → HEIC 封面＋带 Live Photo 元数据的 MOV，最终保存为 Live Photo。
 - Android 动态壁纸交付不在本文档范围内。
 - 安装包平台过滤继续以 `API-019` 为准。本文档取代 `API-019` 中有关 iOS/HarmonyOS 媒体生成和下载产物的未实现描述。
 
 当前代码与目标的差异：
 
-- `PackageMediaInspector.movingPhoto` 当前会把所有鸿蒙源视频以 CRF 20 重新编码；需改为“严格校验合格后保留原视频流”。
+- `PackageMediaInspector.movingPhoto` 当前会把所有鸿蒙源视频以 CRF 20 重新编码并缩放到固定边界；需改为“识别平台可直接使用的视频流并保留原分辨率、帧率和样本数据”。
 - `IOS / LIVE_PHOTO` 当前要求人工绑定 `LIVE_PHOTO_IMAGE` 和 `LIVE_PHOTO_VIDEO`，没有正式产物表和下载接口；需改为单 MP4 生成。
 - `DownloadDescriptor` 当前没有 `LIVE_PHOTO` 交付模式，必须与 OpenAPI 、Java DTO 和 App 一起增加。
 
-## 2. 产品固定规则
+## 2. 产品交付规则
 
 | 项目 | HarmonyOS 动态壁纸 | iOS 动态壁纸 |
 |---|---|---|
 | 安装包平台 | `HARMONYOS` | `IOS` |
 | 资源类型 | `MOVING_PHOTO` | `LIVE_PHOTO` |
 | 后台上传 | 1 个 MP4 | 1 个 MP4 |
-| 源视频时长 | 2.000 秒 | 1.000 秒 |
-| 标准画布 | 1080×1920，竖屏 | 1344×1926，竖屏 |
-| 帧率 | 30fps，共 60 帧 | 60fps，共 60 帧 |
-| 源视频编码 | H.264 High，`yuv420p` | HEVC Main，`hvc1`，`yuv420p` |
-| 音频 | 不允许 | 不允许 |
+| 源视频时长 | 大于 0 且不超过 2 秒 | 大于 0 且不超过 1 秒 |
+| 分辨率和比例 | 由上传 MP4 决定，原尺寸保留 | 由上传 MP4 决定，原尺寸保留 |
+| 帧率 | 由上传 MP4 决定，当前最高 60fps | 由上传 MP4 决定，当前最高 60fps |
+| 可接受源编码 | H.264 或 HEVC | H.264 或 HEVC |
+| 当前真机验证配置 | H.264 High、30fps、`yuv420p` | HEVC Main、`hvc1`、60fps、`yuv420p` |
+| 音频 | 不作为动态照片产物，生成时移除 | 不作为 Live Photo 产物，生成时移除 |
 | 方向 | 像素已转正，不依赖 rotation metadata | 像素已转正，不依赖 rotation metadata |
 | 最终产物 | JPEG＋MP4 | HEIC＋MOV |
 | App 完成文案 | `已保存到相册，请设置` | `已保存到相册，请设置` |
 
-上述时长是倾境壁纸的发布规格。平台将动画内容在上传前剪入这一时长，后端不再自动截取长视频，也不再把长视频加速压缩到目标时长。
+时长是平台发布上限，不要求每个文件刚好等于上限。平台将动画内容在上传前剪入相应上限，后端不自动截取、补帧、加速或减速。分辨率、长宽比和帧率由每个上传文件决定，后端不把它们强制改成单一模板。
 
-### 2.1 时长容差
+### 2.1 时长上限
 
-- HarmonyOS：接受 `1950–2050ms`。
-- iOS：接受 `950–1050ms`。
-- 超出容差直接拒绝，不静默裁剪，返回 `DYNAMIC_SOURCE_DURATION_INVALID`。
+- HarmonyOS：`0 < durationMs <= 2000`。
+- iOS：`0 < durationMs <= 1000`。
+- 超出上限直接拒绝，不静默裁剪，返回 `DYNAMIC_SOURCE_DURATION_INVALID`。
 
-### 2.2 无损的定义
+### 2.2 分辨率、帧率和编码
+
+1. 宽高以视频实际像素尺寸为准，封面必须与最终视频宽高一致。
+2. 不固定 9:16 或某一组分辨率；建议上传竖屏内容，但后端不裁剪、拉伸、扩图或加留白。
+3. 当前服务安全边界为宽高均不超过 4096 像素；`yuv420p` 宽高必须为偶数。
+4. 帧率不固定为 30fps 或 60fps；当前接受大于 0 且不超过 60fps 的有效时间戳。
+5. MP4 源视频接受 H.264 或 HEVC。后端必须先判断目标平台是否可直接使用该视频流，不能仅因为它与“参考配置”不同就直接降质。
+
+### 2.3 无损的定义
 
 本文档中的“无损”指动画视频流不二次编码：
 
-1. 上传文件已符合对应平台的尺寸、时长、帧率、编码和像素格式时，后端必须使用 stream copy/remux，不能重新压缩视频。
-2. iOS 的 MP4 转 MOV 只更换容器并添加 Live Photo 元数据，HEVC 图像数据保持不变。
+1. 上传视频流可被目标平台直接使用时，后端必须使用 stream copy/remux，保留原分辨率、时间戳、帧率和视频样本数据。
+2. iOS 的 MP4 转 MOV 优先只更换容器并添加 Live Photo 元数据，使原 H.264 或 HEVC 图像数据保持不变。
 3. HEIC/JPEG 封面是从视频解码帧生成的新文件，使用最高质量保存；“视频流无损”不等于封面文件字节级无损。
-4. 不符合规格的上传默认拒绝，不在正式发布链路中自动降质转码。
+4. 只有视频流确实无法被目标平台使用时才允许转码；转码必须使用高质量参数，并将处理模式标记为 `TRANSCODE`，不能对外称为无损。
+5. 生成记录必须保存 `PASSTHROUGH | REMUX | TRANSCODE` 之一，后台可查看实际处理方式。
 
 ## 3. HarmonyOS 生成规则
 
 ### 3.1 输入
 
 - 容器：MP4。
-- 编码：H.264 High，30fps，`yuv420p`。
-- 画布：1080×1920。
-- 时长：2 秒，共 60 帧。
-- 只有一条视频轨，无音频、字幕、脚本或外部网络引用。
+- 编码：H.264 或 HEVC；当前已验证的安全参考配置是 H.264 High、30fps、`yuv420p`。
+- 宽高、长宽比和帧率由源视频决定。
+- 时长：大于 0 且不超过 2 秒。
+- 必须存在视频轨；音频轨在产物中移除，不接受字幕、脚本或外部网络引用。
 
 ### 3.2 输出
 
@@ -72,8 +82,8 @@
    - 取第 1 帧，与视频尺寸一致。
    - JPEG 最高质量，sRGB，无额外旋转元数据。
 2. `video.mp4`
-   - 符合输入规格时直接保留原始视频流。
-   - 可重写 MP4 容器并开启 `faststart`，不得重新编码。
+   - 视频流可被鸿蒙目标设备使用时直接保留原始视频流。
+   - 可重写 MP4 容器并开启 `faststart`；如确需转码，必须保留源分辨率和时长并记录 `TRANSCODE`。
 
 HarmonyOS App 已有的保存逻辑保持不变：
 
@@ -89,26 +99,26 @@ VIDEO_RESOURCE  = video.mp4
 ### 4.1 输入
 
 - 容器：MP4。
-- 编码：HEVC Main，MP4 sample entry 为 `hvc1`，60fps，`yuv420p`。
-- 画布：1344×1926。
-- 时长：1 秒，共 60 帧。
-- 只有一条视频轨，无音频。
-- 需要保留 1080×1926 主画面原始像素时，应在上传前就生成 1344×1926 画布：中央主画面不缩放，左右各扩展约 132px 背景。后端不再扩图，以免发生二次编码。
+- 编码：H.264 或 HEVC；当前已验证的安全参考配置是 HEVC Main、`hvc1`、60fps、`yuv420p`。
+- 宽高、长宽比和帧率由源视频决定。
+- 时长：大于 0 且不超过 1 秒。
+- 必须存在视频轨；音频轨在产物中移除。
+- 1344×1926、60fps HEVC 是已通过当前 iPad 动态锁屏验证的一个样例，不是全部 iOS 商品的强制分辨率或帧率。
 
 ### 4.2 输出
 
 1. `photo.heic`
-   - 从 0.5 秒附近取中间帧。
-   - 输出 1344×1926 HEIC，最高质量。
+   - 从 `duration / 2` 附近取中间帧。
+   - 输出宽高必须与最终 MOV 视频宽高一致，使用最高质量 HEIC。
    - 写入本次资源的 `assetIdentifier`（Apple MakerNote 键 17）。
 2. `video.mov`
-   - 原 HEVC 视频流 stream copy 到 QuickTime MOV 容器。
+   - 优先将原 H.264 或 HEVC 视频流 stream copy 到 QuickTime MOV 容器。
    - 写入与 HEIC 完全相同的 content identifier。
    - 带有经真机验证的 Live Photo 元数据轨：
      - `com.apple.quicktime.live-photo-info`
      - `com.apple.quicktime.still-image-time`
      - `com.apple.quicktime.live-photo-still-image-transform`
-   - still-image-time 固定为 0.5 秒附近，并与 HEIC 取帧位置一致。
+   - still-image-time 设为 `duration / 2` 附近，并与 HEIC 取帧位置一致。
    - 不包含音频轨。
 
 ### 4.3 元数据模板
@@ -120,7 +130,7 @@ services/api-server/src/test/resources/live-photo/wallpaper-metadata-template.mo
 SHA-256: 39b7239d8cb0a442b659948ac2e47eaba05e5922771f12614355042ae073a1f0
 ```
 
-该文件只用于解析、对照和自动测试，不得将其视频画面作为正式商品产物。后端可复用其元数据轨结构，但每份产物必须生成新的 `assetIdentifier`，不能把模板的标识符原样复制给多个商品。不能只使用 FFmpeg 生成普通 MOV 就视为完成；必须验证 HEIC/MOV 配对标识和上述元数据轨。
+该文件只用于解析、对照和自动测试，不得将其视频画面作为正式商品产物。后端可复用其元数据轨结构，但要按当前视频的实际时长和时间戳重建样本时序。每份产物必须生成新的 `assetIdentifier`，不能把模板的标识符或时间戳原样复制给不同商品。不能只使用 FFmpeg 生成普通 MOV 就视为完成；必须验证 HEIC/MOV 配对标识和上述元数据轨。
 
 后端可在 Java 进程中调用经固定版本、受控参数和超时限制的本地媒体 worker。具体库或工具不作为 API 契约，但输出必须通过本文档的自动检查和真机验收。
 
@@ -158,17 +168,18 @@ AssetRole    = LIVE_PHOTO_SOURCE
    - `duration_ms`
    - `width_px` / `height_px`
    - `video_codec` / `frame_rate`
+   - `processing_mode`: `PASSTHROUGH | REMUX | TRANSCODE`
    - `error_code`
    - `created_at` / `updated_at`
-3. `READY` 约束必须要求两个产物都存在、SHA-256 合法、时长和尺寸符合规格。
+3. `READY` 约束必须要求两个产物都存在、SHA-256 合法、时长在平台上限内，且封面和视频宽高一致。
 
-HarmonyOS 现有 `moving_photo_package` 保留。建议在新迁移中将其尺寸、时长和帧率验收收紧到本文档的发布规格。
+HarmonyOS 现有 `moving_photo_package` 保留。建议增加原始/输出编码、帧率和 `processing_mode`，同时保留每个源文件的实际分辨率。
 
 ### 5.3 生成时机
 
 1. 管理员上传 MP4，创建资源版本。
 2. 管理员点击“生成平台动态照片”，或发布前由后端自动调用 publisher。
-3. publisher 先用 ffprobe 做严格校验，再生成成对资源。
+3. publisher 先用 ffprobe 读取实际尺寸、时长、时间戳、帧率、编码和轨道，选择 `PASSTHROUGH`、`REMUX` 或 `TRANSCODE` 后生成成对资源。
 4. 生成完成后校验实际输出，将状态置为 `READY`。
 5. 只有产物为 `READY` 的资源版本可发布。
 6. 同一资源版本重试生成必须幂等；新产物完整成功前不覆盖已有 READY 产物。
@@ -179,7 +190,7 @@ HarmonyOS 现有 `moving_photo_package` 保留。建议在新迁移中将其尺�
 
 1. `AssetPurpose` 和 `AssetRole` 增加 `LIVE_PHOTO_SOURCE`。
 2. `IOS / LIVE_PHOTO` 的新资源版本只绑定一个 `LIVE_PHOTO_SOURCE` MP4。
-3. `AdminResourceVersion` 增加 `livePhoto`，结构与 `movingPhoto` 对齐，包含生成状态、HEIC/MOV 摘要、时长、尺寸、帧率和错误码。
+3. `AdminResourceVersion` 增加 `livePhoto`，结构与 `movingPhoto` 对齐，包含生成状态、HEIC/MOV 摘要、时长、实际尺寸、帧率、原始/输出编码、`processingMode` 和错误码。
 4. 增加显式生成或重试接口：
 
 ```http
@@ -270,8 +281,8 @@ resourceType = .pairedVideo -> video.mov
 
 | 错误码 | 含义 |
 |---|---|
-| `DYNAMIC_SOURCE_FORMAT_INVALID` | 容器、编码、帧率、像素格式、尺寸或轨道不符合规格 |
-| `DYNAMIC_SOURCE_DURATION_INVALID` | 时长超出相应平台容差 |
+| `DYNAMIC_SOURCE_FORMAT_INVALID` | 容器无法解析，或编码、帧率、像素格式、尺寸、时间戳或轨道既不能直接使用也不能安全转换 |
+| `DYNAMIC_SOURCE_DURATION_INVALID` | 时长大于 0 但超出对应平台上限，或时长无法识别 |
 | `MOVING_PHOTO_PROCESSING_FAILED` | 鸿蒙成对资源生成或交叉校验失败 |
 | `LIVE_PHOTO_PROCESSING_FAILED` | iOS 成对资源生成、标识绑定或元数据校验失败 |
 | `LIVE_PHOTO_NOT_READY` | iOS 资源产物尚未 READY，禁止发布或下载 |
@@ -283,9 +294,10 @@ resourceType = .pairedVideo -> video.mov
 ### 9.1 自动验收
 
 - 上传符合规格的 MP4 后，资源可生成并进入 `READY`。
-- 不符合时长、尺寸、帧率、编码或含音频的文件被明确拒绝。
-- 产物的尺寸、时长、轨道、编码、文件大小和 SHA-256 与数据库一致。
-- 符合规格的输入在输出中保持同一视频样本数据；iOS 只 remux 容器并增加元数据轨。
+- 超出平台时长上限、无法解码、尺寸越界、帧率越界或含不允许轨道的文件被明确拒绝；音频轨被移除。
+- 产物的实际尺寸、时长、轨道、编码、帧率、处理模式、文件大小和 SHA-256 与数据库一致。
+- 可直接使用的输入在输出中保持同一视频样本数据；iOS 只 remux 容器并增加元数据轨。
+- 至少使用两组不同分辨率和两组不同帧率的样本验证后端没有强制缩放或改帧率。
 - 票据过期、篡改、跨设备、跨平台或跨资源使用均失败。
 - OpenAPI 契约检查和 API 相关测试全部通过。
 
@@ -294,15 +306,15 @@ resourceType = .pairedVideo -> video.mov
 HarmonyOS：
 
 1. 下载后相册显示为动态照片。
-2. 可完整播放 2 秒。
+2. 可完整播放源视频时长，最长 2 秒。
 3. 可由相册设置为动态锁屏。
 
 iOS：
 
 1. 下载后 Photos 显示 Live Photo 标识并可播放。
 2. 锁屏设置界面不显示“动态效果不可用”。
-3. 可设置为动态锁屏，完整播放 1 秒。
-4. 画布为 1344×1926，中央 1080×1926 主画面不被缩放或二次压缩。
+3. 可设置为动态锁屏，完整播放源视频时长，最长 1 秒。
+4. HEIC 和 MOV 宽高一致，且与上传 MP4 的实际分辨率一致；可直接复用的视频流没有二次压缩。
 
 ## 10. 后端完成后如何同步给 App
 
