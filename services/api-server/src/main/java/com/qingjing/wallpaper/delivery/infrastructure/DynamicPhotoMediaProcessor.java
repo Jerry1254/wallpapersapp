@@ -441,10 +441,16 @@ public final class DynamicPhotoMediaProcessor {
         Path error = Files.createTempFile(output.getParent(), "native-error-", ".log");
         Process process = null;
         try {
-            process = new ProcessBuilder(args)
-                    .redirectOutput(output.toFile())
-                    .redirectError(error.toFile())
-                    .start();
+            try {
+                process = new ProcessBuilder(args)
+                        .redirectOutput(output.toFile())
+                        .redirectError(error.toFile())
+                        .start();
+            } catch (IOException exception) {
+                log.warn("Native media executable could not be started: executable={}, reason={}",
+                        args.get(0), exception.getMessage());
+                throw exception;
+            }
             boolean finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
             if (!finished || process.exitValue() != 0) {
                 String diagnostic = Files.exists(error)

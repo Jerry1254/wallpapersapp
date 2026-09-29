@@ -33,6 +33,15 @@ assert_slot() {
   [[ "$1" == "blue" || "$1" == "green" ]] || fail "蓝绿槽位状态不合法"
 }
 
+assert_media_toolchain() {
+  local executable=""
+
+  for executable in ffmpeg ffprobe MP4Box heif-enc exiftool; do
+    command -v "${executable}" >/dev/null 2>&1 \
+      || fail "服务器缺少媒体处理工具 ${executable}，禁止启动或切换 API"
+  done
+}
+
 other_slot() {
   if [[ "$1" == "blue" ]]; then
     printf 'green\n'
@@ -444,6 +453,9 @@ activate_release() {
 
   [[ "${component}" == "all" || "${component}" == "api" || "${component}" == "admin" ]] \
     || fail "发布组件不合法"
+  if [[ "${component}" != "admin" ]]; then
+    assert_media_toolchain
+  fi
   assert_complete_bundle "${release}"
   active_slot="$(tr -d '\r\n' < "${root}/runtime/active-slot")"
   assert_slot "${active_slot}"
@@ -562,6 +574,7 @@ check_runtime() {
   local active_release=""
   local worker_release=""
 
+  assert_media_toolchain
   active_slot="$(tr -d '\r\n' < "${root}/runtime/active-slot")"
   assert_slot "${active_slot}"
   worker_slot="$(other_slot "${active_slot}")"
@@ -606,6 +619,7 @@ bootstrap_runtime() {
   local old_unit_existed=0
   local old_service_stopped=0
 
+  assert_media_toolchain
   [[ -s "${unit_upload}" && -s "${nginx_upload}" ]] || fail "蓝绿基础配置上传不完整"
   [[ "${expected_unit_sha}" =~ ^[a-f0-9]{64}$ ]] || fail "systemd 模板校验值不合法"
   [[ "${expected_nginx_sha}" =~ ^[a-f0-9]{64}$ ]] || fail "Nginx 配置校验值不合法"

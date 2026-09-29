@@ -49,6 +49,10 @@ try {
   assert(controller.includes('verify_slot_identity'), '候选 API 必须核对制品身份')
   assert(controller.includes('check_pending_migration_policy'), 'Flyway 发布必须检查破坏性语句')
   assert(controller.includes('verify_database_migration'), '候选 API 就绪后必须回读 Flyway 版本')
+  assert(controller.includes('assert_media_toolchain'), 'API 发布和运行检查必须验证媒体处理工具')
+  for (const executable of ['ffmpeg', 'ffprobe', 'MP4Box', 'heif-enc', 'exiftool']) {
+    assert(controller.includes(executable), `媒体处理工具门禁缺少 ${executable}`)
+  }
   assert(installer.includes('command="/usr/local/libexec/qingjing-deploy-ssh",restrict'), '发布密钥必须使用强制命令和 restrict')
   assert(installer.includes('exec /usr/bin/scp -t "${command_parts[2]}"'), '受限账号必须允许发布包上传')
   assert(installer.includes('^${UPLOAD_ROOT}/[0-9]{8}-[0-9]{6}-[a-f0-9]{12}\\.tar\\.gz$'), '发布包上传必须限制在固定目录和文件名')
