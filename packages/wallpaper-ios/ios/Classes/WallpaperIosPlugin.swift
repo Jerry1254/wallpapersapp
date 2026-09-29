@@ -310,20 +310,30 @@ public final class WallpaperIosPlugin: NSObject, FlutterPlugin {
 
     let localIdentifier: String
     if resourceType == "LIVE_PHOTO", descriptor["deliveryMode"] as? String == "LIVE_PHOTO" {
-      _ = try deliveryFile(descriptor, key: "photo", path: "/api/v1/delivery/live-photo/image", mime: "image/heic", origin: origin)
-      let video = try deliveryFile(descriptor, key: "video", path: "/api/v1/delivery/live-photo/video", mime: "video/quicktime", origin: origin)
+      guard let version = descriptor["resourceVersion"] as? [String: Any],
+            version["platform"] as? String == "IOS",
+            version["resourceType"] as? String == "LIVE_PHOTO" else {
+        throw PluginFailure.invalidDescriptor
+      }
+      let sourceVideo = try deliveryFile(
+        descriptor,
+        key: "sourceVideo",
+        path: "/api/v1/delivery/live-photo/source",
+        mime: "video/mp4",
+        origin: origin
+      )
       let directory = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: directory) }
-      let sourceURL = directory.appendingPathComponent("source.mov")
-      try await download(video, ticket: ticket, to: sourceURL)
+      let sourceURL = directory.appendingPathComponent("source.mp4")
+      try await download(sourceVideo, ticket: ticket, to: sourceURL)
       try Task.checkCancellation()
       let templateURL = try livePhotoMetadataTemplateURL()
-      let targetSize = livePhotoCanvasSize()
+      let targetAspectRatio = livePhotoCanvasAspectRatio()
       let resources = try await Task.detached(priority: .userInitiated) {
         try await NativeLivePhotoComposer.create(
           from: sourceURL,
           metadataTemplateURL: templateURL,
-          targetSize: targetSize,
+          targetAspectRatio: targetAspectRatio,
           directory: directory
         )
       }.value
@@ -405,14 +415,11 @@ public final class WallpaperIosPlugin: NSObject, FlutterPlugin {
   }
 
   @MainActor
-  private func livePhotoCanvasSize() -> CGSize {
+  private func livePhotoCanvasAspectRatio() -> CGFloat {
     let bounds = UIScreen.main.nativeBounds
     let portraitWidth = min(bounds.width, bounds.height)
     let portraitHeight = max(bounds.width, bounds.height)
-    let width = 1080
-    var height = Int((CGFloat(width) * portraitHeight / portraitWidth).rounded())
-    if height.isMultiple(of: 2) == false { height += 1 }
-    return CGSize(width: width, height: min(height, 4096))
+    return portraitWidth / portraitHeight
   }
 
   private func livePhotoMetadataTemplateURL() throws -> URL {

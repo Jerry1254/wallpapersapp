@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.12.0
+  version: 2.13.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -611,8 +611,9 @@ paths:
         客户端必须选择详情 availableCapabilities 中的精确 deliveryPlatform/resourceType 组合。
         服务端不做跨平台或资源类型回退，也不读取设备能力档案；只校验权益、资源已发布及交付文件可用。
         UNIVERSAL / STATIC_IMAGE 对所有平台开放；Android 延续安全包交付，HarmonyOS 和 iOS 会话领取原始静态图。
-        HARMONYOS / MOVING_PHOTO 返回 JPEG + MP4；IOS / LIVE_PHOTO 返回共用一份票据的 HEIC + MOV。
-        iOS MOV 是按源视频前 60 个显示帧重定时为 60 fps / 1 秒的 IntoLive 兼容标准化资源，客户端需使用 Apple 原生框架完成最终封装。
+        HARMONYOS / MOVING_PHOTO 返回 JPEG + MP4；IOS / LIVE_PHOTO 只返回受权益保护的原始 MP4 描述。
+        iOS 客户端取原始 MP4 的前 60 个显示帧，本地一次编码为 60 fps / 1 秒 Live Photo。
+        未兑换预览仍使用独立预览票据和后端标准化 MOV，不暴露原始 MP4。
       security:
         - deviceBearer: []
       parameters:
@@ -733,15 +734,16 @@ paths:
 
   /delivery/live-photo/image:
     get:
+      deprecated: true
       tags: [Device Entitlement]
-      operationId: downloadLivePhotoImage
-      summary: 使用 iOS 短时票据下载 Live Photo HEIC 照片
-      description: 与同一交付的 MOV 共用 asset identifier；不构成通用静态壁纸。
+      operationId: downloadLegacyLivePhotoImage
+      summary: 使用 iOS 短时票据下载旧版 Live Photo HEIC
+      description: 仅用于旧客户端过渡；OpenAPI 2.13.0 起的 iOS 客户端不再调用。
       security:
         - downloadTicketBearer: []
       responses:
         '200':
-          description: 带 Apple MakerNote 17 资产标识的 HEIC
+          description: 旧版 HEIC 交付文件
           headers:
             Digest:
               schema: { type: string }
@@ -755,20 +757,46 @@ paths:
 
   /delivery/live-photo/video:
     get:
+      deprecated: true
       tags: [Device Entitlement]
-      operationId: downloadLivePhotoVideo
-      summary: 使用 iOS 短时票据下载 Live Photo MOV
-      description: 按源视频前 60 个显示帧生成的 HEVC/hvc1、60 fps、精确 1 秒标准化 MOV；包含 content identifier、still-image-time 和 Live Photo metadata 轨。iOS 客户端必须使用 Apple 原生框架重新封装后再保存，不能将本文件直接作为最终锁屏成品。
+      operationId: downloadLegacyLivePhotoVideo
+      summary: 使用 iOS 短时票据下载旧版标准化 MOV
+      description: 仅用于旧客户端过渡；OpenAPI 2.13.0 起的 iOS 客户端使用 sourceVideo。
       security:
         - downloadTicketBearer: []
       responses:
         '200':
-          description: 供 iOS 原生最终封装使用的 IntoLive 帧序标准化 MOV
+          description: 旧版 HEVC/hvc1 标准化 MOV
           headers:
             Digest:
               schema: { type: string }
           content:
             video/quicktime:
+              schema: { type: string, format: binary }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /delivery/live-photo/source:
+    get:
+      tags: [Device Entitlement]
+      operationId: downloadLivePhotoSource
+      summary: 使用 iOS 短时正式下载票据读取原始 MP4
+      description: |
+        只向通过 iOS 设备会话、持钥签名、资源发布状态和付费壁纸权益校验后签发的 downloadTicketBearer 开放。
+        返回运营上传的原始 MP4，不做预先 HEVC 转码；客户端只使用前 60 个显示帧完成一次最终编码。
+        禁止重定向，响应必须携带 Cache-Control: no-store 和与下载描述一致的 Content-Length / Digest。
+      security:
+        - downloadTicketBearer: []
+      responses:
+        '200':
+          description: 受保护的原始 MP4
+          headers:
+            Digest:
+              schema: { type: string }
+          content:
+            video/mp4:
               schema: { type: string, format: binary }
         '401':
           $ref: '#/components/responses/Unauthorized'
@@ -3254,6 +3282,9 @@ components:
 
     DownloadDescriptor:
       type: object
+      description: |
+        deliveryMode=LIVE_PHOTO 时 ticket、expiresAt、resourceVersion 和 sourceVideo 必须存在，photo/video 应为 null 或省略。
+        deliveryMode=LIVE_PHOTO 的 sourceVideo 只能在免费商品或当前设备具有有效权益时签发。
       required: [deliveryMode, wallpaperId, cover]
       properties:
         deliveryMode:
@@ -3307,7 +3338,13 @@ components:
           allOf:
             - $ref: '#/components/schemas/DeliveryFile'
           nullable: true
-          description: LIVE_PHOTO 时为前 60 个显示帧重定时得到的 HEVC/hvc1、60 fps、1 秒标准化 MOV，需由 iOS 客户端原生重封装。
+          description: MOVING_PHOTO 的正式 MP4；LIVE_PHOTO 正式下载不再使用此字段。
+        sourceVideo:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/DeliveryFile'
+          nullable: true
+          description: LIVE_PHOTO 的原始 MP4；仅在正式兑换或已有权益后通过短时票据下发。
         image:
           type: object
           allOf:

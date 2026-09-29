@@ -17,6 +17,7 @@ enum NativeLivePhotoComposer {
     case writerCreationFailed
     case pixelBufferCreationFailed
     case frameCountInvalid
+    case invalidCanvasSize
     case imageCreationFailed
     case sampleTransferFailed
   }
@@ -24,7 +25,7 @@ enum NativeLivePhotoComposer {
   static func create(
     from sourceURL: URL,
     metadataTemplateURL: URL,
-    targetSize: CGSize,
+    targetAspectRatio: CGFloat,
     directory: URL
   ) async throws -> NativeLivePhotoResources {
     let identifier = UUID().uuidString
@@ -32,7 +33,11 @@ enum NativeLivePhotoComposer {
     let photoURL = directory.appendingPathComponent("photo.heic")
     let pairedVideoURL = directory.appendingPathComponent("paired.mov")
 
-    try await createCanvasVideo(from: sourceURL, targetSize: targetSize, outputURL: canvasURL)
+    try await createCanvasVideo(
+      from: sourceURL,
+      targetAspectRatio: targetAspectRatio,
+      outputURL: canvasURL
+    )
     try await createImage(from: canvasURL, identifier: identifier, outputURL: photoURL)
     try await createPairedVideo(
       from: canvasURL,
@@ -45,7 +50,7 @@ enum NativeLivePhotoComposer {
 
   private static func createCanvasVideo(
     from sourceURL: URL,
-    targetSize: CGSize,
+    targetAspectRatio: CGFloat,
     outputURL: URL
   ) async throws {
     let asset = AVURLAsset(url: sourceURL)
@@ -53,6 +58,16 @@ enum NativeLivePhotoComposer {
       throw CompositionError.missingVideoTrack
     }
     let preferredTransform = try await videoTrack.load(.preferredTransform)
+    let naturalSize = try await videoTrack.load(.naturalSize)
+    let displayBounds = CGRect(origin: .zero, size: naturalSize).applying(preferredTransform)
+    let sourceDisplaySize = CGSize(
+      width: abs(displayBounds.width),
+      height: abs(displayBounds.height)
+    )
+    let targetSize = try highQualityCanvasSize(
+      sourceSize: sourceDisplaySize,
+      targetAspectRatio: targetAspectRatio
+    )
     guard let reader = try? AVAssetReader(asset: asset),
           let writer = try? AVAssetWriter(outputURL: outputURL, fileType: .mov) else {
       throw CompositionError.writerCreationFailed
@@ -70,8 +85,12 @@ enum NativeLivePhotoComposer {
 
     let width = Int(targetSize.width)
     let height = Int(targetSize.height)
+    let averageBitRate = min(
+      100_000_000,
+      max(40_000_000, Int(Double(width * height) * 60.0 * 0.30))
+    )
     let compression: [String: Any] = [
-      AVVideoAverageBitRateKey: 20_000_000,
+      AVVideoAverageBitRateKey: averageBitRate,
       AVVideoExpectedSourceFrameRateKey: 60,
       AVVideoMaxKeyFrameIntervalKey: 60,
       AVVideoAllowFrameReorderingKey: true,
@@ -139,9 +158,9 @@ enum NativeLivePhotoComposer {
       frameIndex += 1
     }
     guard frameIndex == 60 else { throw CompositionError.frameCountInvalid }
-    guard readerOutput.copyNextSampleBuffer() == nil, reader.status == .completed else {
-      throw CompositionError.frameCountInvalid
-    }
+    // The protected source can be longer than the one-second Live Photo output.
+    // Keep the creator's first 60 displayed frames in order and ignore everything after them.
+    reader.cancelReading()
 
     writerInput.markAsFinished()
     writer.endSession(atSourceTime: CMTime(value: 60, timescale: 60))
@@ -149,6 +168,40 @@ enum NativeLivePhotoComposer {
     guard writer.status == .completed else {
       throw writer.error ?? CompositionError.writerCreationFailed
     }
+  }
+
+  private static func highQualityCanvasSize(
+    sourceSize: CGSize,
+    targetAspectRatio: CGFloat
+  ) throws -> CGSize {
+    guard sourceSize.width.isFinite, sourceSize.height.isFinite,
+          sourceSize.width > 0, sourceSize.height > 0,
+          targetAspectRatio.isFinite, targetAspectRatio > 0, targetAspectRatio <= 1 else {
+      throw CompositionError.invalidCanvasSize
+    }
+
+    let sourceAspectRatio = sourceSize.width / sourceSize.height
+    var width: CGFloat
+    var height: CGFloat
+    if sourceAspectRatio < targetAspectRatio {
+      height = sourceSize.height
+      width = height * targetAspectRatio
+    } else {
+      width = sourceSize.width
+      height = width / targetAspectRatio
+    }
+
+    let maximumDimension: CGFloat = 4096
+    let scale = min(1, maximumDimension / max(width, height))
+    width *= scale
+    height *= scale
+
+    let evenWidth = max(2, Int(ceil(width / 2)) * 2)
+    let evenHeight = max(2, Int(ceil(height / 2)) * 2)
+    guard evenWidth <= Int(maximumDimension), evenHeight <= Int(maximumDimension) else {
+      throw CompositionError.invalidCanvasSize
+    }
+    return CGSize(width: CGFloat(evenWidth), height: CGFloat(evenHeight))
   }
 
   private static func normalizedImage(_ image: CIImage, transform: CGAffineTransform) -> CIImage {

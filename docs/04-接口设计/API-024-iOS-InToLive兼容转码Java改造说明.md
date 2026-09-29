@@ -1,14 +1,14 @@
 # API-024 iOS 动态壁纸端到端实现与发布手册
 
-**状态：** Java API、iOS 客户端和 iPad 真机验证均已完成
+**状态：** iOS 客户端已切换原始 MP4 单次编码；Java API 等待按本文第 5 节改造和部署
 
 **日期：** 2026-09-29
 
-**OpenAPI 版本：** `2.12.0`
+**OpenAPI 版本：** `2.13.0`
 
 ## 1. 最终结论
 
-倾境 iOS 动态壁纸采用“后台标准化视频，客户端生成最终 Live Photo”的两段式方案。后台不能只把 HEIC 与 MOV 直接交给相册，客户端也不能直接保存普通视频；两端必须各自完成自己的部分。
+倾境 iOS 动态壁纸采用“后端生成免费预览，权益通过后交付原始 MP4，iOS 本地只编码一次”的方案。后端标准化 MOV 只用于长按预览，不再作为正式 Live Photo 的合成输入。
 
 最终实现按 IntoLive 的实际行为处理：
 
@@ -17,9 +17,9 @@
 3. 将这 60 帧重新标记为 `60 fps`，得到精确 `1.000 秒`的视频。
 4. 丢弃第 61 帧及其后的画面。
 5. 不保留音频、字幕或源文件元数据。
-6. Java 后端交付标准化视频，并保留服务端 HEIC/MOV 记录与接口兼容。
-7. iOS 客户端按当前设备屏幕比例重新生成视频画布。
-8. iOS 客户端使用 Apple 原生框架生成具有同一标识的 HEIC/MOV 配对，先校验再保存到相册。
+6. Java 后端将标准化 MOV 只用于免费预览；正式下载仅向已授权设备交付原始 MP4。
+7. iOS 客户端从原始 MP4 按显示顺序取前 60 帧，按当前设备屏幕比例生成画布。
+8. iOS 客户端使用 40～100 Mbps 自适应码率只编码一次，再用 Apple 原生框架生成具有同一标识的 HEIC/MOV 配对，先校验再保存。
 
 这不是“截取源视频前 1 秒”。对一段 `30 fps / 2 秒`素材，必须保留原来的前 60 帧，再把播放时间从约 2 秒压缩为 1 秒。动画设计依赖帧顺序时，任何抽帧、补帧或插帧都会改变效果。
 
@@ -80,7 +80,7 @@ Java 仍读取 `LIVE_PHOTO_SOURCE` 绑定的 MP4 文件。
 
 输入时长和声明帧率可以不同，但后端选择范围只由“解码后的前 60 个显示帧”决定。少于 60 帧时不得静默复制帧，必须拒绝生成。
 
-## 4. Java 媒体处理规则
+## 4. Java 预览媒体处理规则
 
 修改位置：
 
@@ -88,9 +88,9 @@ Java 仍读取 `LIVE_PHOTO_SOURCE` 绑定的 MP4 文件。
 - `DynamicPhotoMediaProcessor` 中 iOS 专用的视频生成与校验方法
 - `LivePhotoPublisher` 的错误码映射和生成结果记录
 
-### 4.1 视频标准化
+### 4.1 预览视频标准化
 
-Live Photo 分支必须固定走转码，不再尝试 REMUX/PASSTHROUGH：
+Live Photo 发布构建仍生成用于详情长按的轻量预览 MOV。预览分支必须固定走转码，不再尝试 REMUX/PASSTHROUGH：
 
 1. 按解码显示顺序读取视频帧。
 2. 只保留帧索引 `0...59`。
@@ -108,7 +108,7 @@ Live Photo 分支必须固定走转码，不再尝试 REMUX/PASSTHROUGH：
    - faststart：开启。
 5. 后端标准化阶段保持上传视频的原始宽高，不裁切主体，也不写死 1080×1920、1080×1546 或 1344×1926。
 
-iPhone/iPad 的最终画布比例由 iOS 客户端保存前处理：主体使用 `aspectFit`，空白区域使用同一画面的模糊 `aspectFill` 背景。Java 发布阶段不知道最终设备尺寸，不负责设备画布适配。
+iPhone/iPad 的最终画布比例由 iOS 客户端在正式下载后处理：主体使用 `aspectFit`，空白区域使用同一画面的模糊 `aspectFill` 背景。Java 发布阶段不负责设备画布适配，也不对正式下载源再做一次有损编码。
 
 等价的 FFmpeg 处理逻辑示例：
 
@@ -142,9 +142,9 @@ ffmpeg -v error -xerror -y -nostdin \
 
 HEIC MakerApple `17` 与 MOV `com.apple.quicktime.content.identifier` 仍需使用同一个 UUID。
 
-但是 Java 生成的 HEIC/MOV 只作为服务端标准化交付资源。iOS 客户端下载后必须：
+这些 Apple 配对元数据不用于免费预览。它们由 iOS 客户端从原始 MP4 生成最终文件时写入：
 
-1. 读取标准化 MOV 的视频轨；
+1. 读取原始 MP4 的第一个视频轨，只取前 60 个显示帧；
 2. 按当前设备画布完成 `aspectFit + 模糊背景`；
 3. 使用 Apple ImageIO 重新生成带相同新 UUID 的 HEIC；
 4. 使用 AVFoundation 将视频轨作为第一轨，并写入模板中的两个 metadata 轨；
@@ -152,29 +152,78 @@ HEIC MakerApple `17` 与 MOV `com.apple.quicktime.content.identifier` 仍需使�
 
 不能继续把 Java/MP4Box 生成的文件直接写入相册作为最终成品。现有实现中 metadata 轨排在视频轨前，虽然相册能播放，锁屏仍可能拒绝动态效果。
 
-## 5. 接口与数据兼容
+## 5. Java 正式下载改造
 
-第一阶段保持以下接口不变：
+### 5.1 接口契约
 
-- `POST /api/v1/admin/resource-versions/{resourceVersionId}/live-photo/build`
-- `GET /api/v1/delivery/live-photo/image`
-- `GET /api/v1/delivery/live-photo/video`
+OpenAPI 升级为 `2.13.0`。预览接口保持不变：
+
+- `POST /api/v1/device/wallpapers/{wallpaperId}/preview-tickets`
 - `GET /api/v1/preview/live-photo/video`
 
-下载描述仍保持：
+正式下载票据仍通过以下接口签发：
 
-- `deliveryMode=LIVE_PHOTO`
-- `photo.mimeType=image/heic`
-- `video.mimeType=video/quicktime`
+- `POST /api/v1/device/wallpapers/{wallpaperId}/download-tickets`
 
-`live_photo_package` 暂不迁移，继续保存 HEIC、MOV、SHA-256、尺寸、时长和处理信息。生成结果必须记录：
+请求体不变：
 
-- `duration_ms=1000`
-- `frame_rate=60.000`
-- `output_video_codec=hevc`
-- `processing_mode=TRANSCODE`
+```json
+{
+  "deliveryPlatform": "IOS",
+  "resourceType": "LIVE_PHOTO"
+}
+```
 
-OpenAPI `2.12.0` 已明确：`video` 是符合 IntoLive 帧序规则的标准化 MOV，iOS 客户端会用它进行原生最终封装；不再承诺 Java 返回的双文件可直接写入相册后用于锁屏。
+成功响应不再返回供最终合成使用的 `photo` 和 `video`，改为返回 `sourceVideo`：
+
+```json
+{
+  "deliveryMode": "LIVE_PHOTO",
+  "wallpaperId": "123",
+  "ticket": "43位Base64URL字符串",
+  "expiresAt": "2026-09-29T12:00:00Z",
+  "resourceVersion": {
+    "id": "456",
+    "variantId": "789",
+    "versionNo": 1,
+    "platform": "IOS",
+    "resourceType": "LIVE_PHOTO",
+    "manifestSha256": "..."
+  },
+  "sourceVideo": {
+    "url": "/api/v1/delivery/live-photo/source",
+    "mimeType": "video/mp4",
+    "sizeBytes": 12345678,
+    "sha256": "64位小写十六进制"
+  }
+}
+```
+
+新增受保护的源文件读取接口：
+
+- `GET /api/v1/delivery/live-photo/source`
+- `Authorization: Bearer {download ticket}`
+- `Accept: video/mp4`
+- 成功返回 `200` + `Content-Type: video/mp4`
+- 必须返回准确的 `Content-Length`、`Digest` 和 `Cache-Control: no-store`
+- 不允许 `3xx` 跳转，不返回存储地址或可长期访问的 URL
+
+### 5.2 Java 修改点
+
+1. `DeliveryDtos.DownloadDescriptor` 增加 `DeliveryFile sourceVideo`。
+2. `DownloadTicketService.createLivePhoto` 通过当前已发布的 `resource_version` 读取 `resource_binding.role=LIVE_PHOTO_SOURCE` 对应的原始资产。
+3. 资产必须为 `validation_status=READY`、`deleted_at IS NULL`、`mime_type=video/mp4`，且存储对象的字节数和 SHA-256 与数据库一致。
+4. `DownloadDescriptor.sourceVideo` 必须引用上述原始资产的大小和 SHA-256，不能引用 `live_photo_package.video_*` 标准化 MOV 字段。
+5. `DeviceDownloadController` 新增 `/api/v1/delivery/live-photo/source`，并使用现有 `downloadTicketBearer` 读取。
+6. `DownloadTicketService` 在签发票据时和延迟 HTTP 流真正开始时各校验一次设备、凭据、iOS 平台、商品发布状态、资源版本、文件元数据和权益。
+7. 收费商品没有 `ACTIVE` 权益时返回 `403 ENTITLEMENT_REQUIRED`；票据过期、设备不匹配或资源状态变化时返回 `401 DOWNLOAD_TICKET_INVALID`。
+8. 保持现有 90 秒 TTL、每设备限流和全局并发下载限制。原始存储对象不得设置为公开读。
+
+### 5.3 预览与历史字段
+
+`live_photo_package` 继续保存后端生成的 HEIC/MOV、SHA-256、尺寸、时长和处理信息，但标准化 MOV 只供 `/preview/live-photo/video` 使用。旧的 `/delivery/live-photo/image` 和 `/delivery/live-photo/video` 可在过渡期保留代码兼容，新版 iOS 不得再调用它们。
+
+本次无需新增 Flyway 字段；原始 MP4 已通过 `LIVE_PHOTO_SOURCE` 绑定保留在资产表和私有存储中。
 
 ## 6. 错误码
 
@@ -185,6 +234,9 @@ OpenAPI `2.12.0` 已明确：`video` 是符合 IntoLive 帧序规则的标准化
 | 422 | `DYNAMIC_SOURCE_FORMAT_INVALID` | 视频轨、编码、尺寸或像素格式不支持 |
 | 422 | `IOS_LIVE_PHOTO_FRAME_COUNT_INVALID` | 解码后少于 60 个可显示帧 |
 | 422 | `LIVE_PHOTO_PROCESSING_FAILED` | 转码、封面、元数据写入或生成后校验失败 |
+| 403 | `ENTITLEMENT_REQUIRED` | 收费壁纸未兑换或当前设备无有效权益 |
+| 401 | `DOWNLOAD_TICKET_INVALID` | 票据过期、设备/凭据不匹配、资源变化或非 iOS 访问 |
+| 404 | `RESOURCE_NOT_AVAILABLE` | 没有可用的原始 MP4 绑定 |
 
 `LivePhotoPublisher.errorCode` 必须保留 `IOS_LIVE_PHOTO_FRAME_COUNT_INVALID`，不能统一覆盖成 `LIVE_PHOTO_PROCESSING_FAILED`。
 
@@ -222,19 +274,21 @@ OpenAPI `2.12.0` 已明确：`video` 是符合 IntoLive 帧序规则的标准化
 ### 7.3 接口回归
 
 - 管理后台构建成功后状态为 `READY`；
-- 预览接口返回新的 60 帧 MOV；
-- 正式下载票据、SHA-256、大小和 MIME 校验保持有效；
+- 未兑换预览接口只返回 60 帧 MOV，描述和网络响应中都不得出现原始 MP4 地址；
+- 收费商品无权益时，正式票据返回 `403 ENTITLEMENT_REQUIRED`；
+- 权益通过后，描述只包含 `sourceVideo=/api/v1/delivery/live-photo/source`、`video/mp4`、原文件大小和 SHA-256；
+- 原始 MP4 端点拒绝预览票据、过期票据、其他设备票据和 Android/HarmonyOS 会话；
+- 下载内容的字节数、SHA-256 和 MIME 与 `sourceVideo` 完全一致；
 - iOS 以外的平台不能请求该资源；
-- 已发布旧资源需重新执行 live-photo build，不能继续复用旧成品。
+- 已发布资源若已保留有效 `LIVE_PHOTO_SOURCE` 绑定，无需为正式下载重新转码；只有预览 MOV 不符合新规则时才需重新 build。
 
 ## 8. 标准发布与联调顺序
 
-1. Java 完成前 60 帧标准化算法、校验、错误码和 OpenAPI `2.12.0`。
-2. Java 使用基准素材生成 MOV，提供 `ffprobe` 结果和逐帧映射测试结果。
-3. 部署 Java API。
-4. 对现有 iOS Live Photo 资源重新构建。
-5. iOS 客户端接入本地 Apple 原生重封装。
-6. 真机验证相册播放、锁屏动态效果和重复下载。
+1. Java 实现 `sourceVideo` 描述、原始 MP4 受保护下载端点和 OpenAPI `2.13.0`。
+2. Java 补齐无权益、票据过期、设备不匹配、资源变化和文件篡改的自动测试。
+3. Java 在测试环境部署，用真实已兑换设备验证描述、MIME、大小和 SHA-256。
+4. iOS 使用原始 MP4 的前 60 个显示帧生成 Live Photo，并在真机验证画质、相册播放和锁屏动态效果。
+5. 验收通过后再单独确认并部署生产 Java API，随后打包 iOS 正式版。
 
 验收通过的最终标准不是“相册里能动”，而是 iOS 锁屏编辑页不再显示“动态效果不可用”，并且设置后按压可播放完整动画。
 
@@ -244,47 +298,46 @@ OpenAPI `2.12.0` 已明确：`video` 是符合 IntoLive 帧序规则的标准化
 
 1. 接收运营上传的 MP4，并读取 `LIVE_PHOTO_SOURCE` 资源。
 2. 校验输入视频轨、编码、尺寸、像素格式和可解码帧数。
-3. 按显示顺序选择前 60 帧，将这 60 帧重定时为 60 fps、1.000 秒。
-4. 转码为 HEVC Main、`hvc1`、YUV 4:2:0 的 QuickTime MOV，删除音频、字幕、数据轨和输入元数据。
-5. 用标准化视频第 31 帧生成服务端 HEIC，并生成服务端配对 MOV，记录资源状态、尺寸、时长、SHA-256 和存储键。
-6. 签发预览票据和正式下载票据，并在读取文件时再次校验设备、凭据、平台、资源发布状态和文件元数据。
-7. 只向 iOS 安装身份下发 iOS 商品，且正式下载必须通过权益校验。
-8. 已发布旧资源在算法更新后必须重新构建；修改代码不会自动改变历史成品。
+3. 用前 60 帧生成无权益用户可见的轻量预览 MOV，但预览描述和端点均不得读取原始 MP4。
+4. 对免费商品或已有有效权益的收费商品签发正式下载票据，并返回 `sourceVideo`。
+5. 在签发票据和流式下载开始时都校验设备、凭据、iOS 平台、权益、发布状态、存储键、大小和 SHA-256。
+6. 使用私有存储和短时 Bearer 票据交付原始 MP4，不暴露存储路径、不签发公开 URL、不允许重定向。
+7. 只向 iOS 安装身份下发 iOS 商品，并保留已有限流、并发保护和审计日志。
 
 ### 9.2 iOS 客户端必须负责
 
 1. 使用安装级 P-256 身份完成注册、challenge、会话和敏感请求签名。
 2. 未兑换预览只下载 1 秒标准化 MOV；长按时播放，持续按住时本地循环，松开时恢复封面。
 3. 正式下载前校验服务端描述中的平台、资源类型、路径、MIME、大小和 SHA-256。
-4. 下载标准化 MOV 后，按当前 iPhone/iPad 的原生屏幕比例生成最终画布。
-5. 使用 Apple 原生框架重新生成 HEIC 与 paired MOV，不把服务器文件直接写入相册。
-6. 调用 `PHLivePhoto.request` 验证配对文件，验证成功后才以 `.photo + .pairedVideo` 保存。
-7. 保存成功后记录相册 `localIdentifier`，用于“已保存到相册，请设置”和重复下载状态。
+4. 下载原始 MP4，只取前 60 个显示帧，丢弃后续帧、音频、字幕和输入元数据。
+5. 按当前 iPhone/iPad 原生屏幕比例生成最终画布，保持主体原始分辨率，用 40～100 Mbps 自适应码率只编码一次。
+6. 使用 Apple 原生框架生成 HEIC 与 paired MOV，不把服务器文件直接写入相册。
+7. 调用 `PHLivePhoto.request` 验证配对文件，验证成功后才以 `.photo + .pairedVideo` 保存。
+8. 无论成功、失败或取消，都删除原始 MP4 临时文件和中间产物；成功后只记录相册 `localIdentifier`。
 
-### 9.3 服务端 HEIC 的当前用途
+### 9.3 画质与安全边界
 
-正式下载描述继续返回 `photo` 与 `video`，以保持接口、存储记录和完整性元数据兼容。iOS 客户端会严格校验 `photo` 描述，但最终只下载标准化 `video`，再在本机生成新的 HEIC 与 MOV。
+正式下载使用原始 MP4 是为了避免“Java HEVC 一次 + iOS HEVC 一次”的双重有损编码。源文件本身的清晰度仍是上限；客户端的高码率只能避免进一步明显损失，不能恢复源文件已丢失的细节。
 
-这是有意设计：服务端 HEIC 不能代表最终设备比例，且服务端 MP4Box 生成的轨道顺序曾出现 metadata 轨在视频轨之前的情况。文件在相册里可以播放，并不表示 iOS 锁屏会接受它。
+未兑换用户只能获得标准化预览 MOV。原始 MP4 只经过正式下载票据交付，且客户端在本地生成完成后立即删除临时文件。已获权用户仍可能通过受控设备分析自己已下载的内容，该风险无法由客户端完全消除。
 
 ## 10. 完整业务流程
 
 ```mermaid
 flowchart TD
     A[管理后台上传 MP4] --> B[Java 校验视频]
-    B --> C[选择前 60 个显示帧]
-    C --> D[重定时为 60 fps / 1 秒]
-    D --> E[生成 HEVC hvc1 标准化 MOV]
-    E --> F[生成服务端 HEIC/MOV并记录 SHA-256]
-    F --> G[发布 iOS 商品]
+    B --> C[私有保留 LIVE_PHOTO_SOURCE 原始 MP4]
+    B --> D[前 60 帧生成轻量预览 MOV]
+    C --> G[发布 iOS 商品]
+    D --> G
     G --> H[iOS 设备注册并建立会话]
     H --> I[首页只请求 iOS 商品]
     I --> J{用户操作}
     J -->|长按预览| K[签发预览票据]
     K --> L[下载 1 秒 MOV并本地循环]
     J -->|兑换并下载| M[校验权益并签发下载票据]
-    M --> N[下载并校验标准化 MOV]
-    N --> O[按设备比例生成 60 帧画布]
+    M --> N[下载并校验原始 MP4]
+    N --> O[取前 60 帧并按设备比例生成画布]
     O --> P[生成同 UUID 的 HEIC + paired MOV]
     P --> Q[PHLivePhoto.request 校验]
     Q --> R[保存到系统相册]
@@ -319,11 +372,12 @@ flowchart TD
 
 1. 免费商品直接进入下载；收费商品先完成兑换并取得权益。
 2. App 使用设备会话和敏感请求签名申请正式下载票据。
-3. 服务端返回 `deliveryMode=LIVE_PHOTO`，以及 `photo`、`video` 两个文件描述。
-4. App 校验两个描述，但只下载 `/api/v1/delivery/live-photo/video`。
-5. 下载时禁止重定向，并校验 MIME、字节数和 SHA-256。
-6. App 在临时目录生成最终 HEIC 和 paired MOV，成功保存后删除临时文件。
-7. UI 显示“已保存到相册，请设置”。
+3. 服务端校验 iOS 安装身份、当前凭据、商品状态和权益，返回 `deliveryMode=LIVE_PHOTO` 及 `sourceVideo` 描述。
+4. App 严格校验 `resourceVersion.platform=IOS`、`resourceType=LIVE_PHOTO`、固定相对路径和 `video/mp4`。
+5. App 用正式票据下载 `/api/v1/delivery/live-photo/source`，禁止重定向，并校验 HTTP 200、MIME、字节数和 SHA-256。
+6. App 取原始 MP4 的前 60 个显示帧，以 60 fps 生成精确 1 秒的设备比例画布，不使用音频和后续帧。
+7. App 在临时目录生成最终 HEIC 和 paired MOV，通过 `PHLivePhoto.request` 后保存。
+8. `defer` 清理原始 MP4、画布 MOV、HEIC 和 paired MOV 临时文件，UI 显示“已保存到相册，请设置”。
 
 ## 11. iOS 安装身份与请求签名
 
@@ -377,15 +431,23 @@ JSON 请求体必须先确定最终字节，再计算 body hash 和发送；不�
 
 ### 12.1 设备画布
 
-客户端读取 `UIScreen.main.nativeBounds`，统一使用竖屏短边和长边计算比例：
+客户端读取 `UIScreen.main.nativeBounds`，统一使用竖屏短边和长边计算设备比例。最终画布以“主体不缩小”为原则：
 
 ```text
-目标宽度 = 1080
-目标高度 = round(1080 × 原生长边 / 原生短边)
-目标高度必须是偶数，且不超过 4096
+设备比例 r = 原生短边 / 原生长边
+
+如果 源宽 / 源高 < r：
+    目标高度 = 源高
+    目标宽度 = 向上取偶数(源高 × r)
+
+否则：
+    目标宽度 = 源宽
+    目标高度 = 向上取偶数(源宽 / r)
+
+只有目标任一边超过 4096 时才等比缩小
 ```
 
-本次 iPad 原生像素为 `1668×2388`，最终画布为 `1080×1546`。这里的 1080 是客户端输出画布宽度，后台仍保留上传视频的原始宽高，不写死分辨率。
+例如本次 iPad 原生像素为 `1668×2388`，原始 MP4 为 `1080×2338`，最终高质量画布为约 `1634×2338`。主体保持原始 `1080×2338` 像素，只扩展左右模糊背景，不再缩小到 `714×1546`。后端交付上传视频的原始宽高，不写死分辨率。
 
 每帧合成规则：
 
@@ -398,7 +460,7 @@ JSON 请求体必须先确定最终字节，再计算 body hash 和发送；不�
 
 ### 12.2 视频输出
 
-客户端再次要求输入精确为 60 帧，并输出：
+客户端要求原始 MP4 至少可解码 60 个显示帧。它只取帧索引 `0...59`，忽略第 61 帧及后续帧，并输出：
 
 | 项目 | 值 |
 | --- | --- |
@@ -407,12 +469,12 @@ JSON 请求体必须先确定最终字节，再计算 body hash 和发送；不�
 | 帧率 | 60 fps |
 | 帧数 | 60 |
 | 时长 | 1.000 秒 |
-| 平均码率 | 20 Mbps |
+| 平均码率 | 按像素数自适应，`像素数 × 60 × 0.30`，限制在 40～100 Mbps |
 | 最大关键帧间隔 | 60 |
 | 音频 | 无 |
 | 每帧时间戳 | `N/60` |
 
-客户端读完第 60 帧后还会确认不存在第 61 帧，防止后台错误资源被静默保存。
+输入可以超过 60 帧，也可以带音频；客户端的 reader 只建立视频轨输出，完成 60 帧后主动停止读取。少于 60 帧时返回 Live Photo 生成失败，不复制帧补足。
 
 ### 12.3 HEIC 与 paired MOV
 
@@ -535,33 +597,37 @@ https://api.invalid/api/v1
 1. 当前打开的应用 Bundle ID 是否为 `com.qingjing.bizhi`；测试 App `com.qingjing.livephotolab` 可以同时存在。
 2. 安装命令是否使用了刚生成的 `build/ios/iphoneos/Runner.app`。
 3. 安装后是否用正式 Bundle ID 执行 `--terminate-existing` 并重新启动。
-4. 后台历史 iOS 资源是否在新算法上线后重新构建。
+4. 后端是否已部署 OpenAPI `2.13.0` 的 `sourceVideo` 描述和原始 MP4 端点。
 
 ## 15. 发布前验收清单
 
 ### 15.1 Java API
 
-- [ ] OpenAPI 版本为 `2.12.0`。
+- [ ] OpenAPI 版本为 `2.13.0`。
 - [ ] 正式和测试 Bundle ID 均已放行。
 - [ ] 输入至少能解码 60 个显示帧。
-- [ ] 输出为 60 帧、60 fps、1.000 秒、HEVC/hvc1、无音频。
-- [ ] 输出宽高保持输入显示尺寸。
-- [ ] 封面来自输出第 31 帧。
-- [ ] `live_photo_package.status=READY`。
-- [ ] 大小、SHA-256、MIME 和存储键与实际文件一致。
+- [ ] `live_photo_package.status=READY`，预览 MOV 为 60 帧、60 fps、1.000 秒。
+- [ ] 发布版本仍绑定 `LIVE_PHOTO_SOURCE`，资产为 READY、未删除的 `video/mp4`。
+- [ ] 正式描述返回 `sourceVideo`，不再让新 iOS 客户端使用 `photo/video` 合成。
+- [ ] `sourceVideo` 的大小、SHA-256、MIME 和存储键与原始 MP4 一致。
 - [ ] 预览票据不能读取正式下载接口，正式票据不能读取预览接口。
-- [ ] 旧资源已重新执行 Live Photo build。
+- [ ] 收费商品无权益时无法获得原始 MP4。
+- [ ] 原始 MP4 响应不重定向，且包含 `Cache-Control: no-store`。
 
 ### 15.2 iOS 客户端
 
 - [ ] Secure Enclave 注册、challenge 和会话成功。
 - [ ] 首页只显示 iOS 商品。
 - [ ] 详情页加载时提示正确，长按可循环预览，松开恢复封面。
-- [ ] 下载时校验 HTTP 状态、MIME、大小和 SHA-256。
+- [ ] 正式描述只接受固定 `sourceVideo` 路径、`video/mp4`、iOS 平台和 LIVE_PHOTO 类型。
+- [ ] 原始 MP4 下载时校验 HTTP 状态、MIME、大小和 SHA-256。
+- [ ] 输入超过 60 帧时只使用前 60 帧，少于 60 帧时拒绝生成。
 - [ ] 最终画布使用当前设备比例，前景完整、背景模糊填充。
+- [ ] 主体不因画布适配而缩小，HEVC 码率按像素数自适应到 40～100 Mbps。
 - [ ] HEIC 与 MOV 使用同一个新 UUID。
 - [ ] MOV 第一轨为视频轨，并包含两个 metadata 轨。
 - [ ] `PHLivePhoto.request` 验证成功后才写相册。
+- [ ] 完成、失败或取消后都删除原始 MP4 和所有中间文件。
 - [ ] 相册中显示为 Live Photo。
 - [ ] 锁屏编辑页不显示“动态效果不可用”。
 - [ ] 锁屏按压可以播放完整动画。
@@ -586,11 +652,13 @@ https://api.invalid/api/v1
 | 页面能开但没有内容 | 产物内 `API_BASE_URL` | Release 构建漏传 dart-define |
 | 信任后启动白屏 | 设备控制台 | 误装 Flutter Debug 包 |
 | 长按没有动态效果 | 预览票据与 MOV 下载校验 | 后端未部署或资源未重新构建 |
+| 兑换后立即下载失败 | `sourceVideo` 与 OpenAPI 版本 | Java 仍返回旧 `photo/video` 描述 |
+| 收费商品未兑换却能下载 | 权益校验与原始 MP4 端点 | 原始存储公开或读取端点未重验权益 |
 | 相册里是静态图 | `.pairedVideo` 保存流程 | HEIC/MOV 未按 Live Photo 资源写入 |
 | 相册会动但锁屏不可用 | 60 帧、画布、轨道和元数据 | 直接保存服务端文件或配对不兼容 |
 | 图片被裁切 | 客户端画布合成 | 前景误用 aspectFill |
 | 图片两边纯色留白 | 客户端画布合成 | 缺少同帧模糊 aspectFill 背景 |
-| 下载校验失败 | 描述与文件的大小/SHA-256 | 历史文件、缓存或存储记录不一致 |
+| 下载校验失败 | `sourceVideo` 与原始 MP4 的大小/SHA-256 | 描述误用标准化 MOV 元数据、缓存或存储记录不一致 |
 | 新代码安装后仍是旧效果 | Bundle ID、安装路径、旧进程 | 同机存在测试包或没有终止旧进程 |
 
 排障时先确认“构建配置和接口地址”，再检查“身份与票据”，最后检查“媒体文件”。这样可以避免把打包问题误判成视频算法问题。
@@ -606,6 +674,9 @@ https://api.invalid/api/v1
 | iOS 插件资源打包 | `packages/wallpaper-ios/ios/wallpaper_ios.podspec` |
 | Java 动态照片转码 | `services/api-server/src/main/java/com/qingjing/wallpaper/delivery/infrastructure/DynamicPhotoMediaProcessor.java` |
 | Java Live Photo 发布与状态记录 | `services/api-server/src/main/java/com/qingjing/wallpaper/delivery/LivePhotoPublisher.java` |
+| Java 正式下载票据与权益校验 | `services/api-server/src/main/java/com/qingjing/wallpaper/delivery/DownloadTicketService.java` |
+| Java 原始 MP4 流式响应 | `services/api-server/src/main/java/com/qingjing/wallpaper/delivery/DeviceDownloadController.java` |
+| Java 下载描述 DTO | `services/api-server/src/main/java/com/qingjing/wallpaper/delivery/DeliveryDtos.java` |
 | iOS ECDSA 凭据验证 | `services/api-server/src/main/java/com/qingjing/wallpaper/device/IosCredentialProof.java` |
 | OpenAPI 契约 | `contracts/openapi/openapi.yaml` |
 | iOS 固定打包流程 | `/Users/kele/.codex/skills/qingjing-ios-package/SKILL.md` |

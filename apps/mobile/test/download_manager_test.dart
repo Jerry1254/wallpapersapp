@@ -83,17 +83,11 @@ class IosSessions extends DeviceSessionManager {
       'wallpaperId': '10',
       'ticket': 'a' * 43,
       'resourceVersion': {'platform': 'IOS', 'resourceType': 'LIVE_PHOTO'},
-      'photo': {
-        'url': '/api/v1/delivery/live-photo/image',
-        'mimeType': 'image/heic',
-        'sizeBytes': 100,
-        'sha256': 'b' * 64,
-      },
-      'video': {
-        'url': '/api/v1/delivery/live-photo/video',
-        'mimeType': 'video/quicktime',
+      'sourceVideo': {
+        'url': '/api/v1/delivery/live-photo/source',
+        'mimeType': 'video/mp4',
         'sizeBytes': 200,
-        'sha256': 'c' * 64,
+        'sha256': 'b' * 64,
       },
     };
   }
