@@ -63,10 +63,13 @@ public final class DynamicPhotoMediaProcessor {
 
     private record VideoInfo(
             String codec,
+            String codecTag,
             String pixelFormat,
             int width,
             int height,
+            String frameRateExpression,
             double frameRate,
+            long decodedFrames,
             double durationSeconds) { }
 
     private final ObjectMapper mapper;
@@ -135,10 +138,9 @@ public final class DynamicPhotoMediaProcessor {
             copyResource("live-photo/wallpaper-metadata-template.mov", movieTemplate);
             copyResource("live-photo/apple-maker-note-template.heic", photoTemplate);
 
-            VideoInfo input = probeSource(source, 1d);
-            ProcessingMode mode = createBoundedVideo(source, boundedVideo, input, 1d, true);
-            VideoInfo bounded = probeGeneratedVideo(boundedVideo, 1d, input.width(), input.height(), true);
-            createPoster(boundedVideo, frame, 0.5d, true);
+            VideoInfo input = probeSource(source, 0d);
+            createLivePhotoVideo(source, boundedVideo, input.width(), input.height());
+            createPosterAtFrame(boundedVideo, frame, 30);
             createHeic(frame, photo);
 
             String identifier = UUID.randomUUID().toString().toUpperCase(Locale.ROOT);
@@ -158,7 +160,7 @@ public final class DynamicPhotoMediaProcessor {
                     input.codec(),
                     output.codec(),
                     output.frameRate(),
-                    mode);
+                    ProcessingMode.TRANSCODE);
         } catch (ApiException exception) {
             throw exception;
         } catch (InterruptedException exception) {
@@ -172,7 +174,7 @@ public final class DynamicPhotoMediaProcessor {
     }
 
     private VideoInfo probeSource(Path source, double minimumSeconds) throws Exception {
-        VideoInfo info = probeVideo(source, false);
+        VideoInfo info = probeVideo(source, false, false);
         if (!List.of("h264", "hevc").contains(info.codec()) || info.width() < 1 || info.height() < 1
                 || info.width() > 4096 || info.height() > 4096
                 || !Double.isFinite(info.frameRate()) || info.frameRate() <= 0 || info.frameRate() > 60) {
@@ -181,19 +183,23 @@ public final class DynamicPhotoMediaProcessor {
         if (info.pixelFormat().startsWith("yuv420") && ((info.width() & 1) != 0 || (info.height() & 1) != 0)) {
             throw formatInvalid();
         }
-        if (!Double.isFinite(info.durationSeconds()) || info.durationSeconds() + 0.0005d < minimumSeconds) {
+        if (!Double.isFinite(info.durationSeconds())
+                || (minimumSeconds > 0d && info.durationSeconds() + 0.0005d < minimumSeconds)) {
             throw durationInvalid();
         }
         return info;
     }
 
-    private VideoInfo probeVideo(Path input, boolean requireMetadataTracks) throws Exception {
+    private VideoInfo probeVideo(Path input, boolean requireMetadataTracks, boolean countFrames) throws Exception {
         Path output = Files.createTempFile(input.getParent(), "probe-", ".json");
         try {
-            run(List.of(
-                    ffprobe, "-v", "error", "-protocol_whitelist", "file,pipe",
-                    "-show_entries", "stream=codec_name,codec_type,codec_tag_string,width,height,pix_fmt,avg_frame_rate:stream_tags=rotate:stream_side_data=rotation:format=duration:format_tags=com.apple.quicktime.content.identifier",
-                    "-of", "json", input.toString()), output, PROBE_TIMEOUT);
+            List<String> command = new ArrayList<>(List.of(
+                    ffprobe, "-v", "error", "-protocol_whitelist", "file,pipe"));
+            if (countFrames) command.add("-count_frames");
+            command.addAll(List.of(
+                    "-show_entries", "stream=codec_name,codec_type,codec_tag_string,width,height,pix_fmt,avg_frame_rate,nb_read_frames:stream_tags=rotate:stream_side_data=rotation:format=duration:format_tags=com.apple.quicktime.content.identifier",
+                    "-of", "json", input.toString()));
+            run(command, output, PROBE_TIMEOUT);
             if (Files.size(output) > 128 * 1024) throw formatInvalid();
             JsonNode root = mapper.readTree(Files.readAllBytes(output));
             JsonNode streams = root.path("streams");
@@ -210,7 +216,9 @@ public final class DynamicPhotoMediaProcessor {
                     if (requireMetadataTracks && !stream.path("codec_tag_string").asText().equals("mebx")) {
                         throw formatInvalid();
                     }
-                } else if (!type.equals("audio")) {
+                } else if (type.equals("audio")) {
+                    if (requireMetadataTracks) throw formatInvalid();
+                } else {
                     throw formatInvalid();
                 }
             }
@@ -223,10 +231,13 @@ public final class DynamicPhotoMediaProcessor {
             if (rotation % 360 != 0) throw formatInvalid();
             return new VideoInfo(
                     video.path("codec_name").asText(),
+                    video.path("codec_tag_string").asText(),
                     video.path("pix_fmt").asText(),
                     video.path("width").asInt(),
                     video.path("height").asInt(),
+                    video.path("avg_frame_rate").asText(),
                     rate(video.path("avg_frame_rate").asText()),
+                    countFrames ? frameCount(video.path("nb_read_frames")) : -1L,
                     root.path("format").path("duration").asDouble(Double.NaN));
         } finally {
             Files.deleteIfExists(output);
@@ -266,6 +277,40 @@ public final class DynamicPhotoMediaProcessor {
         return ProcessingMode.TRANSCODE;
     }
 
+    void createLivePhotoVideo(Path source, Path output, int width, int height) throws Exception {
+        if (countDisplayFrames(source, 60) < 60) throw frameCountInvalid();
+        List<String> command = baseFfmpeg(source);
+        command.addAll(List.of(
+                "-map", "0:v:0", "-an", "-sn", "-dn",
+                "-vf", "select=lt(n\\,60),setpts=N/(60*TB),format=yuv420p",
+                "-frames:v", "60", "-r", "60",
+                "-c:v", "libx265", "-preset", "medium", "-crf", "12",
+                "-x265-params", "pools=1:frame-threads=1:log-level=error",
+                "-tag:v", "hvc1", "-video_track_timescale", "600",
+                "-map_metadata", "-1", "-movflags", "+faststart", output.toString()));
+        runQuietly(command, VIDEO_TIMEOUT);
+        VideoInfo normalized = probeVideo(output, false, true);
+        if (normalized.decodedFrames() < 60) throw frameCountInvalid();
+        validateLivePhotoVideo(normalized, width, height);
+    }
+
+    private long countDisplayFrames(Path source, int maximum) throws Exception {
+        Path output = Files.createTempFile(source.getParent(), "frame-count-", ".txt");
+        try {
+            run(List.of(
+                    ffmpeg, "-v", "error", "-xerror", "-y", "-nostdin",
+                    "-protocol_whitelist", "file,pipe", "-threads", "1", "-i", source.toString(),
+                    "-map", "0:v:0", "-an", "-sn", "-dn", "-frames:v", Integer.toString(maximum),
+                    "-f", "framemd5", "-"), output, VIDEO_TIMEOUT);
+            if (Files.size(output) > 128 * 1024) throw formatInvalid();
+            try (var lines = Files.lines(output, StandardCharsets.UTF_8)) {
+                return lines.filter(line -> !line.isBlank() && !line.startsWith("#")).count();
+            }
+        } finally {
+            Files.deleteIfExists(output);
+        }
+    }
+
     private List<String> baseFfmpeg(Path source) {
         return new ArrayList<>(List.of(
                 ffmpeg, "-v", "error", "-xerror", "-y", "-nostdin",
@@ -278,7 +323,7 @@ public final class DynamicPhotoMediaProcessor {
             int width,
             int height,
             boolean quickTime) throws Exception {
-        VideoInfo info = probeVideo(output, false);
+        VideoInfo info = probeVideo(output, false, false);
         double frameWindow = Math.max(0.002d, 1d / info.frameRate() + 0.002d);
         double maximumDuration = quickTime ? requiredSeconds + 0.002d : requiredSeconds + frameWindow;
         if (!List.of("h264", "hevc").contains(info.codec()) || info.width() != width || info.height() != height
@@ -299,6 +344,15 @@ public final class DynamicPhotoMediaProcessor {
         if (png) command.addAll(List.of("-compression_level", "1"));
         else command.addAll(List.of("-q:v", "1"));
         command.add(output.toString());
+        runQuietly(command, PHOTO_TIMEOUT);
+    }
+
+    private void createPosterAtFrame(Path video, Path output, int frameIndex) throws Exception {
+        List<String> command = new ArrayList<>(List.of(
+                ffmpeg, "-v", "error", "-xerror", "-y", "-nostdin",
+                "-protocol_whitelist", "file,pipe", "-threads", "1", "-i", video.toString(),
+                "-map", "0:v:0", "-vf", "select=eq(n\\," + frameIndex + ")", "-frames:v", "1",
+                "-compression_level", "1", output.toString()));
         runQuietly(command, PHOTO_TIMEOUT);
     }
 
@@ -331,11 +385,8 @@ public final class DynamicPhotoMediaProcessor {
     }
 
     private VideoInfo probeGeneratedLivePhoto(Path video, int width, int height) throws Exception {
-        VideoInfo info = probeVideo(video, true);
-        if (info.width() != width || info.height() != height
-                || info.durationSeconds() < 0.998d || info.durationSeconds() > 1.002d) {
-            throw processingFailed("LIVE_PHOTO_PROCESSING_FAILED");
-        }
+        VideoInfo info = probeVideo(video, true, true);
+        validateLivePhotoVideo(info, width, height);
         String boxes = new String(Files.readAllBytes(video), StandardCharsets.ISO_8859_1);
         if (!boxes.contains("com.apple.quicktime.live-photo-info")
                 || !boxes.contains("com.apple.quicktime.still-image-time")
@@ -343,6 +394,17 @@ public final class DynamicPhotoMediaProcessor {
             throw processingFailed("LIVE_PHOTO_PROCESSING_FAILED");
         }
         return info;
+    }
+
+    private void validateLivePhotoVideo(VideoInfo info, int width, int height) {
+        if (!info.codec().equals("hevc") || !info.codecTag().equals("hvc1")
+                || !info.pixelFormat().equals("yuv420p")
+                || info.width() != width || info.height() != height
+                || !info.frameRateExpression().equals("60/1") || info.frameRate() != 60d
+                || info.decodedFrames() != 60
+                || info.durationSeconds() < 0.998d || info.durationSeconds() > 1.002d) {
+            throw processingFailed("LIVE_PHOTO_PROCESSING_FAILED");
+        }
     }
 
     private void verifyMovieMetadata(Path movie, String identifier) throws Exception {
@@ -417,6 +479,15 @@ public final class DynamicPhotoMediaProcessor {
             return Double.isFinite(value) ? value : Double.NaN;
         } catch (RuntimeException exception) {
             return Double.NaN;
+        }
+    }
+
+    private static long frameCount(JsonNode value) {
+        try {
+            long count = Long.parseLong(value.asText());
+            return count >= 0 ? count : -1L;
+        } catch (RuntimeException exception) {
+            return -1L;
         }
     }
 
@@ -514,6 +585,11 @@ public final class DynamicPhotoMediaProcessor {
     private static ApiException durationInvalid() {
         return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "DYNAMIC_SOURCE_DURATION_INVALID",
                 "The dynamic-photo source is shorter than the platform interval");
+    }
+
+    private static ApiException frameCountInvalid() {
+        return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "IOS_LIVE_PHOTO_FRAME_COUNT_INVALID",
+                "The iOS Live Photo source must contain at least 60 display frames");
     }
 
     private static ApiException processingFailed(String code) {

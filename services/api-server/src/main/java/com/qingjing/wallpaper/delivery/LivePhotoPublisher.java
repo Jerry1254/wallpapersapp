@@ -175,7 +175,8 @@ public class LivePhotoPublisher {
 
     private static String errorCode(RuntimeException failure) {
         if (failure instanceof ApiException api
-                && List.of("DYNAMIC_SOURCE_FORMAT_INVALID", "DYNAMIC_SOURCE_DURATION_INVALID").contains(api.code())) {
+                && List.of("DYNAMIC_SOURCE_FORMAT_INVALID", "DYNAMIC_SOURCE_DURATION_INVALID",
+                        "IOS_LIVE_PHOTO_FRAME_COUNT_INVALID").contains(api.code())) {
             return api.code();
         }
         return "LIVE_PHOTO_PROCESSING_FAILED";

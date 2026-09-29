@@ -1520,7 +1520,7 @@ class InfrastructureIntegrationIT {
         long wallpaperId=createPublishedWallpaperFixture();
         long variantId=jdbc.queryForObject("SELECT id FROM wallpaper_variant WHERE wallpaper_id=?",Long.class,wallpaperId);
         jdbc.update("UPDATE wallpaper_variant SET platform='IOS',resource_type='LIVE_PHOTO' WHERE id=?",variantId);
-        JsonNode source=uploadAsset(admin,"LIVE_PHOTO_SOURCE","live-photo.mp4",testVideo());
+        JsonNode source=uploadAsset(admin,"LIVE_PHOTO_SOURCE","live-photo.mp4",testLivePhotoVideo());
         var created=jsonExchange("/api/v1/admin/variants/"+variantId+"/resource-versions",HttpMethod.POST,
                 Map.of("versionNo",2,"bindings",List.of(
                         Map.of("role","LIVE_PHOTO_SOURCE","ordinal",0,"assetId",source.path("id").asText()))),admin,null);
@@ -1536,6 +1536,9 @@ class InfrastructureIntegrationIT {
         var stored=jdbc.queryForMap("SELECT * FROM live_photo_package WHERE resource_version_id=?",versionId);
         assertThat(stored.get("status")).isEqualTo("READY");
         assertThat(((Number)stored.get("duration_ms")).longValue()).isEqualTo(1000);
+        assertThat(stored.get("output_video_codec")).isEqualTo("hevc");
+        assertThat(((Number) stored.get("frame_rate")).doubleValue()).isEqualTo(60d);
+        assertThat(stored.get("processing_mode")).isEqualTo("TRANSCODE");
         byte[] expectedVideo;
         try(var content=packageStorage.open(new com.qingjing.wallpaper.asset.application.StorageKey(stored.get("video_storage_key").toString()))) {
             expectedVideo=content.inputStream().readAllBytes();
@@ -1817,6 +1820,20 @@ class InfrastructureIntegrationIT {
         try {
             String executable=System.getenv().getOrDefault("QJ_FFMPEG","ffmpeg");
             Process process=new ProcessBuilder(executable,"-v","error","-y","-f","lavfi","-i","testsrc2=size=64x64:rate=4","-t","1","-c:v","libx264","-pix_fmt","yuv420p","-threads","1",output.toString())
+                    .redirectError(ProcessBuilder.Redirect.DISCARD).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+            try { assertThat(process.waitFor(30,java.util.concurrent.TimeUnit.SECONDS)).isTrue(); assertThat(process.exitValue()).isZero(); }
+            finally { if(process.isAlive()) process.destroyForcibly(); }
+            return java.nio.file.Files.readAllBytes(output);
+        } finally { java.nio.file.Files.deleteIfExists(output); }
+    }
+
+    private byte[] testLivePhotoVideo() throws Exception {
+        var output=java.nio.file.Files.createTempFile("qj-test-live-photo-video-",".mp4");
+        try {
+            String executable=System.getenv().getOrDefault("QJ_FFMPEG","ffmpeg");
+            Process process=new ProcessBuilder(executable,"-v","error","-y","-f","lavfi","-i",
+                    "testsrc2=size=64x96:rate=30","-frames:v","61","-c:v","libx264",
+                    "-pix_fmt","yuv420p","-threads","1",output.toString())
                     .redirectError(ProcessBuilder.Redirect.DISCARD).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
             try { assertThat(process.waitFor(30,java.util.concurrent.TimeUnit.SECONDS)).isTrue(); assertThat(process.exitValue()).isZero(); }
             finally { if(process.isAlive()) process.destroyForcibly(); }

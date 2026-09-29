@@ -149,6 +149,7 @@ const errorLabels: Record<string, string> = {
   ASSET_VALIDATION_FAILED: '资源校验失败，请检查文件内容、尺寸、透明通道或 4D 配置版本',
   DYNAMIC_SOURCE_FORMAT_INVALID: '动态视频格式不支持，请使用 H.264 或 HEVC 的 MP4 / MOV 视频',
   DYNAMIC_SOURCE_DURATION_INVALID: '动态视频时长不足，iOS 至少需要 1 秒，HarmonyOS 至少需要 2 秒',
+  IOS_LIVE_PHOTO_FRAME_COUNT_INVALID: 'iOS 动态视频不足 60 帧，请上传至少包含 60 个画面的原视频',
   LIVE_PHOTO_PROCESSING_FAILED: 'iOS Live Photo 生成失败，请检查视频编码或联系运维检查媒体处理工具',
   PARALLAX_PACKAGE_REQUIRED: '请上传固定格式的 4D ZIP 资源包',
   PARALLAX_PACKAGE_INVALID: '4D ZIP 解析失败，请检查固定目录、图层编号和 config.json',

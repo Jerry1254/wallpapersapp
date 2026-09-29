@@ -1,8 +1,10 @@
 package com.qingjing.wallpaper.delivery.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.qingjing.wallpaper.shared.web.ApiException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -129,7 +131,7 @@ class PackageMediaInspectorTest {
         try {
             Process process = new ProcessBuilder(List.of(
                     ffmpeg, "-v", "error", "-y", "-nostdin", "-f", "lavfi", "-i",
-                    "testsrc2=size=64x96:rate=12", "-t", "2", "-c:v", "libx264",
+                    "testsrc2=size=64x96:rate=30", "-frames:v", "61", "-c:v", "libx264",
                     "-pix_fmt", "yuv420p", "-threads", "1", source.toString()))
                     .redirectOutput(ProcessBuilder.Redirect.DISCARD)
                     .redirectError(ProcessBuilder.Redirect.DISCARD).start();
@@ -145,7 +147,88 @@ class PackageMediaInspectorTest {
             assertThat(result.assetIdentifier()).matches("[0-9A-F-]{36}");
             assertThat(result.photo()).isNotEmpty();
             assertThat(result.video()).isNotEmpty();
+            assertThat(result.outputVideoCodec()).isEqualTo("hevc");
+            assertThat(result.frameRate()).isEqualTo(60d);
+            assertThat(result.processingMode()).isEqualTo(DynamicPhotoMediaProcessor.ProcessingMode.TRANSCODE);
             assertThat(probeDuration(result.video())).isBetween(0.998d, 1.002d);
+            var facts = probeVideoFacts(result.video());
+            assertThat(facts.path("codec_name").asText()).isEqualTo("hevc");
+            assertThat(facts.path("codec_tag_string").asText()).isEqualTo("hvc1");
+            assertThat(facts.path("avg_frame_rate").asText()).isEqualTo("60/1");
+            assertThat(facts.path("nb_read_frames").asLong()).isEqualTo(60L);
+            for (int frameIndex : List.of(0, 15, 30, 45, 59)) {
+                assertThat(meanAbsoluteDifference(
+                        decodeRgbFrame(Files.readAllBytes(source), frameIndex),
+                        decodeRgbFrame(result.video(), frameIndex)))
+                        .as("output frame %s must preserve input frame %s", frameIndex + 1, frameIndex + 1)
+                        .isLessThan(12d);
+            }
+        } finally { Files.deleteIfExists(source); }
+    }
+
+    @Test
+    void standardizesFirstSixtyIosFramesWithoutChangingTheirOrder() throws Exception {
+        Assumptions.assumeTrue(canRun(ffmpeg, "-version") && canRun(ffprobe, "-version")
+                        && supportsEncoder("libx265"),
+                "FFmpeg, FFprobe and libx265 are required");
+        Path source = Files.createTempFile("qj-live-photo-frames-", ".mp4");
+        Path output = Files.createTempFile("qj-live-photo-normalized-", ".mov");
+        try {
+            Process process = new ProcessBuilder(List.of(
+                    ffmpeg, "-v", "error", "-y", "-nostdin", "-f", "lavfi", "-i",
+                    "testsrc2=size=64x96:rate=30", "-frames:v", "61", "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p", "-threads", "1", source.toString()))
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            assertThat(process.waitFor(30, TimeUnit.SECONDS)).isTrue();
+            assertThat(process.exitValue()).isZero();
+
+            var processor = new DynamicPhotoMediaProcessor(new ObjectMapper(), ffprobe, ffmpeg,
+                    "missing-MP4Box", "missing-heif-enc", "missing-exiftool");
+            processor.createLivePhotoVideo(source, output, 64, 96);
+
+            byte[] normalized = Files.readAllBytes(output);
+            var facts = probeVideoFacts(normalized);
+            assertThat(facts.path("codec_name").asText()).isEqualTo("hevc");
+            assertThat(facts.path("codec_tag_string").asText()).isEqualTo("hvc1");
+            assertThat(facts.path("avg_frame_rate").asText()).isEqualTo("60/1");
+            assertThat(facts.path("nb_read_frames").asLong()).isEqualTo(60L);
+            assertThat(probeDuration(normalized)).isBetween(0.998d, 1.002d);
+            assertThat(streamTypes(normalized)).containsExactly("hevc,video");
+            byte[] original = Files.readAllBytes(source);
+            for (int frameIndex : List.of(0, 15, 30, 45, 59)) {
+                assertThat(meanAbsoluteDifference(
+                        decodeRgbFrame(original, frameIndex), decodeRgbFrame(normalized, frameIndex)))
+                        .as("output frame %s must preserve input frame %s", frameIndex + 1, frameIndex + 1)
+                        .isLessThan(12d);
+            }
+        } finally { Files.deleteIfExists(source); Files.deleteIfExists(output); }
+    }
+
+    @Test
+    void rejectsIosSourceWithFewerThanSixtyDisplayFrames() throws Exception {
+        Assumptions.assumeTrue(canRun(ffmpeg, "-version") && canRun(ffprobe, "-version")
+                        && supportsEncoder("libx265"),
+                "FFmpeg, FFprobe and libx265 are required");
+        Path source = Files.createTempFile("qj-live-photo-short-", ".mp4");
+        try {
+            Process process = new ProcessBuilder(List.of(
+                    ffmpeg, "-v", "error", "-y", "-nostdin", "-f", "lavfi", "-i",
+                    "testsrc2=size=64x96:rate=30", "-frames:v", "59", "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p", "-threads", "1", source.toString()))
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            assertThat(process.waitFor(30, TimeUnit.SECONDS)).isTrue();
+            assertThat(process.exitValue()).isZero();
+
+            var processor = new DynamicPhotoMediaProcessor(new ObjectMapper(), ffprobe, ffmpeg,
+                    "missing-MP4Box", "missing-heif-enc", "missing-exiftool");
+            Path output = Files.createTempFile("qj-live-photo-short-output-", ".mov");
+            assertThatThrownBy(() -> processor.createLivePhotoVideo(source, output, 64, 96))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            failure -> assertThat(failure.code())
+                                    .isEqualTo("IOS_LIVE_PHOTO_FRAME_COUNT_INVALID"));
+            Files.deleteIfExists(output);
         } finally { Files.deleteIfExists(source); }
     }
 
@@ -161,6 +244,48 @@ class PackageMediaInspectorTest {
             assertThat(process.exitValue()).isZero();
             return Double.parseDouble(Files.readString(output).strip());
         } finally { Files.deleteIfExists(input); Files.deleteIfExists(output); }
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode probeVideoFacts(byte[] content) throws Exception {
+        Path input = Files.createTempFile("qj-live-photo-facts-", ".mov");
+        Path output = Files.createTempFile("qj-live-photo-facts-", ".json");
+        try {
+            Files.write(input, content);
+            Process process = new ProcessBuilder(List.of(ffprobe, "-v", "error", "-count_frames",
+                    "-select_streams", "v:0", "-show_entries",
+                    "stream=codec_name,codec_tag_string,avg_frame_rate,nb_read_frames", "-of", "json",
+                    input.toString()))
+                    .redirectOutput(output.toFile()).redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            assertThat(process.waitFor(15, TimeUnit.SECONDS)).isTrue();
+            assertThat(process.exitValue()).isZero();
+            return new ObjectMapper().readTree(Files.readAllBytes(output)).path("streams").get(0);
+        } finally { Files.deleteIfExists(input); Files.deleteIfExists(output); }
+    }
+
+    private byte[] decodeRgbFrame(byte[] content, int frameIndex) throws Exception {
+        Path input = Files.createTempFile("qj-live-photo-frame-", ".mov");
+        Path output = Files.createTempFile("qj-live-photo-frame-", ".rgb");
+        try {
+            Files.write(input, content);
+            Process process = new ProcessBuilder(List.of(ffmpeg, "-v", "error", "-xerror", "-y", "-nostdin",
+                    "-i", input.toString(), "-map", "0:v:0", "-vf",
+                    "select=eq(n\\," + frameIndex + "),format=rgb24", "-frames:v", "1", "-f", "rawvideo",
+                    output.toString()))
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            assertThat(process.waitFor(15, TimeUnit.SECONDS)).isTrue();
+            assertThat(process.exitValue()).isZero();
+            return Files.readAllBytes(output);
+        } finally { Files.deleteIfExists(input); Files.deleteIfExists(output); }
+    }
+
+    private static double meanAbsoluteDifference(byte[] first, byte[] second) {
+        assertThat(second).hasSameSizeAs(first);
+        long sum = 0;
+        for (int index = 0; index < first.length; index++) {
+            sum += Math.abs(Byte.toUnsignedInt(first[index]) - Byte.toUnsignedInt(second[index]));
+        }
+        return (double) sum / first.length;
     }
 
     private List<String> streamTypes(byte[] content) throws Exception {
