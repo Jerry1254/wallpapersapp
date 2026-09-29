@@ -19,7 +19,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 /** Builds the paired HEIC and metadata-bearing MOV for one iOS Live Photo version. */
 @Service
-public final class LivePhotoPublisher {
+public class LivePhotoPublisher {
     private final JdbcTemplate jdbc;
     private final FileStorage storage;
     private final DynamicPhotoMediaProcessor media;
