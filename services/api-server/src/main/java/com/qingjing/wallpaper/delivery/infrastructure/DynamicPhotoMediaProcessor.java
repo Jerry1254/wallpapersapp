@@ -322,8 +322,9 @@ public final class DynamicPhotoMediaProcessor {
 
     private void createLivePhotoMovie(Path source, Path template, Path output, String identifier) throws Exception {
         Files.copy(template, output, StandardCopyOption.REPLACE_EXISTING);
-        runQuietly(List.of(mp4Box, "-rem", "1", output.toString()), PHOTO_TIMEOUT);
-        runQuietly(List.of(mp4Box, "-add", source + "#video:ID=1:tkidx=1", output.toString()), VIDEO_TIMEOUT);
+        runQuietly(List.of(mp4Box, "-rem", "1", output.toString()), PHOTO_TIMEOUT, output.getParent());
+        runQuietly(List.of(mp4Box, "-add", source + "#video:ID=1:tkidx=1", output.toString()),
+                VIDEO_TIMEOUT, output.getParent());
         runQuietly(List.of(exifTool, "-overwrite_original", "-Keys:ContentIdentifier=" + identifier,
                 output.toString()), PHOTO_TIMEOUT);
     }
@@ -438,14 +439,26 @@ public final class DynamicPhotoMediaProcessor {
     }
 
     private void run(List<String> args, Path output, Duration timeout) throws IOException, InterruptedException {
+        run(args, output, timeout, null);
+    }
+
+    private void run(
+            List<String> args,
+            Path output,
+            Duration timeout,
+            Path workingDirectory) throws IOException, InterruptedException {
         Path error = Files.createTempFile(output.getParent(), "native-error-", ".log");
         Process process = null;
         try {
             try {
-                process = new ProcessBuilder(args)
+                ProcessBuilder builder = new ProcessBuilder(args)
                         .redirectOutput(output.toFile())
-                        .redirectError(error.toFile())
-                        .start();
+                        .redirectError(error.toFile());
+                if (workingDirectory != null) {
+                    builder.directory(workingDirectory.toFile());
+                    builder.environment().put("HOME", workingDirectory.toString());
+                }
+                process = builder.start();
             } catch (IOException exception) {
                 log.warn("Native media executable could not be started: executable={}, reason={}",
                         args.get(0), exception.getMessage());
@@ -473,6 +486,13 @@ public final class DynamicPhotoMediaProcessor {
     private void runQuietly(List<String> args, Duration timeout) throws IOException, InterruptedException {
         Path output = Files.createTempFile("qj-native-output-", ".log");
         try { run(args, output, timeout); }
+        finally { Files.deleteIfExists(output); }
+    }
+
+    private void runQuietly(List<String> args, Duration timeout, Path workingDirectory)
+            throws IOException, InterruptedException {
+        Path output = Files.createTempFile(workingDirectory, "native-output-", ".log");
+        try { run(args, output, timeout, workingDirectory); }
         finally { Files.deleteIfExists(output); }
     }
 

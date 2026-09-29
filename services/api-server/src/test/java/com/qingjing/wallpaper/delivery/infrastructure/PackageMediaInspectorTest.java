@@ -118,7 +118,8 @@ class PackageMediaInspectorTest {
         String mp4Box = System.getenv().getOrDefault("QJ_MP4BOX", "MP4Box");
         String heifEncoder = System.getenv().getOrDefault("QJ_HEIF_ENCODER", "heif-enc");
         String exifTool = System.getenv().getOrDefault("QJ_EXIFTOOL", "exiftool");
-        boolean canCreateHeic = canRun(heifEncoder, "--version")
+        boolean canCreateHeic = commandOutputContains(
+                List.of(heifEncoder, "--list-encoders"), "x265")
                 || (System.getProperty("os.name", "").toLowerCase().contains("mac")
                     && Files.isExecutable(Path.of("/usr/bin/sips")));
         Assumptions.assumeTrue(canRun(ffmpeg, "-version") && canRun(ffprobe, "-version")
@@ -178,5 +179,25 @@ class PackageMediaInspectorTest {
                     .redirectError(ProcessBuilder.Redirect.DISCARD).start();
             return process.waitFor(Duration.ofSeconds(10).toMillis(), TimeUnit.MILLISECONDS) && process.exitValue() == 0;
         } catch (Exception ignored) { return false; }
+    }
+
+    private boolean commandOutputContains(List<String> command, String expected) {
+        Path output = null;
+        try {
+            output = Files.createTempFile("qj-command-output-", ".txt");
+            Process process = new ProcessBuilder(command)
+                    .redirectOutput(output.toFile())
+                    .redirectErrorStream(true)
+                    .start();
+            return process.waitFor(Duration.ofSeconds(10).toMillis(), TimeUnit.MILLISECONDS)
+                    && process.exitValue() == 0
+                    && Files.readString(output).contains(expected);
+        } catch (Exception ignored) {
+            return false;
+        } finally {
+            if (output != null) {
+                try { Files.deleteIfExists(output); } catch (Exception ignored) { }
+            }
+        }
     }
 }

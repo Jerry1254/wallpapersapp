@@ -9,6 +9,7 @@ RUN apt-get update \
     && command -v ffprobe \
     && command -v MP4Box \
     && command -v heif-enc \
+    && heif-enc --list-encoders 2>/dev/null | grep -Eq '^- x265 =' \
     && command -v exiftool \
     && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system qingjing \
