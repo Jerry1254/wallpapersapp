@@ -310,18 +310,26 @@ public final class WallpaperIosPlugin: NSObject, FlutterPlugin {
 
     let localIdentifier: String
     if resourceType == "LIVE_PHOTO", descriptor["deliveryMode"] as? String == "LIVE_PHOTO" {
-      let photo = try deliveryFile(descriptor, key: "photo", path: "/api/v1/delivery/live-photo/image", mime: "image/heic", origin: origin)
+      _ = try deliveryFile(descriptor, key: "photo", path: "/api/v1/delivery/live-photo/image", mime: "image/heic", origin: origin)
       let video = try deliveryFile(descriptor, key: "video", path: "/api/v1/delivery/live-photo/video", mime: "video/quicktime", origin: origin)
       let directory = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: directory) }
-      let photoURL = directory.appendingPathComponent("photo.heic")
-      let videoURL = directory.appendingPathComponent("paired.mov")
-      async let photoDownload: Void = download(photo, ticket: ticket, to: photoURL)
-      async let videoDownload: Void = download(video, ticket: ticket, to: videoURL)
-      _ = try await (photoDownload, videoDownload)
+      let sourceURL = directory.appendingPathComponent("source.mov")
+      try await download(video, ticket: ticket, to: sourceURL)
       try Task.checkCancellation()
-      try await validateLivePhoto(photoURL: photoURL, videoURL: videoURL)
-      localIdentifier = try await saveLivePhoto(photoURL: photoURL, videoURL: videoURL)
+      let templateURL = try livePhotoMetadataTemplateURL()
+      let targetSize = livePhotoCanvasSize()
+      let resources = try await Task.detached(priority: .userInitiated) {
+        try await NativeLivePhotoComposer.create(
+          from: sourceURL,
+          metadataTemplateURL: templateURL,
+          targetSize: targetSize,
+          directory: directory
+        )
+      }.value
+      try Task.checkCancellation()
+      try await validateLivePhoto(photoURL: resources.photoURL, videoURL: resources.videoURL)
+      localIdentifier = try await saveLivePhoto(photoURL: resources.photoURL, videoURL: resources.videoURL)
     } else if resourceType == "STATIC_IMAGE", descriptor["deliveryMode"] as? String == "STATIC_IMAGE" {
       guard let image = descriptor["image"] as? [String: Any],
             let mime = image["mimeType"] as? String,
@@ -394,6 +402,32 @@ public final class WallpaperIosPlugin: NSObject, FlutterPlugin {
       .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
+  }
+
+  @MainActor
+  private func livePhotoCanvasSize() -> CGSize {
+    let bounds = UIScreen.main.nativeBounds
+    let portraitWidth = min(bounds.width, bounds.height)
+    let portraitHeight = max(bounds.width, bounds.height)
+    let width = 1080
+    var height = Int((CGFloat(width) * portraitHeight / portraitWidth).rounded())
+    if height.isMultiple(of: 2) == false { height += 1 }
+    return CGSize(width: width, height: min(height, 4096))
+  }
+
+  private func livePhotoMetadataTemplateURL() throws -> URL {
+    let hosts = [Bundle(for: WallpaperIosPlugin.self), Bundle.main]
+    for host in hosts {
+      if let bundleURL = host.url(forResource: "wallpaper_ios_assets", withExtension: "bundle"),
+         let bundle = Bundle(url: bundleURL),
+         let template = bundle.url(forResource: "wallpaper-metadata-template", withExtension: "mov") {
+        return template
+      }
+      if let template = host.url(forResource: "wallpaper-metadata-template", withExtension: "mov") {
+        return template
+      }
+    }
+    throw PluginFailure.livePhotoInvalid
   }
 
   @MainActor

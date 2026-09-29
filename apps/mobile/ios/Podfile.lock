@@ -28,7 +28,7 @@ SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   integration_test: 252f60fa39af5e17c3aa9899d35d908a0721b573
   video_player_avfoundation: e54d03b3b19f64f2c557354f72ce538387541ba6
-  wallpaper_ios: cf6b7f12e50c5a60d309409be39cb2f6c559260c
+  wallpaper_ios: 29af3f1d4869063c6cca8ca2b78a2b98813c6235
 
 PODFILE CHECKSUM: ce2a4dd764e1c7aeed6a7cdc5e61d092b6dc6d32
 
