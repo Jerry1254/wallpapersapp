@@ -47,7 +47,7 @@ const secondaryCategories = computed(() => props.categories
 const capabilityOptions: { value: WallpaperCapability; title: string; text: string }[] = [
   { value: 'android_parallax', title: 'Android 4D', text: '分层视差资源包' },
   { value: 'android_video', title: 'Android 动态', text: 'MP4 动态壁纸' },
-  { value: 'ios_live_photo', title: 'iOS 实况', text: '原始 MP4 生成 Live Photo' },
+  { value: 'ios_live_photo', title: 'iOS 实况', text: '原始 MP4 / MOV 生成 Live Photo' },
   { value: 'harmony_moving_photo', title: '鸿蒙动态', text: 'Moving Photo 视频 + 首帧' },
   { value: 'universal_static', title: '全平台静态', text: '高清静态原图' }
 ];
@@ -114,7 +114,7 @@ const validate = () => {
   if (hasCapability('android_video') && !form.resources.androidVideo && !hasExisting('android_video')) {
     next.androidVideo = '请上传 Android MP4';
   }
-  if (hasCapability('ios_live_photo') && !form.resources.iosVideo && !hasExisting('ios_live_photo')) next.iosVideo = '请上传 iOS 原始 MP4';
+  if (hasCapability('ios_live_photo') && !form.resources.iosVideo && !hasExisting('ios_live_photo')) next.iosVideo = '请上传 iOS 原始 MP4 或 MOV';
   if (hasCapability('harmony_moving_photo') && !form.resources.harmonyVideo && !hasExisting('harmony_moving_photo')) {
     next.harmonyVideo = '请上传 HarmonyOS 原始视频';
   }
@@ -237,7 +237,7 @@ const rebuildMovingPhoto = async () => {
               <p v-if="errors.androidVideo" class="field-error">{{ errors.androidVideo }}</p>
             </div>
             <div class="resource-grid__item span-2">
-              <ResourceFileField :model-value="form.resources.iosVideo" label="iOS 实况原始视频" hint="MP4，至少 1 秒；保存后自动生成 1 秒 HEIC + MOV Live Photo" accept="video/mp4" @update:model-value="setResource('iosVideo', $event)" />
+              <ResourceFileField :model-value="form.resources.iosVideo" label="iOS 实况原始视频" hint="MP4 / MOV，至少 1 秒；保存后自动生成 1 秒 HEIC + MOV Live Photo" accept="video/mp4,video/quicktime,.mp4,.mov" @update:model-value="setResource('iosVideo', $event)" />
               <p v-if="errors.iosVideo" class="field-error">{{ errors.iosVideo }}</p>
               <small v-if="iosStatus" :class="iosStatus.publishable ? 'success-text' : 'warning-text'">
                 生成状态：{{ iosStatus.status }} · HEIC {{ iosStatus.photo ? '已生成' : '未生成' }} · MOV {{ iosStatus.video ? '已生成' : '未生成' }}

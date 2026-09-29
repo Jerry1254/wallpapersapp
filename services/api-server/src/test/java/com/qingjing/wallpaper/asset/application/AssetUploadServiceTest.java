@@ -172,6 +172,19 @@ class AssetUploadServiceTest {
     }
 
     @Test
+    void acceptsQuickTimeBrandedMp4AsLivePhotoSource() throws Exception {
+        ValidatedAsset stored = service.upload(
+                new ByteArrayInputStream(quickTime()),
+                "苹果动态壁纸.mp4",
+                "video/mp4",
+                AssetPurpose.LIVE_PHOTO_SOURCE);
+
+        assertThat(stored.originalFilename()).isEqualTo("苹果动态壁纸.mp4");
+        assertThat(stored.mimeType()).isEqualTo("video/quicktime");
+        assertThat(stored.fileExtension()).isEqualTo("mov");
+    }
+
+    @Test
     void rejectsMalformedOrOverlongTutorialVideo() throws Exception {
         assertThatThrownBy(() -> service.upload(
                         new ByteArrayInputStream(box("ftyp", "isom0000".getBytes(StandardCharsets.US_ASCII))),
@@ -257,6 +270,13 @@ class AssetUploadServiceTest {
         ByteArrayOutputStream file = new ByteArrayOutputStream();
         file.write(box("ftyp", "isom0000".getBytes(StandardCharsets.US_ASCII)));
         file.write(box("moov", movie.toByteArray()));
+        file.write(box("mdat", new byte[] {1, 2, 3, 4}));
+        return file.toByteArray();
+    }
+
+    private static byte[] quickTime() throws IOException {
+        ByteArrayOutputStream file = new ByteArrayOutputStream();
+        file.write(box("ftyp", "qt  0000".getBytes(StandardCharsets.US_ASCII)));
         file.write(box("mdat", new byte[] {1, 2, 3, 4}));
         return file.toByteArray();
     }

@@ -66,7 +66,7 @@ public final class AssetContentValidator {
                     TYPE_NOT_ALLOWED_FOR_PURPOSE,
                     "The detected file type is not allowed for this upload purpose");
         }
-        validateDeclaredContentType(detectedType, declaredContentType);
+        validateDeclaredContentType(detectedType, declaredContentType, purpose);
 
         return switch (detectedType) {
             case JPEG, PNG -> validateImage(stagedObject, detectedType);
@@ -428,7 +428,10 @@ public final class AssetContentValidator {
         }
     }
 
-    private void validateDeclaredContentType(DetectedAssetType detectedType, String declaredContentType) {
+    private void validateDeclaredContentType(
+            DetectedAssetType detectedType,
+            String declaredContentType,
+            AssetPurpose purpose) {
         if (declaredContentType == null || declaredContentType.isBlank()) {
             return;
         }
@@ -439,6 +442,13 @@ public final class AssetContentValidator {
             default -> normalized;
         };
         if (normalized.equals("application/octet-stream")) {
+            return;
+        }
+        boolean compatibleVideoContainer = Set.of(DetectedAssetType.MP4, DetectedAssetType.QUICKTIME).contains(detectedType)
+                && Set.of("video/mp4", "video/quicktime").contains(normalized)
+                && purpose.allows(DetectedAssetType.MP4)
+                && purpose.allows(DetectedAssetType.QUICKTIME);
+        if (compatibleVideoContainer) {
             return;
         }
         if (!normalized.equals(detectedType.mimeType())) {
