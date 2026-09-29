@@ -13,6 +13,8 @@ public final class WallpaperIosPlugin: NSObject, FlutterPlugin {
   private static let credentialAccount = "credentialKeyId"
   private static let pendingAccount = "pendingRedemption"
   private var saves: [String: Task<Void, Never>] = [:]
+  private var previewTasks: [String: Task<Void, Never>] = [:]
+  private var previewDirectories: [String: URL] = [:]
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: registrar.messenger())
@@ -53,6 +55,11 @@ public final class WallpaperIosPlugin: NSObject, FlutterPlugin {
       case "cancelSave":
         let requestId = try requiredCanonicalUUID(try dictionary(call.arguments), "requestId")
         saves.removeValue(forKey: requestId)?.cancel()
+        result(nil)
+      case "prepareLivePhotoPreview":
+        startLivePhotoPreview(try dictionary(call.arguments), result: result)
+      case "releaseLivePhotoPreview":
+        try releaseLivePhotoPreview(try dictionary(call.arguments))
         result(nil)
       default:
         result(FlutterMethodNotImplemented)
@@ -213,6 +220,78 @@ public final class WallpaperIosPlugin: NSObject, FlutterPlugin {
     }
   }
 
+  private func startLivePhotoPreview(_ arguments: [String: Any], result: @escaping FlutterResult) {
+    do {
+      let requestId = try requiredCanonicalUUID(arguments, "requestId")
+      guard previewTasks[requestId] == nil, previewDirectories[requestId] == nil else {
+        throw PluginFailure.invalidArguments
+      }
+      let task = Task { @MainActor [weak self] in
+        guard let self else { return }
+        defer { self.previewTasks.removeValue(forKey: requestId) }
+        do {
+          result(try await self.prepareLivePhotoPreview(arguments, requestId: requestId))
+        } catch is CancellationError {
+          result(PluginFailure.cancelled.flutterError)
+        } catch let error as URLError where error.code == .cancelled {
+          result(PluginFailure.cancelled.flutterError)
+        } catch let failure as PluginFailure {
+          result(failure.flutterError)
+        } catch {
+          result(PluginFailure.downloadInvalid.flutterError)
+        }
+      }
+      previewTasks[requestId] = task
+    } catch let failure as PluginFailure {
+      result(failure.flutterError)
+    } catch {
+      result(PluginFailure.invalidArguments.flutterError)
+    }
+  }
+
+  @MainActor
+  private func prepareLivePhotoPreview(
+    _ arguments: [String: Any], requestId: String
+  ) async throws -> String {
+    let wallpaperId = try requiredDigits(arguments, "wallpaperId")
+    let origin = try requiredHttpsOrigin(arguments, "apiOrigin")
+    guard let descriptor = arguments["descriptor"] as? [String: Any],
+          descriptor["deliveryMode"] as? String == "LIVE_PHOTO_PREVIEW",
+          descriptor["purpose"] as? String == "APP_PREVIEW",
+          (descriptor["durationSeconds"] as? NSNumber)?.intValue == 1,
+          descriptor["wallpaperId"] as? String == wallpaperId,
+          let version = descriptor["resourceVersion"] as? [String: Any],
+          version["platform"] as? String == "IOS",
+          version["resourceType"] as? String == "LIVE_PHOTO",
+          let ticket = descriptor["ticket"] as? String,
+          ticket.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil else {
+      throw PluginFailure.invalidDescriptor
+    }
+    let video = try deliveryFile(
+      descriptor, key: "video", path: "/api/v1/preview/live-photo/video",
+      mime: "video/quicktime", origin: origin
+    )
+    let directory = try temporaryDirectory(prefix: "qingjing-live-preview")
+    let destination = directory.appendingPathComponent("preview.mov")
+    do {
+      try await download(video, ticket: ticket, to: destination)
+      try Task.checkCancellation()
+      previewDirectories[requestId] = directory
+      return destination.path
+    } catch {
+      try? FileManager.default.removeItem(at: directory)
+      throw error
+    }
+  }
+
+  private func releaseLivePhotoPreview(_ arguments: [String: Any]) throws {
+    let requestId = try requiredCanonicalUUID(arguments, "requestId")
+    previewTasks.removeValue(forKey: requestId)?.cancel()
+    if let directory = previewDirectories.removeValue(forKey: requestId) {
+      try? FileManager.default.removeItem(at: directory)
+    }
+  }
+
   @MainActor
   private func saveMedia(_ arguments: [String: Any]) async throws -> String {
     let wallpaperId = try requiredDigits(arguments, "wallpaperId")
@@ -310,9 +389,9 @@ public final class WallpaperIosPlugin: NSObject, FlutterPlugin {
     guard hasher.finalize().hex == expectedHash else { throw PluginFailure.downloadInvalid }
   }
 
-  private func temporaryDirectory() throws -> URL {
+  private func temporaryDirectory(prefix: String = "qingjing-live-photo") throws -> URL {
     let url = FileManager.default.temporaryDirectory
-      .appendingPathComponent("qingjing-live-photo-\(UUID().uuidString)", isDirectory: true)
+      .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
   }

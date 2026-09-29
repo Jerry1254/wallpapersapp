@@ -12,6 +12,7 @@ import '../entitlements/redemption_dialog.dart';
 import 'delivery.dart';
 import 'detail_preview.dart';
 import 'help_screen.dart';
+import 'ios_live_photo_preview.dart';
 import 'trial_manager.dart';
 
 typedef DetailPreviewBuilder =
@@ -270,6 +271,19 @@ class _DetailScreenState extends State<DetailScreen> {
           cover: cover,
         );
   }
+
+  Widget _iosPreview(
+    Wallpaper wallpaper,
+    WallpaperDeliveryOption option,
+    Widget cover,
+  ) => IosLivePhotoPreviewView(
+    key: ValueKey('ios-${wallpaper.id}-${option.key}'),
+    manager: widget.downloads!,
+    wallpaperId: wallpaper.id,
+    deliveryPlatform: option.deliveryPlatform,
+    resourceType: option.resourceType,
+    cover: cover,
+  );
 
   @override
   void dispose() {
@@ -548,6 +562,22 @@ class _DetailScreenState extends State<DetailScreen> {
                                       fit: StackFit.expand,
                                       children: [
                                         if (widget.downloads != null &&
+                                            previewOption != null &&
+                                            previewOption.availableInClient &&
+                                            Platform.isIOS &&
+                                            previewOption.deliveryPlatform ==
+                                                'IOS' &&
+                                            previewOption.resourceType ==
+                                                'LIVE_PHOTO')
+                                          _iosPreview(
+                                            wallpaper,
+                                            previewOption,
+                                            CatalogImage(
+                                              repository: widget.repository,
+                                              path: wallpaper.cover,
+                                            ),
+                                          )
+                                        else if (widget.downloads != null &&
                                             previewOption != null &&
                                             previewOption.availableInClient &&
                                             !Platform.isIOS)

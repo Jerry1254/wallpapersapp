@@ -1514,7 +1514,7 @@ class InfrastructureIntegrationIT {
     }
 
     @Test
-    void livePhotoPublicationCreatesExactAndroidPlayableVideoPreviewWithoutFormalPackage() throws Exception {
+    void livePhotoPublicationCreatesIosLongPressPreviewWithoutFormalPackage() throws Exception {
         Assumptions.assumeTrue(livePhotoToolsAvailable(), "Live Photo native media tools are required");
         ensureAdmin(); var admin=login();
         long wallpaperId=createPublishedWallpaperFixture();
@@ -1540,18 +1540,7 @@ class InfrastructureIntegrationIT {
         assertThat(preview.manifest().path("files").get(0).path("role").asText()).isEqualTo("LIVE_PHOTO_VIDEO");
         assertThat(preview.manifest().path("files").get(0).path("mimeType").asText()).isEqualTo("video/mp4");
 
-        var signing=resourceSigningKey();var encryption=resourceSigningKey();
-        var registered=http.postForEntity("/api/v1/device/registrations",androidRegistration(signing),JsonNode.class);
-        String credential=registered.getBody().path("credentialKeyId").asText();
-        JsonNode challenge=http.postForEntity("/api/v1/device/session-challenges",Map.of("credentialKeyId",credential),JsonNode.class).getBody();
-        String timestamp=Instant.now().toString();
-        String proof=androidSign(signing,"QJ-DEVICE-SESSION-V1\n"+credential+"\n"+challenge.path("challengeId").asText()+"\n"+challenge.path("nonce").asText()+"\n"+timestamp);
-        var session=http.postForEntity("/api/v1/device/sessions",Map.of("credentialKeyId",credential,"challengeId",challenge.path("challengeId").asText(),"clientTimestamp",timestamp,"proof",proof),JsonNode.class);
-        String token=session.getBody().path("accessToken").asText();long deviceId=androidIdentity.requireSession(token).deviceId();
-        String pem=new com.qingjing.wallpaper.device.AndroidCredentialProof(objectMapper).canonicalPem((java.security.interfaces.RSAPublicKey)encryption.getPublic());
-        String bindPath="/api/v1/device/encryption-key";
-        assertThat(http.exchange(bindPath,HttpMethod.PUT,androidSignedEntity(signing,token,"PUT",bindPath,objectMapper.writeValueAsString(Map.of("publicKeyPem",pem))),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
-        verifyUnownedPreview(signing,encryption,token,deviceId,wallpaperId,versionId,"LIVE_PHOTO");
+        verifyIosLivePhotoPreview(wallpaperId,versionId);
     }
 
     private boolean livePhotoToolsAvailable() {
@@ -1765,6 +1754,45 @@ class InfrastructureIntegrationIT {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM device_entitlement WHERE device_id=?",Integer.class,deviceId)).isEqualTo(entitlementCount).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM redemption_event WHERE device_id=?",Integer.class,deviceId)).isEqualTo(redemptionCount).isZero();
         return preview;
+    }
+
+    private void verifyIosLivePhotoPreview(long wallpaperId,long versionId) throws Exception {
+        var generator=java.security.KeyPairGenerator.getInstance("EC");
+        generator.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
+        var key=generator.generateKeyPair();
+        var registered=http.postForEntity("/api/v1/device/registrations",iosRegistration(key,"com.qingjing.bizhi"),JsonNode.class);
+        assertThat(registered.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String credential=registered.getBody().path("credentialKeyId").asText();
+        JsonNode challenge=http.postForEntity("/api/v1/device/session-challenges",Map.of("credentialKeyId",credential),JsonNode.class).getBody();
+        String timestamp=Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
+        String sessionPayload="QJ-DEVICE-SESSION-V1\n"+credential+"\n"+challenge.path("challengeId").asText()+"\n"+challenge.path("nonce").asText()+"\n"+timestamp;
+        var session=http.postForEntity("/api/v1/device/sessions",Map.of(
+                "credentialKeyId",credential,"challengeId",challenge.path("challengeId").asText(),
+                "clientTimestamp",timestamp,"proof",iosSign(key,sessionPayload)),JsonNode.class);
+        assertThat(session.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String token=session.getBody().path("accessToken").asText();
+        long deviceId=androidIdentity.requireSession(token).deviceId();
+        int entitlementCount=jdbc.queryForObject("SELECT COUNT(*) FROM device_entitlement WHERE device_id=?",Integer.class,deviceId);
+        String path="/api/v1/device/wallpapers/"+wallpaperId+"/preview-tickets";
+        String json=objectMapper.writeValueAsString(Map.of("deliveryPlatform","IOS","resourceType","LIVE_PHOTO"));
+        var issued=http.exchange(path,HttpMethod.POST,iosSignedEntity(key,token,"POST",path,json),JsonNode.class);
+        assertThat(issued.getStatusCode()).as(issued.getBody().toString()).isEqualTo(HttpStatus.CREATED);
+        JsonNode descriptor=issued.getBody();
+        assertThat(descriptor.path("deliveryMode").asText()).isEqualTo("LIVE_PHOTO_PREVIEW");
+        assertThat(descriptor.path("purpose").asText()).isEqualTo("APP_PREVIEW");
+        assertThat(descriptor.path("durationSeconds").asInt()).isEqualTo(1);
+        assertThat(descriptor.path("resourceVersion").path("id").asLong()).isEqualTo(versionId);
+        assertThat(descriptor.path("video").path("url").asText()).isEqualTo("/api/v1/preview/live-photo/video");
+        assertThat(descriptor.path("video").path("mimeType").asText()).isEqualTo("video/quicktime");
+        HttpHeaders preview=new HttpHeaders();preview.setBearerAuth(descriptor.path("ticket").asText());preview.setAccept(List.of(MediaType.valueOf("video/quicktime")));
+        var response=http.exchange("/api/v1/preview/live-photo/video",HttpMethod.GET,new HttpEntity<>(preview),byte[].class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getHeaders().getCacheControl()).isEqualTo("no-store");
+        assertThat(response.getBody()).hasSize(descriptor.path("video").path("sizeBytes").asInt());
+        assertThat(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.sha256(response.getBody()))
+                .isEqualTo(descriptor.path("video").path("sha256").asText());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM device_entitlement WHERE device_id=?",Integer.class,deviceId))
+                .isEqualTo(entitlementCount).isZero();
     }
 
     private byte[] testVideo() throws Exception {

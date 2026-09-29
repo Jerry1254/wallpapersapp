@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.10.0
+  version: 2.11.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -2293,7 +2293,7 @@ paths:
       summary: 为 App 按精确资源类型签发详情效果预览描述
       description: |
         需设备会话与持钥签名，无需权益，不扣兑换额度。服务端按请求的 deliveryPlatform/resourceType 精确选择已发布资源，不读取设备能力档案，也不跨类型回退。
-        Android、通用资源使用与正式版本绑定一致的媒体 payload；IOS/LIVE_PHOTO 使用发布时从实况视频生成的 H.264 MP4 预览 payload。所有预览都使用独立 APP_PREVIEW 外壳、密钥、票据和临时库；票据有效 90 秒仅用于下载，App 实际预览由单调时钟限制为 120 秒，后台时间继续计入。
+        Android、通用资源使用与正式版本绑定一致的媒体 payload；IOS/LIVE_PHOTO 返回发布时生成的 1 秒无音轨 QuickTime 实况视频。所有预览都使用独立 APP_PREVIEW 票据；票据有效 90 秒仅用于下载，不产生权益。
         HarmonyOS/MOVING_PHOTO 返回发布时生成的不超过 2 秒 H.264 MP4 动态片段，鸿蒙 App 缓存后自动播放一次，结束后仅由用户点击重新播放；正式保存仍使用下载接口交付 JPEG 与 MP4 两个文件。
       security:
         - deviceBearer: []
@@ -2390,6 +2390,36 @@ paths:
                 type: string
           content:
             video/mp4:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /preview/live-photo/video:
+    get:
+      tags:
+        - Device Entitlement
+      operationId: downloadLivePhotoPreviewVideo
+      summary: 使用独立试用票据读取 iOS 实况视频片段
+      description: 仅接受由 IOS / LIVE_PHOTO 预览描述签发的 previewTicketBearer；票据绑定活跃 iOS 安装凭据和已发布资源版本，不产生权益。
+      security:
+        - previewTicketBearer: []
+      responses:
+        "200":
+          description: 发布时生成的 1 秒无音轨实况视频片段
+          headers:
+            Digest:
+              description: "视频摘要，例如 sha-256=:base64:"
+              schema:
+                type: string
+          content:
+            video/quicktime:
               schema:
                 type: string
                 format: binary
@@ -4763,6 +4793,7 @@ components:
           enum:
             - APP_PREVIEW
             - MOVING_PHOTO_PREVIEW
+            - LIVE_PHOTO_PREVIEW
         purpose:
           type: string
           enum:
@@ -4771,7 +4802,7 @@ components:
           type: integer
           minimum: 1
           maximum: 120
-          description: Android 受限预览窗口为 120 秒；鸿蒙动态照片为实际视频秒数，当前不超过 2 秒。
+          description: Android 受限预览窗口为 120 秒；鸿蒙动态照片为 2 秒；iOS 实况预览为 1 秒。
         wallpaperId:
           $ref: "#/components/schemas/LongId"
         ticket:

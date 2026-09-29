@@ -128,6 +128,26 @@ class BinaryDeliveryErrorTest {
     }
 
     @Test
+    void livePhotoPreviewStreamsTheTicketBoundQuickTimeVideo() throws Exception {
+        byte[] bytes = {8, 6, 4, 2};
+        var file = new DownloadTicketService.ProtectedFile(
+                bytes.length, "55".repeat(32), output -> output.write(bytes));
+        when(previews.readLivePhotoVideo("valid-live-preview")).thenReturn(file);
+
+        var pending = mvc.perform(get("/api/v1/preview/live-photo/video")
+                        .header("Authorization", "Bearer valid-live-preview").accept("video/quicktime"))
+                .andExpect(request().asyncStarted()).andReturn();
+
+        mvc.perform(asyncDispatch(pending))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("video/quicktime"))
+                .andExpect(header().string("Content-Length", "4"))
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().string("Digest", "sha-256=:VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU=:"))
+                .andExpect(content().bytes(bytes));
+    }
+
+    @Test
     void livePhotoPairUsesOneTicketWithExactAppleMimeTypes() throws Exception {
         byte[] photo = {1, 3, 5};
         byte[] video = {2, 4, 6, 8};

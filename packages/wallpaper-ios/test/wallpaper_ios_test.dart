@@ -23,6 +23,7 @@ void main() {
             'readPendingRedemption' => '{"pending":true}',
             'savedMedia' => 'photos-id',
             'saveMedia' => 'new-photos-id',
+            'prepareLivePhotoPreview' => '/tmp/preview.mov',
             _ => null,
           };
         });
@@ -77,4 +78,25 @@ void main() {
       });
     },
   );
+
+  test('live photo preview keeps the fixed verified native boundary', () async {
+    const preview = IosLivePhotoPreview();
+    expect(
+      await preview.prepare(
+        requestId: 'b1bb19db-bb94-4e7a-b128-7004e41fcce7',
+        wallpaperId: '7',
+        apiOrigin: Uri.parse('https://wallpaper.biguo66.top/api/v1'),
+        descriptor: const {'deliveryMode': 'LIVE_PHOTO_PREVIEW'},
+      ),
+      '/tmp/preview.mov',
+    );
+    expect(calls.last.arguments, {
+      'requestId': 'b1bb19db-bb94-4e7a-b128-7004e41fcce7',
+      'wallpaperId': '7',
+      'apiOrigin': 'https://wallpaper.biguo66.top',
+      'descriptor': {'deliveryMode': 'LIVE_PHOTO_PREVIEW'},
+    });
+    await preview.release('b1bb19db-bb94-4e7a-b128-7004e41fcce7');
+    expect(calls.last.method, 'releaseLivePhotoPreview');
+  });
 }
