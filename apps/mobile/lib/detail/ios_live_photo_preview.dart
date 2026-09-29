@@ -195,7 +195,7 @@ class _IosLivePhotoPreviewViewState extends State<IosLivePhotoPreviewView>
           const Positioned(
             left: 0,
             right: 0,
-            bottom: 14,
+            top: 14,
             child: Center(
               child: DecoratedBox(
                 decoration: BoxDecoration(
