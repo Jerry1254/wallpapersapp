@@ -69,34 +69,6 @@ public final class PackageMediaInspector {
         }
     }
 
-    /** Converts an uploaded Live Photo movie into the bounded H.264 MP4 consumed by Android preview. */
-    public byte[] androidPreview(byte[] content) {
-        Path input = null, output = null;
-        try {
-            input = Files.createTempFile("qj-live-photo-", ".bin");
-            output = Files.createTempFile("qj-android-preview-", ".mp4");
-            Files.write(input, content);
-            runQuietly(List.of(
-                    ffmpeg, "-v", "error", "-xerror", "-y", "-nostdin",
-                    "-protocol_whitelist", "file,pipe", "-threads", "1", "-i", input.toString(),
-                    "-map", "0:v:0", "-an", "-t", "30", "-r", "30",
-                    "-vf", "scale='min(1080,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
-                    "-c:v", "libx264", "-profile:v", "main", "-level", "4.0", "-pix_fmt", "yuv420p",
-                    "-preset", "veryfast", "-b:v", "4M", "-maxrate", "6M", "-bufsize", "12M",
-                    "-map_metadata", "-1", "-movflags", "+faststart", output.toString()), Duration.ofSeconds(90));
-            byte[] converted = Files.readAllBytes(output);
-            if (converted.length == 0 || converted.length > MAX_PACKAGE_VIDEO_BYTES) throw invalid();
-            inspect(converted, true);
-            return converted;
-        } catch (ApiException exception) { throw exception; }
-        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw invalid(); }
-        catch (Exception exception) { throw invalid(); }
-        finally {
-            try { if (input != null) Files.deleteIfExists(input); } catch (java.io.IOException ignored) { }
-            try { if (output != null) Files.deleteIfExists(output); } catch (java.io.IOException ignored) { }
-        }
-    }
-
     public Media inspect(byte[] content, boolean video) {
         Path input = null, output = null;
         try {

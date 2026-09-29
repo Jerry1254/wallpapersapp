@@ -56,8 +56,7 @@ public class SecurePackagePublisher {
         Version version = rows.get(0);
         boolean fullSupported=(version.platform().equals("ANDROID") || version.platform().equals("UNIVERSAL"))
                 && Set.of("STATIC_IMAGE","VIDEO","LAYER_PARALLAX").contains(version.type());
-        boolean livePhotoPreview=version.platform().equals("IOS") && version.type().equals("LIVE_PHOTO");
-        if (!fullSupported && !livePhotoPreview) {
+        if (!fullSupported) {
             if (skipUnsupported) return;
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,"DOMAIN_RULE_VIOLATION","The variant has no supported package format");
         }
@@ -69,17 +68,9 @@ public class SecurePackagePublisher {
                 rs.getString("plaintext_sha256"),rs.getString("manifest_sha256"),rs.getString("content_key_ciphertext")),versionId)
                 .stream().findFirst().orElse(null);
         if (!version.status().equals("READY") && !version.status().equals("PUBLISHED")) throw new ApiException(HttpStatus.CONFLICT,"STATE_CONFLICT","Only a ready or published version may be prepared");
-        if (skipUnsupported && existingPreview!=null && (!fullSupported || fullExists)) return;
+        if (skipUnsupported && existingPreview!=null && fullExists) return;
         signing.privateKey();
-        var bindings = livePhotoPreview
-                ? jdbc.query("""
-                    SELECT 'LIVE_PHOTO_VIDEO' AS role,0 AS ordinal,video_storage_key AS storage_key,
-                           'video/quicktime' AS mime_type,video_sha256 AS sha256,video_size_bytes AS size_bytes,
-                           'READY' AS validation_status,NULL AS deleted_at
-                    FROM live_photo_package WHERE resource_version_id=? AND status='READY'
-                    """,(rs,n) -> new Binding(rs.getString("role"),rs.getInt("ordinal"),rs.getString("storage_key"),rs.getString("mime_type"),
-                        rs.getString("sha256"),rs.getLong("size_bytes"),true),versionId)
-                : jdbc.query("""
+        var bindings = jdbc.query("""
                     SELECT b.role,b.ordinal,a.storage_key,a.mime_type,a.sha256,a.size_bytes,a.validation_status,a.deleted_at
                     FROM resource_binding b JOIN asset a ON a.id=b.asset_id
                     WHERE b.resource_version_id=? AND b.role <> 'COVER' ORDER BY b.role,b.ordinal
@@ -90,7 +81,6 @@ public class SecurePackagePublisher {
         Map<String,PackageMediaInspector.Media> images = new HashMap<>();
         byte[] parallax = null; long total = 0;
         for (Binding binding : bindings) {
-            if (livePhotoPreview && !binding.role().equals("LIVE_PHOTO_VIDEO")) continue;
             if (!binding.ready() || binding.size()<1) throw invalid();
             byte[] bytes;
             try (StoredContent content=storage.open(new StorageKey(binding.key()))) {
@@ -101,13 +91,6 @@ public class SecurePackagePublisher {
             StagedObject staged=storage.stage(new ByteArrayInputStream(bytes),binding.size());
             try { assetValidator.validate(staged,AssetPurpose.valueOf(binding.role()),binding.mime()); }
             finally { storage.discard(staged); }
-            if (livePhotoPreview) {
-                bytes=media.androidPreview(bytes);
-                total += bytes.length;
-                if (total>SecurePackageCodec.MAX_PAYLOAD_BYTES) throw invalid();
-                payloads.add(new SecurePackageCodec.Payload("LIVE_PHOTO_VIDEO",binding.ordinal(),"video/mp4",bytes));
-                continue;
-            }
             String payloadMime=binding.mime();
             if (version.type().equals("VIDEO") && binding.role().equals("VIDEO")) {
                 bytes=media.androidVideo(bytes,binding.mime().equals("video/mp4"));
@@ -121,14 +104,14 @@ public class SecurePackagePublisher {
         }
         if (version.type().equals("LAYER_PARALLAX")) validateParallax(parallax,images);
         var identity=new SecurePackageCodec.Identity(version.wallpaperId(),version.variantId(),version.number(),version.type());
-        if ((!fullSupported || fullExists) && existingPreview!=null && previewMatchesSource(version.id(),identity,existingPreview,payloads)) return;
+        if (fullExists && existingPreview!=null && previewMatchesSource(version.id(),identity,existingPreview,payloads)) return;
         if (existingPreview!=null) {
             jdbc.update("DELETE FROM preview_resource_package WHERE resource_version_id=?",version.id());
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override public void afterCommit() { cleanup.delete(existingPreview.object()); }
             });
         }
-        if (fullSupported && !fullExists) {
+        if (!fullExists) {
         SecurePackageCodec.Encoded encoded;
         try { encoded=new SecurePackageCodec(mapper).encode(identity,payloads,signing.keyId(),signing.privateKey()); }
         catch (IllegalArgumentException exception) { throw invalid(); }

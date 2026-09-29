@@ -1514,7 +1514,7 @@ class InfrastructureIntegrationIT {
     }
 
     @Test
-    void livePhotoPublicationCreatesExactAndroidPlayableVideoPreviewWithoutFormalPackage() throws Exception {
+    void livePhotoPublicationUsesTheGeneratedMovForIosPreviewWithoutSecurePackages() throws Exception {
         Assumptions.assumeTrue(livePhotoToolsAvailable(), "Live Photo native media tools are required");
         ensureAdmin(); var admin=login();
         long wallpaperId=createPublishedWallpaperFixture();
@@ -1532,26 +1532,71 @@ class InfrastructureIntegrationIT {
                 Map.of("resourceVersionIds",List.of(Long.toString(versionId))),admin,"\"0\"");
         assertThat(published.getStatusCode()).as(published.getBody().toString()).isEqualTo(HttpStatus.OK);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM secure_resource_package WHERE resource_version_id=?",Integer.class,versionId)).isZero();
-        var stored=jdbc.queryForMap("SELECT * FROM preview_resource_package WHERE resource_version_id=?",versionId);
-        var identity=new com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.Identity(wallpaperId,variantId,2,"LIVE_PHOTO");
-        var preview=decodeStoredPackage(stored,versionId,identity,true);
-        assertThat(preview.manifest().path("resourceType").asText()).isEqualTo("LIVE_PHOTO");
-        assertThat(preview.manifest().path("files")).hasSize(1);
-        assertThat(preview.manifest().path("files").get(0).path("role").asText()).isEqualTo("LIVE_PHOTO_VIDEO");
-        assertThat(preview.manifest().path("files").get(0).path("mimeType").asText()).isEqualTo("video/mp4");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM preview_resource_package WHERE resource_version_id=?",Integer.class,versionId)).isZero();
+        var stored=jdbc.queryForMap("SELECT * FROM live_photo_package WHERE resource_version_id=?",versionId);
+        assertThat(stored.get("status")).isEqualTo("READY");
+        assertThat(((Number)stored.get("duration_ms")).longValue()).isEqualTo(1000);
+        byte[] expectedVideo;
+        try(var content=packageStorage.open(new com.qingjing.wallpaper.asset.application.StorageKey(stored.get("video_storage_key").toString()))) {
+            expectedVideo=content.inputStream().readAllBytes();
+        }
+        assertThat(expectedVideo).hasSize(((Number)stored.get("video_size_bytes")).intValue());
+        assertThat(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.sha256(expectedVideo))
+                .isEqualTo(stored.get("video_sha256"));
 
-        var signing=resourceSigningKey();var encryption=resourceSigningKey();
-        var registered=http.postForEntity("/api/v1/device/registrations",androidRegistration(signing),JsonNode.class);
+        var generator=java.security.KeyPairGenerator.getInstance("EC");
+        generator.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
+        var signing=generator.generateKeyPair();
+        var registered=http.postForEntity("/api/v1/device/registrations",
+                iosRegistration(signing,"com.qingjing.livephotolab"),JsonNode.class);
         String credential=registered.getBody().path("credentialKeyId").asText();
         JsonNode challenge=http.postForEntity("/api/v1/device/session-challenges",Map.of("credentialKeyId",credential),JsonNode.class).getBody();
-        String timestamp=Instant.now().toString();
-        String proof=androidSign(signing,"QJ-DEVICE-SESSION-V1\n"+credential+"\n"+challenge.path("challengeId").asText()+"\n"+challenge.path("nonce").asText()+"\n"+timestamp);
+        String timestamp=Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
+        String proof=iosSign(signing,"QJ-DEVICE-SESSION-V1\n"+credential+"\n"+challenge.path("challengeId").asText()+"\n"+challenge.path("nonce").asText()+"\n"+timestamp);
         var session=http.postForEntity("/api/v1/device/sessions",Map.of("credentialKeyId",credential,"challengeId",challenge.path("challengeId").asText(),"clientTimestamp",timestamp,"proof",proof),JsonNode.class);
+        assertThat(session.getBody().path("platform").asText()).isEqualTo("IOS");
         String token=session.getBody().path("accessToken").asText();long deviceId=androidIdentity.requireSession(token).deviceId();
-        String pem=new com.qingjing.wallpaper.device.AndroidCredentialProof(objectMapper).canonicalPem((java.security.interfaces.RSAPublicKey)encryption.getPublic());
-        String bindPath="/api/v1/device/encryption-key";
-        assertThat(http.exchange(bindPath,HttpMethod.PUT,androidSignedEntity(signing,token,"PUT",bindPath,objectMapper.writeValueAsString(Map.of("publicKeyPem",pem))),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
-        verifyUnownedPreview(signing,encryption,token,deviceId,wallpaperId,versionId,"LIVE_PHOTO");
+        int entitlementCount=jdbc.queryForObject("SELECT COUNT(*) FROM device_entitlement WHERE device_id=?",Integer.class,deviceId);
+        int redemptionCount=jdbc.queryForObject("SELECT COUNT(*) FROM redemption_event WHERE device_id=?",Integer.class,deviceId);
+        String path="/api/v1/device/wallpapers/"+wallpaperId+"/preview-tickets";
+        String body=objectMapper.writeValueAsString(Map.of("deliveryPlatform","IOS","resourceType","LIVE_PHOTO"));
+        var issued=http.exchange(path,HttpMethod.POST,iosSignedEntity(signing,token,"POST",path,body),JsonNode.class);
+        assertThat(issued.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        JsonNode descriptor=issued.getBody();
+        assertThat(descriptor.path("deliveryMode").asText()).isEqualTo("LIVE_PHOTO_PREVIEW");
+        assertThat(descriptor.path("purpose").asText()).isEqualTo("APP_PREVIEW");
+        assertThat(descriptor.path("durationSeconds").asInt()).isEqualTo(1);
+        assertThat(descriptor.path("downloadUrl").isNull()).isTrue();
+        assertThat(descriptor.path("package").isNull()).isTrue();
+        assertThat(descriptor.path("resourceVersion").path("id").asLong()).isEqualTo(versionId);
+        assertThat(descriptor.path("resourceVersion").path("platform").asText()).isEqualTo("IOS");
+        assertThat(descriptor.path("resourceVersion").path("resourceType").asText()).isEqualTo("LIVE_PHOTO");
+        assertThat(descriptor.path("video").path("url").asText()).isEqualTo("/api/v1/preview/live-photo/video");
+        assertThat(descriptor.path("video").path("mimeType").asText()).isEqualTo("video/quicktime");
+        assertThat(descriptor.path("video").path("sizeBytes").asLong()).isEqualTo(expectedVideo.length);
+        assertThat(descriptor.path("video").path("sha256").asText()).isEqualTo(stored.get("video_sha256"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM device_entitlement WHERE device_id=?",Integer.class,deviceId)).isEqualTo(entitlementCount).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM redemption_event WHERE device_id=?",Integer.class,deviceId)).isEqualTo(redemptionCount).isZero();
+
+        String previewToken=descriptor.path("ticket").asText();
+        assertThat(redis.getExpire("preview-ticket-v2:"+securityCrypto.hmacHex("preview-ticket-v2",previewToken))).isBetween(1L,90L);
+        HttpHeaders previewHeaders=new HttpHeaders();previewHeaders.setBearerAuth(previewToken);previewHeaders.setAccept(List.of(MediaType.valueOf("video/quicktime")));
+        assertThat(http.exchange("/api/v1/delivery/live-photo/video",HttpMethod.GET,new HttpEntity<>(previewHeaders),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        var streamed=http.exchange("/api/v1/preview/live-photo/video",HttpMethod.GET,new HttpEntity<>(previewHeaders),byte[].class);
+        assertThat(streamed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(streamed.getHeaders().getContentType()).isEqualTo(MediaType.valueOf("video/quicktime"));
+        assertThat(streamed.getHeaders().getCacheControl()).isEqualTo("no-store");
+        assertThat(streamed.getBody()).containsExactly(expectedVideo);
+
+        jdbc.update("UPDATE wallpaper SET access_type='FREE',lock_version=lock_version+1 WHERE id=?",wallpaperId);
+        String formalPath="/api/v1/device/wallpapers/"+wallpaperId+"/download-tickets";
+        var formal=http.exchange(formalPath,HttpMethod.POST,iosSignedEntity(signing,token,"POST",formalPath,body),JsonNode.class);
+        assertThat(formal.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        HttpHeaders formalHeaders=new HttpHeaders();formalHeaders.setBearerAuth(formal.getBody().path("ticket").asText());
+        assertThat(http.exchange("/api/v1/preview/live-photo/video",HttpMethod.GET,new HttpEntity<>(formalHeaders),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        jdbc.update("UPDATE live_photo_package SET video_sha256=? WHERE resource_version_id=?","f".repeat(64),versionId);
+        assertThat(http.exchange("/api/v1/preview/live-photo/video",HttpMethod.GET,new HttpEntity<>(previewHeaders),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
     private boolean livePhotoToolsAvailable() {

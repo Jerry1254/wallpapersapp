@@ -30,6 +30,14 @@ public class DevicePreviewController {
             .header("Digest","sha-256=:"+java.util.Base64.getEncoder().encodeToString(java.util.HexFormat.of().parseHex(file.sha256()))+":")
             .body(output->file.writer().write(output));
     }
+    @GetMapping("/api/v1/preview/live-photo/video")
+    ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> livePhotoVideo(
+            @RequestHeader(value="Authorization",required=false) String authorization) {
+        var file=previews.readLivePhotoVideo(requireTicket(authorization));
+        return ResponseEntity.ok().contentType(MediaType.valueOf("video/quicktime")).contentLength(file.sizeBytes()).header("Cache-Control","no-store")
+            .header("Digest","sha-256=:"+java.util.Base64.getEncoder().encodeToString(java.util.HexFormat.of().parseHex(file.sha256()))+":")
+            .body(output->file.writer().write(output));
+    }
     private String requireTicket(String authorization) {
         if(authorization==null || !authorization.startsWith("Bearer ") || authorization.length()<=7)throw new ApiException(HttpStatus.UNAUTHORIZED,"PREVIEW_TICKET_INVALID","A preview grant is required");
         return authorization.substring(7);
