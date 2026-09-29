@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
 import 'package:wallpaper_android/wallpaper_android.dart';
 import '../catalog/catalog.dart';
 import '../catalog/catalog_image.dart';
@@ -99,7 +100,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
   void _installed(WallpaperDeliveryOption option) {
     if (widget.downloads == null) return;
-    if (!option.canApplyOnAndroid ||
+    if (!option.availableInClient ||
         installedIds.containsKey(option.key) ||
         _checkingInstalled.contains(option.key)) {
       return;
@@ -189,7 +190,7 @@ class _DetailScreenState extends State<DetailScreen> {
       redeemedNow = true;
     }
     if (!mounted) return;
-    if (!option.canApplyOnAndroid) {
+    if (!option.availableInClient) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('您的手机不支持此壁纸，请尝试切换其他类型')));
@@ -205,7 +206,7 @@ class _DetailScreenState extends State<DetailScreen> {
       } catch (_) {}
     }
     if (!mounted) return;
-    if (installed != null) {
+    if (installed != null && !Platform.isIOS) {
       await _openTarget(option, installed);
     } else {
       await _openDownload(option, afterRedemption: redeemedNow);
@@ -358,6 +359,14 @@ class _DetailScreenState extends State<DetailScreen> {
                         .clamp(0, 100)
                         .round()
                   : null;
+              final justSavedToPhotos =
+                  Platform.isIOS &&
+                  previewOption != null &&
+                  downloadState?.status == 'completed' &&
+                  downloadState?.wallpaperId == widget.id &&
+                  downloadState?.deliveryPlatform ==
+                      previewOption.deliveryPlatform &&
+                  downloadState?.resourceType == previewOption.resourceType;
               final label = downloadingCurrent
                   ? progress == null
                         ? '下载中'
@@ -368,9 +377,15 @@ class _DetailScreenState extends State<DetailScreen> {
                   ? '正在确认权益'
                   : !wallpaper.isFree && owned == false
                   ? '兑换并下载'
+                  : justSavedToPhotos
+                  ? '已保存到相册，请设置'
+                  : Platform.isIOS &&
+                        previewOption != null &&
+                        installedIds[previewOption.key] != null
+                  ? '再次下载'
                   : hasAccess &&
                         previewOption != null &&
-                        (!previewOption.canApplyOnAndroid ||
+                        (!previewOption.availableInClient ||
                             installedIds[previewOption.key] != null)
                   ? '设置壁纸'
                   : '下载壁纸';
@@ -534,7 +549,8 @@ class _DetailScreenState extends State<DetailScreen> {
                                       children: [
                                         if (widget.downloads != null &&
                                             previewOption != null &&
-                                            previewOption.canApplyOnAndroid)
+                                            previewOption.availableInClient &&
+                                            !Platform.isIOS)
                                           _preview(
                                             wallpaper,
                                             previewOption,

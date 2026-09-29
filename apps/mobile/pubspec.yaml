@@ -30,6 +30,8 @@ environment:
 dependencies:
   wallpaper_android:
     path: ../../packages/wallpaper-android
+  wallpaper_ios:
+    path: ../../packages/wallpaper-ios
   flutter:
     sdk: flutter
 

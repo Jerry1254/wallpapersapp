@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
+import 'package:wallpaper_ios/wallpaper_ios.dart';
 import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
 import '../device/device_session.dart';
 
@@ -35,16 +38,23 @@ class DownloadManager extends ValueNotifier<DownloadState> {
     this.sessions,
     this.apiBase, {
     AndroidPackageInstaller? installer,
+    IosMediaInstaller? iosInstaller,
+    bool? ios,
   }) : installer = installer ?? AndroidPackageInstaller(),
+       iosInstaller = iosInstaller ?? const IosMediaInstaller(),
+       isIos = ios ?? Platform.isIOS,
        super(const DownloadState());
   final DeviceSessionManager sessions;
   final Uri apiBase;
   final AndroidPackageInstaller installer;
+  final IosMediaInstaller iosInstaller;
+  final bool isIos;
   bool _cancelRequested = false;
   bool _operationActive = false;
   StreamSubscription<PackageDownloadProgress>? _progress;
-  Future<String?> current(String wallpaper, String type) =>
-      installer.current(wallpaper, type);
+  Future<String?> current(String wallpaper, String type) => isIos
+      ? iosInstaller.current(wallpaper, type)
+      : installer.current(wallpaper, type);
   Future<void> download(
     String wallpaper,
     String deliveryPlatform,
@@ -65,6 +75,49 @@ class DownloadManager extends ValueNotifier<DownloadState> {
       status: 'preparing',
     );
     try {
+      if (isIos) {
+        final descriptor = await sessions.authenticated(
+          '/device/wallpapers/$wallpaper/download-tickets',
+          method: 'POST',
+          signed: true,
+          body: jsonEncode({
+            'deliveryPlatform': deliveryPlatform,
+            'resourceType': type,
+          }),
+        );
+        if (_cancelRequested) return;
+        final expectedMode = type == 'LIVE_PHOTO'
+            ? 'LIVE_PHOTO'
+            : type == 'STATIC_IMAGE'
+            ? 'STATIC_IMAGE'
+            : null;
+        if (expectedMode == null ||
+            descriptor['deliveryMode'] != expectedMode ||
+            descriptor['wallpaperId'] != wallpaper ||
+            (descriptor['resourceVersion'] as Map?)?['platform'] !=
+                deliveryPlatform ||
+            (descriptor['resourceVersion'] as Map?)?['resourceType'] != type) {
+          throw const FormatException('Invalid iOS delivery descriptor');
+        }
+        final installed = await iosInstaller.save(
+          requestId: requestId,
+          wallpaperId: wallpaper,
+          resourceType: type,
+          apiOrigin: apiBase,
+          descriptor: descriptor,
+        );
+        value = DownloadState(
+          wallpaperId: wallpaper,
+          deliveryPlatform: deliveryPlatform,
+          resourceType: type,
+          requestId: requestId,
+          afterRedemption: afterRedemption,
+          status: 'completed',
+          installedId: installed,
+          message: '已保存到相册，请设置',
+        );
+        return;
+      }
       _progress = installer.progress.listen((event) {
         if (event.requestId != requestId || !value.busy) return;
         value = DownloadState(
@@ -140,6 +193,8 @@ class DownloadManager extends ValueNotifier<DownloadState> {
                 'RATE_LIMITED' => '操作过于频繁，请稍后重试',
                 _ => e.message,
               }
+            : e is PlatformException
+            ? (e.message ?? '壁纸保存失败，请重试')
             : '资源信息或安装不可用，请重试',
       );
     } finally {
@@ -162,7 +217,13 @@ class DownloadManager extends ValueNotifier<DownloadState> {
   Future<void> cancel() async {
     _cancelRequested = true;
     final id = value.requestId;
-    if (id != null) await installer.cancel(id);
+    if (id != null) {
+      if (isIos) {
+        await iosInstaller.cancel(id);
+      } else {
+        await installer.cancel(id);
+      }
+    }
   }
 
   Future<void> retry() async {
@@ -187,7 +248,9 @@ class DownloadManager extends ValueNotifier<DownloadState> {
 
   Future<int> clearUnused() async {
     if (value.busy || _operationActive) throw StateError('Download active');
-    final removed = await installer.clearUnused();
+    final removed = isIos
+        ? await iosInstaller.clearUnused()
+        : await installer.clearUnused();
     value = const DownloadState(status: 'cacheCleared');
     return removed;
   }

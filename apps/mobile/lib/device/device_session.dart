@@ -4,16 +4,20 @@ import 'dart:io';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
+import 'package:wallpaper_ios/wallpaper_ios.dart';
 
-String instantString(
-  DateTime value,
-) => value.toUtc().toIso8601String().replaceFirstMapped(RegExp(r'\.(\d+)Z$'), (
-  match,
-) {
-  final fraction = match.group(1)!;
-  if (RegExp(r'^0+$').hasMatch(fraction)) return 'Z';
-  return '.${fraction.length == 6 && fraction.endsWith("000") ? fraction.substring(0, 3) : fraction}Z';
-});
+String instantString(DateTime value) {
+  final utc = value.toUtc();
+  return DateTime.utc(
+    utc.year,
+    utc.month,
+    utc.day,
+    utc.hour,
+    utc.minute,
+    utc.second,
+  ).toIso8601String().replaceFirst('.000Z', 'Z');
+}
+
 String requestUuid() {
   final random = Random.secure();
   final bytes = List<int>.generate(16, (_) => random.nextInt(256));
@@ -31,9 +35,107 @@ class DeviceApiError implements Exception {
     'CREDENTIAL_REVOKED' || 'DEVICE_DISABLED' => '此安装凭据已停用，请联系客服',
     'TIMESTAMP_INVALID' => '手机时间与服务端不一致，请校准后重试',
     'DEVICE_PROVIDER_NOT_ALLOWED' ||
-    'DEVICE_PROVIDER_UNAVAILABLE' => '当前服务尚未启用安卓身份',
+    'DEVICE_PROVIDER_UNAVAILABLE' => '当前服务尚未启用此安装包身份',
     _ => status == 0 ? '暂时无法连接服务，请重试' : '设备验证失败，请重试或联系客服',
   };
+}
+
+class DeviceInstallation {
+  const DeviceInstallation(
+    this.publicKeyPem,
+    this.fingerprint,
+    this.scope,
+    this.credentialKeyId,
+  );
+
+  final String publicKeyPem, fingerprint, scope;
+  final String? credentialKeyId;
+}
+
+abstract interface class InstallationIdentityProvider {
+  String get platform;
+  String get registrationDomain;
+  String get challengeAlgorithm;
+  bool get canResetInvalidIdentity;
+  Future<DeviceInstallation> installation();
+  Future<String> signPayload(String payload);
+  Future<void> rememberCredential(String credentialKeyId);
+  Future<void> reset();
+  Future<Map<String, String>?> encryptionPublicKey();
+}
+
+class AndroidInstallationIdentityProvider
+    implements InstallationIdentityProvider {
+  AndroidInstallationIdentityProvider([AndroidDeviceIdentity? identity])
+    : identity = identity ?? const AndroidDeviceIdentity();
+
+  final AndroidDeviceIdentity identity;
+  @override
+  String get platform => 'ANDROID';
+  @override
+  String get registrationDomain => 'QJ-ANDROID-REGISTER-V1';
+  @override
+  String get challengeAlgorithm => 'RSA_SHA256';
+  @override
+  bool get canResetInvalidIdentity => false;
+  @override
+  Future<DeviceInstallation> installation() async {
+    final value = await identity.installation();
+    return DeviceInstallation(
+      value.publicKeyPem,
+      value.fingerprint,
+      value.scope,
+      value.credentialKeyId,
+    );
+  }
+
+  @override
+  Future<String> signPayload(String payload) => identity.signPayload(payload);
+  @override
+  Future<void> rememberCredential(String credentialKeyId) =>
+      identity.rememberCredential(credentialKeyId);
+  @override
+  Future<void> reset() async =>
+      throw UnsupportedError('Android identity reset');
+  @override
+  Future<Map<String, String>?> encryptionPublicKey() =>
+      identity.encryptionPublicKey();
+}
+
+class IosInstallationIdentityProvider implements InstallationIdentityProvider {
+  const IosInstallationIdentityProvider([
+    this.identity = const IosDeviceIdentity(),
+  ]);
+
+  final IosDeviceIdentity identity;
+  @override
+  String get platform => 'IOS';
+  @override
+  String get registrationDomain => 'QJ-IOS-REGISTER-V1';
+  @override
+  String get challengeAlgorithm => 'ECDSA_P256_SHA256';
+  @override
+  bool get canResetInvalidIdentity => true;
+  @override
+  Future<DeviceInstallation> installation() async {
+    final value = await identity.installation();
+    return DeviceInstallation(
+      value.publicKeyPem,
+      value.fingerprint,
+      value.scope,
+      value.credentialKeyId,
+    );
+  }
+
+  @override
+  Future<String> signPayload(String payload) => identity.signPayload(payload);
+  @override
+  Future<void> rememberCredential(String credentialKeyId) =>
+      identity.rememberCredential(credentialKeyId);
+  @override
+  Future<void> reset() => identity.reset();
+  @override
+  Future<Map<String, String>?> encryptionPublicKey() async => null;
 }
 
 abstract interface class DeviceTransport {
@@ -109,10 +211,17 @@ class DeviceSession {
 }
 
 class DeviceSessionManager {
-  DeviceSessionManager(this.transport, {AndroidDeviceIdentity? identity})
-    : identity = identity ?? const AndroidDeviceIdentity();
+  DeviceSessionManager(
+    this.transport, {
+    AndroidDeviceIdentity? identity,
+    InstallationIdentityProvider? provider,
+  }) : identity =
+           provider ??
+           (Platform.isIOS
+               ? const IosInstallationIdentityProvider()
+               : AndroidInstallationIdentityProvider(identity));
   final DeviceTransport transport;
-  final AndroidDeviceIdentity identity;
+  final InstallationIdentityProvider identity;
   DeviceSession? _current;
   Future<DeviceSession>? _pending;
   Future<DeviceSession> session() async {
@@ -134,12 +243,12 @@ class DeviceSessionManager {
   }
 
   Future<DeviceSession> _create() async {
-    final installation = await identity.installation();
+    var installation = await identity.installation();
     Future<String> register() async {
       final timestamp = instantString(DateTime.now());
       final nonce = requestUuid();
       final proof = await identity.signPayload(
-        'QJ-ANDROID-REGISTER-V1\n${installation.scope}\n${installation.fingerprint}\n$timestamp\n$nonce',
+        '${identity.registrationDomain}\n${installation.scope}\n${installation.fingerprint}\n$timestamp\n$nonce',
       );
       final evidence = base64Url
           .encode(
@@ -156,7 +265,7 @@ class DeviceSessionManager {
         '/device/registrations',
         method: 'POST',
         body: jsonEncode({
-          'platform': 'ANDROID',
+          'platform': identity.platform,
           'appInstallScope': installation.scope,
           'credentialType': 'PLATFORM_PUBLIC_KEY',
           'publicKeyPem': installation.publicKeyPem,
@@ -172,7 +281,25 @@ class DeviceSessionManager {
       return keyId;
     }
 
-    var keyId = installation.credentialKeyId ?? await register();
+    Future<String> registerWithRecovery() async {
+      try {
+        return await register();
+      } on DeviceApiError catch (error) {
+        if (!identity.canResetInvalidIdentity ||
+            !{
+              'CREDENTIAL_REVOKED',
+              'CREDENTIAL_INVALID',
+              'PROOF_INVALID',
+            }.contains(error.code)) {
+          rethrow;
+        }
+        await identity.reset();
+        installation = await identity.installation();
+        return register();
+      }
+    }
+
+    var keyId = installation.credentialKeyId ?? await registerWithRecovery();
     Future<Map<String, dynamic>> challengeFor(String id) => transport.request(
       '/device/session-challenges',
       method: 'POST',
@@ -185,10 +312,10 @@ class DeviceSessionManager {
       // An empty local API has no cached server identifier. Re-prove the same installation key;
       // a revoked/disabled credential or an uncertain network response must never trigger this.
       if (error.status != 404 || error.code != 'CREDENTIAL_NOT_FOUND') rethrow;
-      keyId = await register();
+      keyId = await registerWithRecovery();
       challenge = await challengeFor(keyId);
     }
-    if (challenge['algorithm'] != 'RSA_SHA256') {
+    if (challenge['algorithm'] != identity.challengeAlgorithm) {
       throw const DeviceApiError(0, 'UNSUPPORTED_SIGNATURE');
     }
     final timestamp = instantString(DateTime.now());
@@ -205,7 +332,7 @@ class DeviceSessionManager {
         'proof': proof,
       }),
     );
-    if (response['platform'] != 'ANDROID' ||
+    if (response['platform'] != identity.platform ||
         response['tokenType'] != 'Bearer') {
       throw const DeviceApiError(0, 'INVALID_SESSION_RESPONSE');
     }
@@ -231,6 +358,7 @@ class DeviceSessionManager {
     // Establish the installation signing identity before generating its decrypt key.
     await session();
     final key = await identity.encryptionPublicKey();
+    if (key == null) throw const DeviceApiError(0, 'ENCRYPTION_UNSUPPORTED');
     final result = await authenticated(
       '/device/encryption-key',
       method: 'PUT',

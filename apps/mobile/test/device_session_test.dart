@@ -133,6 +133,87 @@ class BindingTransport extends FakeTransport {
   }
 }
 
+class FakeIosIdentity implements InstallationIdentityProvider {
+  String? id;
+  int resets = 0;
+  final payloads = <String>[];
+
+  @override
+  String get platform => 'IOS';
+  @override
+  String get registrationDomain => 'QJ-IOS-REGISTER-V1';
+  @override
+  String get challengeAlgorithm => 'ECDSA_P256_SHA256';
+  @override
+  bool get canResetInvalidIdentity => true;
+  @override
+  Future<DeviceInstallation> installation() async => DeviceInstallation(
+    'ios-pem',
+    'ios-fingerprint',
+    'com.qingjing.bizhi',
+    id,
+  );
+  @override
+  Future<String> signPayload(String payload) async {
+    payloads.add(payload);
+    return 'ios-signature';
+  }
+
+  @override
+  Future<void> rememberCredential(String credentialKeyId) async {
+    id = credentialKeyId;
+  }
+
+  @override
+  Future<void> reset() async {
+    resets++;
+    id = null;
+  }
+
+  @override
+  Future<Map<String, String>?> encryptionPublicKey() async => null;
+}
+
+class IosTransport implements DeviceTransport {
+  Map<String, dynamic>? registrationBody;
+
+  @override
+  Future<Map<String, dynamic>> request(
+    String path, {
+    String method = 'GET',
+    String? body,
+    Map<String, String> headers = const {},
+    Set<int> accepted = const {},
+  }) async {
+    if (path.endsWith('/registrations')) {
+      registrationBody = jsonDecode(body!);
+      return {
+        'credentialType': 'PLATFORM_PUBLIC_KEY',
+        'credentialKeyId': 'ios-key',
+      };
+    }
+    if (path.endsWith('/session-challenges')) {
+      return {
+        'algorithm': 'ECDSA_P256_SHA256',
+        'challengeId': 'challenge',
+        'nonce': 'nonce',
+      };
+    }
+    if (path.endsWith('/sessions')) {
+      return {
+        'platform': 'IOS',
+        'tokenType': 'Bearer',
+        'accessToken': 'ios-token',
+        'expiresAt': DateTime.now()
+            .toUtc()
+            .add(const Duration(hours: 1))
+            .toIso8601String(),
+      };
+    }
+    throw UnimplementedError(path);
+  }
+}
+
 void main() {
   test('空本地 API 没有旧缓存编号时重新证明同一公钥，保留安装身份', () async {
     final identity = FakeIdentity()..id = 'cached',
@@ -206,11 +287,11 @@ void main() {
     );
     expect(
       instantString(DateTime.parse('2026-09-14T00:00:00.123000Z')),
-      '2026-09-14T00:00:00.123Z',
+      '2026-09-14T00:00:00Z',
     );
     expect(
       instantString(DateTime.parse('2026-09-14T00:00:00.123450Z')),
-      '2026-09-14T00:00:00.123450Z',
+      '2026-09-14T00:00:00Z',
     );
   });
   test('并发会话合并，401 后最多续期一次且复用持久化凭据', () async {
@@ -255,5 +336,30 @@ void main() {
     expect(requests[0], isNot(requests[1]));
     expect(requests.last, contains('POST\n/api/v1/device/redemptions\n'));
     expect(requests.last, isNot(contains('test-only')));
+  });
+
+  test('iOS 使用 P-256 契约注册并建立 IOS 会话', () async {
+    final identity = FakeIosIdentity(), transport = IosTransport();
+    final manager = DeviceSessionManager(transport, provider: identity);
+
+    final session = await manager.session();
+
+    expect(session.token, 'ios-token');
+    expect(identity.id, 'ios-key');
+    expect(transport.registrationBody, {
+      'platform': 'IOS',
+      'appInstallScope': 'com.qingjing.bizhi',
+      'credentialType': 'PLATFORM_PUBLIC_KEY',
+      'publicKeyPem': 'ios-pem',
+      'evidenceToken': isA<String>(),
+    });
+    expect(
+      identity.payloads.first,
+      startsWith('QJ-IOS-REGISTER-V1\ncom.qingjing.bizhi\nios-fingerprint\n'),
+    );
+    expect(
+      identity.payloads.last,
+      contains('QJ-DEVICE-SESSION-V1\nios-key\nchallenge\nnonce\n'),
+    );
   });
 }

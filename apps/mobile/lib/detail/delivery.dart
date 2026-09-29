@@ -30,10 +30,10 @@ class WallpaperDeliveryOption {
   String get key => '$deliveryPlatform/$resourceType';
   String get label => effectLabel(effect);
 
-  bool get canApplyOnAndroid => capability.availableInAndroidPackage;
+  bool get availableInClient => capability.availableInClientPackage;
 }
 
-/// The Android package only exposes Android and universal static resources.
+/// Each installation package exposes its own dynamic format plus universal static resources.
 /// Device probing must never remove a supported resource before the user tries it.
 List<WallpaperDeliveryOption> deliveryOptions(Wallpaper wallpaper) {
   final options = wallpaper.availableCapabilities

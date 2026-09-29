@@ -37,6 +37,28 @@ class FakeCatalog implements CatalogRepository {
 }
 
 void main() {
+  test('安装包平台只接收本平台动态资源和通用静态资源', () {
+    expect(
+      supportsClientCapability('IOS', 'LIVE_PHOTO', clientPlatform: 'IOS'),
+      isTrue,
+    );
+    expect(
+      supportsClientCapability('ANDROID', 'VIDEO', clientPlatform: 'IOS'),
+      isFalse,
+    );
+    expect(
+      supportsClientCapability(
+        'UNIVERSAL',
+        'STATIC_IMAGE',
+        clientPlatform: 'IOS',
+      ),
+      isTrue,
+    );
+    expect(
+      supportsClientCapability('IOS', 'LIVE_PHOTO', clientPlatform: 'ANDROID'),
+      isFalse,
+    );
+  });
   test('旧请求晚返回不覆盖中文搜索结果', () async {
     final repo = FakeCatalog();
     final state = CatalogController(repo);

@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
+import 'package:wallpaper_ios/wallpaper_ios.dart';
 import '../device/device_session.dart';
 
 class PendingRedemption {
@@ -47,6 +49,26 @@ class AndroidPendingStore implements PendingStore {
     {'value': value == null ? null : jsonEncode(value.toJson())},
   );
 }
+
+class IosPendingStore implements PendingStore {
+  const IosPendingStore([this.native = const IosPendingRedemptionStore()]);
+
+  final IosPendingRedemptionStore native;
+  @override
+  Future<PendingRedemption?> read() async {
+    final value = await native.read();
+    return value == null
+        ? null
+        : PendingRedemption.fromJson(jsonDecode(value) as Map<String, dynamic>);
+  }
+
+  @override
+  Future<void> write(PendingRedemption? value) =>
+      native.write(value == null ? null : jsonEncode(value.toJson()));
+}
+
+PendingStore platformPendingStore() =>
+    Platform.isIOS ? const IosPendingStore() : AndroidPendingStore();
 
 abstract interface class RedemptionApi {
   Future<Map<String, dynamic>> submit(PendingRedemption pending, String body);
