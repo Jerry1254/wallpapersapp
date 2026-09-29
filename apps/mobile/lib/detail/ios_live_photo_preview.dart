@@ -191,6 +191,27 @@ class _IosLivePhotoPreviewViewState extends State<IosLivePhotoPreviewView>
       children: [
         widget.cover,
         if (holding && player != null) _video(player!),
+        if (!ready && !failed)
+          const Positioned(
+            left: 0,
+            right: 0,
+            top: 14,
+            child: Center(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Color(0xB3191817),
+                  borderRadius: BorderRadius.all(Radius.circular(18)),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  child: Text(
+                    '资源加载中，请稍后',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ),
+            ),
+          ),
         if (ready && !holding)
           const Positioned(
             left: 0,
