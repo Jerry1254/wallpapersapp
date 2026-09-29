@@ -104,3 +104,33 @@ class IosMediaInstaller {
 
   Future<int> clearUnused() async => 0;
 }
+
+class IosLivePhotoPreview {
+  const IosLivePhotoPreview();
+
+  static const _channel = MethodChannel('qingjing/wallpaper_ios');
+
+  Future<String> prepare({
+    required String requestId,
+    required String wallpaperId,
+    required Uri apiOrigin,
+    required Map<String, dynamic> descriptor,
+  }) async {
+    final path = await _channel
+        .invokeMethod<String>('prepareLivePhotoPreview', {
+          'requestId': requestId,
+          'wallpaperId': wallpaperId,
+          'apiOrigin': apiOrigin.origin,
+          'descriptor': descriptor,
+        });
+    if (path == null || path.isEmpty) {
+      throw PlatformException(code: 'PREVIEW_FAILED', message: '动态预览准备失败');
+    }
+    return path;
+  }
+
+  Future<void> release(String requestId) => _channel.invokeMethod<void>(
+    'releaseLivePhotoPreview',
+    {'requestId': requestId},
+  );
+}
