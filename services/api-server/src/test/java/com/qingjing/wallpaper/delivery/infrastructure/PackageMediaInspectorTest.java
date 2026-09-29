@@ -145,7 +145,22 @@ class PackageMediaInspectorTest {
             assertThat(result.assetIdentifier()).matches("[0-9A-F-]{36}");
             assertThat(result.photo()).isNotEmpty();
             assertThat(result.video()).isNotEmpty();
+            assertThat(probeDuration(result.video())).isBetween(0.998d, 1.002d);
         } finally { Files.deleteIfExists(source); }
+    }
+
+    private double probeDuration(byte[] content) throws Exception {
+        Path input = Files.createTempFile("qj-live-photo-duration-", ".mov");
+        Path output = Files.createTempFile("qj-live-photo-duration-", ".txt");
+        try {
+            Files.write(input, content);
+            Process process = new ProcessBuilder(List.of(ffprobe, "-v", "error", "-show_entries",
+                    "format=duration", "-of", "default=nw=1:nk=1", input.toString()))
+                    .redirectOutput(output.toFile()).redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            assertThat(process.waitFor(15, TimeUnit.SECONDS)).isTrue();
+            assertThat(process.exitValue()).isZero();
+            return Double.parseDouble(Files.readString(output).strip());
+        } finally { Files.deleteIfExists(input); Files.deleteIfExists(output); }
     }
 
     private List<String> streamTypes(byte[] content) throws Exception {

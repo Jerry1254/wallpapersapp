@@ -280,10 +280,11 @@ public final class DynamicPhotoMediaProcessor {
             boolean quickTime) throws Exception {
         VideoInfo info = probeVideo(output, false);
         double frameWindow = Math.max(0.002d, 1d / info.frameRate() + 0.002d);
+        double maximumDuration = quickTime ? requiredSeconds + 0.002d : requiredSeconds + frameWindow;
         if (!List.of("h264", "hevc").contains(info.codec()) || info.width() != width || info.height() != height
                 || info.frameRate() <= 0 || info.frameRate() > 60
                 || info.durationSeconds() + 0.002d < requiredSeconds
-                || info.durationSeconds() >= requiredSeconds + frameWindow
+                || info.durationSeconds() > maximumDuration
                 || (!info.pixelFormat().equals("yuv420p") && !info.pixelFormat().equals("yuvj420p"))) {
             throw processingFailed(quickTime ? "LIVE_PHOTO_PROCESSING_FAILED" : "MOVING_PHOTO_PROCESSING_FAILED");
         }
