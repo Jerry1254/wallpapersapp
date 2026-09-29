@@ -19,7 +19,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 /** Builds the two derived delivery files for one HarmonyOS Moving Photo resource version. */
 @Service
-public final class MovingPhotoPublisher {
+public class MovingPhotoPublisher {
     private final JdbcTemplate jdbc;
     private final FileStorage storage;
     private final DynamicPhotoMediaProcessor media;
