@@ -176,4 +176,24 @@ class BinaryDeliveryErrorTest {
                 .andExpect(header().string("Content-Length", "4"))
                 .andExpect(content().bytes(video));
     }
+
+    @Test
+    void livePhotoSourceStreamsOriginalMp4WithBoundMetadata() throws Exception {
+        byte[] source = {9, 7, 5, 3, 1};
+        when(downloads.readLivePhotoSourceFile("live-source-ticket"))
+                .thenReturn(new DownloadTicketService.ProtectedFile(
+                        source.length, "66".repeat(32), output -> output.write(source)));
+
+        var pending = mvc.perform(get("/api/v1/delivery/live-photo/source")
+                        .header("Authorization", "Bearer live-source-ticket").accept("video/mp4"))
+                .andExpect(request().asyncStarted()).andReturn();
+
+        mvc.perform(asyncDispatch(pending))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("video/mp4"))
+                .andExpect(header().string("Content-Length", "5"))
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().string("Digest", "sha-256=:ZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmY=:"))
+                .andExpect(content().bytes(source));
+    }
 }

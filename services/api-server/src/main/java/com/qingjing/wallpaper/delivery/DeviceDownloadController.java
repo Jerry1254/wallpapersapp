@@ -89,6 +89,16 @@ public class DeviceDownloadController {
         return livePhoto(authorization,LivePhotoPart.VIDEO,MediaType.valueOf("video/quicktime"));
     }
 
+    @GetMapping(value="/api/v1/delivery/live-photo/source",produces="video/mp4")
+    ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> livePhotoSource(
+            @RequestHeader(value="Authorization",required=false) String authorization) {
+        var file=tickets.readLivePhotoSourceFile(requireTicket(authorization));
+        return ResponseEntity.ok().contentType(MediaType.valueOf("video/mp4")).contentLength(file.sizeBytes())
+                .header("Cache-Control","no-store")
+                .header("Digest","sha-256=:"+java.util.Base64.getEncoder().encodeToString(java.util.HexFormat.of().parseHex(file.sha256()))+":")
+                .body(output->file.writer().write(output));
+    }
+
     private ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> movingPhoto(
             String authorization,MovingPhotoPart part,MediaType contentType) {
         var file=tickets.readMovingPhotoFile(requireTicket(authorization),part);

@@ -39,7 +39,7 @@ class RedemptionOpenApiCoverageTest {
                 AdminRedemptionQueryController.class));
 
         assertThat(controllerOperations).containsExactlyInAnyOrderElementsOf(contractOperations);
-        assertThat(contractOperations).hasSize(28);
+        assertThat(contractOperations).hasSize(29);
     }
 
     @SuppressWarnings("unchecked")

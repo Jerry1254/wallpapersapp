@@ -62,6 +62,7 @@ public final class DeliveryDtos {
             DeliveryFile poster,
             DeliveryFile photo,
             DeliveryFile video,
+            DeliveryFile sourceVideo,
             DeliveryFile image) {
     }
 }

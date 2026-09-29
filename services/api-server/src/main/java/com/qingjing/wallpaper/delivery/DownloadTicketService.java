@@ -91,7 +91,7 @@ public class DownloadTicketService {
         return new DownloadDescriptor(DeliveryMode.SECURE_PACKAGE,Long.toString(wallpaperId),wallpaper.cover(),token,"/api/v1/delivery/files",expiry,
                 new DownloadResourceVersion(Long.toString(selected.versionId()),Long.toString(selected.variantId()),selected.number(),DeliveryPlatform.valueOf(selected.platform()),ResourceType.valueOf(selected.type()),selected.manifestHash()),
                 new SecurePackageMetadata(2,selected.size(),selected.plainSize(),selected.encryptedHash(),selected.plainHash(),selected.signingKeyId(),fingerprint,wrapped,"RSA-OAEP-SHA256-MGF1-SHA1"),
-                null,null,null,null);
+                null,null,null,null,null);
     }
     public ProtectedFile readProtectedFile(String token) {
         Ticket state=readTicket(token);
@@ -156,6 +156,14 @@ public class DownloadTicketService {
         String hash=part==LivePhotoPart.PHOTO?resource.photoHash():resource.videoHash();
         return new ProtectedFile(size,hash,output->streamLivePhoto(token,part,storageKey,size,hash,output));
     }
+    public ProtectedFile readLivePhotoSourceFile(String token) {
+        Ticket state=readTicket(token);
+        if(state.deliveryMode()!=DeliveryMode.LIVE_PHOTO || state.platform()!=DevicePlatform.IOS) throw invalid();
+        rateLimiter.require("live-photo-source-read",Long.toString(state.deviceId()),12,Duration.ofMinutes(1));
+        LivePhotoRow resource=validateLivePhoto(state);
+        return new ProtectedFile(resource.sourceSize(),resource.sourceHash(),
+                output->streamLivePhotoSource(token,resource,output));
+    }
     private void streamMovingPhoto(String token,MovingPhotoPart part,String key,long size,String hash,OutputStream output) throws IOException {
         if(!reads.tryAcquire()) throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,"RATE_LIMITED","Too many active downloads");
         try {
@@ -203,6 +211,23 @@ public class DownloadTicketService {
             }
         } finally { reads.release(); }
     }
+    private void streamLivePhotoSource(String token,LivePhotoRow expected,OutputStream output) throws IOException {
+        if(!reads.tryAcquire()) throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,"RATE_LIMITED","Too many active downloads");
+        try {
+            LivePhotoRow current=validateLivePhoto(readTicket(token));
+            if(current.versionId()!=expected.versionId() || !current.sourceStorage().equals(expected.sourceStorage())
+                    || current.sourceSize()!=expected.sourceSize() || !current.sourceHash().equals(expected.sourceHash())) {
+                throw invalid();
+            }
+            requireSourceIntegrity(current);
+            try(var content=storage.open(new StorageKey(current.sourceStorage()))) {
+                if(content.sizeBytes()!=current.sourceSize()) throw new IOException("Live Photo source length changed");
+                byte[] buffer=new byte[32768];long remaining=current.sourceSize();
+                while(remaining>0){int count=content.inputStream().read(buffer,0,(int)Math.min(buffer.length,remaining));if(count<0)throw new IOException("Incomplete Live Photo source");output.write(buffer,0,count);remaining-=count;}
+                if(content.inputStream().read()!=-1)throw new IOException("Live Photo source length changed");
+            }
+        } finally { reads.release(); }
+    }
     private PackageRow validateSecurePackage(Ticket state) {
         if (!devices.isAndroidEnabled() || state.authorization()==null ||
                 state.platform()!=DevicePlatform.ANDROID || state.deliveryMode()!=DeliveryMode.SECURE_PACKAGE ||
@@ -244,7 +269,7 @@ public class DownloadTicketService {
                 new DownloadResourceVersion(Long.toString(selected.versionId()),Long.toString(selected.variantId()),selected.number(),
                         DeliveryPlatform.HARMONYOS,ResourceType.MOVING_PHOTO,selected.manifestHash()),null,
                 new DeliveryFile("/api/v1/delivery/moving-photo/poster",selected.posterHash(),selected.posterSize(),"image/jpeg"),null,
-                new DeliveryFile("/api/v1/delivery/moving-photo/video",selected.videoHash(),selected.videoSize(),"video/mp4"),null);
+                new DeliveryFile("/api/v1/delivery/moving-photo/video",selected.videoHash(),selected.videoSize(),"video/mp4"),null,null);
     }
     private DownloadDescriptor createLivePhoto(DevicePrincipal principal,long wallpaperId,Authorization authorization,
             com.qingjing.wallpaper.catalog.PublicCatalogDtos.PublicMedia cover) {
@@ -253,22 +278,23 @@ public class DownloadTicketService {
                   AND v.platform='IOS' AND v.resource_type='LIVE_PHOTO' AND lp.status='READY'
                 ORDER BY rv.version_no DESC,rv.id DESC
                 """,DownloadTicketService::livePhotoRow,wallpaperId);
-        LivePhotoRow selected=candidates.stream().findFirst().orElseThrow(DownloadTicketService::livePhotoNotReady);
+        LivePhotoRow selected=candidates.stream().findFirst().orElseThrow(DownloadTicketService::resourceUnavailable);
         if(authorization==Authorization.ENTITLEMENT&&!entitled(principal.deviceId(),wallpaperId)) {
             throw new ApiException(HttpStatus.FORBIDDEN,"ENTITLEMENT_REQUIRED","An active entitlement is required");
         }
         String token=crypto.randomToken(32);Instant expiry=Instant.now().plus(TTL);
-        Ticket state=new Ticket(principal.deviceId(),principal.credentialKeyId(),wallpaperId,selected.versionId(),null,
+        String sourceFingerprint=livePhotoSourceFingerprint(selected);
+        Ticket state=new Ticket(principal.deviceId(),principal.credentialKeyId(),wallpaperId,selected.versionId(),sourceFingerprint,
                 DevicePlatform.IOS,DeliveryPlatform.IOS,ResourceType.LIVE_PHOTO,
                 DeliveryMode.LIVE_PHOTO,authorization,expiry.toString());
-        validateLivePhoto(state);
+        LivePhotoRow current=validateLivePhoto(state);
+        requireSourceIntegrity(current);
         try { redis.opsForValue().set(ticketKey(token),mapper.writeValueAsString(state),TTL); }
         catch(com.fasterxml.jackson.core.JsonProcessingException error){throw new IllegalStateException("Cannot serialize download ticket");}
         return new DownloadDescriptor(DeliveryMode.LIVE_PHOTO,Long.toString(wallpaperId),cover,token,null,expiry,
                 new DownloadResourceVersion(Long.toString(selected.versionId()),Long.toString(selected.variantId()),selected.number(),
-                        DeliveryPlatform.IOS,ResourceType.LIVE_PHOTO,selected.manifestHash()),null,null,
-                new DeliveryFile("/api/v1/delivery/live-photo/image",selected.photoHash(),selected.photoSize(),"image/heic"),
-                new DeliveryFile("/api/v1/delivery/live-photo/video",selected.videoHash(),selected.videoSize(),"video/quicktime"),null);
+                        DeliveryPlatform.IOS,ResourceType.LIVE_PHOTO,selected.manifestHash()),null,null,null,null,
+                new DeliveryFile("/api/v1/delivery/live-photo/source",current.sourceHash(),current.sourceSize(),"video/mp4"),null);
     }
     private DownloadDescriptor createStaticImage(DevicePrincipal principal,long wallpaperId,Authorization authorization,
             com.qingjing.wallpaper.catalog.PublicCatalogDtos.PublicMedia cover) {
@@ -292,7 +318,7 @@ public class DownloadTicketService {
         catch(com.fasterxml.jackson.core.JsonProcessingException error){throw new IllegalStateException("Cannot serialize download ticket");}
         return new DownloadDescriptor(DeliveryMode.STATIC_IMAGE,Long.toString(wallpaperId),cover,token,null,expiry,
                 new DownloadResourceVersion(Long.toString(selected.versionId()),Long.toString(selected.variantId()),selected.number(),
-                        DeliveryPlatform.UNIVERSAL,ResourceType.STATIC_IMAGE,selected.manifestHash()),null,null,null,null,
+                        DeliveryPlatform.UNIVERSAL,ResourceType.STATIC_IMAGE,selected.manifestHash()),null,null,null,null,null,
                 new DeliveryFile("/api/v1/delivery/static-image",selected.hash(),selected.size(),selected.mimeType()));
     }
     private MovingPhotoRow validateMovingPhoto(Ticket state) {
@@ -350,7 +376,26 @@ public class DownloadTicketService {
                   AND v.enabled=TRUE AND v.platform='IOS' AND v.resource_type='LIVE_PHOTO' AND lp.status='READY'
                 """,DownloadTicketService::livePhotoRow,state.versionId(),state.wallpaperId());
         if(rows.size()!=1)throw invalid();
-        return rows.get(0);
+        LivePhotoRow resource=rows.get(0);
+        if(state.keyHash()==null || !state.keyHash().equals(livePhotoSourceFingerprint(resource)))throw invalid();
+        return resource;
+    }
+    private String livePhotoSourceFingerprint(LivePhotoRow resource) {
+        return crypto.hmacHex("live-photo-source-ticket-v1",resource.sourceStorage()+"\n"+resource.sourceSize()+"\n"+resource.sourceHash());
+    }
+    private void requireSourceIntegrity(LivePhotoRow resource) {
+        try(var content=storage.open(new StorageKey(resource.sourceStorage()))) {
+            if(content.sizeBytes()!=resource.sourceSize()) throw invalid();
+            var digest=java.security.MessageDigest.getInstance("SHA-256");
+            byte[] buffer=new byte[32768];long remaining=resource.sourceSize();
+            while(remaining>0){int count=content.inputStream().read(buffer,0,(int)Math.min(buffer.length,remaining));if(count<0)throw invalid();digest.update(buffer,0,count);remaining-=count;}
+            if(content.inputStream().read()!=-1
+                    || !java.util.HexFormat.of().formatHex(digest.digest()).equals(resource.sourceHash())) throw invalid();
+        } catch(ApiException failure) {
+            throw failure;
+        } catch(Exception failure) {
+            throw invalid();
+        }
     }
     private boolean entitled(long device,long wallpaper) {
         return Integer.valueOf(1).equals(jdbc.queryForObject("SELECT COUNT(*) FROM device_entitlement WHERE device_id=? AND wallpaper_id=? AND status='ACTIVE'",Integer.class,device,wallpaper));
@@ -392,9 +437,16 @@ public class DownloadTicketService {
     private static final String SELECT_LIVE_PHOTO="""
             SELECT rv.id,rv.version_no,rv.manifest_sha256,v.id AS variant_id,
                    lp.photo_storage_key,lp.photo_size_bytes,lp.photo_sha256,
-                   lp.video_storage_key,lp.video_size_bytes,lp.video_sha256
+                   lp.video_storage_key,lp.video_size_bytes,lp.video_sha256,
+                   source.storage_key AS source_storage_key,source.size_bytes AS source_size_bytes,
+                   source.sha256 AS source_sha256
             FROM live_photo_package lp JOIN resource_version rv ON rv.id=lp.resource_version_id
             JOIN wallpaper_variant v ON v.id=rv.variant_id JOIN wallpaper w ON w.id=v.wallpaper_id
+            JOIN resource_binding source_binding ON source_binding.resource_version_id=rv.id
+              AND source_binding.role='LIVE_PHOTO_SOURCE' AND source_binding.ordinal=0
+            JOIN asset source ON source.id=source_binding.asset_id
+              AND source.purpose='LIVE_PHOTO_SOURCE' AND source.validation_status='READY'
+              AND source.deleted_at IS NULL AND source.mime_type='video/mp4'
             """;
     private static final String SELECT_STATIC_IMAGE="""
             SELECT rv.id,rv.version_no,rv.manifest_sha256,v.id AS variant_id,
@@ -420,10 +472,12 @@ public class DownloadTicketService {
     private static LivePhotoRow livePhotoRow(java.sql.ResultSet rs,int n)throws java.sql.SQLException{
         return new LivePhotoRow(rs.getLong("id"),rs.getLong("variant_id"),rs.getInt("version_no"),rs.getString("manifest_sha256"),
                 rs.getString("photo_storage_key"),rs.getLong("photo_size_bytes"),rs.getString("photo_sha256"),
-                rs.getString("video_storage_key"),rs.getLong("video_size_bytes"),rs.getString("video_sha256"));
+                rs.getString("video_storage_key"),rs.getLong("video_size_bytes"),rs.getString("video_sha256"),
+                rs.getString("source_storage_key"),rs.getLong("source_size_bytes"),rs.getString("source_sha256"));
     }
     private record LivePhotoRow(long versionId,long variantId,int number,String manifestHash,String photoStorage,long photoSize,
-            String photoHash,String videoStorage,long videoSize,String videoHash) {}
+            String photoHash,String videoStorage,long videoSize,String videoHash,String sourceStorage,long sourceSize,
+            String sourceHash) {}
     private static StaticImageRow staticImageRow(java.sql.ResultSet rs,int n)throws java.sql.SQLException{
         return new StaticImageRow(rs.getLong("id"),rs.getLong("variant_id"),rs.getInt("version_no"),rs.getString("manifest_sha256"),
                 rs.getString("storage_key"),rs.getString("mime_type"),rs.getLong("size_bytes"),rs.getString("sha256"));
@@ -432,6 +486,5 @@ public class DownloadTicketService {
             String mimeType,long size,String hash) {}
     private static ApiException unavailable() { return resourceUnavailable(); }
     private static ApiException resourceUnavailable(){return new ApiException(HttpStatus.NOT_FOUND,"RESOURCE_NOT_AVAILABLE","The requested resource is not available");}
-    private static ApiException livePhotoNotReady(){return new ApiException(HttpStatus.CONFLICT,"LIVE_PHOTO_NOT_READY","The iOS Live Photo pair is not ready");}
     private static ApiException invalid() { return new ApiException(HttpStatus.UNAUTHORIZED,"DOWNLOAD_TICKET_INVALID","The download ticket is invalid or expired"); }
 }

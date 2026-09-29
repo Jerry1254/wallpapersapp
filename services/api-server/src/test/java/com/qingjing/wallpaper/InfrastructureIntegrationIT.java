@@ -109,6 +109,9 @@ class InfrastructureIntegrationIT {
     @Autowired
     SecurityCrypto securityCrypto;
 
+    @Autowired
+    com.qingjing.wallpaper.delivery.DownloadTicketService downloadTickets;
+
     @Test
     void emptyDatabaseMigratesToDomainAndSecureDeliveryTables() {
         Integer successfulMigrations = jdbc.queryForObject(
@@ -311,7 +314,7 @@ class InfrastructureIntegrationIT {
 
         ResponseEntity<JsonNode> info = http.getForEntity("/actuator/info", JsonNode.class);
         assertThat(info.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(info.getBody().path("app").path("contract-version").asText()).isEqualTo("2.4.1");
+        assertThat(info.getBody().path("app").path("contract-version").asText()).isEqualTo("2.13.0");
         assertThat(info.getBody().path("app").path("environment-id").asText()).isEqualTo("UNCONFIGURED");
         assertThat(info.getBody().path("app").path("source-sha256").asText()).isEqualTo("unknown");
         assertThat(info.getBody().path("app").path("artifact-sha256").asText()).isEqualTo("unknown");
@@ -1520,7 +1523,8 @@ class InfrastructureIntegrationIT {
         long wallpaperId=createPublishedWallpaperFixture();
         long variantId=jdbc.queryForObject("SELECT id FROM wallpaper_variant WHERE wallpaper_id=?",Long.class,wallpaperId);
         jdbc.update("UPDATE wallpaper_variant SET platform='IOS',resource_type='LIVE_PHOTO' WHERE id=?",variantId);
-        JsonNode source=uploadAsset(admin,"LIVE_PHOTO_SOURCE","live-photo.mp4",testLivePhotoVideo());
+        byte[] sourceBytes=testLivePhotoVideo();
+        JsonNode source=uploadAsset(admin,"LIVE_PHOTO_SOURCE","live-photo.mp4",sourceBytes);
         var created=jsonExchange("/api/v1/admin/variants/"+variantId+"/resource-versions",HttpMethod.POST,
                 Map.of("versionNo",2,"bindings",List.of(
                         Map.of("role","LIVE_PHOTO_SOURCE","ordinal",0,"assetId",source.path("id").asText()))),admin,null);
@@ -1585,18 +1589,46 @@ class InfrastructureIntegrationIT {
         assertThat(redis.getExpire("preview-ticket-v2:"+securityCrypto.hmacHex("preview-ticket-v2",previewToken))).isBetween(1L,90L);
         HttpHeaders previewHeaders=new HttpHeaders();previewHeaders.setBearerAuth(previewToken);previewHeaders.setAccept(List.of(MediaType.valueOf("video/quicktime")));
         assertThat(http.exchange("/api/v1/delivery/live-photo/video",HttpMethod.GET,new HttpEntity<>(previewHeaders),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(http.exchange("/api/v1/delivery/live-photo/source",HttpMethod.GET,new HttpEntity<>(previewHeaders),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         var streamed=http.exchange("/api/v1/preview/live-photo/video",HttpMethod.GET,new HttpEntity<>(previewHeaders),byte[].class);
         assertThat(streamed.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(streamed.getHeaders().getContentType()).isEqualTo(MediaType.valueOf("video/quicktime"));
         assertThat(streamed.getHeaders().getCacheControl()).isEqualTo("no-store");
         assertThat(streamed.getBody()).containsExactly(expectedVideo);
 
-        jdbc.update("UPDATE wallpaper SET access_type='FREE',lock_version=lock_version+1 WHERE id=?",wallpaperId);
         String formalPath="/api/v1/device/wallpapers/"+wallpaperId+"/download-tickets";
+        var denied=http.exchange(formalPath,HttpMethod.POST,iosSignedEntity(signing,token,"POST",formalPath,body),JsonNode.class);
+        assertThat(denied.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(denied.getBody().path("error").path("code").asText()).isEqualTo("ENTITLEMENT_REQUIRED");
+
+        jdbc.update("UPDATE wallpaper SET access_type='FREE',lock_version=lock_version+1 WHERE id=?",wallpaperId);
         var formal=http.exchange(formalPath,HttpMethod.POST,iosSignedEntity(signing,token,"POST",formalPath,body),JsonNode.class);
         assertThat(formal.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(formal.getBody().path("photo").isMissingNode() || formal.getBody().path("photo").isNull()).isTrue();
+        assertThat(formal.getBody().path("video").isMissingNode() || formal.getBody().path("video").isNull()).isTrue();
+        assertThat(formal.getBody().path("sourceVideo").path("url").asText()).isEqualTo("/api/v1/delivery/live-photo/source");
+        assertThat(formal.getBody().path("sourceVideo").path("mimeType").asText()).isEqualTo("video/mp4");
+        assertThat(formal.getBody().path("sourceVideo").path("sizeBytes").asLong()).isEqualTo(sourceBytes.length);
+        assertThat(formal.getBody().path("sourceVideo").path("sha256").asText()).isEqualTo(source.path("sha256").asText());
         HttpHeaders formalHeaders=new HttpHeaders();formalHeaders.setBearerAuth(formal.getBody().path("ticket").asText());
         assertThat(http.exchange("/api/v1/preview/live-photo/video",HttpMethod.GET,new HttpEntity<>(formalHeaders),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        formalHeaders.setAccept(List.of(MediaType.valueOf("video/mp4")));
+        var sourceDownload=http.exchange("/api/v1/delivery/live-photo/source",HttpMethod.GET,new HttpEntity<>(formalHeaders),byte[].class);
+        assertThat(sourceDownload.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(sourceDownload.getHeaders().getContentType()).isEqualTo(MediaType.valueOf("video/mp4"));
+        assertThat(sourceDownload.getHeaders().getCacheControl()).isEqualTo("no-store");
+        assertThat(sourceDownload.getHeaders().getContentLength()).isEqualTo(sourceBytes.length);
+        assertThat(sourceDownload.getBody()).containsExactly(sourceBytes);
+
+        String formalToken=formal.getBody().path("ticket").asText();
+        var pendingSource=downloadTickets.readLivePhotoSourceFile(formalToken);
+        jdbc.update("UPDATE asset SET sha256=? WHERE id=?","f".repeat(64),source.path("id").asLong());
+        assertThatThrownBy(()->pendingSource.writer().write(new ByteArrayOutputStream()))
+                .isInstanceOfSatisfying(com.qingjing.wallpaper.shared.web.ApiException.class,
+                        failure->assertThat(failure.code()).isEqualTo("DOWNLOAD_TICKET_INVALID"));
+        assertThatThrownBy(()->downloadTickets.readLivePhotoSourceFile(formalToken))
+                .isInstanceOfSatisfying(com.qingjing.wallpaper.shared.web.ApiException.class,
+                        failure->assertThat(failure.code()).isEqualTo("DOWNLOAD_TICKET_INVALID"));
 
         jdbc.update("UPDATE live_photo_package SET video_sha256=? WHERE resource_version_id=?","f".repeat(64),versionId);
         assertThat(http.exchange("/api/v1/preview/live-photo/video",HttpMethod.GET,new HttpEntity<>(previewHeaders),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
