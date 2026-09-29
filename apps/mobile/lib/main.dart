@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'design_system/qj_theme.dart';
@@ -91,21 +92,23 @@ class _HomeShellState extends State<HomeShell> {
   bool downloadDialogVisible = false;
   late final redemptions = RedemptionCoordinator(
     SessionRedemptionApi(widget.sessions),
-    AndroidPendingStore(),
+    platformPendingStore(),
   );
   late final downloads = DownloadManager(widget.sessions, widget.apiBase);
   @override
   void initState() {
     super.initState();
     downloads.addListener(_downloadChanged);
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      try {
-        const native = AndroidTrialPreview();
-        final saved = await native.recover();
-        // Trial entry is hidden for Android 1.0; silently clear old sessions.
-        if (saved != null) await native.discard(saved['trialId'] as String);
-      } catch (_) {}
-    });
+    if (Platform.isAndroid) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        try {
+          const native = AndroidTrialPreview();
+          final saved = await native.recover();
+          // Trial entry is hidden for Android 1.0; silently clear old sessions.
+          if (saved != null) await native.discard(saved['trialId'] as String);
+        } catch (_) {}
+      });
+    }
   }
 
   @override

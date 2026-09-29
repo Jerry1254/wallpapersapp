@@ -4,6 +4,24 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../device/device_session.dart';
 
+String clientDeliveryPlatform([TargetPlatform? target]) =>
+    (target ?? defaultTargetPlatform) == TargetPlatform.iOS ? 'IOS' : 'ANDROID';
+
+bool supportsClientCapability(
+  String deliveryPlatform,
+  String resourceType, {
+  String? clientPlatform,
+}) {
+  final platform = clientPlatform ?? clientDeliveryPlatform();
+  return (deliveryPlatform == 'UNIVERSAL' && resourceType == 'STATIC_IMAGE') ||
+      (platform == 'IOS' &&
+          deliveryPlatform == 'IOS' &&
+          resourceType == 'LIVE_PHOTO') ||
+      (platform == 'ANDROID' &&
+          deliveryPlatform == 'ANDROID' &&
+          {'LAYER_PARALLAX', 'VIDEO'}.contains(resourceType));
+}
+
 class ApiFailure implements Exception {
   const ApiFailure(this.status, this.code);
   final int status;
@@ -49,14 +67,15 @@ class Wallpaper {
               Map<String, dynamic>.from(item as Map),
             ),
           )
-          .where((item) => item.availableInAndroidPackage)
+          .where((item) => item.availableInClientPackage)
           .toList(growable: false),
       copyright = json['copyrightNote'] as String?;
   final String id, title, accessType, cover;
   final List<AvailableCapability> availableCapabilities;
   final String? copyright;
   bool get isFree => accessType == 'FREE';
-  bool get availableInAndroidPackage => availableCapabilities.isNotEmpty;
+  bool get availableInClientPackage => availableCapabilities.isNotEmpty;
+  bool get availableInAndroidPackage => availableInClientPackage;
   List<String> get capabilityLabels {
     final labels = availableCapabilities
         .map(
@@ -93,15 +112,13 @@ class AvailableCapability {
       );
   final String deliveryPlatform, resourceType;
   final Set<String> placements;
-  bool get availableInAndroidPackage =>
-      (deliveryPlatform == 'ANDROID' &&
-          {'LAYER_PARALLAX', 'VIDEO'}.contains(resourceType)) ||
-      (deliveryPlatform == 'UNIVERSAL' && resourceType == 'STATIC_IMAGE');
+  bool get availableInClientPackage =>
+      supportsClientCapability(deliveryPlatform, resourceType);
+  bool get availableInAndroidPackage => availableInClientPackage;
 
   String get label => switch (resourceType) {
     'LAYER_PARALLAX' => '4D壁纸',
-    'VIDEO' => '安卓动态壁纸',
-    'LIVE_PHOTO' => '苹果动态壁纸',
+    'VIDEO' || 'LIVE_PHOTO' => '动态壁纸',
     'THEME_PACKAGE' => '华为动态壁纸',
     'STATIC_IMAGE' => '静态壁纸',
     _ => '未知形式',
@@ -113,7 +130,7 @@ class WallpaperPage {
   WallpaperPage.fromJson(Map<String, dynamic> json)
     : items = (json['items'] as List)
           .map((e) => Wallpaper.fromJson(e as Map<String, dynamic>))
-          .where((item) => item.availableInAndroidPackage)
+          .where((item) => item.availableInClientPackage)
           .toList(),
       page = (json['page'] as Map<String, dynamic>)['page'] as int,
       totalPages = (json['page'] as Map<String, dynamic>)['totalPages'] as int;
@@ -261,7 +278,7 @@ class HttpCatalogRepository implements CatalogRepository {
     final wallpaper = Wallpaper.fromJson(
       await _get('/public/wallpapers/${Uri.encodeComponent(_id(id))}'),
     );
-    if (!wallpaper.availableInAndroidPackage) {
+    if (!wallpaper.availableInClientPackage) {
       throw const ApiFailure(404, 'WALLPAPER_NOT_AVAILABLE_FOR_DEVICE');
     }
     return wallpaper;

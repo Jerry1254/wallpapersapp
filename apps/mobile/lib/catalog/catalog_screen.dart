@@ -69,7 +69,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
         'deliveryPlatform': 'ANDROID',
         'resourceType': 'LAYER_PARALLAX',
       },
-      '动态壁纸' => {'deliveryPlatform': 'ANDROID', 'resourceType': 'VIDEO'},
+      '动态壁纸' => {
+        'deliveryPlatform': clientDeliveryPlatform(),
+        'resourceType': clientDeliveryPlatform() == 'IOS'
+            ? 'LIVE_PHOTO'
+            : 'VIDEO',
+      },
       '静态壁纸' => {
         'deliveryPlatform': 'UNIVERSAL',
         'resourceType': 'STATIC_IMAGE',
@@ -206,12 +211,20 @@ class _CatalogScreenState extends State<CatalogScreen> {
                   const SizedBox(height: T.space7),
                   _heading(view == '精选推荐' ? '精选壁纸' : view),
                   const SizedBox(height: T.space3),
-                  _filters(['精选推荐', '免费壁纸', '4D动态', '动态壁纸', '静态壁纸'], view, (
-                    value,
-                  ) {
-                    setState(() => view = value);
-                    _reload();
-                  }),
+                  _filters(
+                    [
+                      '精选推荐',
+                      '免费壁纸',
+                      if (clientDeliveryPlatform() == 'ANDROID') '4D动态',
+                      '动态壁纸',
+                      '静态壁纸',
+                    ],
+                    view,
+                    (value) {
+                      setState(() => view = value);
+                      _reload();
+                    },
+                  ),
                 ],
                 if (widget.category != null) ...[
                   const SizedBox(height: T.space6),

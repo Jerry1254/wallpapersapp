@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
 import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
 import 'package:qingjing_wallpaper/device/device_session.dart';
@@ -56,6 +57,48 @@ class Sessions extends DeviceSessionManager {
   }
 }
 
+class IosSessions extends DeviceSessionManager {
+  IosSessions() : super(NoTransport());
+  int calls = 0;
+
+  @override
+  Future<Map<String, dynamic>> authenticated(
+    String path, {
+    String method = 'GET',
+    String? body,
+    bool signed = false,
+    Map<String, String> headers = const {},
+    Set<int> accepted = const {},
+  }) async {
+    expect(path, '/device/wallpapers/10/download-tickets');
+    expect(method, 'POST');
+    expect(signed, true);
+    expect(jsonDecode(body!), {
+      'deliveryPlatform': 'IOS',
+      'resourceType': 'LIVE_PHOTO',
+    });
+    calls++;
+    return {
+      'deliveryMode': 'LIVE_PHOTO',
+      'wallpaperId': '10',
+      'ticket': 'a' * 43,
+      'resourceVersion': {'platform': 'IOS', 'resourceType': 'LIVE_PHOTO'},
+      'photo': {
+        'url': '/api/v1/delivery/live-photo/image',
+        'mimeType': 'image/heic',
+        'sizeBytes': 100,
+        'sha256': 'b' * 64,
+      },
+      'video': {
+        'url': '/api/v1/delivery/live-photo/video',
+        'mimeType': 'video/quicktime',
+        'sizeBytes': 200,
+        'sha256': 'c' * 64,
+      },
+    };
+  }
+}
+
 class Installer extends AndroidPackageInstaller {
   final stream = StreamController<PackageDownloadProgress>.broadcast(
     sync: true,
@@ -84,6 +127,8 @@ class Installer extends AndroidPackageInstaller {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('只有原生安全安装完成才记录下载成功，过滤其他下载事件', () async {
     final installer = Installer(), sessions = Sessions();
     final manager = DownloadManager(
@@ -197,5 +242,40 @@ void main() {
     expect(manager.value.message, '空间不足');
     manager.dispose();
     await installer.stream.close();
+  });
+
+  test('iOS 申请 Live Photo 票据并只向固定原生桥传递同源地址', () async {
+    const channel = MethodChannel('qingjing/wallpaper_ios');
+    final nativeCalls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          nativeCalls.add(call);
+          if (call.method == 'saveMedia') return 'photos-local-id';
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+    final sessions = IosSessions();
+    final manager = DownloadManager(
+      sessions,
+      Uri.parse('https://wallpaper.biguo66.top/api/v1'),
+      ios: true,
+    );
+    addTearDown(manager.dispose);
+
+    await manager.download('10', 'IOS', 'LIVE_PHOTO');
+
+    expect(sessions.calls, 1);
+    expect(manager.value.status, 'completed');
+    expect(manager.value.installedId, 'photos-local-id');
+    expect(manager.value.message, '已保存到相册，请设置');
+    expect(nativeCalls, hasLength(1));
+    expect(nativeCalls.single.method, 'saveMedia');
+    expect(
+      (nativeCalls.single.arguments as Map)['apiOrigin'],
+      'https://wallpaper.biguo66.top',
+    );
   });
 }
