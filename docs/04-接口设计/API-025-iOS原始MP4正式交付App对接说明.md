@@ -1,12 +1,14 @@
 # API-025 iOS 原始 MP4 正式交付 App 对接说明
 
-**状态：** Java API 已完成并推送，待部署后与 iOS 真机联调
+**状态：** 已完成、已部署并通过 iOS 真机端到端联调
 
-**日期：** 2026-09-29
+**日期：** 2026-09-30
 
 **OpenAPI 版本：** `2.13.0`
 
 **Java 提交：** `99e9524 完成：iOS正式交付原始视频`
+
+**iOS 提交：** `e7ad5b3 优化：iOS使用原始视频单次生成动态壁纸`
 
 ## 1. 本次对接结论
 
@@ -129,6 +131,21 @@ iOS 获得原始 MP4 后：
 8. 先通过 `PHLivePhoto.request` 验证，再使用 `.photo + .pairedVideo` 保存。
 9. 无论成功、失败或取消，都删除原始 MP4 和中间临时文件。
 
+当前客户端的实际实现位置：
+
+- `packages/wallpaper-ios/ios/Classes/WallpaperIosPlugin.swift`：描述校验、短票据下载、禁止重定向、大小与 SHA-256 校验、系统相册权限、`PHLivePhoto.request` 验证、相册保存和临时文件清理。
+- `packages/wallpaper-ios/ios/Classes/NativeLivePhotoComposer.swift`：前 60 个显示帧、设备比例画布、HEVC 单次编码、HEIC 封面、统一 UUID 和 paired MOV 生成。
+- `packages/wallpaper-ios/ios/Resources/wallpaper-metadata-template.mov`：提供两条 Apple Live Photo metadata 轨，最终 MOV 保证视频轨排在前面。
+
+画质参数已经定版：
+
+- 从 `UIScreen.main.nativeBounds` 取得当前设备竖屏比例。
+- 目标画布保留源视频显示尺寸，只扩展比例不足的一边；最大边超过 4096 时才整体缩小，宽高最终取偶数。
+- 前景使用 `aspectFit` 完整居中，背景使用同帧 `aspectFill + CIGaussianBlur(radius: 36)`。
+- HEVC Main、60 fps、60 帧、1 秒；平均码率为 `宽 × 高 × 60 × 0.30`，限制在 40～100 Mbps。
+- HEIC 取最终画布第 31 帧并使用质量 `1.0` 写出；HEIC MakerApple `17` 与 MOV Content Identifier 使用同一个新 UUID。
+- 输入中的音频、字幕、数据轨和第 61 帧以后的内容都不会进入最终成品。
+
 ## 5. 预览接口保持不变
 
 详情长按预览仍使用：
@@ -200,6 +217,6 @@ GET /api/v1/delivery/live-photo/video
 
 ## 11. 当前发布状态
 
-Java 代码、OpenAPI `2.13.0` 和相关测试已推送到 `origin/main`，但当前还没有部署到线上服务器。
+Java 代码、OpenAPI `2.13.0` 和相关测试已经推送并部署到生产环境。线上活动发布为 `20260930-010553-757fbd43062b`，Readiness 为 `UP`；未带票据读取原始 MP4 端点会返回 `401 DOWNLOAD_TICKET_INVALID`。
 
-iOS 联调前需要先发布包含提交 `99e9524` 的 Java API。部署完成后，以真机验证文件校验、画质、相册播放和锁屏动态效果。
+iOS Release `1.0.0 (10021)` 已使用线上 API 构建，签名校验通过，并覆盖安装到 iPad。正式兑换下载链路已经完成真机验证：原始 MP4 下载校验通过，本地生成结果可保存为 Live Photo，锁屏动态效果可用；用户已确认整体效果和画质符合当前预期。

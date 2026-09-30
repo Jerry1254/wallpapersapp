@@ -1,8 +1,8 @@
 # API-024 iOS 动态壁纸端到端实现与发布手册
 
-**状态：** iOS 客户端已切换原始 MP4 单次编码；Java API 等待按本文第 5 节改造和部署
+**状态：** 已完成并通过 iPad 真机端到端验证；Java API `2.13.0` 已部署，iOS 正式版已使用原始 MP4 单次编码方案
 
-**日期：** 2026-09-29
+**日期：** 2026-09-30
 
 **OpenAPI 版本：** `2.13.0`
 
@@ -27,6 +27,16 @@
 
 1. 给用户或测试设备安装时必须构建 `Release`。iOS 14 以后，Flutter `Debug` 包从桌面独立启动会白屏或被系统终止。
 2. Release 构建必须显式传入 `API_BASE_URL=https://wallpaper.biguo66.top/api/v1`。省略后应用会使用保护地址 `https://api.invalid/api/v1`，页面可以打开但不会加载任何线上商品。
+
+### 1.1 当前定版实现
+
+当前生产实现已经固定为以下三段，不再把后端生成的 HEIC/MOV 当作正式下载成品：
+
+1. **运营上传**：管理后台只上传原始 MP4；Java 私有保存 `LIVE_PHOTO_SOURCE`，同时生成 1 秒预览 MOV。
+2. **免费预览**：详情页只取得预览票据和轻量 MOV，资源加载完成后支持长按循环播放；未兑换用户无法取得原始 MP4。
+3. **兑换下载**：权益通过后，Java 用 90 秒短票据交付原始 MP4；iOS 校验 MIME、大小和 SHA-256 后，在设备本地取前 60 个显示帧、生成设备比例高质量画布，只进行一次 HEVC 编码，再生成并验证 Live Photo。
+
+最终文件不是服务器直接生成的 Live Photo。服务器负责授权与安全交付，iOS 负责与当前设备匹配的最终画布、Apple 配对元数据、系统验证和相册保存。这一职责划分同时解决了画质损失、设备比例和锁屏“动态效果不可用”三个问题。
 
 ## 2. 已验证的 IntoLive 基准
 
@@ -291,6 +301,8 @@ OpenAPI 升级为 `2.13.0`。预览接口保持不变：
 5. 验收通过后再单独确认并部署生产 Java API，随后打包 iOS 正式版。
 
 验收通过的最终标准不是“相册里能动”，而是 iOS 锁屏编辑页不再显示“动态效果不可用”，并且设置后按压可播放完整动画。
+
+本流程已于 2026-09-30 完整执行：生产 API 升级到 OpenAPI `2.13.0`，iOS Release `1.0.0 (10021)` 覆盖安装到 iPad，兑换后以原始 MP4 在本地生成 Live Photo；用户已确认整体动态效果和画质符合当前预期。
 
 ## 9. 前后端职责边界
 
@@ -680,3 +692,33 @@ https://api.invalid/api/v1
 | iOS ECDSA 凭据验证 | `services/api-server/src/main/java/com/qingjing/wallpaper/device/IosCredentialProof.java` |
 | OpenAPI 契约 | `contracts/openapi/openapi.yaml` |
 | iOS 固定打包流程 | `/Users/kele/.codex/skills/qingjing-ios-package/SKILL.md` |
+
+## 18. 生产验证记录
+
+### 18.1 Java API
+
+- 线上活动发布：`20260930-010553-757fbd43062b`
+- OpenAPI：`2.13.0`
+- 环境：`ONLINE_MAIN / VALIDATION`
+- Git 提交：`757fbd43062bfbf6d1bdfcda6cd7ccc7593fc576`
+- Flyway：`14`
+- Readiness：`UP`
+- 未带正式票据访问 `GET /api/v1/delivery/live-photo/source` 时返回 `401 DOWNLOAD_TICKET_INVALID`，证明原始 MP4 端点没有公开读取能力。
+
+### 18.2 iOS 正式版
+
+- 构建配置：Flutter `Release`
+- Bundle ID：`com.qingjing.bizhi`
+- 版本：`1.0.0 (10021)`
+- API：`https://wallpaper.biguo66.top/api/v1`
+- 签名：`codesign --verify --deep --strict` 通过
+- 设备：iPad Pro 11 英寸（第三代）
+- 安装与启动：覆盖安装成功，独立启动后进程持续运行
+
+### 18.3 业务验收
+
+- 详情页使用后端预览 MOV，长按可查看动态效果。
+- 正式下载使用受保护的原始 MP4，不使用后端预览 MOV 作为最终合成输入。
+- iOS 本地只编码一次，主体保持源分辨率，缺失区域由同帧模糊背景扩展。
+- 生成结果可识别为 Live Photo，锁屏动态效果可用。
+- 用户于 2026-09-30 确认整体动态效果和画质符合当前预期。
