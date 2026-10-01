@@ -6,6 +6,7 @@ import '../detail/detail_screen.dart';
 import '../detail/help_screen.dart';
 import '../downloads/download_manager.dart';
 import '../entitlements/redemption.dart';
+import '../entitlements/ios_acquisition.dart';
 import '../lab/parallax_lab_screen.dart';
 import 'catalog.dart';
 import 'catalog_image.dart';
@@ -21,6 +22,7 @@ class CatalogScreen extends StatefulWidget {
     this.category,
     this.search,
     this.labMode = false,
+    this.iosAcquisition,
   });
   final CatalogRepository repository;
   final RedemptionCoordinator? redemptions;
@@ -30,6 +32,7 @@ class CatalogScreen extends StatefulWidget {
   final Category? category;
   final String? search;
   final bool labMode;
+  final IosAcquisitionController? iosAcquisition;
   @override
   State<CatalogScreen> createState() => _CatalogScreenState();
 }
@@ -113,6 +116,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
           playback: widget.playback,
           onTab: widget.onTab,
           labMode: widget.labMode,
+          iosAcquisition: widget.iosAcquisition,
         ),
       ),
     );
@@ -138,6 +142,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 redemptions: widget.redemptions,
                 downloads: widget.downloads,
                 playback: widget.playback,
+                iosAcquisition: widget.iosAcquisition,
               ),
       ),
     );
@@ -155,6 +160,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
         playback: widget.playback,
         onTab: widget.onTab,
         labMode: widget.labMode,
+        iosAcquisition: widget.iosAcquisition,
       ),
     ),
   );

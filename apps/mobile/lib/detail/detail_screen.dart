@@ -9,6 +9,7 @@ import '../downloads/download_manager.dart';
 import '../downloads/download_panel.dart';
 import '../entitlements/redemption.dart';
 import '../entitlements/redemption_dialog.dart';
+import '../entitlements/ios_acquisition.dart';
 import 'delivery.dart';
 import 'detail_preview.dart';
 import 'help_screen.dart';
@@ -35,6 +36,7 @@ class DetailScreen extends StatefulWidget {
     this.playback,
     this.trials,
     this.detailPreviewBuilder,
+    this.iosAcquisition,
   });
   final CatalogRepository repository;
   final String id;
@@ -43,6 +45,7 @@ class DetailScreen extends StatefulWidget {
   final AndroidWallpaperPlayback? playback;
   final TrialManager? trials;
   final DetailPreviewBuilder? detailPreviewBuilder;
+  final IosAcquisitionController? iosAcquisition;
   @override
   State<DetailScreen> createState() => _DetailScreenState();
 }
@@ -69,6 +72,7 @@ class _DetailScreenState extends State<DetailScreen> {
     super.initState();
     future = widget.repository.detail(widget.id);
     widget.downloads?.addListener(_downloadChanged);
+    widget.iosAcquisition?.addListener(_downloadChanged);
   }
 
   void _downloadChanged() {
@@ -90,6 +94,7 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   void _loadOwnership(Wallpaper wallpaper) {
+    if (widget.iosAcquisition != null) return;
     if (wallpaper.isFree || trials == null || _ownershipKey == widget.id) {
       return;
     }
@@ -164,6 +169,20 @@ class _DetailScreenState extends State<DetailScreen> {
     Wallpaper wallpaper,
     WallpaperDeliveryOption option,
   ) async {
+    final ios = widget.iosAcquisition;
+    if (ios != null) {
+      try {
+        if (!await ios.acquire(widget.id) || !mounted) return;
+        await _openDownload(option);
+      } on IosAcquisitionNotice catch (notice) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(notice.message)));
+        }
+      }
+      return;
+    }
     var redeemedNow = false;
     if (!wallpaper.isFree && owned == null && trials != null) {
       await _ownership();
@@ -288,6 +307,7 @@ class _DetailScreenState extends State<DetailScreen> {
   @override
   void dispose() {
     widget.downloads?.removeListener(_downloadChanged);
+    widget.iosAcquisition?.removeListener(_downloadChanged);
     if (widget.trials == null) trials?.dispose();
     super.dispose();
   }
@@ -357,9 +377,12 @@ class _DetailScreenState extends State<DetailScreen> {
                 });
               }
               final usable = options.isNotEmpty;
-              final waitsForOwnership =
-                  !wallpaper.isFree && trials != null && owned == null;
-              final hasAccess = wallpaper.isFree || owned == true;
+              final ios = widget.iosAcquisition;
+              final waitsForOwnership = ios != null
+                  ? ios.busy
+                  : !wallpaper.isFree && trials != null && owned == null;
+              final hasAccess =
+                  ios?.owns(widget.id) ?? (wallpaper.isFree || owned == true);
               final downloadState = widget.downloads?.value;
               final downloadingCurrent =
                   previewOption != null &&
@@ -387,6 +410,10 @@ class _DetailScreenState extends State<DetailScreen> {
                         : '下载中 $progress%'
                   : !usable
                   ? '暂无可用资源'
+                  : ios != null
+                  ? justSavedToPhotos && ios.owns(widget.id)
+                        ? '已保存到相册，请设置'
+                        : ios.label(widget.id)
                   : waitsForOwnership
                   ? '正在确认权益'
                   : !wallpaper.isFree && owned == false
@@ -598,7 +625,21 @@ class _DetailScreenState extends State<DetailScreen> {
                                     ),
                                   ),
                                 ),
-                                if (!wallpaper.isFree && ownershipError != null)
+                                if (ios != null && ios.error != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                      top: T.space3,
+                                    ),
+                                    child: Text(
+                                      ios.error!,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                  ),
+                                if (ios == null &&
+                                    !wallpaper.isFree &&
+                                    ownershipError != null)
                                   SizedBox(
                                     width: available.maxWidth,
                                     child: Padding(
@@ -634,8 +675,10 @@ class _DetailScreenState extends State<DetailScreen> {
                                         usable &&
                                             !waitsForOwnership &&
                                             !downloadingCurrent &&
-                                            (wallpaper.isFree ||
-                                                ownershipError == null)
+                                            (ios != null
+                                                ? ios.canAcquire(widget.id)
+                                                : (wallpaper.isFree ||
+                                                      ownershipError == null))
                                         ? () =>
                                               _action(wallpaper, previewOption!)
                                         : null,

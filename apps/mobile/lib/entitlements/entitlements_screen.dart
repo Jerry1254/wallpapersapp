@@ -9,6 +9,7 @@ import '../device/device_session.dart';
 import '../downloads/download_manager.dart';
 import '../privacy/privacy_gate.dart';
 import 'redemption.dart';
+import 'ios_acquisition.dart';
 
 class EntitlementsScreen extends StatefulWidget {
   const EntitlementsScreen({
@@ -20,6 +21,7 @@ class EntitlementsScreen extends StatefulWidget {
     this.playback,
     this.active = true,
     this.onHome,
+    this.iosAcquisition,
   });
   final DeviceSessionManager sessions;
   final CatalogRepository catalog;
@@ -28,6 +30,7 @@ class EntitlementsScreen extends StatefulWidget {
   final AndroidWallpaperPlayback? playback;
   final bool active;
   final VoidCallback? onHome;
+  final IosAcquisitionController? iosAcquisition;
   @override
   State<EntitlementsScreen> createState() => _EntitlementsScreenState();
 }
@@ -37,15 +40,42 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
   bool busy = false, loaded = false, pending = false;
   int page = 0, totalPages = 0;
   String? message;
+  String? _acquisitionIds;
+  bool _acquisitionReloadRequested = false;
   @override
   void initState() {
     super.initState();
+    widget.iosAcquisition?.addListener(_acquisitionChanged);
     if (widget.active) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         load();
         _pending();
       });
     }
+  }
+
+  void _acquisitionChanged() {
+    final state = widget.iosAcquisition?.state;
+    if (!mounted || state == null) return;
+    final ids = {
+      ...state.freeWallpaperIds,
+      ...state.purchasedWallpaperIds,
+    }.toList()..sort();
+    final version = ids.join(',');
+    if (_acquisitionIds == version) return;
+    _acquisitionIds = version;
+    loaded = false;
+    if (busy) {
+      _acquisitionReloadRequested = true;
+      return;
+    }
+    if (widget.active) load();
+  }
+
+  @override
+  void dispose() {
+    widget.iosAcquisition?.removeListener(_acquisitionChanged);
+    super.dispose();
   }
 
   @override
@@ -66,6 +96,7 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
 
   Future<void> load({bool more = false}) async {
     if (busy) return;
+    _acquisitionReloadRequested = false;
     setState(() {
       busy = true;
       message = null;
@@ -100,6 +131,9 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
       }
     } finally {
       if (mounted) setState(() => busy = false);
+      if (mounted && widget.active && _acquisitionReloadRequested) {
+        await load();
+      }
     }
   }
 
@@ -123,6 +157,26 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
     await load();
   }
 
+  Future<void> restorePurchases() async {
+    final ios = widget.iosAcquisition;
+    if (ios == null || busy) return;
+    setState(() => busy = true);
+    String result;
+    try {
+      result = await ios.restore();
+    } on IosAcquisitionNotice catch (notice) {
+      result = notice.message;
+    }
+    if (!mounted) return;
+    setState(() {
+      busy = false;
+      message = result;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result)));
+    // Refresh the installed entitlement list once after the explicit restore.
+    await load();
+  }
+
   void detail(Wallpaper item) => Navigator.push(
     context,
     MaterialPageRoute<void>(
@@ -132,6 +186,7 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
         downloads: widget.downloads,
         playback: widget.playback,
         redemptions: widget.redemptions,
+        iosAcquisition: widget.iosAcquisition,
       ),
     ),
   );
@@ -190,17 +245,23 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
               ),
             ),
             OutlinedButton(
-              onPressed: busy ? null : load,
+              onPressed: busy
+                  ? null
+                  : widget.iosAcquisition == null
+                  ? load
+                  : restorePurchases,
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
               ),
-              child: const Text('刷新权益'),
+              child: Text(widget.iosAcquisition == null ? '刷新权益' : '恢复购买'),
             ),
           ],
         ),
         const SizedBox(height: T.space2),
         Text(
-          '权益属于当前安装身份。清除 App 数据后将创建新设备。',
+          widget.iosAcquisition == null
+              ? '权益属于当前安装身份。清除 App 数据后将创建新设备。'
+              : '免费获取记录保留于本次安装；已购买壁纸可通过原苹果账户恢复。',
           style: Theme.of(context).textTheme.bodySmall,
         ),
         if (pending)
@@ -239,7 +300,9 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
           Padding(
             padding: const EdgeInsets.only(top: T.space4),
             child: QjStatePanel(
-              description: '兑换壁纸后会显示在这里',
+              description: widget.iosAcquisition == null
+                  ? '兑换壁纸后会显示在这里'
+                  : '免费获取或购买的壁纸会显示在这里',
               onPressed: widget.onHome ?? () {},
             ),
           ),

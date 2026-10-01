@@ -12,6 +12,8 @@ import 'detail/detail_preview.dart';
 import 'device/device_session.dart';
 import 'entitlements/redemption.dart';
 import 'entitlements/entitlements_screen.dart';
+import 'entitlements/ios_acquisition.dart';
+import 'package:wallpaper_ios/wallpaper_ios.dart';
 import 'downloads/download_manager.dart';
 import 'downloads/global_download_dialog.dart';
 import 'privacy/privacy_gate.dart';
@@ -95,10 +97,18 @@ class _HomeShellState extends State<HomeShell> {
     platformPendingStore(),
   );
   late final downloads = DownloadManager(widget.sessions, widget.apiBase);
+  late final IosAcquisitionController? iosAcquisition =
+      Platform.isIOS && AppConfig.iosAcquisitionEnabled
+      ? IosAcquisitionController(
+          SessionIosAcquisitionApi(widget.sessions),
+          NativeIosPurchaseStore(cacheScope: widget.apiBase.toString()),
+        )
+      : null;
   @override
   void initState() {
     super.initState();
     downloads.addListener(_downloadChanged);
+    if (iosAcquisition != null) unawaited(iosAcquisition!.initialize());
     if (Platform.isAndroid) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         try {
@@ -115,6 +125,7 @@ class _HomeShellState extends State<HomeShell> {
   void dispose() {
     downloads.removeListener(_downloadChanged);
     downloads.dispose();
+    iosAcquisition?.dispose();
     super.dispose();
   }
 
@@ -162,6 +173,7 @@ class _HomeShellState extends State<HomeShell> {
                 downloads: downloads,
                 playback: widget.playback,
                 labMode: widget.labMode,
+                iosAcquisition: iosAcquisition,
                 onTab: (value) => setState(() => index = value),
               ),
             ),
@@ -174,6 +186,7 @@ class _HomeShellState extends State<HomeShell> {
                 downloads: downloads,
                 playback: widget.playback,
                 active: index == 1,
+                iosAcquisition: iosAcquisition,
                 onHome: () => setState(() => index = 0),
               ),
             ),

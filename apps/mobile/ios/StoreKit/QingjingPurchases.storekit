@@ -1,0 +1,43 @@
+{
+  "identifier": "789385F5-6503-4210-BC8D-0894B506BB6E",
+  "nonRenewingSubscriptions": [],
+  "products": [
+    {
+      "displayPrice": "1.00",
+      "familyShareable": false,
+      "internalID": "1B5B5B2A-425E-4502-BC70-F0F4C85E11BC",
+      "localizations": [{
+        "description": "本地测试商品，不会扣费，不代表正式价格",
+        "displayName": "壁纸一（测试）",
+        "locale": "zh_CN"
+      }],
+      "productID": "com.qingjing.bizhi.test.wallpaper.1",
+      "referenceName": "Wallpaper 1 - TEST ONLY",
+      "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "1.00",
+      "familyShareable": false,
+      "internalID": "4D87DA8E-3E18-44FD-B86F-BED941213C89",
+      "localizations": [{
+        "description": "本地测试商品，不会扣费，不代表正式价格",
+        "displayName": "壁纸二（测试）",
+        "locale": "zh_CN"
+      }],
+      "productID": "com.qingjing.bizhi.test.wallpaper.2",
+      "referenceName": "Wallpaper 2 - TEST ONLY",
+      "type": "NonConsumable"
+    }
+  ],
+  "settings": {
+    "_applicationInternalID": "",
+    "_developerTeamID": "",
+    "_disableDialogs": false,
+    "_failTransactionsEnabled": false,
+    "_locale": "zh_CN",
+    "_storefront": "CHN",
+    "_storeKitErrors": []
+  },
+  "subscriptionGroups": [],
+  "version": {"major": 3, "minor": 0}
+}

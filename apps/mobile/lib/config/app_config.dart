@@ -21,6 +21,11 @@ class AppConfig {
   }
   final String environment;
   final Uri apiBase;
+  // Keep the deployed redemption flow until the new Apple-backed API is ready.
+  static const iosAcquisitionEnabled = bool.fromEnvironment(
+    'IOS_ACQUISITION_ENABLED',
+    defaultValue: false,
+  );
   static AppConfig fromBuild() {
     const endpoint = String.fromEnvironment(
       'API_BASE_URL',

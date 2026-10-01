@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+export 'ios_purchase.dart';
 
 class IosInstallationIdentity {
   const IosInstallationIdentity({

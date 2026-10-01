@@ -17,6 +17,7 @@ public final class WallpaperIosPlugin: NSObject, FlutterPlugin {
   private var previewDirectories: [String: URL] = [:]
 
   public static func register(with registrar: FlutterPluginRegistrar) {
+    IosAcquisitionBridge.register(with: registrar)
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: registrar.messenger())
     registrar.addMethodCallDelegate(WallpaperIosPlugin(), channel: channel)
   }
