@@ -135,7 +135,8 @@ public final class AdminContentDtos {
             Instant updatedAt,
             long version,
             String copyrightNote,
-            List<AdminWallpaperVariant> variants) {
+            List<AdminWallpaperVariant> variants,
+            com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.IosProductConfiguration iosAcquisition) {
     }
 
     public record AdminWallpaperPage(List<AdminWallpaperSummary> items, PageMetadata page) {

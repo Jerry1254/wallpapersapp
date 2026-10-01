@@ -7,6 +7,8 @@ import com.qingjing.wallpaper.redemption.AdminRedemptionDtos.AdminDeviceCredenti
 import com.qingjing.wallpaper.redemption.AdminRedemptionDtos.AdminDeviceDetail;
 import com.qingjing.wallpaper.redemption.AdminRedemptionDtos.AdminDevicePage;
 import com.qingjing.wallpaper.redemption.AdminRedemptionDtos.AdminDeviceSummary;
+import com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.AdminIosDeviceAcquisition;
+import com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.ResetOperation;
 import com.qingjing.wallpaper.redemption.AdminRedemptionDtos.AdminEntitlement;
 import com.qingjing.wallpaper.redemption.AdminRedemptionDtos.AdminRedemptionDetail;
 import com.qingjing.wallpaper.redemption.AdminRedemptionDtos.AdminRedemptionPage;
@@ -117,7 +119,9 @@ public class AdminRedemptionViewService {
             int page,
             int pageSize,
             DevicePlatform platform,
-            DeviceStatus status) {
+            DeviceStatus status,
+            String publicId,
+            Boolean iosTestDevice) {
         validatePage(page, pageSize);
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         List<Object> arguments = new ArrayList<>();
@@ -129,8 +133,16 @@ public class AdminRedemptionViewService {
             where.append(" AND d.status = ?");
             arguments.add(status.name());
         }
+        if (publicId != null && !publicId.isBlank()) {
+            where.append(" AND d.public_id = ?");
+            arguments.add(publicId.strip());
+        }
+        if (iosTestDevice != null) {
+            where.append(" AND COALESCE(ia.is_test_device,FALSE) = ?");
+            arguments.add(iosTestDevice);
+        }
         Long total = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM anonymous_device d" + where,
+                "SELECT COUNT(*) FROM anonymous_device d LEFT JOIN ios_installation_acquisition ia ON ia.device_id=d.id" + where,
                 Long.class,
                 arguments.toArray());
         arguments.add(pageSize);
@@ -164,10 +176,13 @@ public class AdminRedemptionViewService {
         List<AdminEntitlement> entitlements = jdbc.query(
                 """
                 SELECT de.id, de.status, de.granted_at, de.revoked_at,
-                       w.id AS wallpaper_id, w.title, w.slug
+                       w.id AS wallpaper_id, w.title, w.slug,
+                       GROUP_CONCAT(DISTINCT eg.source_type ORDER BY eg.source_type) AS sources
                 FROM device_entitlement de
                 JOIN wallpaper w ON w.id = de.wallpaper_id
+                LEFT JOIN entitlement_grant eg ON eg.entitlement_id=de.id AND eg.status='ACTIVE'
                 WHERE de.device_id = ?
+                GROUP BY de.id,w.id,w.title,w.slug
                 ORDER BY de.granted_at DESC, de.id DESC
                 """,
                 (resultSet, rowNumber) -> new AdminEntitlement(
@@ -178,11 +193,14 @@ public class AdminRedemptionViewService {
                                 resultSet.getString("slug")),
                         EntitlementStatus.valueOf(resultSet.getString("status")),
                         timestamp(resultSet, "granted_at"),
-                        timestamp(resultSet, "revoked_at")),
+                        timestamp(resultSet, "revoked_at"),
+                        sources(resultSet.getString("sources"))),
                 deviceId);
+        AdminIosDeviceAcquisition iosAcquisition = iosAcquisition(deviceId);
         return new AdminDeviceDetail(
-                summary.id(), summary.platform(), summary.appInstallScope(), summary.status(),
-                summary.entitlementCount(), summary.lastSeenAt(), summary.createdAt(), credentials, entitlements);
+                summary.id(), summary.publicId(), summary.platform(), summary.appInstallScope(), summary.status(),
+                summary.iosTestDevice(), summary.entitlementCount(), summary.lastSeenAt(), summary.createdAt(),
+                credentials, entitlements, iosAcquisition);
     }
 
     private AdminDeviceSummary deviceSummary(long deviceId) {
@@ -200,10 +218,13 @@ public class AdminRedemptionViewService {
         return jdbc.queryForObject(
                 """
                 SELECT de.id, de.status, de.granted_at, de.revoked_at,
-                       w.id AS wallpaper_id, w.title, w.slug
+                       w.id AS wallpaper_id, w.title, w.slug,
+                       GROUP_CONCAT(DISTINCT eg.source_type ORDER BY eg.source_type) AS sources
                 FROM device_entitlement de
                 JOIN wallpaper w ON w.id = de.wallpaper_id
+                LEFT JOIN entitlement_grant eg ON eg.entitlement_id=de.id AND eg.status='ACTIVE'
                 WHERE de.id = ?
+                GROUP BY de.id,w.id,w.title,w.slug
                 """,
                 (resultSet, rowNumber) -> new AdminEntitlement(
                         Long.toString(resultSet.getLong("id")),
@@ -213,7 +234,8 @@ public class AdminRedemptionViewService {
                                 resultSet.getString("slug")),
                         EntitlementStatus.valueOf(resultSet.getString("status")),
                         timestamp(resultSet, "granted_at"),
-                        timestamp(resultSet, "revoked_at")),
+                        timestamp(resultSet, "revoked_at"),
+                        sources(resultSet.getString("sources"))),
                 entitlementId);
     }
 
@@ -270,9 +292,11 @@ public class AdminRedemptionViewService {
 
     private String deviceSelect() {
         return """
-                SELECT d.id, d.platform, d.app_install_scope, d.status, d.last_seen_at, d.created_at,
+                SELECT d.id, d.public_id, d.platform, d.app_install_scope, d.status, d.last_seen_at, d.created_at,
+                       COALESCE(ia.is_test_device,FALSE) AS ios_test_device,
                        COUNT(CASE WHEN de.status = 'ACTIVE' THEN 1 END) AS entitlement_count
                 FROM anonymous_device d
+                LEFT JOIN ios_installation_acquisition ia ON ia.device_id=d.id
                 LEFT JOIN device_entitlement de ON de.device_id = d.id
                 """;
     }
@@ -280,12 +304,46 @@ public class AdminRedemptionViewService {
     private AdminDeviceSummary deviceSummaryRow(java.sql.ResultSet resultSet) throws java.sql.SQLException {
         return new AdminDeviceSummary(
                 Long.toString(resultSet.getLong("id")),
+                resultSet.getString("public_id"),
                 DevicePlatform.valueOf(resultSet.getString("platform")),
                 resultSet.getString("app_install_scope"),
                 DeviceStatus.valueOf(resultSet.getString("status")),
+                resultSet.getBoolean("ios_test_device"),
                 resultSet.getLong("entitlement_count"),
                 timestamp(resultSet, "last_seen_at"),
                 timestamp(resultSet, "created_at"));
+    }
+
+    private AdminIosDeviceAcquisition iosAcquisition(long deviceId) {
+        List<AdminIosDeviceAcquisition> rows = jdbc.query(
+                """
+                SELECT is_test_device,free_generation,free_allowance_status,devicecheck_checked_at
+                FROM ios_installation_acquisition WHERE device_id=?
+                """,
+                (rs,row)->new AdminIosDeviceAcquisition(
+                        rs.getBoolean("is_test_device"),rs.getLong("free_generation"),
+                        rs.getString("free_allowance_status"),timestamp(rs,"devicecheck_checked_at"),
+                        pendingReset(deviceId)),deviceId);
+        return rows.isEmpty()?null:rows.get(0);
+    }
+
+    private ResetOperation pendingReset(long deviceId) {
+        List<ResetOperation> rows=jdbc.query(
+                """
+                SELECT id,expected_generation,result_generation,status,error_code,expires_at,created_at,completed_at
+                FROM ios_free_reset WHERE device_id=?
+                  AND status IN ('WAITING_DEVICE','PROCESSING','APPLE_RESET_CONFIRMED','RETRYABLE_FAILURE')
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (rs,row)->new ResetOperation(rs.getString("id"),Long.toString(deviceId),
+                        rs.getLong("expected_generation"),rs.getObject("result_generation",Long.class),
+                        rs.getString("status"),rs.getString("error_code"),timestamp(rs,"expires_at"),
+                        timestamp(rs,"created_at"),timestamp(rs,"completed_at")),deviceId);
+        return rows.isEmpty()?null:rows.get(0);
+    }
+
+    private List<String> sources(String value) {
+        return value == null || value.isBlank() ? List.of() : List.of(value.split(","));
     }
 
     private Instant timestamp(java.sql.ResultSet resultSet, String column) throws java.sql.SQLException {

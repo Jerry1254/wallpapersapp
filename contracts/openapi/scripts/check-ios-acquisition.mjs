@@ -61,7 +61,10 @@ for (const path of ['/device/ios/acquisition/status', '/device/ios/acquisition/f
   ]);
 }
 assert.deepEqual(contract.components.schemas.AcquisitionState.properties.freeAllowance.enum,
-  ['UNKNOWN', 'AVAILABLE', 'USED', 'UNAVAILABLE']);
+  ['AVAILABLE', 'USED', 'UNAVAILABLE', 'PENDING_RESET']);
+assert.deepEqual(
+  contract.paths['/device/ios/acquisition/purchases'].post.requestBody.content['application/json'].schema.required,
+  ['challengeId', 'nonce', 'signedTransaction', 'signedAppTransaction', 'deviceVerificationId']);
 assert.deepEqual(contract.components.schemas.AcquisitionState.properties.purchasedWallpaperIds.items,
   {$ref: '#/components/schemas/WallpaperId'});
 assert.ok(!standardScheme.includes('StoreKitConfigurationFileReference'),

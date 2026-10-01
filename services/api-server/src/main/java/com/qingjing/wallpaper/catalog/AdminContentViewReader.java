@@ -35,13 +35,16 @@ public class AdminContentViewReader {
     private final AdminAssetService assets;
     private final ObjectMapper objectMapper;
     private final com.qingjing.wallpaper.parallax.ParallaxPackageReader sourcePackages;
+    private final com.qingjing.wallpaper.iosacquisition.IosProductService iosProducts;
 
     public AdminContentViewReader(JdbcTemplate jdbc, AdminAssetService assets, ObjectMapper objectMapper,
-            com.qingjing.wallpaper.parallax.ParallaxPackageReader sourcePackages) {
+            com.qingjing.wallpaper.parallax.ParallaxPackageReader sourcePackages,
+            com.qingjing.wallpaper.iosacquisition.IosProductService iosProducts) {
         this.jdbc = jdbc;
         this.assets = assets;
         this.objectMapper = objectMapper;
         this.sourcePackages = sourcePackages;
+        this.iosProducts = iosProducts;
     }
 
     public AdminWallpaperDetail wallpaper(long wallpaperId) {
@@ -65,7 +68,8 @@ public class AdminContentViewReader {
                 summary.updatedAt(),
                 summary.version(),
                 row.copyrightNote(),
-                variants(wallpaperId));
+                variants(wallpaperId),
+                iosProducts.get(wallpaperId));
     }
 
     public AdminWallpaperSummary summary(WallpaperRow row) {

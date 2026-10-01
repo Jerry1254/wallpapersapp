@@ -196,11 +196,13 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [challengeId, nonce, signedTransaction]
+              required: [challengeId, nonce, signedTransaction, signedAppTransaction, deviceVerificationId]
               properties:
                 challengeId: {type: string, format: uuid}
                 nonce: {type: string}
                 signedTransaction: {type: string, minLength: 10, maxLength: 32768}
+                signedAppTransaction: {type: string, minLength: 10, maxLength: 32768}
+                deviceVerificationId: {type: string, minLength: 1, maxLength: 256}
       responses:
         '200':
           description: 已验签并持久化或撤销对应的安装付费权益
@@ -268,22 +270,12 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [isTestDevice, reason]
+              required: [testDevice, reason]
               properties:
-                isTestDevice: {type: boolean}
+                testDevice: {type: boolean}
                 reason: {$ref: '#/components/schemas/AdminReason'}
       responses:
-        '200':
-          description: 测试标记已保存，免费资格不变
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [deviceId, isTestDevice, freeGeneration]
-                properties:
-                  deviceId: {$ref: '#/components/schemas/DeviceId'}
-                  isTestDevice: {type: boolean}
-                  freeGeneration: {$ref: '#/components/schemas/FreeGeneration'}
+        '204': {description: 测试标记已保存，免费资格不变}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
@@ -320,8 +312,7 @@ paths:
                 expectedGeneration: {$ref: '#/components/schemas/FreeGeneration'}
                 reason: {$ref: '#/components/schemas/AdminReason'}
       responses:
-        '200': {$ref: '#/components/responses/ResetResult'}
-        '202': {$ref: '#/components/responses/ResetPending'}
+        '201': {$ref: '#/components/responses/ResetResult'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
@@ -385,6 +376,45 @@ paths:
         '400': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
         default: {$ref: '#/components/responses/Error'}
+  /admin/wallpapers/{wallpaperId}/ios-acquisition:
+    get:
+      tags: [iOS Test Administration]
+      operationId: getAdminWallpaperIosAcquisition
+      summary: 查询壁纸的 iOS 首免与内购配置
+      security: [{adminCookie: []}]
+      parameters:
+        - in: path
+          name: wallpaperId
+          required: true
+          schema: {$ref: '#/components/schemas/WallpaperId'}
+      responses:
+        '200': {description: iOS 非消耗型商品映射与首免资格}
+        '404': {$ref: '#/components/responses/Error'}
+    put:
+      tags: [iOS Test Administration]
+      operationId: updateAdminWallpaperIosAcquisition
+      summary: 保存壁纸的 Apple 非消耗型 Product ID 和首免资格
+      security: [{adminCookie: [], adminCsrf: []}]
+      parameters:
+        - in: path
+          name: wallpaperId
+          required: true
+          schema: {$ref: '#/components/schemas/WallpaperId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [productId, firstFreeEligible, enabled]
+              properties:
+                productId: {type: string, minLength: 1, maxLength: 255, pattern: '^[A-Za-z0-9._-]+$'}
+                firstFreeEligible: {type: boolean}
+                enabled: {type: boolean}
+      responses:
+        '200': {description: 映射已保存；验证过交易后 productId 不可更改}
+        '409': {$ref: '#/components/responses/Error'}
 components:
   securitySchemes:
     deviceBearer: {type: http, scheme: bearer}
@@ -475,7 +505,7 @@ components:
           description: 服务端为当前安装签发的 Apple appAccountToken；恢复交易可带原安装 token
         freeAllowance:
           type: string
-          enum: [UNKNOWN, AVAILABLE, USED, UNAVAILABLE]
+          enum: [AVAILABLE, USED, UNAVAILABLE, PENDING_RESET]
           description: AVAILABLE 仅能来自有效 DeviceCheck 查询；UNKNOWN/UNAVAILABLE 不授予免费资格
         freeGeneration: {$ref: '#/components/schemas/FreeGeneration'}
         pendingFreeReset:
@@ -484,9 +514,14 @@ components:
             - {type: object, nullable: true, enum: [null]}
           description: 仅本安装待处理重置；无操作时省略或 null。存在时免费状态为 UNAVAILABLE，旧客户端不能直接领取。
         products:
-          type: object
-          description: wallpaperId 到 Apple 非消耗型 productId 的唯一映射；不返回原始资源 URL
-          additionalProperties: {type: string, minLength: 1}
+          type: array
+          description: 已发布且启用的壁纸与 Apple 非消耗型 productId 映射
+          items:
+            type: object
+            required: [wallpaperId, productId]
+            properties:
+              wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
+              productId: {type: string, minLength: 1}
         freeWallpaperIds:
           type: array
           uniqueItems: true
@@ -501,12 +536,13 @@ components:
       properties:
         code:
           type: string
-          enum: [IOS_ACQUISITION_UNAVAILABLE, IOS_DEVICE_PROOF_UNAVAILABLE, IOS_ATTESTATION_INVALID,
+          enum: [IOS_ACQUISITION_UNAVAILABLE, IOS_DEVICE_REQUIRED, IOS_DEVICE_PROOF_UNAVAILABLE, IOS_ATTESTATION_INVALID,
             IOS_ATTESTATION_KEY_UNKNOWN, IOS_ASSERTION_REPLAY, IOS_CHALLENGE_EXPIRED,
             IOS_FREE_ALLOWANCE_USED, IOS_FREE_CLAIM_PENDING, IDEMPOTENCY_CONFLICT,
             IOS_FREE_CLAIM_RESET, IOS_FREE_RESET_PENDING, IOS_FREE_GENERATION_CONFLICT,
             IOS_TEST_DEVICE_REQUIRED, IOS_FREE_RESET_NOT_FOUND, IOS_FREE_RESET_NOT_CANCELLABLE,
-            IOS_PURCHASE_INVALID, IOS_PURCHASE_ENVIRONMENT_INVALID, IOS_PRODUCT_UNAVAILABLE,
+            IOS_FREE_WALLPAPER_INELIGIBLE, IOS_PURCHASE_INVALID, IOS_PURCHASE_ENVIRONMENT_INVALID,
+            IOS_PRODUCT_UNAVAILABLE, IOS_PRODUCT_ID_LOCKED,
             WALLPAPER_UNAVAILABLE, UNAUTHORIZED, FORBIDDEN, VALIDATION_FAILED,
             APPLE_NOTIFICATION_INVALID, RATE_LIMITED, INTERNAL_ERROR]
         message: {type: string}

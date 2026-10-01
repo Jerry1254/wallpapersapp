@@ -6,6 +6,8 @@ import type {
   CodeBatchSummary,
   CreateCodeBatchResponse,
   DeviceDetail,
+  IosAcquisitionConfiguration,
+  IosResetOperation,
   DevicePlatform,
   DeviceStatus,
   DeviceSummary,
@@ -153,6 +155,7 @@ interface ApiWallpaperSummary {
 interface ApiWallpaperDetail extends ApiWallpaperSummary {
   copyrightNote: string;
   variants: ApiWallpaperVariant[];
+  iosAcquisition?: IosAcquisitionConfiguration;
 }
 
 interface ApiWallpaperPage {
@@ -188,7 +191,7 @@ const statusFromApi: Record<ApiWallpaperSummary['status'], PublishStatus> = {
 const formatDate = (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm');
 const ifMatch = (version: number) => `"${version}"`;
 const jsonBody = (value: unknown) => JSON.stringify(value);
-const queryString = (input: Record<string, string | number | undefined | null>) => {
+const queryString = (input: Record<string, string | number | boolean | undefined | null>) => {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(input)) {
     if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
@@ -312,7 +315,10 @@ const wallpaperFromApi = (value: ApiWallpaperDetail): Wallpaper => {
         livePhoto: version.livePhoto
       })),
       version: item.version
-    }))
+    })),
+    iosAcquisition: value.iosAcquisition || {
+      productId: '', firstFreeEligible: false, enabled: false, productIdLocked: false, verifiedTransactionAt: null
+    }
   };
 };
 
@@ -495,6 +501,9 @@ export const adminRepository = {
   },
 
   async saveWallpaper(input: Wallpaper, publish: boolean) {
+    const iosAcquisition = input.iosAcquisition || {
+      productId: '', firstFreeEligible: false, enabled: false, productIdLocked: false, verifiedTransactionAt: null
+    };
     if ((input.resources.parallaxPackage || input.capabilities.includes('android_parallax')) && !input.resources.parallaxPackage
         && !input.variants.some((variant) => variant.platform === 'ANDROID'
           && variant.resourceType === 'LAYER_PARALLAX'
@@ -532,6 +541,18 @@ export const adminRepository = {
             method: 'PATCH', headers: { 'If-Match': ifMatch(input.version) }, body: payload, csrf: true
           })).data
         : (await apiRequest<ApiWallpaperDetail>('/admin/wallpapers', { method: 'POST', body: payload, csrf: true })).data;
+
+      if (iosAcquisition.productId.trim()) {
+        await apiRequest<IosAcquisitionConfiguration>(`/admin/wallpapers/${detail.id}/ios-acquisition`, {
+          method: 'PUT',
+          body: jsonBody({
+            productId: iosAcquisition.productId.trim(),
+            firstFreeEligible: iosAcquisition.firstFreeEligible,
+            enabled: iosAcquisition.enabled
+          }),
+          csrf: true
+        });
+      }
 
       const selectedVersions: string[] = [];
       const specs = variantSpecs(input);
@@ -778,17 +799,39 @@ export const adminRepository = {
     pageSize?: number;
     platform?: DevicePlatform | '';
     status?: DeviceStatus | '';
+    publicId?: string;
+    iosTestDevice?: boolean | '';
   } = {}) {
     return (await apiRequest<ApiPage<DeviceSummary>>(`/admin/devices${queryString({
       page: input.page || 1,
       pageSize: input.pageSize || 20,
       platform: input.platform,
-      status: input.status
+      status: input.status,
+      publicId: input.publicId?.trim(),
+      iosTestDevice: input.iosTestDevice
     })}`)).data;
   },
 
   async device(id: string) {
     return (await apiRequest<DeviceDetail>(`/admin/devices/${id}`)).data;
+  },
+
+  async setIosTestDevice(id: string, testDevice: boolean, reason: string) {
+    await apiRequest<void>(`/admin/devices/${id}/ios-test-status`, {
+      method: 'PUT', body: jsonBody({ testDevice, reason }), csrf: true
+    });
+  },
+
+  async createIosFreeReset(id: string, expectedGeneration: number, reason: string) {
+    return (await apiRequest<IosResetOperation>(`/admin/devices/${id}/ios-free-resets`, {
+      method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: jsonBody({ expectedGeneration, reason }), csrf: true
+    })).data;
+  },
+
+  async cancelIosFreeReset(id: string, resetId: string) {
+    return (await apiRequest<IosResetOperation>(`/admin/devices/${id}/ios-free-resets/${resetId}/cancel`, {
+      method: 'POST', csrf: true
+    })).data;
   }
 };
 

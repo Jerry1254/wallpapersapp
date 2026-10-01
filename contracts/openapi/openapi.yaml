@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.13.0
+  version: 2.14.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -33,6 +33,12 @@ tags:
     description: 五个固定壁纸设置教程槽位的视频、启停与排序
   - name: Admin Redemption
     description: 兑换码批次、兑换事件、设备与权益查询
+  - name: iOS Acquisition
+    description: iOS App Attest、首次免费与 Apple 非消耗型内购
+  - name: iOS Test Administration
+    description: iOS 商品映射、测试安装标记与一次性首免重置
+  - name: Apple Notifications
+    description: App Store Server Notifications V2 验签入口
 
 paths:
   /public/categories:
@@ -2278,6 +2284,13 @@ paths:
           schema:
             type: string
             enum: [ACTIVE, REVIEW, DISABLED]
+        - name: publicId
+          in: query
+          description: App 可复制给运营的当前安装 UUID
+          schema: {type: string, format: uuid}
+        - name: iosTestDevice
+          in: query
+          schema: {type: boolean}
       responses:
         '200':
           description: 设备分页
@@ -2472,6 +2485,389 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /device/ios/attestation/challenges:
+    post:
+      tags: [iOS Acquisition]
+      operationId: createIosAcquisitionChallenge
+      summary: 创建绑定安装、App Attest 密钥、动作和目标壁纸的一次性挑战
+      description: |
+        所有 POST 沿用现有 deviceBearer 和 P256 敏感请求验签，不能只核验 Bearer。
+        ENROLL 返回完整且不应被客户端改写的 clientData，服务端验证其 SHA256 与 attestation nonce。
+        其他动作返回 nonce；断言覆盖业务请求的原始 UTF-8 JSON 字节。
+        挑战最长 120 秒，仅能使用一次；绑定 keyId、安装、动作、壁纸和当前免费代次，拒绝跨请求复用。
+        FREE_RESET 必须提供 resetId 并绑定当前安装待处理操作；其他动作不接受 resetId。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [keyId, action]
+              additionalProperties: false
+              properties:
+                keyId: {type: string, minLength: 1, maxLength: 256}
+                action: {type: string, enum: [ENROLL, STATUS, FREE_CLAIM, PURCHASE_SYNC, FREE_RESET]}
+                wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
+                resetId: {type: string, format: uuid}
+      responses:
+        '200':
+          description: 新鲜随机挑战；ENROLL 必须包含 clientData
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [challengeId, nonce, expiresAt]
+                properties:
+                  challengeId: {type: string, format: uuid}
+                  nonce: {type: string, minLength: 32}
+                  clientData: {type: string, maxLength: 32768}
+                  expiresAt: {type: string, format: date-time}
+        '401': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /device/ios/attestation/registrations:
+    post:
+      tags: [iOS Acquisition]
+      operationId: registerIosAttestation
+      summary: 验证并绑定当前安装的 App Attest 密钥
+      description: |
+        服务端验证 Apple App Attestation Root CA 链、nonce、rpIdHash、凭据公钥与 keyId、aaguid 环境及计数器。
+        App ID prefix 和 Bundle ID 来自可信服务端配置，不能取客户端 scope 作为依据，也不能无条件以 Team ID 代替 prefix。
+        挑战和注册提交以事务/幂等记录协调；失败不能标记注册成功。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [keyId, challengeId, attestation]
+              additionalProperties: false
+              properties:
+                keyId: {type: string, maxLength: 256}
+                challengeId: {type: string, format: uuid}
+                attestation: {type: string, format: byte, maxLength: 32768}
+      responses:
+        '200':
+          description: 密钥已绑定当前安装
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [registered]
+                properties:
+                  registered: {type: boolean, enum: [true]}
+        '403': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /device/ios/acquisition/status:
+    post:
+      tags: [iOS Acquisition]
+      operationId: getIosAcquisitionState
+      summary: 查询真实设备的免费资格和本次安装权益
+      parameters:
+        - {$ref: '#/components/parameters/AppAttestKey'}
+        - {$ref: '#/components/parameters/AppAttestAssertion'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DeviceProofRequest'}
+      responses:
+        '200':
+          description: 服务端已验证挑战、断言计数器及苹果 DeviceCheck 状态
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AcquisitionState'}
+        '403': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /device/ios/acquisition/free-claims:
+    post:
+      tags: [iOS Acquisition]
+      operationId: claimIosFirstFreeWallpaper
+      summary: 幂等领取一张首次免费壁纸
+      description: |
+        以 requestId + 当前安装 + wallpaperId 记录幂等业务事实，重试使用新挑战但相同 requestId。
+        同一 idempotency 目标不许换壁纸，已提交结果直接返回，不再次扣免费资格。
+        领取前核验当前官方 App/设备证明、DeviceCheck bit0 以及 MySQL 状态；领取后确认为已使用。
+        更新 DeviceCheck 与提交 MySQL 存在外部事务窗口，必须记录处理中状态、补偿与原目标重试能力。
+        同安装请求锁只能处理本安装并发，不能伪称能完全解决同一物理设备跨安装的竞态。
+        资格按获取一张壁纸消耗，不按下载次数消耗；后续同安装下载仍校验权益。
+        409 IOS_FREE_ALLOWANCE_USED 必须是确定未发放该幂等请求的拒绝；结果未知返回其他可重试错误。
+        存在未完成重置时拒绝新领取；challenge 绑定的免费代次必须仍有效。
+        已被重置撤销的旧 requestId 返回 IOS_FREE_CLAIM_RESET，不重新发放免费来源。
+      parameters:
+        - {$ref: '#/components/parameters/AppAttestKey'}
+        - {$ref: '#/components/parameters/AppAttestAssertion'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - {$ref: '#/components/schemas/DeviceProofRequest'}
+                - type: object
+                  required: [wallpaperId, requestId]
+                  properties:
+                    wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
+                    requestId: {type: string, format: uuid}
+      responses:
+        '200':
+          description: 已持久化当前安装免费权益；重复请求返回同一结果
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AcquisitionState'}
+        '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /device/ios/acquisition/purchases:
+    post:
+      tags: [iOS Acquisition]
+      operationId: synchronizeIosPurchasedWallpaper
+      summary: 验证苹果购买或恢复交易并更新当前安装的权益
+      description: |
+        按可信 Apple transactionId/originalTransactionId 幂等，商品映射和正式价格由服务端和 Apple 管理。
+        不接受客户端 purchased=true、壁纸 ID、客户端 environment 或价格作为购买证明。
+        已购买壁纸为非消耗型商品；卸载重装后支持有效恢复，不重新收费，不重新发放免费额度。
+        服务端验证撤销/退款，返回免费和付费两种来源的最新快照，不能误删同壁纸独立免费权益。
+        只有当前购买或有效历史恢复验证完成后才发放本安装权益；不能信任粘贴来的任意 JWT。
+      parameters:
+        - {$ref: '#/components/parameters/AppAttestKey'}
+        - {$ref: '#/components/parameters/AppAttestAssertion'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [challengeId, nonce, signedTransaction, signedAppTransaction, deviceVerificationId]
+              properties:
+                challengeId: {type: string, format: uuid}
+                nonce: {type: string}
+                signedTransaction: {type: string, minLength: 10, maxLength: 32768}
+                signedAppTransaction: {type: string, minLength: 10, maxLength: 32768}
+                deviceVerificationId: {type: string, minLength: 1, maxLength: 256}
+      responses:
+        '200':
+          description: 已验签并持久化或撤销对应的安装付费权益
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AcquisitionState'}
+        '403': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /device/ios/acquisition/free-resets/{resetId}/complete:
+    post:
+      tags: [iOS Acquisition]
+      operationId: completeIosTestFreeReset
+      summary: 指定测试手机提供新证明，推进管理员授权的一次首免重置
+      description: |
+        待实现；需要现有设备会话、P256 签名、App Attest 及 FREE_RESET challenge。
+        resetId、keyId、当前安装、免费代次必须匹配；不接受客户端自行申请或选择 bit。
+        先持久化状态并冻结领取，苹果确认仅清 bit0 后，事务撤销旧免费来源并增加代次。
+        保留 bit1、付费来源和审计；苹果写入与数据库之间失败要保持待核查并补偿。
+        已完成操作只返回当前快照，绝不再次写 bit0；旧代次领取不能复活。
+      parameters:
+        - {$ref: '#/components/parameters/ResetId'}
+        - {$ref: '#/components/parameters/AppAttestKey'}
+        - {$ref: '#/components/parameters/AppAttestAssertion'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [challengeId, nonce, deviceToken, expectedGeneration]
+              properties:
+                challengeId: {type: string, format: uuid}
+                nonce: {type: string}
+                deviceToken: {type: string, format: byte, maxLength: 16384}
+                expectedGeneration: {$ref: '#/components/schemas/FreeGeneration'}
+      responses:
+        '200':
+          description: 指定操作已完成；返回当前权益及免费状态，不保证此前重置后尚未再次领取
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AcquisitionState'}
+        '202': {$ref: '#/components/responses/ResetPending'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /admin/devices/{deviceId}/ios-test-status:
+    put:
+      tags: [iOS Test Administration]
+      operationId: setAdminIosTestDevice
+      summary: 标记或取消一个 iOS 测试安装，不直接修改免费次数
+      description: 仅 IOS ACTIVE 安装；有未完成重置时不能取消测试标记。原因和操作人写入审计。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - {$ref: '#/components/parameters/DeviceId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [testDevice, reason]
+              properties:
+                testDevice: {type: boolean}
+                reason: {$ref: '#/components/schemas/AdminReason'}
+      responses:
+        '204': {description: 测试标记已保存，免费资格不变}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /admin/devices/{deviceId}/ios-free-resets:
+    post:
+      tags: [iOS Test Administration]
+      operationId: createAdminIosFreeReset
+      summary: 为已标记测试安装创建一次免费资格重置
+      description: |
+        仅 IOS ACTIVE 测试安装，不能批量清空或永久豁免；需要 reason 和幂等键。
+        同安装存在未决领取或未结束重置时不得创建第二个操作。
+        先进入 WAITING_DEVICE，等待指定手机新证明，不能只清数据库就报告成功。
+        重试同键同参数返回原操作；同键异参或 expectedGeneration 过期返回冲突。
+        已完成幂等重试先返回原操作，不再次校验成新一轮重置或再次清零。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - {$ref: '#/components/parameters/DeviceId'}
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expectedGeneration, reason]
+              properties:
+                expectedGeneration: {$ref: '#/components/schemas/FreeGeneration'}
+                reason: {$ref: '#/components/schemas/AdminReason'}
+      responses:
+        '201': {$ref: '#/components/responses/ResetResult'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /admin/devices/{deviceId}/ios-free-resets/{resetId}:
+    get:
+      tags: [iOS Test Administration]
+      operationId: getAdminIosFreeReset
+      summary: 查询指定测试安装重置进度
+      security:
+        - adminCookie: []
+      parameters:
+        - {$ref: '#/components/parameters/DeviceId'}
+        - {$ref: '#/components/parameters/ResetId'}
+      responses:
+        '200': {$ref: '#/components/responses/ResetResult'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /admin/devices/{deviceId}/ios-free-resets/{resetId}/cancel:
+    post:
+      tags: [iOS Test Administration]
+      operationId: cancelAdminIosFreeReset
+      summary: 取消尚未开始苹果写入的等待重置
+      description: 原子校验 WAITING_DEVICE；苹果副作用已开始的操作需核查完成，不能取消后解冻。重复取消幂等返回原结果。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - {$ref: '#/components/parameters/DeviceId'}
+        - {$ref: '#/components/parameters/ResetId'}
+      responses:
+        '200': {$ref: '#/components/responses/ResetResult'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /integrations/apple/app-store-notifications:
+    post:
+      tags: [Apple Notifications]
+      operationId: receiveAppleStoreNotification
+      summary: 验证并持久化 App Store Server Notifications V2
+      description: |
+        不使用设备/管理员会话，必须验证 Apple JWS、证书链、应用标识及环境。
+        未验证 payload 不能进入业务账本。notificationUUID 去重，持久化后确认接收，异步应用并重试。
+        退款/撤销按交易来源同步到各恢复安装，保留独立免费权益；防止乱序通知覆盖最新交易事实。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [signedPayload]
+              additionalProperties: false
+              properties:
+                signedPayload: {type: string, minLength: 10, maxLength: 131072}
+      responses:
+        '200':
+          description: 已验签并持久化，或已处理的合法重复通知
+        '400': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /admin/wallpapers/{wallpaperId}/ios-acquisition:
+    get:
+      tags: [iOS Test Administration]
+      operationId: getAdminWallpaperIosAcquisition
+      summary: 查询壁纸的 iOS 首免与内购配置
+      security: [{adminCookie: []}]
+      parameters:
+        - in: path
+          name: wallpaperId
+          required: true
+          schema: {$ref: '#/components/schemas/WallpaperId'}
+      responses:
+        '200':
+          description: iOS 非消耗型商品映射与首免资格
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IosProductConfiguration'}
+        '404': {$ref: '#/components/responses/Error'}
+    put:
+      tags: [iOS Test Administration]
+      operationId: updateAdminWallpaperIosAcquisition
+      summary: 保存壁纸的 Apple 非消耗型 Product ID 和首免资格
+      security: [{adminCookie: [], adminCsrf: []}]
+      parameters:
+        - in: path
+          name: wallpaperId
+          required: true
+          schema: {$ref: '#/components/schemas/WallpaperId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [productId, firstFreeEligible, enabled]
+              properties:
+                productId: {type: string, minLength: 1, maxLength: 255, pattern: '^[A-Za-z0-9._-]+$'}
+                firstFreeEligible: {type: boolean}
+                enabled: {type: boolean}
+      responses:
+        '200':
+          description: 映射已保存；验证过交易后 productId 不可更改
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IosProductConfiguration'}
+        '409': {$ref: '#/components/responses/Error'}
+
 components:
   securitySchemes:
     deviceBearer:
@@ -2631,6 +3027,23 @@ components:
         minLength: 16
         maxLength: 1024
 
+    ResetId:
+      in: path
+      name: resetId
+      required: true
+      schema: {type: string, format: uuid}
+    AppAttestKey:
+      in: header
+      name: X-App-Attest-Key-Id
+      required: true
+      schema: {type: string, maxLength: 256}
+    AppAttestAssertion:
+      in: header
+      name: X-App-Attest-Assertion
+      required: true
+      description: Base64 的 App Attest assertion，覆盖本请求原始 UTF-8 字节的 SHA256
+      schema: {type: string, maxLength: 32768}
+
   responses:
     BadRequest:
       description: 请求格式、参数或字段校验失败
@@ -2691,6 +3104,22 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorEnvelope'
+
+    ResetResult:
+      description: 指定重置操作的当前状态，不包含设备凭证或购买数据
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ResetOperation'}
+    ResetPending:
+      description: 操作已接受但未完成；客户端退避刷新，不重新创建重置或提前显示免费可用
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ResetOperation'}
+    Error:
+      description: 确定的拒绝或可重试错误；未知状态不得发放权益，响应中不得泄露密钥或原始文件
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorBody'}
 
   schemas:
     LongId:
@@ -2837,6 +3266,24 @@ components:
         - LIVE_PHOTO_NOT_READY
         - DYNAMIC_SOURCE_FORMAT_INVALID
         - DYNAMIC_SOURCE_DURATION_INVALID
+        - IOS_ACQUISITION_UNAVAILABLE
+        - IOS_DEVICE_REQUIRED
+        - IOS_ATTESTATION_INVALID
+        - IOS_ASSERTION_REPLAY
+        - IOS_CHALLENGE_EXPIRED
+        - IOS_FREE_ALLOWANCE_USED
+        - IOS_FREE_CLAIM_PENDING
+        - IOS_FREE_CLAIM_RESET
+        - IOS_FREE_RESET_PENDING
+        - IOS_FREE_RESET_NOT_FOUND
+        - IOS_FREE_RESET_NOT_CANCELLABLE
+        - IOS_FREE_GENERATION_CONFLICT
+        - IOS_FREE_WALLPAPER_INELIGIBLE
+        - IOS_TEST_DEVICE_REQUIRED
+        - IOS_PURCHASE_INVALID
+        - IOS_PURCHASE_ENVIRONMENT_INVALID
+        - IOS_PRODUCT_ID_LOCKED
+        - IDEMPOTENCY_CONFLICT
 
     WallpaperKind:
       type: string
@@ -3936,7 +4383,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/AdminWallpaperSummary'
         - type: object
-          required: [copyrightNote, variants]
+          required: [copyrightNote, variants, iosAcquisition]
           properties:
             copyrightNote:
               type: string
@@ -3945,6 +4392,8 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/AdminWallpaperVariant'
+            iosAcquisition:
+              $ref: '#/components/schemas/IosProductConfiguration'
 
     AdminWallpaperPage:
       type: object
@@ -3956,6 +4405,16 @@ components:
             $ref: '#/components/schemas/AdminWallpaperSummary'
         page:
           $ref: '#/components/schemas/PageMetadata'
+
+    IosProductConfiguration:
+      type: object
+      required: [productId, firstFreeEligible, enabled, productIdLocked]
+      properties:
+        productId: {type: string, maxLength: 255}
+        firstFreeEligible: {type: boolean}
+        enabled: {type: boolean}
+        productIdLocked: {type: boolean}
+        verifiedTransactionAt: {type: string, format: date-time, nullable: true}
 
     VariantWriteRequest:
       type: object
@@ -4674,9 +5133,11 @@ components:
       required:
         [
           id,
+          publicId,
           platform,
           appInstallScope,
           status,
+          iosTestDevice,
           entitlementCount,
           lastSeenAt,
           createdAt
@@ -4684,6 +5145,9 @@ components:
       properties:
         id:
           $ref: '#/components/schemas/LongId'
+        publicId:
+          type: string
+          format: uuid
         platform:
           $ref: '#/components/schemas/DevicePlatform'
         appInstallScope:
@@ -4692,6 +5156,8 @@ components:
         status:
           type: string
           enum: [ACTIVE, REVIEW, DISABLED]
+        iosTestDevice:
+          type: boolean
         entitlementCount:
           type: integer
           format: int64
@@ -4715,6 +5181,18 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/AdminEntitlement'
+            iosAcquisition:
+              type: object
+              nullable: true
+              properties:
+                testDevice: {type: boolean}
+                freeGeneration: {$ref: '#/components/schemas/FreeGeneration'}
+                freeAllowance: {type: string, enum: [AVAILABLE, USED, UNAVAILABLE, PENDING_RESET]}
+                deviceCheckCheckedAt: {type: string, format: date-time, nullable: true}
+                pendingReset:
+                  anyOf:
+                    - {$ref: '#/components/schemas/ResetOperation'}
+                    - {type: object, nullable: true, enum: [null]}
 
     AdminDeviceCredential:
       type: object
@@ -4742,7 +5220,7 @@ components:
 
     AdminEntitlement:
       type: object
-      required: [id, wallpaper, status, grantedAt]
+      required: [id, wallpaper, status, grantedAt, sources]
       properties:
         id:
           $ref: '#/components/schemas/LongId'
@@ -4758,6 +5236,10 @@ components:
           allOf:
             - $ref: '#/components/schemas/Timestamp'
           nullable: true
+        sources:
+          type: array
+          uniqueItems: true
+          items: {type: string, enum: [REDEMPTION, IOS_FIRST_FREE, IOS_IAP]}
 
     AdminDevicePage:
       type: object
@@ -4880,3 +5362,102 @@ components:
           allOf:
             - $ref: "#/components/schemas/DeliveryFile"
           nullable: true
+    FreeGeneration:
+      type: integer
+      format: int32
+      minimum: 0
+      description: 安装免费代次；管理员成功重置后加一，旧代次请求不得重新发放权益
+    AdminReason:
+      type: string
+      minLength: 1
+      maxLength: 300
+      description: 必填操作原因；服务端拒绝纯空白
+    ResetOperation:
+      type: object
+      required: [resetId, status, expectedGeneration, expiresAt]
+      properties:
+        resetId: {type: string, format: uuid}
+        status:
+          type: string
+          enum: [WAITING_DEVICE, PROCESSING, APPLE_RESET_CONFIRMED, COMPLETED, RETRYABLE_FAILURE, EXPIRED, CANCELLED]
+        expectedGeneration: {$ref: '#/components/schemas/FreeGeneration'}
+        resultingGeneration:
+          type: integer
+          format: int32
+          minimum: 1
+          nullable: true
+          description: 仅完成后有值；重复返回不能使代次再次增加
+        expiresAt:
+          type: string
+          format: date-time
+          description: 等待手机开始操作的截止时间；已经开始外部写入后不能因该时间到期自动解冻
+        lastErrorCode:
+          type: string
+          nullable: true
+          maxLength: 100
+          description: 脱敏业务错误，不返回苹果 token 或完整证明
+    WallpaperId:
+      type: string
+      pattern: '^[1-9][0-9]*$'
+    DeviceProofRequest:
+      type: object
+      required: [challengeId, nonce, deviceToken]
+      properties:
+        challengeId: {type: string, format: uuid}
+        nonce: {type: string}
+        deviceToken: {type: string, format: byte, maxLength: 16384}
+    AcquisitionState:
+      type: object
+      required: [installationId, accountToken, freeAllowance, freeGeneration, products, freeWallpaperIds, purchasedWallpaperIds]
+      properties:
+        installationId:
+          type: string
+          format: uuid
+          description: anonymous_device.public_id；供管理员定位当前测试安装，不是物理设备标识或管理路径的数值 ID
+        accountToken:
+          type: string
+          format: uuid
+          description: 服务端为当前安装签发的 Apple appAccountToken；恢复交易可带原安装 token
+        freeAllowance:
+          type: string
+          enum: [AVAILABLE, USED, UNAVAILABLE, PENDING_RESET]
+          description: AVAILABLE 仅能来自有效 DeviceCheck 查询；UNKNOWN/UNAVAILABLE 不授予免费资格
+        freeGeneration: {$ref: '#/components/schemas/FreeGeneration'}
+        pendingFreeReset:
+          anyOf:
+            - {$ref: '#/components/schemas/ResetOperation'}
+            - {type: object, nullable: true, enum: [null]}
+          description: 仅本安装待处理重置；无操作时省略或 null。存在时免费状态为 UNAVAILABLE，旧客户端不能直接领取。
+        products:
+          type: array
+          description: 已发布且启用的壁纸与 Apple 非消耗型 productId 映射
+          items:
+            type: object
+            required: [wallpaperId, productId]
+            properties:
+              wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
+              productId: {type: string, minLength: 1}
+        freeWallpaperIds:
+          type: array
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/WallpaperId'}
+        purchasedWallpaperIds:
+          type: array
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/WallpaperId'}
+    ErrorBody:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [IOS_ACQUISITION_UNAVAILABLE, IOS_DEVICE_REQUIRED, IOS_DEVICE_PROOF_UNAVAILABLE, IOS_ATTESTATION_INVALID,
+            IOS_ATTESTATION_KEY_UNKNOWN, IOS_ASSERTION_REPLAY, IOS_CHALLENGE_EXPIRED,
+            IOS_FREE_ALLOWANCE_USED, IOS_FREE_CLAIM_PENDING, IDEMPOTENCY_CONFLICT,
+            IOS_FREE_CLAIM_RESET, IOS_FREE_RESET_PENDING, IOS_FREE_GENERATION_CONFLICT,
+            IOS_TEST_DEVICE_REQUIRED, IOS_FREE_RESET_NOT_FOUND, IOS_FREE_RESET_NOT_CANCELLABLE,
+            IOS_FREE_WALLPAPER_INELIGIBLE, IOS_PURCHASE_INVALID, IOS_PURCHASE_ENVIRONMENT_INVALID,
+            IOS_PRODUCT_UNAVAILABLE, IOS_PRODUCT_ID_LOCKED,
+            WALLPAPER_UNAVAILABLE, UNAUTHORIZED, FORBIDDEN, VALIDATION_FAILED,
+            APPLE_NOTIFICATION_INVALID, RATE_LIMITED, INTERNAL_ERROR]
+        message: {type: string}

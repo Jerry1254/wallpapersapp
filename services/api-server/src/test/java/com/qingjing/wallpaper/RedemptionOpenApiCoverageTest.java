@@ -9,6 +9,8 @@ import com.qingjing.wallpaper.device.DeviceIdentityController;
 import com.qingjing.wallpaper.redemption.AdminCodeBatchController;
 import com.qingjing.wallpaper.redemption.AdminRedemptionQueryController;
 import com.qingjing.wallpaper.redemption.DeviceRedemptionController;
+import com.qingjing.wallpaper.iosacquisition.AdminIosDeviceController;
+import com.qingjing.wallpaper.iosacquisition.DeviceIosAcquisitionController;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -36,10 +38,12 @@ class RedemptionOpenApiCoverageTest {
                 DevicePreviewController.class,
                 InstallationEncryptionKeyController.class,
                 AdminCodeBatchController.class,
-                AdminRedemptionQueryController.class));
+                AdminRedemptionQueryController.class,
+                AdminIosDeviceController.class,
+                DeviceIosAcquisitionController.class));
 
         assertThat(controllerOperations).containsExactlyInAnyOrderElementsOf(contractOperations);
-        assertThat(contractOperations).hasSize(29);
+        assertThat(contractOperations).hasSize(39);
     }
 
     @SuppressWarnings("unchecked")

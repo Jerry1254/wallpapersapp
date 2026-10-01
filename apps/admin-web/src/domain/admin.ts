@@ -128,6 +128,15 @@ export interface Wallpaper {
   updatedAt: string;
   version: number;
   variants: WallpaperVariant[];
+  iosAcquisition?: IosAcquisitionConfiguration;
+}
+
+export interface IosAcquisitionConfiguration {
+  productId: string;
+  firstFreeEligible: boolean;
+  enabled: boolean;
+  productIdLocked: boolean;
+  verifiedTransactionAt?: string | null;
 }
 
 export interface AdminDashboard {
@@ -213,9 +222,11 @@ export interface RedemptionSummary {
 
 export interface DeviceSummary {
   id: string;
+  publicId: string;
   platform: DevicePlatform;
   appInstallScope: string;
   status: DeviceStatus;
+  iosTestDevice: boolean;
   entitlementCount: number;
   lastSeenAt: string;
   createdAt: string;
@@ -235,11 +246,33 @@ export interface AdminEntitlement {
   status: 'ACTIVE' | 'REVOKED';
   grantedAt: string;
   revokedAt?: string | null;
+  sources: Array<'REDEMPTION' | 'IOS_FIRST_FREE' | 'IOS_IAP'>;
+}
+
+export interface IosResetOperation {
+  resetId: string;
+  deviceId: string;
+  expectedGeneration: number;
+  resultGeneration?: number | null;
+  status: string;
+  errorCode?: string | null;
+  expiresAt: string;
+  createdAt: string;
+  completedAt?: string | null;
+}
+
+export interface AdminIosDeviceAcquisition {
+  testDevice: boolean;
+  freeGeneration: number;
+  freeAllowance: 'AVAILABLE' | 'USED' | 'UNAVAILABLE' | 'PENDING_RESET';
+  deviceCheckCheckedAt?: string | null;
+  pendingReset?: IosResetOperation | null;
 }
 
 export interface DeviceDetail extends DeviceSummary {
   credentials: DeviceCredential[];
   entitlements: AdminEntitlement[];
+  iosAcquisition?: AdminIosDeviceAcquisition | null;
 }
 
 export interface RedemptionDetail extends RedemptionSummary {

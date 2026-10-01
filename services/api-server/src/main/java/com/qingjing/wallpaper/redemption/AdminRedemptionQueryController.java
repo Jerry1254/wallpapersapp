@@ -56,8 +56,10 @@ public class AdminRedemptionQueryController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize,
             @RequestParam(required = false) DevicePlatform platform,
-            @RequestParam(required = false) DeviceStatus status) {
-        return views.devices(page, pageSize, platform, status);
+            @RequestParam(required = false) DeviceStatus status,
+            @RequestParam(required = false) String publicId,
+            @RequestParam(required = false) Boolean iosTestDevice) {
+        return views.devices(page, pageSize, platform, status, publicId, iosTestDevice);
     }
 
     @GetMapping("/devices/{deviceId}")

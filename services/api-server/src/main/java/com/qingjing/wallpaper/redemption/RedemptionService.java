@@ -1,6 +1,8 @@
 package com.qingjing.wallpaper.redemption;
 
 import com.qingjing.wallpaper.entitlement.DeviceEntitlementService;
+import com.qingjing.wallpaper.entitlement.EntitlementGrantService;
+import com.qingjing.wallpaper.entitlement.EntitlementGrantService.SourceType;
 import com.qingjing.wallpaper.entitlement.EntitlementDtos.EntitlementSummary;
 import com.qingjing.wallpaper.catalog.PublishedResourceCatalog;
 import com.qingjing.wallpaper.redemption.RedemptionDtos.ProcessingResult;
@@ -33,18 +35,21 @@ public class RedemptionService {
     private final RedisRateLimiter rateLimiter;
     private final DeviceEntitlementService entitlements;
     private final PublishedResourceCatalog publishedResources;
+    private final EntitlementGrantService grants;
 
     public RedemptionService(
             JdbcTemplate jdbc,
             SecurityCrypto crypto,
             RedisRateLimiter rateLimiter,
             DeviceEntitlementService entitlements,
-            PublishedResourceCatalog publishedResources) {
+            PublishedResourceCatalog publishedResources,
+            EntitlementGrantService grants) {
         this.jdbc = jdbc;
         this.crypto = crypto;
         this.rateLimiter = rateLimiter;
         this.entitlements = entitlements;
         this.publishedResources = publishedResources;
+        this.grants = grants;
     }
 
     @Transactional
@@ -168,21 +173,13 @@ public class RedemptionService {
             return new RedemptionAttempt(result(requestId, idempotencyKey), false, true);
         }
 
-        KeyHolder entitlementKey = new GeneratedKeyHolder();
-        jdbc.update(connection -> {
-            PreparedStatement statement = connection.prepareStatement(
-                    """
-                    INSERT INTO device_entitlement
-                        (device_id, wallpaper_id, source_code_id, status, granted_at)
-                    VALUES (?, ?, ?, 'ACTIVE', UTC_TIMESTAMP(6))
-                    """,
-                    Statement.RETURN_GENERATED_KEYS);
-            statement.setLong(1, deviceId);
-            statement.setLong(2, wallpaperId);
-            statement.setLong(3, code.id());
-            return statement;
-        }, entitlementKey);
-        long entitlementId = requiredKey(entitlementKey, "Device entitlement");
+        long entitlementId = grants.grant(
+                deviceId,
+                wallpaperId,
+                SourceType.REDEMPTION,
+                Long.toString(code.id()),
+                null,
+                code.id());
         complete(
                 requestId, deviceId, wallpaperId, code.id(), code.suffix(), entitlementId,
                 RedemptionResultCode.GRANTED, 1, null, "SUCCEEDED");

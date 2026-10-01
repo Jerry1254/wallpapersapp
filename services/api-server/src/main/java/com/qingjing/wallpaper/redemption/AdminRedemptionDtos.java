@@ -9,6 +9,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.List;
+import com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.AdminIosDeviceAcquisition;
 
 public final class AdminRedemptionDtos {
 
@@ -108,9 +109,11 @@ public final class AdminRedemptionDtos {
 
     public record AdminDeviceSummary(
             String id,
+            String publicId,
             DevicePlatform platform,
             String appInstallScope,
             DeviceStatus status,
+            boolean iosTestDevice,
             long entitlementCount,
             Instant lastSeenAt,
             Instant createdAt) {
@@ -129,19 +132,23 @@ public final class AdminRedemptionDtos {
             WallpaperRef wallpaper,
             EntitlementStatus status,
             Instant grantedAt,
-            Instant revokedAt) {
+            Instant revokedAt,
+            List<String> sources) {
     }
 
     public record AdminDeviceDetail(
             String id,
+            String publicId,
             DevicePlatform platform,
             String appInstallScope,
             DeviceStatus status,
+            boolean iosTestDevice,
             long entitlementCount,
             Instant lastSeenAt,
             Instant createdAt,
             List<AdminDeviceCredential> credentials,
-            List<AdminEntitlement> entitlements) {
+            List<AdminEntitlement> entitlements,
+            AdminIosDeviceAcquisition iosAcquisition) {
     }
 
     public record AdminDevicePage(List<AdminDeviceSummary> items, PageMetadata page) {

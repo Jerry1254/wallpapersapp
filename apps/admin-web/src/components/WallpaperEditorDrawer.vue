@@ -26,13 +26,16 @@ const emit = defineEmits<{
   saved: [value: Wallpaper];
 }>();
 
-const blank = (): Wallpaper => ({
+type WallpaperForm = Wallpaper & { iosAcquisition: NonNullable<Wallpaper['iosAcquisition']> };
+const blank = (): WallpaperForm => ({
   id: '', title: '', slug: '', categoryId: '', subcategoryId: '',
   accessType: 'REDEEM', capabilities: [], status: 'draft', sort: 1,
   coverUrl: '', featuredRank: null, resources: {}, copyrightNote: '', updatedAt: '', version: 0,
-  variants: []
+  variants: [], iosAcquisition: {
+    productId: '', firstFreeEligible: false, enabled: false, productIdLocked: false, verifiedTransactionAt: null
+  }
 });
-const form = reactive<Wallpaper>(blank());
+const form = reactive<WallpaperForm>(blank());
 const errors = ref<Record<string, string>>({});
 const visible = computed({
   get: () => props.modelValue,
@@ -85,7 +88,10 @@ const dynamicPreviewSrc = computed(() => form.resources.androidVideo?.url || for
 const previewHasContent = computed(() => Boolean(dynamicPreviewSrc.value || coverPreviewSrc.value));
 
 const cloneIntoForm = (value?: Wallpaper) => {
-  Object.assign(form, value ? structuredClone(toRaw(value)) : blank());
+  const next = value ? structuredClone(toRaw(value)) : blank();
+  Object.assign(form, blank(), next, {
+    iosAcquisition: next.iosAcquisition || blank().iosAcquisition
+  });
   errors.value = {};
 };
 watch(() => props.modelValue, (open) => { if (open) cloneIntoForm(props.wallpaper); }, { immediate: true });
@@ -122,6 +128,12 @@ const validate = () => {
     next.staticImage = '请上传高清静态原图';
   }
   if (!form.resources.cover && !form.coverUrl) next.cover = '请单独上传列表封面';
+  if ((form.iosAcquisition.enabled || form.iosAcquisition.firstFreeEligible) && !form.iosAcquisition.productId.trim()) {
+    next.iosProductId = '请先填写 App Store Connect 中已创建的非消耗型 Product ID';
+  }
+  if (form.iosAcquisition.productId && !/^[A-Za-z0-9._-]+$/.test(form.iosAcquisition.productId)) {
+    next.iosProductId = 'Product ID 只能包含字母、数字、点、下划线和连字符';
+  }
   errors.value = next;
   return Object.keys(next).length === 0;
 };
@@ -202,6 +214,20 @@ const rebuildMovingPhoto = async () => {
               <ElFormItem label="排序值"><ElInputNumber v-model="form.sort" :min="0" :max="999999" controls-position="right" style="width:100%" /></ElFormItem>
               <ElFormItem label="精选推荐"><div class="featured-controls"><ElCheckbox :model-value="form.featuredRank !== null" @change="form.featuredRank = $event ? 1 : null">加入首页精选</ElCheckbox><ElInputNumber v-if="form.featuredRank !== null" v-model="form.featuredRank" :min="0" :max="999999" /></div></ElFormItem>
               <ElFormItem label="获取方式" :error="errors.accessType"><ElRadioGroup v-model="form.accessType"><ElRadio value="REDEEM">需要兑换</ElRadio><ElRadio value="FREE">免费</ElRadio></ElRadioGroup></ElFormItem>
+            </div>
+          </ElForm>
+        </section>
+
+        <section v-if="hasCapability('ios_live_photo') || form.iosAcquisition.productId" class="editor-section">
+          <div class="editor-section__heading"><h3>iOS 首免与内购</h3><p>Product ID 在 App Store Connect 创建；价格由 Apple 返回，后台不填价格。</p></div>
+          <ElForm label-position="top">
+            <div class="form-grid">
+              <ElFormItem label="非消耗型 Product ID" :error="errors.iosProductId">
+                <ElInput v-model="form.iosAcquisition.productId" :disabled="form.iosAcquisition.productIdLocked" placeholder="例如 com.qingjing.bizhi.wallpaper.123" />
+                <small v-if="form.iosAcquisition.productIdLocked">已有 Apple 验证交易，Product ID 已锁定。</small>
+              </ElFormItem>
+              <ElFormItem label="售卖状态"><ElSwitch v-model="form.iosAcquisition.enabled" active-text="允许购买" inactive-text="暂不售卖" /></ElFormItem>
+              <ElFormItem label="首次免费"><ElSwitch v-model="form.iosAcquisition.firstFreeEligible" active-text="可作为首免选择" inactive-text="不参与首免" /></ElFormItem>
             </div>
           </ElForm>
         </section>

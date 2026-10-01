@@ -45,7 +45,7 @@ management:
 info:
   app:
     name: ${spring.application.name}
-    contract-version: ${QJ_API_CONTRACT_VERSION:2.13.0}
+    contract-version: ${QJ_API_CONTRACT_VERSION:2.14.0}
     environment-id: ${QJ_ENVIRONMENT_ID:UNCONFIGURED}
     deployment-stage: ${QJ_DEPLOYMENT_STAGE:UNCONFIGURED}
     git-commit: ${QJ_DEPLOYMENT_GIT_COMMIT:unknown}
@@ -90,3 +90,18 @@ qingjing:
     bootstrap:
       username: ${QJ_ADMIN_USERNAME:}
       password: ${QJ_ADMIN_PASSWORD:}
+  ios-acquisition:
+    enabled: ${QJ_IOS_ACQUISITION_ENABLED:false}
+    team-id: ${QJ_APPLE_TEAM_ID:}
+    app-id-prefix: ${QJ_APPLE_APP_ID_PREFIX:}
+    bundle-id: ${QJ_APPLE_BUNDLE_ID:com.qingjing.bizhi}
+    app-apple-id: ${QJ_APPLE_APP_ID:}
+    app-attest-environment: ${QJ_APPLE_APP_ATTEST_ENVIRONMENT:DEVELOPMENT}
+    store-environment: ${QJ_APPLE_STORE_ENVIRONMENT:SANDBOX}
+    device-check-key-id: ${QJ_APPLE_DEVICECHECK_KEY_ID:}
+    device-check-private-key: ${QJ_APPLE_DEVICECHECK_PRIVATE_KEY:}
+    store-issuer-id: ${QJ_APPLE_STORE_ISSUER_ID:}
+    store-key-id: ${QJ_APPLE_STORE_KEY_ID:}
+    store-private-key: ${QJ_APPLE_STORE_PRIVATE_KEY:}
+    challenge-ttl: 2m
+    reset-ttl: 30m

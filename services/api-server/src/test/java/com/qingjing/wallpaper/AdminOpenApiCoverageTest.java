@@ -7,6 +7,7 @@ import com.qingjing.wallpaper.adminidentity.AdminSessionController;
 import com.qingjing.wallpaper.asset.AdminAssetController;
 import com.qingjing.wallpaper.catalog.AdminCategoryController;
 import com.qingjing.wallpaper.catalog.AdminWallpaperController;
+import com.qingjing.wallpaper.iosacquisition.AdminIosProductController;
 import com.qingjing.wallpaper.tutorial.AdminWallpaperTutorialController;
 import java.io.IOException;
 import java.io.InputStream;
@@ -36,6 +37,7 @@ class AdminOpenApiCoverageTest {
                 AdminAssetController.class,
                 AdminCategoryController.class,
                 AdminWallpaperController.class,
+                AdminIosProductController.class,
                 AdminWallpaperTutorialController.class,
                 com.qingjing.wallpaper.parallax.AdminParallaxPackageController.class));
 
