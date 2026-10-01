@@ -381,19 +381,140 @@ Paid Apps Agreement 必须 Active 才能测试真实 Sandbox 内购；**不要�
 
 请直接在本节补充，不再另建一份“完成说明”：
 
-```text
-Java 实现结果（待填写）
-- Git commit：
-- 主 OpenAPI 版本 / 实际部署版本：
-- 联调 API base：
-- 已完成接口 / 尚未完成：
-- Apple Team、Bundle、证明与交易环境核对结果（无私钥）：
-- 正式/测试商品映射核对结果：
-- 首免、重装、恢复、退款、测试机重置的实测结果：
-- Apple 超时 / MySQL 失败 / 并发故障注入结果：
-- Flyway 迁移及 Android/HarmonyOS 回归结果：
-- 已提交 / 已部署 / 可真机联调：
-- 仍需前端补齐的字段、错误码或购买证明：
+### 11.1 Java、管理后台和契约实现结果
+
+- 代码提交：`33b4cfb`（`main`，已推送 GitHub）。
+- 主 OpenAPI 版本：`2.14.0`；本次未部署，线上实际版本未变。
+- 联调 API base：本次未启动联调环境；部署后仍使用现有 `/api/v1` 基址。
+- 已增加 V15 Flyway 迁移、iOS 商品映射、安装首免状态、App Attest 挑战、公钥、首免领取、StoreKit 交易、统一权益来源、测试机重置和 Apple 通知收件箱。
+- 已把兑换码、iOS 首免和 iOS 内购统一为独立权益来源；撤销某一个来源时，其他有效来源仍可保留同一壁纸的下载权益。
+- 管理后台已增加：壁纸 iOS Product ID、首免资格、销售开关；设备列表的 installation UUID、iOS 测试机标记、首免代次、待重置状态、权益来源和测试机重置操作。
+- Product ID 一旦出现已验证交易即锁定，管理后台不能再修改；价格不存入后台，由 App 通过 StoreKit 获取。
+- 主 OpenAPI 与 iOS 增量契约已覆盖下列接口：
+  - `POST /device/ios/attestation/challenges`
+  - `POST /device/ios/attestation/registrations`
+  - `POST /device/ios/acquisition/status`
+  - `POST /device/ios/acquisition/free-claims`
+  - `POST /device/ios/acquisition/purchases`
+  - `POST /device/ios/acquisition/free-resets/{resetId}/complete`
+  - `POST /integrations/apple/app-store-notifications`
+  - `GET|PUT /admin/wallpapers/{wallpaperId}/ios-acquisition`
+  - `PUT /admin/devices/{deviceId}/ios-test-status`
+  - `POST /admin/devices/{deviceId}/ios-free-resets`
+  - `GET /admin/devices/{deviceId}/ios-free-resets/{resetId}`
+  - `POST /admin/devices/{deviceId}/ios-free-resets/{resetId}/cancel`
+- 当前尚未完成真实 Apple 信任适配器：App Attest 证书链与 assertion 校验、DeviceCheck 网络调用、StoreKit JWS 和 App Store Server Notification V2 验签仍等待 Apple 标识、密钥和真实环境联调。当前 `QJ_IOS_ACQUISITION_ENABLED=false`，误开或直接调用会返回 `503 IOS_ACQUISITION_UNAVAILABLE`，不会伪造成功结果。
+
+### 11.2 iOS 前端对接
+
+所有 `/device/ios/**` 请求继续使用现有设备会话签名。除注册接口外，证明请求还必须带：
+
+```http
+X-App-Attest-Key-Id: <DCAppAttestService keyId>
+X-App-Attest-Assertion: <Base64 App Attest assertion>
 ```
+
+App Attest assertion 必须针对本次请求的原始 HTTP body 生成。调用顺序为：先申请对应 `action` 的 challenge，再提交同一 `challengeId` 和 `nonce`；challenge 只允许成功消费一次。
+
+状态同步请求：
+
+```json
+{
+  "challengeId": "...",
+  "nonce": "...",
+  "deviceToken": "DeviceCheck device token"
+}
+```
+
+首次免费领取请求：
+
+```json
+{
+  "challengeId": "...",
+  "nonce": "...",
+  "deviceToken": "DeviceCheck device token",
+  "wallpaperId": "123",
+  "requestId": "客户端生成并持久化的 UUID"
+}
+```
+
+购买和恢复购买提交请求：
+
+```json
+{
+  "challengeId": "...",
+  "nonce": "...",
+  "signedTransaction": "Transaction.jwsRepresentation",
+  "signedAppTransaction": "AppTransaction.jwsRepresentation",
+  "deviceVerificationId": "本次交易使用的 UUID"
+}
+```
+
+App 需要完整解析状态响应：
+
+```json
+{
+  "installationId": "设备 installation UUID",
+  "accountToken": "传给 StoreKit 的 appAccountToken",
+  "freeGeneration": 0,
+  "freeAllowance": "AVAILABLE|USED|UNAVAILABLE|PENDING_RESET",
+  "freeWallpaperIds": [],
+  "purchasedWallpaperIds": [],
+  "products": [{"wallpaperId": "123", "productId": "..."}],
+  "pendingFreeReset": null,
+  "checkedAt": "..."
+}
+```
+
+管理后台发起测试机重置后，App 读取 `pendingFreeReset`，用其 `resetId` 申请 `FREE_RESET` challenge，再调用：
+
+```http
+POST /device/ios/acquisition/free-resets/{resetId}/complete
+```
+
+```json
+{
+  "challengeId": "...",
+  "nonce": "...",
+  "deviceToken": "DeviceCheck device token",
+  "expectedGeneration": 0
+}
+```
+
+前端仍需完成：
+
+1. `apps/mobile/lib/entitlements/ios_acquisition.dart` 解析并持久化 `installationId`、`freeGeneration`、`pendingFreeReset` 和商品映射。
+2. iOS 原生桥接除 `signedTransaction` 外，还要返回 `signedAppTransaction` 和购买时使用的 `deviceVerificationId`。
+3. 首免 `requestId` 在网络重试时必须复用；换壁纸或新领取才生成新 UUID。
+4. StoreKit 购买必须使用 API 返回的 `accountToken` 作为 `appAccountToken`，并使用同一个 `deviceVerificationId` 生成购买参数和提交证明。
+5. 对 `IOS_ASSERTION_REPLAY`、`IOS_CHALLENGE_EXPIRED` 重新申请 challenge；对 `IOS_FREE_ALLOWANCE_USED`、`IOS_FREE_RESET_PENDING`、`IOS_FREE_GENERATION_CONFLICT` 刷新状态；`IOS_ACQUISITION_UNAVAILABLE` 时隐藏购买入口并提示服务暂不可用。
+6. 只有 `REDEEM`、已发布且后台开启 `firstFreeEligible` 的 iOS 商品才消耗首次免费名额；原本 `FREE` 的壁纸继续直接免费下载。
+7. 在真实 Apple 验证、Sandbox/TestFlight 联调完成前保持 iOS 首免和内购功能开关关闭。
+
+### 11.3 需要产品/账号侧申请和提供的内容
+
+以下内容缺失时，Java 只能保留关闭状态，不能完成真实 Apple 闭环：
+
+1. Apple Developer Program 有效会员，以及 App Store Connect 中已生效的 Paid Apps Agreement、银行和税务资料。
+2. 确认正式 Bundle ID（当前预设 `com.qingjing.bizhi`）、Team ID、App ID Prefix、App Store 数字 App Apple ID。
+3. 确认 App Attest 环境：开发联调用 `DEVELOPMENT`，TestFlight/正式包用 `PRODUCTION`。
+4. DeviceCheck 私钥：Key ID 与 `.p8` 文件。
+5. App Store Connect In-App Purchase 私钥：Issuer ID、Key ID 与 `.p8` 文件。
+6. 每款付费壁纸创建一个 Non-Consumable Product ID，建议格式 `com.qingjing.bizhi.wallpaper.<稳定编号>`；同时配置名称、描述、价格、销售地区和审核截图。创建完成后只把 Product ID 填进管理后台。
+7. API 部署出公网 HTTPS 地址后，在 App Store Connect 配置 Sandbox 和 Production 的 App Store Server Notifications V2 回调地址：`/api/v1/integrations/apple/app-store-notifications`。
+8. 准备 Sandbox 测试账号和至少一台可运行 App Attest、DeviceCheck 与 StoreKit 2 的真机。
+9. 上架资料：隐私政策、用户协议、客服邮箱、壁纸素材授权证明；中国大陆发布还需单独确认 App 备案，以及宗教类内容是否涉及互联网宗教信息服务许可。
+
+`.p8` 私钥只能放入部署平台的 Secret/环境变量，不通过聊天发送，不写入 Git。收到上述标识和密钥后，还需要继续实现真实 Apple gateway 并完成 Sandbox、TestFlight、退款通知和重置故障场景测试。
+
+### 11.4 验证记录
+
+- Java 单元与契约覆盖：78 项通过，2 项因本机媒体能力跳过。
+- 管理后台：22 项测试、TypeScript 检查和 Vite 生产构建通过。
+- OpenAPI：82 个操作、103 个 Schema、184 个 Java 错误码覆盖检查通过；iOS 增量契约检查通过。
+- Flyway V15 已生成但未实际执行：本机没有 Docker，也没有运行中的本地 MySQL，因此本次无法启动 Testcontainers 或临时数据库。
+- 未执行真实 Apple 证明、首免、重装、恢复购买、退款通知、测试机重置、Apple 超时、MySQL 故障和并发故障注入。
+- Android/HarmonyOS 现有 Java 单元与契约测试通过；未做真机回归。
+- 状态：代码已提交并推送；未部署；当前不可进行真实 iOS 首免/内购联调。
 
 仅“接口返回 200”不算完成：必须完成真实苹果证明、账本一致性、重置防重放及受保护资源交付验证。测试环境和生产环境的操作结果分别记录。
