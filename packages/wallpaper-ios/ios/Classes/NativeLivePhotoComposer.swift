@@ -26,6 +26,9 @@ enum NativeLivePhotoComposer {
     from sourceURL: URL,
     metadataTemplateURL: URL,
     targetAspectRatio: CGFloat,
+    deviceModel: String,
+    systemVersion: String,
+    creationDate: String,
     directory: URL
   ) async throws -> NativeLivePhotoResources {
     let identifier = UUID().uuidString
@@ -43,6 +46,9 @@ enum NativeLivePhotoComposer {
       from: canvasURL,
       metadataTemplateURL: metadataTemplateURL,
       identifier: identifier,
+      deviceModel: deviceModel,
+      systemVersion: systemVersion,
+      creationDate: creationDate,
       outputURL: pairedVideoURL
     )
     return NativeLivePhotoResources(photoURL: photoURL, videoURL: pairedVideoURL)
@@ -272,6 +278,9 @@ enum NativeLivePhotoComposer {
     from videoURL: URL,
     metadataTemplateURL: URL,
     identifier: String,
+    deviceModel: String,
+    systemVersion: String,
+    creationDate: String,
     outputURL: URL
   ) async throws {
     let videoAsset = AVURLAsset(url: videoURL)
@@ -312,14 +321,24 @@ enum NativeLivePhotoComposer {
       transfers.append((output, input, "track-\(track.trackID)"))
     }
 
-    let contentIdentifier = AVMutableMetadataItem()
-    contentIdentifier.identifier = .quickTimeMetadataContentIdentifier
-    contentIdentifier.value = identifier as NSString
-    contentIdentifier.dataType = "com.apple.metadata.datatype.UTF-8"
+    let replacedIdentifiers: Set<AVMetadataIdentifier> = [
+      .quickTimeMetadataContentIdentifier,
+      .quickTimeMetadataMake,
+      .quickTimeMetadataModel,
+      .quickTimeMetadataSoftware,
+      .quickTimeMetadataCreationDate,
+    ]
     var movieMetadata = try await metadataAsset.load(.metadata).filter {
-      $0.identifier != .quickTimeMetadataContentIdentifier
+      guard let identifier = $0.identifier else { return true }
+      return !replacedIdentifiers.contains(identifier)
     }
-    movieMetadata.append(contentIdentifier)
+    movieMetadata.append(contentsOf: [
+      metadataItem(identifier: .quickTimeMetadataContentIdentifier, value: identifier),
+      metadataItem(identifier: .quickTimeMetadataMake, value: "Apple"),
+      metadataItem(identifier: .quickTimeMetadataModel, value: deviceModel),
+      metadataItem(identifier: .quickTimeMetadataSoftware, value: systemVersion),
+      metadataItem(identifier: .quickTimeMetadataCreationDate, value: creationDate),
+    ])
     writer.metadata = movieMetadata
 
     guard writer.startWriting(), videoReader.startReading(), metadataReader.startReading() else {
@@ -342,6 +361,17 @@ enum NativeLivePhotoComposer {
     guard writer.status == .completed else {
       throw writer.error ?? CompositionError.writerCreationFailed
     }
+  }
+
+  private static func metadataItem(
+    identifier: AVMetadataIdentifier,
+    value: String
+  ) -> AVMetadataItem {
+    let item = AVMutableMetadataItem()
+    item.identifier = identifier
+    item.value = value as NSString
+    item.dataType = "com.apple.metadata.datatype.UTF-8"
+    return item
   }
 
   private static func transfer(

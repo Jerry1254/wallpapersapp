@@ -330,11 +330,17 @@ public final class WallpaperIosPlugin: NSObject, FlutterPlugin {
       try Task.checkCancellation()
       let templateURL = try livePhotoMetadataTemplateURL()
       let targetAspectRatio = livePhotoCanvasAspectRatio()
+      let deviceModel = UIDevice.current.model
+      let systemVersion = UIDevice.current.systemVersion
+      let creationDate = ISO8601DateFormatter().string(from: Date())
       let resources = try await Task.detached(priority: .userInitiated) {
         try await NativeLivePhotoComposer.create(
           from: sourceURL,
           metadataTemplateURL: templateURL,
           targetAspectRatio: targetAspectRatio,
+          deviceModel: deviceModel,
+          systemVersion: systemVersion,
+          creationDate: creationDate,
           directory: directory
         )
       }.value
