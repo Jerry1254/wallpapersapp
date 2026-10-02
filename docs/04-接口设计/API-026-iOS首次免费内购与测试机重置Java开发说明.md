@@ -1,8 +1,8 @@
 # API-026 iOS 首次免费、苹果内购与测试机重置 Java 开发说明
 
-更新日期：2026-10-02。状态：**OpenAPI `2.14.1`、Flyway V16、Java Apple 验证、iOS 前端、商品映射、正式 iOS Live Photo、测试机标记及 Notifications V2 地址均已部署或配置到 `ONLINE_MAIN`。提交 `5caccaf` 已修复 assertion flags 限制，但第二轮真机仍为 STATUS 403；第 12.11 节已用真机断言、公钥和 OpenSSL 定位到 Java 少计算一次 Apple nonce。首免领取、Sandbox 购买、恢复、退款及重置须在第 12.11 节修复部署后继续。**
+更新日期：2026-10-03。状态：**OpenAPI `2.14.1`、Flyway V16、Java Apple 验证、iOS 前端及 Notifications V2 地址已部署或配置到 `ONLINE_MAIN / VALIDATION`。历史 STATUS 403 的修复方案见第 12.10、12.11 节，用户已反馈首免和导出可用。本次已配置三款独立非消耗型商品及后台映射；真实 Sandbox 购买、恢复、退款仍待验收，不能将商品创建成功视为购买测试通过。先完成多商品测试，再提交正式审核。**
 
-本文件集中说明本次业务、后端接口、管理后台、前端待补部分及账号持有人需要办理的事项。当前入库主契约为 [openapi.yaml](../../contracts/openapi/openapi.yaml)，版本 `2.14.1`；早期增量方案见 [ios-acquisition.draft.yaml](../../contracts/openapi/ios-acquisition.draft.yaml)。第 11 节记录实现结果；**当前线上配置、真机证据及剩余修复以第 12.10、12.11 节为准，其中第 12.11 节是最新结论**。前文示例与主契约不同时，以主契约及第 11、12 节为准。
+本文件集中说明本次业务、后端接口、管理后台、前端待补部分及账号持有人需要办理的事项。当前入库主契约为 [openapi.yaml](../../contracts/openapi/openapi.yaml)，版本 `2.14.1`；早期增量方案见 [ios-acquisition.draft.yaml](../../contracts/openapi/ios-acquisition.draft.yaml)。第 11 节记录实现结果；**当前商品配置及购买验收以第 12.13 节为准**。前文示例与主契约不同时，以主契约及第 11、12 节为准。
 
 ## 1. 本次确定的业务
 
@@ -1034,4 +1034,31 @@ iOS App 不内置某一张壁纸的 Product ID。启动后使用 `acquisition/st
 6. 至少对两款不同壁纸各完成一次 Sandbox 购买、后端验签、下载、恢复购买与重新下载，证明不是只有普贤菩萨的硬编码通路。
 7. 首个非消耗型内购需与新 App 版本同一次提交审核；首个同类型商品批准后，后续商品才可在已有已批准 App 版本时单独提交。参见 [Submit an In-App Purchase](https://developer.apple.com/help/app-store-connect/manage-submissions-to-app-review/submit-an-in-app-purchase/)。
 
-本次不执行线上存量数据修改，也不代替在 App Store Connect 中创建其他商品。实际批量绑定属于 ONLINE_MAIN 数据操作，执行时须按 `OPS-005` 备份、应用、回读和留存操作记录。
+第 12.12 节定义配置规则，不代表已经完成线上配置；实际多商品配置结果见第 12.13 节。批量绑定属于 ONLINE_MAIN 数据操作，执行时须按 `OPS-005` 备份、应用、回读和留存操作记录。
+
+### 12.13 多商品 Sandbox 购买测试（2026-10-03）
+
+用户明确要求先创建多款商品测试购买，正式审核提交排在购买验收之后。此次在 Apple 创建两款新商品，并通过线上管理后台绑定已有壁纸，不新增演示商品、不复制同一个 Product ID。
+
+| wallpaperId | 壁纸 | Product ID | Apple 内购数字 ID | 中国大陆价格 |
+| --- | --- | --- | --- | --- |
+| `1` | 普贤菩萨动态壁纸 | `com.qingjing.bizhi.wallpaper.puxian` | `6818448059` | ¥1 |
+| `13` | 不动明王 | `com.qingjing.bizhi.wallpaper.budongmingwang` | `6818576556` | ¥1 |
+| `14` | 点亮心佛 | `com.qingjing.bizhi.wallpaper.dianliangxinfo` | `6818577909` | ¥1 |
+
+三款均为 **Non-Consumable**，已配置简体中文显示名称/描述和中国大陆供应范围。¥1 是用户确认的测试定价，上架前需确认正式价格。Apple 当前显示“准备提交”，尚未提交审核。Sandbox 测试无需先通过审核，商品元数据变更可能需最多一小时才同步到 Sandbox；最终以真机 `Product.products(for:)` 能查到三款商品为准。[Apple Sandbox 商品可用性排查](https://developer.apple.com/documentation/technotes/tn3186-troubleshooting-in-app-purchases-availability-in-the-sandbox)、[Apple 内购配置说明](https://developer.apple.com/help/app-store-connect/configure-in-app-purchase-settings/overview-for-configuring-in-app-purchases/)
+
+**线上操作回读：** 环境 `ONLINE_MAIN / VALIDATION`，数据库 `wallpaper_online`，API 提交 `dbea1597a4c99467abd60229caf26344b9ce2138`，契约 `2.14.1`，Flyway `16`。修改前已备份数据库和资源，并复制备份到本机运行时目录。三行映射均为 `enabled=true`、`firstFreeEligible=true`，壁纸均为 `PUBLISHED / REDEEM`；其中 `14` 从 `FREE` 改为 `REDEEM`，避免绕过首免和购买。其他壁纸、设备、权益及资源未修改。数据库中已验证 Apple 购买安装记录总数为 `0`，购买尚未通过实测。
+
+**当前测试环境保持：** App Attest `DEVELOPMENT`、DeviceCheck `DEVELOPMENT`、StoreKit `SANDBOX`。沿用现有开发签名 Release 手机包；本次商品配置无需重新安装。不得为了测试多款商品切换生产证明环境，也不得使用伪造交易或前端固定授权。
+
+**测试顺序：**
+
+1. 终止并重新打开 App，刷新服务器全量商品映射和 StoreKit 信息；首免用过的测试机暂不重置，以便直接进入购买路径。
+2. 进入尚未拥有的“不动明王”，确认按钮显示 Apple 返回的价格，取消一次支付，确认没有新增权益。
+3. 使用 Sandbox 测试账号成功购买“不动明王”；Java 验证两份 JWS 和设备证明后授予 `wallpaperId=13` 的权益，确认能下载、导出并重复下载，不重复付费。
+4. 购买“点亮心佛”，确认使用另一 Product ID，只解锁 `wallpaperId=14`，与普贤、不动明王互不串货。
+5. 重启 App 检查已购权益；另行卸载重装测试后，点击“我的 → 恢复购买”，使用原 Sandbox 账号恢复付费商品。设备首免不得因重装恢复。
+6. 如需重测首免，再通过后台对已标记测试机发起重置，待 App 完成新证明后确认状态成功；重置仅恢复一张首免机会，不清空 Apple 购买历史。
+
+**给 API 与管理后台的要求：** 沿用现有全量映射和接口，无需为了这三款商品新增接口。`acquisition/status.products[]` 应返回以上三组正确映射；不得只返回普贤或在客户端写死商品 ID。购买校验须按交易中的 Product ID 查对应壁纸，保持环境隔离、交易幂等和原有已购恢复规则。最终验收应同时有 StoreKit 真机结果、Java 交易/权益回读及下载成功结果；目前这三项购买证据仍待取得。
