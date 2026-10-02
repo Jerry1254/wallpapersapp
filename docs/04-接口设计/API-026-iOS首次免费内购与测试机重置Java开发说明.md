@@ -960,3 +960,79 @@ signature.update(nonce);
 5. MySQL 必须显示新 key 的 `assertion_counter > 0`、STATUS challenge 已消费、`devicecheck_checked_at` 非空、免费资格为 `AVAILABLE`。
 6. 管理后台设备详情必须显示测试机“是”、免费资格 `AVAILABLE`，商品状态返回 `wallpaperId=1` 与 `com.qingjing.bizhi.wallpaper.puxian`。
 7. 以上通过后，继续点击“首次免费获取”，验证首免、下载和本地 Live Photo 导出闭环。
+
+### 12.12 正式上线：iOS 全量商品与管理后台发布门禁
+
+#### 12.12.1 上线口径
+
+倾境动态壁纸的 iOS 正式目录按以下规则管理：
+
+- 每款已发布、可在 iOS 下载的非免费壁纸，必须在 App Store Connect 有一个独立的 `NON_CONSUMABLE` 商品。
+- 一张壁纸对应一个 Product ID，一个 Product ID 不得复用给多张壁纸。
+- 用户首免只是对这些正式商品免费授予一次权益，不能让未绑定 Apple 商品的壁纸进入首免。
+- 首免使用后，App 显示 Apple 实时返回的本地化价格，点击后走 StoreKit 购买；后端不下发和伪造价格。
+- 如果现有壁纸的 `accessType=FREE`，iOS 前端会按永久免费内容处理并绕过首免与内购。因此“所有 iOS 壁纸都是内购商品”的目录中，对应壁纸应为 `REDEEM`；仅明确的永久免费内容可保留 `FREE`。
+
+管理后台中的“倾境壁纸商品”和 App Store Connect 中的“Apple 内购商品”是两条记录。现阶段管理后台只负责绑定 Product ID，不能只在 MySQL 写一个字符串就当作已创建 Apple 商品。Apple 商品必须先在 App Store Connect 中创建；若以后要自动创建，需要另行接入 App Store Connect API。
+
+#### 12.12.2 新商品创建顺序
+
+1. 管理后台先保存壁纸草稿，获得稳定的业务 `wallpaperId`。
+2. 在 App Store Connect 进入“App → Monetization → In-App Purchases → +”，类型选择 **Non-Consumable**，创建唯一 Product ID。Apple 创建后不允许修改 Product ID 和商品类型。
+3. Product ID 统一使用 `com.qingjing.bizhi.wallpaper.<稳定标识>`。优先用不会改的数字 `wallpaperId`；已经创建的 `com.qingjing.bizhi.wallpaper.puxian` 继续保留，不改名、不复用。
+4. 在 Apple 商品页面填完简体中文显示名称、描述、价格、中国大陆及计划上线区域、审核截图和审核备注。付费 App 协议、银行和税务信息必须有效。
+5. 回到倾境管理后台，绑定刚创建的 Product ID，设置“允许购买 = 是”、“可作为首免选择 = 是”。
+6. 上传并生成 iOS Live Photo 资源，只有在资源可发布、Product ID 已绑定、允许购买已开启后才能发布壁纸。
+7. Apple 商品元数据改动最长可能需要约 1 小时才出现在 Sandbox。等待后使用 TestFlight/Sandbox 真机确认 App 能返回本地化价格、弹出 Apple 购买页并恢复购买。
+
+Apple 操作依据：[Create consumable or non-consumable In-App Purchases](https://developer.apple.com/help/app-store-connect/manage-in-app-purchases/create-consumable-or-non-consumable-in-app-purchases/)、[Set a price for an In-App Purchase](https://developer.apple.com/help/app-store-connect/manage-in-app-purchases/set-a-price-for-an-in-app-purchase/)、[Set availability for In-App Purchases](https://developer.apple.com/help/app-store-connect/manage-in-app-purchases/set-availability-for-in-app-purchases/)。
+
+#### 12.12.3 管理后台必须实施的发布门禁
+
+前端表单校验只是用户体验，不是可信发布门禁。Java 的 `POST /admin/wallpapers/{wallpaperId}/publish` 必须在同一事务中强制校验。当壁纸满足“`accessType=REDEEM` 且本次发布包含启用的 `IOS/LIVE_PHOTO`”时，必须同时满足：
+
+| 检查项 | 要求 |
+| --- | --- |
+| Product ID | 非空，格式合法，并且在当前 Bundle ID 下唯一 |
+| 商品类型 | 业务固定为 `NON_CONSUMABLE` |
+| 允许购买 | `ios_product_mapping.enabled=true` |
+| 首免 | 当前产品策略下 `first_free_eligible=true` |
+| iOS 资源 | 本次选中的 `IOS/LIVE_PHOTO` 版本可发布 |
+
+任意一项不满足时发布返回 `422 IOS_PRODUCT_CONFIGURATION_REQUIRED`，不允许通过列表页“发布”按钮绕过编辑页校验。返回文案应指出具体缺少的项目。这个错误码需要同步到主 OpenAPI。
+
+当 Product ID 已经存在验证过的 Apple 交易时，继续保持不可更改。下架可将 `enabled=false`，已购权益仍可恢复和重新下载；再次上架前必须恢复原 Product ID，不创建新 ID 来规避旧交易。
+
+#### 12.12.4 管理页交互
+
+现有 `PUT /admin/wallpapers/{wallpaperId}/ios-acquisition` 继续作为唯一映射写接口，不新增重复接口。编辑页在识别到 iOS Live Photo 且获取方式为 `REDEEM` 时：
+
+1. 始终展示“iOS 首免与内购”区域，Product ID、允许购买、首免三项都是发布必检项。
+2. 新建壁纸允许先存草稿；草稿可为空，但“保存并发布”必须拦截。
+3. 列表增加 iOS 商品状态：“未绑定”、“已绑定未售卖”、“可购买”、“Product ID 已锁定”。
+4. 管理后台只能确认“映射已配置”，不能伪造“Apple 商品已可售”。如未接入 App Store Connect API，上线清单中的 Apple 状态由人工核对，最终以真机 StoreKit 能查到商品为准。
+5. 发布成功后回读详情，确认 `productId`、`enabled=true`、`firstFreeEligible=true`与 iOS 资源版本均为最新值。
+
+#### 12.12.5 iOS App 已实施的全量商品逻辑
+
+iOS App 不内置某一张壁纸的 Product ID。启动后使用 `acquisition/status.products[]` 返回的全量“wallpaperId → Product ID”映射，一次向 StoreKit 查询所有去重后的 Product ID，并按当前详情页的 wallpaperId 发起对应购买。
+
+上线保护规则：
+
+- 未返回 Product ID：按钮显示“商品尚未配置”，禁止购买，也不消耗首免。
+- 已有映射但 StoreKit 查不到：首免已用时显示“App Store 暂不可购买”，禁止发起支付。
+- 首免可用且商品已映射：显示“首次免费获取”，服务端仍再校验该壁纸可参与首免。
+- StoreKit 返回商品：显示 `Product.displayPrice + 购买并下载`，不在 App 中写死价格。
+- Apple 验签后的交易必须先同步到 Java 并确认权益，再 finish 交易和下载原 MP4。
+
+#### 12.12.6 存量商品一次性补齐和验收
+
+1. 导出所有“已发布或待发布 + `REDEEM` + 启用 iOS Live Photo”壁纸清单。
+2. 对每一行在 App Store Connect 创建独立非消耗型商品，填完价格、可用区域、本地化和审核信息。
+3. 将 Product ID 逐一绑定到倾境管理后台，开启允许购买和首免。禁止批量将同一 Product ID 复制给多张壁纸。
+4. 调用真实 iOS `acquisition/status`，校验 `products[]` 数量和壁纸清单一致，Product ID 去重后数量也必须一致。
+5. 在 Sandbox/TestFlight 真机逐款打开详情，所有商品必须能显示 Apple 价格；任意一款显示“商品尚未配置”或“App Store 暂不可购买”，都不得进入上线提交。
+6. 至少对两款不同壁纸各完成一次 Sandbox 购买、后端验签、下载、恢复购买与重新下载，证明不是只有普贤菩萨的硬编码通路。
+7. 首个非消耗型内购需与新 App 版本同一次提交审核；首个同类型商品批准后，后续商品才可在已有已批准 App 版本时单独提交。参见 [Submit an In-App Purchase](https://developer.apple.com/help/app-store-connect/manage-submissions-to-app-review/submit-an-in-app-purchase/)。
+
+本次不执行线上存量数据修改，也不代替在 App Store Connect 中创建其他商品。实际批量绑定属于 ONLINE_MAIN 数据操作，执行时须按 `OPS-005` 备份、应用、回读和留存操作记录。

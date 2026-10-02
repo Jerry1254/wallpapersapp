@@ -20,6 +20,7 @@ const paidTransaction = IosStoreTransaction(
 class TestAcquisitionApi implements IosAcquisitionApi {
   IosFreeAllowance allowance = IosFreeAllowance.available;
   final free = <String>{}, paid = <String>{};
+  final products = Map<String, String>.of(productMap);
   final claims = <(String, String)>[];
   int generation = 0;
   IosPendingFreeReset? pendingReset;
@@ -31,7 +32,7 @@ class TestAcquisitionApi implements IosAcquisitionApi {
     installationId: installationId,
     accountToken: accountToken,
     freeGeneration: generation,
-    products: productMap,
+    products: products,
     freeAllowance: pendingReset == null
         ? allowance
         : IosFreeAllowance.pendingReset,
@@ -101,6 +102,8 @@ class TestPurchaseStore implements IosPurchaseStore {
   final finished = <String>[];
   final synchronization = <bool>[];
   final unfinished = <IosStoreTransaction>[];
+  Set<String>? availableProductIds;
+  Set<String>? requestedProductIds;
   int purchases = 0;
   IosPurchaseResult next = const IosPurchaseResult(
     'PURCHASED',
@@ -108,9 +111,15 @@ class TestPurchaseStore implements IosPurchaseStore {
   );
   void Function(IosStoreTransaction)? listener;
   @override
-  Future<List<IosStoreProduct>> products(Set<String> ids) async => [
-    for (final id in ids) IosStoreProduct(id, '¥1.00'),
-  ];
+  Future<List<IosStoreProduct>> products(Set<String> ids) async {
+    requestedProductIds = Set.of(ids);
+    return [
+      for (final id in ids)
+        if (availableProductIds?.contains(id) ?? true)
+          IosStoreProduct(id, '¥1.00'),
+    ];
+  }
+
   @override
   Future<IosPurchaseResult> purchase(String productId, String token) async {
     expect(token, accountToken);
@@ -290,7 +299,46 @@ void main() {
         expect(controller.owns('1'), false);
       }
       expect(api.stateCalls, 1);
+      expect(store.requestedProductIds, productMap.values.toSet());
       expect(store.synchronization, [false]);
+      expect(store.purchases, 0);
+    },
+  );
+
+  test(
+    'an unmapped paid wallpaper cannot consume the first-free allowance',
+    () async {
+      api.products.remove('1');
+      await controller.initialize();
+      expect(controller.label('1'), '商品尚未配置');
+      expect(controller.canAcquire('1'), false);
+      await expectLater(
+        controller.acquire('1'),
+        throwsA(
+          isA<IosAcquisitionNotice>().having(
+            (notice) => notice.message,
+            'message',
+            contains('Apple 内购'),
+          ),
+        ),
+      );
+      expect(api.claims, isEmpty);
+      expect(store.purchases, 0);
+    },
+  );
+
+  test(
+    'a mapped product missing from StoreKit is not offered for purchase',
+    () async {
+      api.allowance = IosFreeAllowance.used;
+      store.availableProductIds = {'test.wallpaper.1'};
+      await controller.initialize();
+      expect(controller.label('2'), 'App Store 暂不可购买');
+      expect(controller.canAcquire('2'), false);
+      await expectLater(
+        controller.acquire('2'),
+        throwsA(isA<IosAcquisitionNotice>()),
+      );
       expect(store.purchases, 0);
     },
   );

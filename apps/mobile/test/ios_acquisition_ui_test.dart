@@ -131,6 +131,33 @@ void main() {
     },
   );
 
+  testWidgets(
+    'iOS unmapped paid wallpaper is visibly blocked before first-free claim',
+    (tester) async {
+      final api = TestAcquisitionApi()..products.remove('1');
+      final flow = IosAcquisitionController(api, TestPurchaseStore());
+      addTearDown(flow.dispose);
+      await flow.initialize();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: QjTheme.light,
+          home: DetailScreen(
+            repository: AcquisitionCatalog(),
+            id: '1',
+            iosAcquisition: flow,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('商品尚未配置'), findsOneWidget);
+      expect(
+        tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+        isNull,
+      );
+      expect(api.claims, isEmpty);
+    },
+  );
+
   testWidgets('iOS FREE wallpaper bypasses first-free acquisition', (
     tester,
   ) async {

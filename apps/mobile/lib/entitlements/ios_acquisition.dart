@@ -426,6 +426,11 @@ class IosAcquisitionController extends ChangeNotifier {
   bool _closed = false;
   bool owns(String id) => state?.owns(id) == true;
 
+  String? _productId(String wallpaperId) {
+    final value = state?.products[wallpaperId];
+    return value == null || value.isEmpty ? null : value;
+  }
+
   Future<void> initialize() => _initialization ??= _initialize();
   Future<void> _initialize() async {
     busy = true;
@@ -502,21 +507,32 @@ class IosAcquisitionController extends ChangeNotifier {
     }
     if (!ready || error != null) return '重试获取资格';
     if (state!.freeAllowance == IosFreeAllowance.unknown) return '重试获取资格';
+    final productId = _productId(wallpaperId);
+    if (productId == null) return '商品尚未配置';
     if (state!.freeAllowance == IosFreeAllowance.available) return '首次免费获取';
-    final product = products[state!.products[wallpaperId]];
-    return product == null ? '暂不可购买' : '${product.displayPrice} 购买并下载';
+    final product = products[productId];
+    return product == null
+        ? 'App Store 暂不可购买'
+        : '${product.displayPrice} 购买并下载';
   }
 
-  bool canAcquire(String id) =>
-      !busy &&
-      !unavailable &&
-      state?.freeAllowance != IosFreeAllowance.pendingReset &&
-      (owns(id) ||
-          !ready ||
-          error != null ||
-          state!.freeAllowance == IosFreeAllowance.unknown ||
-          state!.freeAllowance == IosFreeAllowance.available ||
-          products.containsKey(state!.products[id]));
+  bool canAcquire(String id) {
+    if (busy ||
+        unavailable ||
+        state?.freeAllowance == IosFreeAllowance.pendingReset) {
+      return false;
+    }
+    if (owns(id)) return true;
+    if (!ready ||
+        error != null ||
+        state!.freeAllowance == IosFreeAllowance.unknown) {
+      return true;
+    }
+    final productId = _productId(id);
+    if (productId == null) return false;
+    return state!.freeAllowance == IosFreeAllowance.available ||
+        products.containsKey(productId);
+  }
 
   /// False indicates cancellation, deferred approval, or an eligibility refresh.
   /// Only a server-confirmed entitlement permits the caller to request delivery.
@@ -532,6 +548,10 @@ class IosAcquisitionController extends ChangeNotifier {
     }
     if (state!.freeAllowance == IosFreeAllowance.pendingReset) {
       throw const IosAcquisitionNotice('测试资格重置处理中，请稍后重试');
+    }
+    final productId = _productId(wallpaperId);
+    if (productId == null) {
+      throw const IosAcquisitionNotice('此壁纸尚未配置 Apple 内购，请稍后重试');
     }
     busy = true;
     error = null;
@@ -552,8 +572,7 @@ class IosAcquisitionController extends ChangeNotifier {
           throw const IosAcquisitionNotice('免费获取结果尚未确认，请重试');
         }
       } else {
-        final productId = state!.products[wallpaperId];
-        if (productId == null || !products.containsKey(productId)) {
+        if (!products.containsKey(productId)) {
           throw const IosAcquisitionNotice('此壁纸暂不可购买，请稍后重试');
         }
         final result = await store.purchase(productId, state!.accountToken);
