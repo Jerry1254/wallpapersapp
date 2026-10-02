@@ -249,7 +249,7 @@ enum NativeLivePhotoComposer {
     generator.requestedTimeToleranceAfter = .zero
     var actualTime = CMTime.zero
     let image = try generator.copyCGImage(
-      at: CMTime(value: 30, timescale: 60),
+      at: .zero,
       actualTime: &actualTime
     )
     guard let destination = CGImageDestinationCreateWithURL(
