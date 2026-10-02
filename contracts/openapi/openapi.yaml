@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.14.0
+  version: 2.14.1
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -3267,6 +3267,7 @@ components:
         - DYNAMIC_SOURCE_FORMAT_INVALID
         - DYNAMIC_SOURCE_DURATION_INVALID
         - IOS_ACQUISITION_UNAVAILABLE
+        - IOS_DEVICE_PROOF_UNAVAILABLE
         - IOS_DEVICE_REQUIRED
         - IOS_ATTESTATION_INVALID
         - IOS_ASSERTION_REPLAY

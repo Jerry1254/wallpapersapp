@@ -20,6 +20,7 @@ public class DeviceWebConfiguration implements WebMvcConfigurer {
                 "/api/v1/device/encryption-key",
                 "/api/v1/device/redemptions",
                 "/api/v1/device/redemptions/**",
+                "/api/v1/device/ios/**",
                 "/api/v1/device/wallpapers/**",
                 "/api/v1/public/categories",
                 "/api/v1/public/wallpapers",

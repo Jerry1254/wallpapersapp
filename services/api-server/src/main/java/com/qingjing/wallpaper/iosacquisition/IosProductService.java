@@ -39,6 +39,9 @@ public class IosProductService {
     @Transactional
     public IosProductConfiguration update(long wallpaperId, UpdateIosProductRequest request) {
         ensureWallpaper(wallpaperId);
+        jdbc.queryForObject("SELECT id FROM wallpaper WHERE id=? FOR UPDATE", Long.class, wallpaperId);
+        List<Long> owner = jdbc.query("SELECT wallpaper_id FROM ios_product_mapping WHERE bundle_id=? AND product_id=? FOR UPDATE", (rs,n)->rs.getLong(1), properties.getBundleId(),request.productId());
+        if (!owner.isEmpty() && owner.get(0) != wallpaperId) throw new ApiException(HttpStatus.CONFLICT, "IDEMPOTENCY_CONFLICT", "The product id is already mapped to another wallpaper");
         List<String> locked = jdbc.query(
                 """
                 SELECT product_id FROM ios_product_mapping

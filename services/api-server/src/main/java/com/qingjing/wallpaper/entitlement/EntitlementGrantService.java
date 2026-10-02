@@ -7,6 +7,7 @@ import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /** Maintains the entitlement aggregate while preserving each independent grant source. */
 @Service
@@ -18,6 +19,7 @@ public class EntitlementGrantService {
         this.jdbc = jdbc;
     }
 
+    @Transactional
     public long grant(
             long deviceId,
             long wallpaperId,
@@ -25,11 +27,17 @@ public class EntitlementGrantService {
             String sourceReference,
             Long freeGeneration,
             Long sourceCodeId) {
+        jdbc.queryForObject("SELECT id FROM anonymous_device WHERE id=? FOR UPDATE", Long.class, deviceId);
         List<Long> existingGrant = jdbc.query(
                 "SELECT entitlement_id FROM entitlement_grant WHERE source_type=? AND source_reference=?",
                 (rs, row) -> rs.getLong(1), sourceType.name(), sourceReference);
         if (!existingGrant.isEmpty()) {
-            return existingGrant.get(0);
+            long existingId = existingGrant.get(0);
+            if (sourceType == SourceType.IOS_IAP) {
+                jdbc.update("UPDATE entitlement_grant SET status='ACTIVE',revoked_at=NULL,revoke_reason=NULL WHERE source_type=? AND source_reference=?", sourceType.name(), sourceReference);
+                jdbc.update("UPDATE device_entitlement SET status='ACTIVE',revoked_at=NULL,revoke_reason=NULL,lock_version=lock_version+1 WHERE id=? AND device_id=? AND wallpaper_id=?", existingId,deviceId,wallpaperId);
+            }
+            return existingId;
         }
 
         List<Long> entitlementIds = jdbc.query(
@@ -74,7 +82,11 @@ public class EntitlementGrantService {
         return entitlementId;
     }
 
+    @Transactional
     public void revoke(SourceType sourceType, String sourceReference, String reason) {
+        List<Long> devices = jdbc.query("SELECT de.device_id FROM entitlement_grant eg JOIN device_entitlement de ON de.id=eg.entitlement_id WHERE eg.source_type=? AND eg.source_reference=?", (rs,n)->rs.getLong(1),sourceType.name(),sourceReference);
+        if (devices.isEmpty()) return;
+        jdbc.queryForObject("SELECT id FROM anonymous_device WHERE id=? FOR UPDATE", Long.class, devices.get(0));
         List<Long> ids = jdbc.query(
                 """
                 SELECT entitlement_id FROM entitlement_grant
@@ -103,7 +115,9 @@ public class EntitlementGrantService {
         }
     }
 
+    @Transactional
     public void revokeFirstFreeGeneration(long deviceId, long generation, String reason) {
+        jdbc.queryForObject("SELECT id FROM anonymous_device WHERE id=? FOR UPDATE",Long.class,deviceId);
         List<String> references = jdbc.query(
                 """
                 SELECT eg.source_reference

@@ -96,6 +96,12 @@ const cancelReset = async () => {
   } finally { actionLoading.value = false; }
 };
 const sourceLabel = (source: string) => ({ REDEMPTION: '兑换码', IOS_FIRST_FREE: 'iOS 首免', IOS_IAP: 'Apple 内购' }[source] || source);
+const resetDescription = (reset: NonNullable<DeviceDetail['iosAcquisition']>['pendingReset']) => {
+  if (!reset) return '';
+  if (reset.errorCode) return `操作 ${reset.resetId}。Apple 写入结果待核查：${reset.errorCode}，请保留此操作，不要重复重置。`;
+  if (reset.status === 'WAITING_DEVICE') return `操作 ${reset.resetId}。等待 App 完成新鲜证明。`;
+  return `操作 ${reset.resetId}。正在处理，完成后刷新资格。`;
+};
 const search = () => { page.page = 1; load(); };
 const openDetail = async (row: DeviceSummary) => {
   selectedDevice.value = row;
@@ -166,7 +172,7 @@ onMounted(load);
               <ElDescriptionsItem label="免费资格">{{ detail.iosAcquisition.freeAllowance }}</ElDescriptionsItem>
               <ElDescriptionsItem label="Apple 核对时间">{{ date(detail.iosAcquisition.deviceCheckCheckedAt) }}</ElDescriptionsItem>
             </ElDescriptions>
-            <ElAlert v-if="detail.iosAcquisition?.pendingReset" type="warning" :closable="false" show-icon :title="`重置 ${detail.iosAcquisition.pendingReset.status}`" :description="`操作 ${detail.iosAcquisition.pendingReset.resetId}，等待 App 完成新鲜证明。`" />
+            <ElAlert v-if="detail.iosAcquisition?.pendingReset" type="warning" :closable="false" show-icon :title="`重置 ${detail.iosAcquisition.pendingReset.status}`" :description="resetDescription(detail.iosAcquisition.pendingReset)" />
             <div style="display:flex;gap:12px;margin-top:12px">
               <ElButton type="warning" :disabled="!detail.iosTestDevice || Boolean(detail.iosAcquisition?.pendingReset)" :loading="actionLoading" @click="createReset">发起一次首免重置</ElButton>
               <ElButton v-if="detail.iosAcquisition?.pendingReset?.status === 'WAITING_DEVICE'" :loading="actionLoading" @click="cancelReset">取消等待</ElButton>

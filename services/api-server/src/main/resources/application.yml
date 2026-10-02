@@ -45,7 +45,7 @@ management:
 info:
   app:
     name: ${spring.application.name}
-    contract-version: ${QJ_API_CONTRACT_VERSION:2.14.0}
+    contract-version: ${QJ_API_CONTRACT_VERSION:2.14.1}
     environment-id: ${QJ_ENVIRONMENT_ID:UNCONFIGURED}
     deployment-stage: ${QJ_DEPLOYMENT_STAGE:UNCONFIGURED}
     git-commit: ${QJ_DEPLOYMENT_GIT_COMMIT:unknown}
@@ -103,5 +103,15 @@ qingjing:
     store-issuer-id: ${QJ_APPLE_STORE_ISSUER_ID:}
     store-key-id: ${QJ_APPLE_STORE_KEY_ID:}
     store-private-key: ${QJ_APPLE_STORE_PRIVATE_KEY:}
+    device-check-private-key-file: ${QJ_APPLE_DEVICECHECK_PRIVATE_KEY_FILE:}
+    store-private-key-file: ${QJ_APPLE_STORE_PRIVATE_KEY_FILE:}
+    device-check-environment: ${QJ_APPLE_DEVICECHECK_ENVIRONMENT:DEVELOPMENT}
+    accepted-store-environments: ${QJ_APPLE_ACCEPTED_STORE_ENVIRONMENTS:}
+    accepted-bundle-versions: ${QJ_APPLE_ACCEPTED_BUNDLE_VERSIONS:}
+    app-attest-root: ${QJ_APPLE_APP_ATTEST_ROOT:classpath:apple/Apple_App_Attestation_Root_CA.pem}
+    store-root: ${QJ_APPLE_STORE_ROOT:classpath:apple/AppleRootCA-G3.cer}
+    online-certificate-checks: ${QJ_APPLE_ONLINE_CERTIFICATE_CHECKS:true}
+    connect-timeout: ${QJ_APPLE_CONNECT_TIMEOUT:5s}
+    request-timeout: ${QJ_APPLE_REQUEST_TIMEOUT:15s}
     challenge-ttl: 2m
     reset-ttl: 30m

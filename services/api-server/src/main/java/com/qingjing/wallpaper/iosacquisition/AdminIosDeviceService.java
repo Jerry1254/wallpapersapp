@@ -25,6 +25,7 @@ public class AdminIosDeviceService {
     public void setTestDevice(long deviceId, boolean testDevice) {
         requireActiveIosDevice(deviceId);
         ensureInstallation(deviceId);
+        jdbc.queryForObject("SELECT device_id FROM ios_installation_acquisition WHERE device_id=? FOR UPDATE", Long.class, deviceId);
         if (!testDevice && hasPendingReset(deviceId)) {
             throw conflict("IOS_FREE_RESET_PENDING", "Cancel or finish the pending reset first");
         }
@@ -37,14 +38,19 @@ public class AdminIosDeviceService {
         requireUuid(idempotencyKey, "Idempotency-Key");
         requireActiveIosDevice(deviceId);
         ensureInstallation(deviceId);
+        jdbc.queryForObject("SELECT device_id FROM ios_installation_acquisition WHERE device_id=? FOR UPDATE", Long.class, deviceId);
         List<ResetOperation> existing = jdbc.query(
                 "SELECT id,expected_generation,result_generation,status,error_code,expires_at,created_at,completed_at FROM ios_free_reset WHERE device_id=? AND idempotency_key=?",
                 (rs,row)->operation(rs,deviceId),deviceId,idempotencyKey);
-        if (!existing.isEmpty()) return existing.get(0);
+        if (!existing.isEmpty()) {
+            String originalReason = jdbc.queryForObject("SELECT reason FROM ios_free_reset WHERE device_id=? AND idempotency_key=?", String.class, deviceId, idempotencyKey);
+            if (existing.get(0).expectedGeneration() != expectedGeneration || !reason.equals(originalReason)) throw conflict("IDEMPOTENCY_CONFLICT", "The reset request parameters changed");
+            return existing.get(0);
+        }
         Boolean test = jdbc.queryForObject("SELECT is_test_device FROM ios_installation_acquisition WHERE device_id=? FOR UPDATE",Boolean.class,deviceId);
         if (!Boolean.TRUE.equals(test)) throw new ApiException(HttpStatus.FORBIDDEN,"IOS_TEST_DEVICE_REQUIRED","The device is not marked as an iOS test device");
         if (hasPendingReset(deviceId)) throw conflict("IOS_FREE_RESET_PENDING","Another free reset is pending");
-        Long pendingClaims=jdbc.queryForObject("SELECT COUNT(*) FROM ios_free_claim WHERE device_id=? AND status IN ('PROCESSING','APPLE_CONFIRMED')",Long.class,deviceId);
+        Long pendingClaims=jdbc.queryForObject("SELECT COUNT(*) FROM ios_free_claim WHERE device_id=? AND status IN ('PROCESSING','APPLE_WRITE_STARTED','RECONCILING','APPLE_CONFIRMED')",Long.class,deviceId);
         if (pendingClaims != null && pendingClaims > 0) {
             throw conflict("IOS_FREE_CLAIM_PENDING", "A free claim is still pending");
         }
@@ -76,13 +82,15 @@ public class AdminIosDeviceService {
 
     @Transactional
     public ResetOperation cancel(long deviceId, String resetId) {
+        jdbc.queryForObject("SELECT device_id FROM ios_installation_acquisition WHERE device_id=? FOR UPDATE", Long.class, deviceId);
         ResetOperation current = getReset(deviceId, resetId);
         if (!current.status().equals("WAITING_DEVICE")) {
             throw conflict("IOS_FREE_RESET_NOT_CANCELLABLE", "The reset already started Apple processing");
         }
-        jdbc.update(
+        int updated = jdbc.update(
                 "UPDATE ios_free_reset SET status='CANCELLED',cancelled_at=UTC_TIMESTAMP(6) WHERE id=? AND status='WAITING_DEVICE'",
                 resetId);
+        if (updated != 1) throw conflict("IOS_FREE_RESET_NOT_CANCELLABLE", "The reset already started");
         jdbc.update(
                 "UPDATE ios_installation_acquisition SET active_reset_id=NULL,free_allowance_status='UNAVAILABLE',lock_version=lock_version+1 WHERE device_id=? AND active_reset_id=?",
                 deviceId, resetId);
