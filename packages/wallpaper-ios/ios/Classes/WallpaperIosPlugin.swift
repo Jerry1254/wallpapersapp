@@ -426,7 +426,7 @@ public final class WallpaperIosPlugin: NSObject, FlutterPlugin {
     let bounds = UIScreen.main.nativeBounds
     let portraitWidth = min(bounds.width, bounds.height)
     let portraitHeight = max(bounds.width, bounds.height)
-    return portraitWidth / portraitHeight
+    return max(portraitWidth / portraitHeight, CGFloat(9.0 / 16.0))
   }
 
   private func livePhotoMetadataTemplateURL() throws -> URL {
