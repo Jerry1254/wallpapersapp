@@ -330,6 +330,7 @@ public final class WallpaperIosPlugin: NSObject, FlutterPlugin {
       try Task.checkCancellation()
       let templateURL = try livePhotoMetadataTemplateURL()
       let targetAspectRatio = livePhotoCanvasAspectRatio()
+      let maximumCanvasDimension = livePhotoMaximumCanvasDimension()
       let deviceModel = UIDevice.current.model
       let systemVersion = UIDevice.current.systemVersion
       let creationDate = ISO8601DateFormatter().string(from: Date())
@@ -338,6 +339,7 @@ public final class WallpaperIosPlugin: NSObject, FlutterPlugin {
           from: sourceURL,
           metadataTemplateURL: templateURL,
           targetAspectRatio: targetAspectRatio,
+          maximumCanvasDimension: maximumCanvasDimension,
           deviceModel: deviceModel,
           systemVersion: systemVersion,
           creationDate: creationDate,
@@ -427,6 +429,11 @@ public final class WallpaperIosPlugin: NSObject, FlutterPlugin {
     let portraitWidth = min(bounds.width, bounds.height)
     let portraitHeight = max(bounds.width, bounds.height)
     return portraitWidth / portraitHeight
+  }
+
+  @MainActor
+  private func livePhotoMaximumCanvasDimension() -> CGFloat {
+    UIDevice.current.userInterfaceIdiom == .pad ? 4096 : 1920
   }
 
   private func livePhotoMetadataTemplateURL() throws -> URL {

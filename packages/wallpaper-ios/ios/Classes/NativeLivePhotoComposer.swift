@@ -26,6 +26,7 @@ enum NativeLivePhotoComposer {
     from sourceURL: URL,
     metadataTemplateURL: URL,
     targetAspectRatio: CGFloat,
+    maximumCanvasDimension: CGFloat,
     deviceModel: String,
     systemVersion: String,
     creationDate: String,
@@ -39,6 +40,7 @@ enum NativeLivePhotoComposer {
     try await createCanvasVideo(
       from: sourceURL,
       targetAspectRatio: targetAspectRatio,
+      maximumCanvasDimension: maximumCanvasDimension,
       outputURL: canvasURL
     )
     try await createImage(from: canvasURL, identifier: identifier, outputURL: photoURL)
@@ -57,6 +59,7 @@ enum NativeLivePhotoComposer {
   private static func createCanvasVideo(
     from sourceURL: URL,
     targetAspectRatio: CGFloat,
+    maximumCanvasDimension: CGFloat,
     outputURL: URL
   ) async throws {
     let asset = AVURLAsset(url: sourceURL)
@@ -72,7 +75,8 @@ enum NativeLivePhotoComposer {
     )
     let targetSize = try highQualityCanvasSize(
       sourceSize: sourceDisplaySize,
-      targetAspectRatio: targetAspectRatio
+      targetAspectRatio: targetAspectRatio,
+      maximumDimension: maximumCanvasDimension
     )
     guard let reader = try? AVAssetReader(asset: asset),
           let writer = try? AVAssetWriter(outputURL: outputURL, fileType: .mov) else {
@@ -178,11 +182,13 @@ enum NativeLivePhotoComposer {
 
   private static func highQualityCanvasSize(
     sourceSize: CGSize,
-    targetAspectRatio: CGFloat
+    targetAspectRatio: CGFloat,
+    maximumDimension: CGFloat
   ) throws -> CGSize {
     guard sourceSize.width.isFinite, sourceSize.height.isFinite,
           sourceSize.width > 0, sourceSize.height > 0,
-          targetAspectRatio.isFinite, targetAspectRatio > 0, targetAspectRatio <= 1 else {
+          targetAspectRatio.isFinite, targetAspectRatio > 0, targetAspectRatio <= 1,
+          maximumDimension.isFinite, maximumDimension >= 1920 else {
       throw CompositionError.invalidCanvasSize
     }
 
@@ -197,7 +203,6 @@ enum NativeLivePhotoComposer {
       height = width / targetAspectRatio
     }
 
-    let maximumDimension: CGFloat = 1920
     let scale = min(1, maximumDimension / max(width, height))
     width *= scale
     height *= scale
