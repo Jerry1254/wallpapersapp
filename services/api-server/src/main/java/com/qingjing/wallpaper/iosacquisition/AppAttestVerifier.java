@@ -97,7 +97,7 @@ final class AppAttestVerifier {
         try {
             JsonNode object = cbor.readTree(Base64.getDecoder().decode(encoded));
             byte[] auth = binary(object, "authenticatorData");
-            require(auth.length >= 37 && (auth[32] & 0x40) == 0 && MessageDigest.isEqual(rpId, Arrays.copyOf(auth, 32)));
+            require(auth.length >= 37 && MessageDigest.isEqual(rpId, Arrays.copyOf(auth, 32)));
             if ((auth[32] & 0x80) != 0) validateExtensions(cbor.readTree(Arrays.copyOfRange(auth, 37, auth.length)));
             else require(auth.length == 37);
             long next = counter(auth);

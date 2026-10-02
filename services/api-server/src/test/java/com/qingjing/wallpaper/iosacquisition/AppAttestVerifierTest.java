@@ -67,6 +67,11 @@ class AppAttestVerifierTest {
         String pem=f.verifier.attest(f.keyId,f.attestation,"challenge").publicKeyPem();
         assertThat(f.verifier.assertion(assertion(f.key,body,7,APP),pem,body,2)).isEqualTo(7);
     }
+    @Test void assertionAcceptsAttestedCredentialFlagFromRealDevice() throws Exception {
+        Fixture f=fixture("DEVELOPMENT"); byte[] body="{\"nonce\":\"status\"}".getBytes(StandardCharsets.UTF_8);
+        String pem=f.verifier.attest(f.keyId,f.attestation,"challenge").publicKeyPem();
+        assertThat(f.verifier.assertion(assertion(f.key,body,1,APP,0x40),pem,body,0)).isEqualTo(1);
+    }
     @Test void assertionRejectsBodyTampering() throws Exception {
         Fixture f=fixture("DEVELOPMENT"); byte[] body="original".getBytes(StandardCharsets.UTF_8);
         String proof=assertion(f.key,body,7,APP),pem=f.verifier.attest(f.keyId,f.attestation,"challenge").publicKeyPem();
@@ -89,7 +94,11 @@ class AppAttestVerifierTest {
     }
 
     private static String assertion(KeyPair key,byte[] body,int count,String app) throws Exception {
-        byte[] auth=ByteBuffer.allocate(37).put(AppleCrypto.sha256(app.getBytes(StandardCharsets.UTF_8))).put((byte)1).putInt(count).array();
+        return assertion(key,body,count,app,1);
+    }
+
+    private static String assertion(KeyPair key,byte[] body,int count,String app,int flags) throws Exception {
+        byte[] auth=ByteBuffer.allocate(37).put(AppleCrypto.sha256(app.getBytes(StandardCharsets.UTF_8))).put((byte)flags).putInt(count).array();
         Signature signature=Signature.getInstance("SHA256withECDSA");signature.initSign(key.getPrivate());
         signature.update(AppleCrypto.concat(auth,AppleCrypto.sha256(body)));
         return Base64.getEncoder().encodeToString(CBOR.writeValueAsBytes(Map.of("authenticatorData",auth,"signature",signature.sign())));
