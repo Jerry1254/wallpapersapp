@@ -1,8 +1,8 @@
 # API-026 iOS 首次免费、苹果内购与测试机重置 Java 开发说明
 
-更新日期：2026-10-02。状态：**OpenAPI `2.14.1`、Flyway V16、Java Apple 验证、iOS 前端、商品映射、正式 iOS Live Photo、测试机标记及 Notifications V2 地址均已部署或配置到 `ONLINE_MAIN`。真机 ENROLL 已通过，但 STATUS 被 Java 的 App Attest assertion flags 规则误拒绝；第 12.10 节给出唯一剩余修复和复验步骤。首免领取、Sandbox 购买、恢复、退款及重置仍须在该修复部署后完成。**
+更新日期：2026-10-02。状态：**OpenAPI `2.14.1`、Flyway V16、Java Apple 验证、iOS 前端、商品映射、正式 iOS Live Photo、测试机标记及 Notifications V2 地址均已部署或配置到 `ONLINE_MAIN`。提交 `5caccaf` 已修复 assertion flags 限制，但第二轮真机仍为 STATUS 403；第 12.11 节已用真机断言、公钥和 OpenSSL 定位到 Java 少计算一次 Apple nonce。首免领取、Sandbox 购买、恢复、退款及重置须在第 12.11 节修复部署后继续。**
 
-本文件集中说明本次业务、后端接口、管理后台、前端待补部分及账号持有人需要办理的事项。当前入库主契约为 [openapi.yaml](../../contracts/openapi/openapi.yaml)，版本 `2.14.1`；早期增量方案见 [ios-acquisition.draft.yaml](../../contracts/openapi/ios-acquisition.draft.yaml)。第 11 节记录实现结果；**当前线上配置、真机证据及剩余修复以第 12.10 节为准**。前文示例与主契约不同时，以主契约及第 11、12 节为准。
+本文件集中说明本次业务、后端接口、管理后台、前端待补部分及账号持有人需要办理的事项。当前入库主契约为 [openapi.yaml](../../contracts/openapi/openapi.yaml)，版本 `2.14.1`；早期增量方案见 [ios-acquisition.draft.yaml](../../contracts/openapi/ios-acquisition.draft.yaml)。第 11 节记录实现结果；**当前线上配置、真机证据及剩余修复以第 12.10、12.11 节为准，其中第 12.11 节是最新结论**。前文示例与主契约不同时，以主契约及第 11、12 节为准。
 
 ## 1. 本次确定的业务
 
@@ -813,6 +813,8 @@ Java 当前在 `AppAttestVerifier.assertion()` 中额外要求：
 
 #### 12.10.3 Java 唯一修复范围
 
+本节的 flags 修复已由提交 `5caccaf` 部署并通过构建测试，但第二轮真机仍然失败；继续执行第 12.11 节的 nonce 修复，不能把本节单独视为闭环完成。
+
 不新增接口、不修改 OpenAPI、不降低签名、RP ID、challenge、原始 body 或计数器验证。只调整 `services/api-server/src/main/java/com/qingjing/wallpaper/iosacquisition/AppAttestVerifier.java` 的 assertion 结构检查：
 
 1. 保留 `authenticatorData.length >= 37`。
@@ -844,3 +846,117 @@ if ((auth[32] & 0x80) != 0) {
 6. 继续完成 ¥1 Sandbox 购买、恢复购买、退款通知、测试机重置、重装防重复、并发和异常补偿场景。
 
 在第 4 步通过前，不能把“商品已发布”报告为首免闭环完成，也不要通过 SQL 把 `UNAVAILABLE` 改成 `AVAILABLE` 绕过 DeviceCheck 和 App Attest。
+
+### 12.11 第二轮真机：Java 缺少 Apple assertion nonce 计算
+
+#### 12.11.1 部署复验结果
+
+后端已将第 12.10 节 flags 修复作为提交 `5caccaf` 部署到 ONLINE_MAIN。蓝绿两个槽位均回读到同一不可变制品，readiness 为 `UP`，OpenAPI 仍为 `2.14.1`，Flyway 仍为 V16。
+
+重新启动 iPhone 上的 Release `1.0.0 (10021)` 后，真实调用仍然是：
+
+```text
+STATUS challenge                200
+acquisition/status              403 IOS_ATTESTATION_INVALID
+ENROLL challenge                200
+attestation registration       200
+STATUS challenge                200
+acquisition/status              403 IOS_ATTESTATION_INVALID
+```
+
+新 key 可以完成 ENROLL，但 `assertion_counter=0`、STATUS challenge 未消费、`devicecheck_checked_at` 为空、免费资格仍为 `UNAVAILABLE`。因此 flags 修复已经生效但不足以完成 assertion 验证，失败点仍在 `AppAttestVerifier.assertion()`。
+
+#### 12.11.2 真机密码学对比证据
+
+iOS 再次仅在本机临时输出 assertion 和 `clientDataHash`，并使用刚完成 Apple attestation 后存入服务端的对应公钥做离线验证。诊断结束后，断言、哈希、公钥副本、签名、临时消息文件和诊断代码均已删除，未进入 Git。
+
+真机样本结构仍为：
+
+```text
+authenticatorData length = 37
+flags = 0x40
+counter = 1
+clientDataHash length = 32
+```
+
+定义：
+
+```text
+message = authenticatorData || clientDataHash
+nonce   = SHA256(message)
+```
+
+使用同一真机签名和同一已证明公钥进行验证：
+
+| 验证输入 | 结果 |
+| --- | --- |
+| `SHA256withECDSA(message)` | 失败 |
+| `SHA256withECDSA(nonce)` | 成功 |
+
+这与 Apple 的步骤一致：先计算 `clientDataHash = SHA256(clientData)`，再计算 `nonce = SHA256(authenticatorData || clientDataHash)`，最后使用已证明公钥对 assertion signature 和 nonce 做 ECDSA SHA-256 验证。[Apple：Validating apps that connect to your server](https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server)
+
+Java 当前代码直接执行：
+
+```java
+verifier.update(AppleCrypto.concat(auth, AppleCrypto.sha256(rawBody)));
+```
+
+`SHA256withECDSA` 会在内部再做一次 SHA-256，因此当前实现实际验证的是 `SHA256(message)`；真机签名实际需要让该算法验证 `SHA256(nonce)`。当前代码少了显式生成 nonce 的步骤。
+
+#### 12.11.3 后端最终修复
+
+只修改 `AppAttestVerifier.assertion()` 的签名输入，不调整接口、数据库、功能开关或 iOS App：
+
+```java
+byte[] clientDataHash = AppleCrypto.sha256(rawBody);
+byte[] nonce = AppleCrypto.sha256(AppleCrypto.concat(auth, clientDataHash));
+Signature verifier = Signature.getInstance("SHA256withECDSA");
+verifier.initVerify(AppleCrypto.publicKey(pem));
+verifier.update(nonce);
+require(verifier.verify(binary(object, "signature")));
+```
+
+保留第 12.10 节已经修复的 `0x40` flags 兼容，以及以下安全检查：
+
+- CBOR 结构、最小长度和可选扩展完整性；
+- RP ID 必须等于配置 App ID 的 SHA-256；
+- counter 必须严格大于已保存值；
+- 使用 attestation 验证后保存的对应公钥；
+- assertion 绑定服务端收到的原始 UTF-8 body，不能重新序列化 JSON；
+- challenge、keyId、安装、动作、壁纸和 nonce 绑定；
+- counter 更新与 challenge 消费保持同一事务。
+
+不要改成接受客户端提交的 body hash，也不要在失败时降级为 `AVAILABLE`。客户端哈希只用于本次本机诊断；正式服务必须继续由服务器对原始 body 自行计算。
+
+#### 12.11.4 回归测试修改
+
+当前测试 helper 也按错误的单次摘要方式生成签名，所以旧测试无法发现该问题。将 helper 改成与真机一致：
+
+```java
+byte[] clientDataHash = AppleCrypto.sha256(body);
+byte[] nonce = AppleCrypto.sha256(AppleCrypto.concat(auth, clientDataHash));
+Signature signature = Signature.getInstance("SHA256withECDSA");
+signature.initSign(key.getPrivate());
+signature.update(nonce);
+```
+
+至少保留并通过：
+
+1. `flags=0x40`、37 字节、counter 从 0 到 1的合法 assertion。
+2. 修改原始 body 后拒绝。
+3. 错误 RP ID 拒绝。
+4. counter 重放拒绝。
+5. 错误签名或错误公钥拒绝。
+6. 存在扩展时继续校验 validation category 和 bundle version。
+
+禁止把本次真机 assertion、DeviceCheck token、`.p8`、私钥或线上公钥记录复制进测试 fixture。
+
+#### 12.11.5 部署后验收
+
+1. 运行 `AppAttestVerifierTest`、iOS acquisition 服务测试和 Maven `verify`。
+2. 按 `OPS-005` 生成不可变制品并蓝绿部署，回读六项制品身份和 readiness。
+3. 无需重新打 iOS 包；当前手机已恢复为无诊断代码的 Release `10021`。部署后终止并重新启动 App 即可。
+4. Nginx 必须显示 `POST /device/ios/acquisition/status` 返回 200。
+5. MySQL 必须显示新 key 的 `assertion_counter > 0`、STATUS challenge 已消费、`devicecheck_checked_at` 非空、免费资格为 `AVAILABLE`。
+6. 管理后台设备详情必须显示测试机“是”、免费资格 `AVAILABLE`，商品状态返回 `wallpaperId=1` 与 `com.qingjing.bizhi.wallpaper.puxian`。
+7. 以上通过后，继续点击“首次免费获取”，验证首免、下载和本地 Live Photo 导出闭环。
