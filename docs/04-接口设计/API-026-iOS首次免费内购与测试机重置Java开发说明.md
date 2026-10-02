@@ -977,13 +977,12 @@ signature.update(nonce);
 
 #### 12.12.2 新商品创建顺序
 
-1. 管理后台先保存壁纸草稿，获得稳定的业务 `wallpaperId`。
-2. 在 App Store Connect 进入“App → Monetization → In-App Purchases → +”，类型选择 **Non-Consumable**，创建唯一 Product ID。Apple 创建后不允许修改 Product ID 和商品类型。
-3. Product ID 统一使用 `com.qingjing.bizhi.wallpaper.<稳定标识>`。优先用不会改的数字 `wallpaperId`；已经创建的 `com.qingjing.bizhi.wallpaper.puxian` 继续保留，不改名、不复用。
-4. 在 Apple 商品页面填完简体中文显示名称、描述、价格、中国大陆及计划上线区域、审核截图和审核备注。付费 App 协议、银行和税务信息必须有效。
-5. 回到倾境管理后台，绑定刚创建的 Product ID，设置“允许购买 = 是”、“可作为首免选择 = 是”。
-6. 上传并生成 iOS Live Photo 资源，只有在资源可发布、Product ID 已绑定、允许购买已开启后才能发布壁纸。
-7. Apple 商品元数据改动最长可能需要约 1 小时才出现在 Sandbox。等待后使用 TestFlight/Sandbox 真机确认 App 能返回本地化价格、弹出 Apple 购买页并恢复购买。
+1. 先在 App Store Connect 进入“App → Monetization → In-App Purchases → +”，类型选择 **Non-Consumable**。
+2. 由我们填写唯一 Product ID；Apple 不会自动为业务生成这个字符串。Product ID 统一使用 `com.qingjing.bizhi.wallpaper.<稳定代码>`，例如 `com.qingjing.bizhi.wallpaper.puxian`。稳定代码不随展示标题改名，已创建的 Product ID 不改名、不复用。
+3. 在 Apple 商品页面填完简体中文显示名称、描述、价格、中国大陆及计划上线区域、审核截图和审核备注。付费 App 协议、银行和税务信息必须有效。
+4. 回到倾境管理后台创建壁纸，填入与 App Store Connect **完全一致**的 Product ID，并设置“允许购买 = 是”、“可作为首免选择 = 是”。
+5. 上传并生成 iOS Live Photo 资源，只有在资源可发布、Product ID 已绑定、允许购买已开启后才能发布壁纸。
+6. Apple 商品元数据改动最长可能需要约 1 小时才出现在 Sandbox。等待后使用 TestFlight/Sandbox 真机确认 App 能返回本地化价格、弹出 Apple 购买页并恢复购买。
 
 Apple 操作依据：[Create consumable or non-consumable In-App Purchases](https://developer.apple.com/help/app-store-connect/manage-in-app-purchases/create-consumable-or-non-consumable-in-app-purchases/)、[Set a price for an In-App Purchase](https://developer.apple.com/help/app-store-connect/manage-in-app-purchases/set-a-price-for-an-in-app-purchase/)、[Set availability for In-App Purchases](https://developer.apple.com/help/app-store-connect/manage-in-app-purchases/set-availability-for-in-app-purchases/)。
 
