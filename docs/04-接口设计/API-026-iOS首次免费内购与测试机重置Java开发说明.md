@@ -484,15 +484,17 @@ POST /device/ios/acquisition/free-resets/{resetId}/complete
 }
 ```
 
-前端仍需完成：
+前端已完成：
 
-1. `apps/mobile/lib/entitlements/ios_acquisition.dart` 解析并持久化 `installationId`、`freeGeneration`、`pendingFreeReset` 和商品映射。
-2. iOS 原生桥接除 `signedTransaction` 外，还要返回经 StoreKit 验证的 `signedAppTransaction` 和 Apple `AppStore.deviceVerificationID` 对应的 `deviceVerificationId`。该值不能由客户端随机生成。
-3. 首免 `requestId` 在网络重试时必须复用；换壁纸或新领取才生成新 UUID。
-4. StoreKit 购买必须使用 API 返回的 `accountToken` 作为 `appAccountToken`。`deviceVerificationId` 是 Apple 提供的设备验证值，用于核验交易及 AppTransaction 中的设备验证摘要；它不是 `appAccountToken`，也不是自行生成的购买参数。具体校验见第 12.5 节。[Apple 设备验证说明](https://developer.apple.com/documentation/storekit/appstore/deviceverificationid)
-5. 对 `IOS_ASSERTION_REPLAY`、`IOS_CHALLENGE_EXPIRED` 重新申请 challenge；对 `IOS_FREE_ALLOWANCE_USED`、`IOS_FREE_RESET_PENDING`、`IOS_FREE_GENERATION_CONFLICT` 刷新状态；`IOS_ACQUISITION_UNAVAILABLE` 或 `IOS_DEVICE_PROOF_UNAVAILABLE` 时隐藏领取/购买入口并提示 Apple 验证暂不可用。
-6. 只有 `REDEEM`、已发布且后台开启 `firstFreeEligible` 的 iOS 商品才消耗首次免费名额；原本 `FREE` 的壁纸继续直接免费下载。
-7. 在真实 Apple 验证、Sandbox/TestFlight 联调完成前保持 iOS 首免和内购功能开关关闭。
+1. `apps/mobile/lib/entitlements/ios_acquisition.dart` 已解析并持久化 `installationId`、`freeGeneration`、`pendingFreeReset` 和商品数组映射，同时兼容升级前的本地商品 Map 缓存。
+2. iOS 原生桥接已从 StoreKit verified 结果返回 `signedTransaction`、`signedAppTransaction` 和 `AppStore.deviceVerificationID` 对应的 `deviceVerificationId`；iOS 16 以下或 Apple 未提供验证 ID 时安全失败，不发权益。
+3. 首免 `requestId` 与对应免费代次在发送前持久化；网络结果不明时复用，代次变化后清理旧请求。
+4. StoreKit 购买使用 API 返回的 `accountToken` 作为 `appAccountToken`，服务端确认权益后才 finish；启动补偿 unfinished/currentEntitlements，恢复按钮才主动调用 `AppStore.sync()`。
+5. `IOS_ASSERTION_REPLAY`、`IOS_CHALLENGE_EXPIRED` 使用新 challenge 重试一次；证明环境或服务不可用时关闭获取入口并显示用户提示；失效 App Attest 注册允许安全重建一次密钥后重新证明。
+6. 已实现 `FREE_RESET` challenge 和 complete；状态存在 `pendingFreeReset` 时先完成测试资格重置，再开放领取。
+7. 原本 `FREE` 的壁纸绕过首免/内购控制继续直接下载；iOS 首免只处理需授权的壁纸。
+8. App target 已签入 `com.apple.developer.devicecheck.appattest-environment=development`。Apple 官方说明 TestFlight/App Store 分发会忽略开发值并自动使用 production；服务端仍必须按实际分发方式配置对应环境。
+9. 在真实 Apple 验证、Sandbox/TestFlight 联调完成前，正式线上 API 的 iOS 首免和内购开关继续保持关闭。
 
 ### 11.3 产品、账号与部署侧状态
 
@@ -510,6 +512,8 @@ Apple Team、App、DeviceCheck、IAP 标识和两份 `.p8` 已准备，具体值
 ### 11.4 验证记录
 
 - Java 单元与契约覆盖：92 项通过，2 项因本机媒体能力跳过；其中 App Attest 与 Apple gateway 新增 14 项专项测试。
+- iOS/Flutter：静态检查通过，移动端完整测试 87 项通过、1 项本地 API 场景按设计跳过；`wallpaper-ios` 7 项通过。
+- iOS Release：`1.0.0 (10021)`、Bundle ID `com.qingjing.bizhi` 编译和签名校验通过；签名产物已确认包含 development App Attest entitlement。本次仅构建验证，未安装、未连接真实 Apple 测试 API。
 - 管理后台：22 项测试、TypeScript 检查和 Vite 生产构建通过。
 - OpenAPI：82 个操作、103 个 Schema、191 个 Java 错误码覆盖检查通过；iOS 增量契约检查通过。
 - 两份本地 `.p8` 已分别通过 PKCS#8/P-256 解析校验，过程中未输出私钥；Apple App Attest 根和 Apple Root CA G3 已随代码加载测试通过。
@@ -656,17 +660,17 @@ SHA384(lowercase(deviceVerificationNonce UUID)
 
 推荐 Java 使用 [Apple App Store Server Library for Java](https://github.com/apple/app-store-server-library-java)，分别验证 Transaction、AppTransaction、Notification；通过 [SignedDataVerifier](https://github.com/apple/app-store-server-library-java/blob/main/src/main/java/com/apple/itunes/storekit/verification/SignedDataVerifier.java) 配置预期 Bundle ID、App Apple ID、环境和可信根，并按库规范设置在线证书检查。服务器调用 Apple API 的私钥与验证 Apple JWS 的信任根是两类材料，不能混用。
 
-前端任务归 iOS 实现，不要求 Java 替前端补字段：
+前端任务已由 iOS 实现完成，不要求 Java 为旧 App 放宽字段：
 
 | 任务 | 当前差异 / 要求 |
 | --- | --- |
-| 解析状态 | Java `products` 返回数组 `[{wallpaperId, productId}]`，Flutter 当前按 Map 解析，需改为契约数组；支持 `PENDING_RESET`，保存 installationId、freeGeneration、pendingFreeReset |
-| 购买证明 | 当前原生只返回 Transaction JWS，Flutter 请求缺 signedAppTransaction、deviceVerificationId；补齐后再联调，Java 不可为兼容旧 App 将必填校验放宽 |
-| App Attest | 核验最终签名 entitlement、环境、注册生命周期和断言请求排队；在后端确认保存 key 后才记 registered |
-| 测试机重置 | 实现 FREE_RESET challenge、complete、代次缓存失效和待处理重试；不能只删除客户端记录 |
-| 购买与恢复 | 服务端确认权益后 finish；unfinished / updates 补偿；恢复入口主动调用 sync，普通详情页使用缓存、不反复恢复 |
-| 页面和下载 | 首免状态未知时不默认可领；未配商品不弹虚假价格；Apple 实际 displayPrice 展示价格；取得权益后走受保护的原始 MP4 下载及本地高质量导出 |
-| 功能开启 | API 验证和上述前端差异完成后，先用隔离测试 API 构建 `IOS_ACQUISITION_ENABLED=true` 的 Release 验证包；当前已安装包仍为关闭状态 |
+| 解析状态 | 已按数组解析 `products`，支持 `PENDING_RESET`，保存 installationId、freeGeneration、pendingFreeReset |
+| 购买证明 | 已提交 verified Transaction JWS、AppTransaction JWS 和真实 deviceVerificationId |
+| App Attest | 已签入 entitlement；服务端确认注册后才记 registered，挑战覆盖原始请求 body，失效环境可安全重建一次密钥 |
+| 测试机重置 | 已实现 FREE_RESET challenge、complete、代次缓存失效和待处理提示 |
+| 购买与恢复 | 服务端确认权益后 finish；unfinished / updates 补偿；恢复入口主动调用 sync，普通详情页不反复恢复 |
+| 页面和下载 | 状态未知不默认可领；Apple `displayPrice` 展示价格；原有 FREE 壁纸不消耗首免；获权后沿用受保护的原始 MP4 下载及本地高质量导出 |
+| 功能开启 | 前端 Release 编译与签名校验通过；仍需隔离测试 API 部署和真实 Apple 联调，正式线上开关保持关闭 |
 
 现有 `Runner-StoreKit` / `.storekit` 演示商品仅用于本地交互，不要把 `com.qingjing.bizhi.test.wallpaper.1/2` 配进正式商品映射或用于正式授权。
 
@@ -707,7 +711,7 @@ https://wallpaper.biguo66.top/api/v1/integrations/apple/app-store-notifications
 ### 12.7 联调顺序与验收表
 
 1. Java 真实 gateway 已提交；下一步在隔离测试环境配置 Secret，执行并核验 V15/V16，完成商品映射，再提供可用测试 API base。
-2. iOS 完成第 12.5 节差异，用匹配证明环境的 Release 包连接测试 API，先验证 ENROLL → STATUS。
+2. iOS 第 12.5 节差异已完成；下一步用匹配证明环境的 Release 包连接隔离测试 API，先验证 ENROLL → STATUS。
 3. 在真机登录 Sandbox 测试账号，验证首免、购买、恢复和资源保存。登录位置在设备“设置 → 开发者 → Sandbox Apple 账户”，部分设备需先触发一次开发签名 App 的购买才出现；无需把测试账号当设备主 Apple 账号登录。[Apple 真机 Sandbox](https://developer.apple.com/documentation/storekit/testing-in-app-purchases-with-sandbox)
 4. Java/管理端完成重置、并发、外部调用/数据库故障及通知验证；再进行 TestFlight 同样流程，记录 App Attest 生产证明 + Sandbox 购买组合。
 5. 验收通过后再安排正式服务配置、正式价格、分发证书/商店构建及送审；本次交接本身不授权生产发布或生产数据重置。
@@ -737,6 +741,7 @@ https://wallpaper.biguo66.top/api/v1/integrations/apple/app-store-notifications
 | Secret | 本机两份 `.p8` 解析通过；未写入 Git、未上传测试或生产环境 |
 | 环境 | 代码支持 App Attest `DEVELOPMENT/PRODUCTION`、DeviceCheck `DEVELOPMENT/PRODUCTION`、StoreKit `SANDBOX/PRODUCTION` 白名单；目标环境尚未确定和启用 |
 | 管理后台 | 商品映射、首免资格、测试机标记/重置及 Apple 写入待核查提示完成 |
+| iOS 前端 | OpenAPI 2.14.1 状态、双 JWS、deviceVerificationId、App Attest、FREE_RESET、幂等请求和购买补偿已完成；Release 编译/签名通过 |
 | 数据迁移 | V15/V16 已入库，未在真实 MySQL 执行 |
 | 商品映射 | 未配置；真实 wallpaperId 尚未提供，`com.qingjing.bizhi.wallpaper.puxian` 尚未绑定 |
 | Apple 通知 | 路由已实现；公网通知 URL 未配置，Apple TEST 通知未投递 |
@@ -744,4 +749,16 @@ https://wallpaper.biguo66.top/api/v1/integrations/apple/app-store-notifications
 | 自动验证 | Java 92 项通过、2 项媒体测试跳过；管理后台 22 项和生产构建通过；OpenAPI 主/增量契约通过 |
 | 真实验收 | App Attest、DeviceCheck、Sandbox 购买/恢复、退款通知、重装、测试机重置、外部超时及数据库故障均待测 |
 
-iOS 现在应按第 11.2、12.5 节补齐并确认：状态数组解析、`signedAppTransaction`、真实 `deviceVerificationId`、App Attest 原始 body 断言、首免 requestId 持久化、FREE_RESET 流程、StoreKit `accountToken`、unfinished/updates 补偿，以及 `IOS_DEVICE_PROOF_UNAVAILABLE` 的用户提示。Java 不再为旧请求字段降级兼容。
+iOS 前端已按第 11.2、12.5 节补齐。Java 不再为旧请求字段降级兼容；后续工作转为隔离环境部署、商品映射和真实 Apple 联调。
+
+### 12.9 iOS 前端完成后的 Java / 运维执行清单
+
+按当前 OpenAPI `2.14.1`，Java **不需要继续增加业务接口或放宽验证**。后端接下来执行部署与联调：
+
+1. 部署隔离测试 API，先备份并在测试 MySQL 执行 Flyway V15/V16，核验表、索引、外键和启动日志；不得直接拿生产数据库做首轮测试。
+2. 通过部署平台 Secret 或仅服务账户可读的文件挂载提供两份 `.p8`。配置第 12.3 节已有 Apple 标识；开发签名 Release 首轮使用 `QJ_APPLE_APP_ATTEST_ENVIRONMENT=DEVELOPMENT`、`QJ_APPLE_DEVICECHECK_ENVIRONMENT=DEVELOPMENT`、`QJ_APPLE_STORE_ENVIRONMENT=SANDBOX`、`QJ_APPLE_ACCEPTED_STORE_ENVIRONMENTS=SANDBOX`、`QJ_APPLE_ACCEPTED_BUNDLE_VERSIONS=10021`。
+3. 在管理后台定位普贤菩萨的真实业务 `wallpaperId`，绑定 `com.qingjing.bizhi.wallpaper.puxian`，确认壁纸为已发布 `REDEEM`、iOS Live Photo 资源已发布，并开启 `firstFreeEligible`。不要使用文档示例 ID、App Apple ID 或 IAP 数字 ID 代替 wallpaperId。
+4. 确认测试域名 HTTPS 可用后再设置 `QJ_IOS_ACQUISITION_ENABLED=true`，提供测试 API base 给 iOS；正式线上环境仍保持 false。
+5. 在 App Store Connect 的 Sandbox 和 Production 通知栏配置可访问的 V2 回调 `/api/v1/integrations/apple/app-store-notifications`，先发送 Apple TEST 通知并核对通知账本和重试任务。
+6. 按第 12.7 节完成 ENROLL、STATUS、首次免费、同机重装、并发、¥1 Sandbox 购买、恢复、复制证明拒绝、退款、测试机重置和故障补偿验收。开发签名测试完成后，再单独以 App Attest `PRODUCTION` + StoreKit `SANDBOX` 验证 TestFlight。
+7. 隔离测试全部通过后，另行安排正式服务配置和上线；本节不授权生产发布、生产迁移或生产数据变更。

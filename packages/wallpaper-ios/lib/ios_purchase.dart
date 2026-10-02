@@ -10,6 +10,8 @@ class IosStoreTransaction {
     required this.id,
     required this.productId,
     required this.signedTransaction,
+    required this.signedAppTransaction,
+    required this.deviceVerificationId,
     required this.environment,
     this.revoked = false,
   });
@@ -18,10 +20,17 @@ class IosStoreTransaction {
         id: value['id'] as String,
         productId: value['productId'] as String,
         signedTransaction: value['signedTransaction'] as String,
+        signedAppTransaction: value['signedAppTransaction'] as String,
+        deviceVerificationId: value['deviceVerificationId'] as String,
         environment: value['environment'] as String,
         revoked: value['revoked'] == true,
       );
-  final String id, productId, signedTransaction, environment;
+  final String id,
+      productId,
+      signedTransaction,
+      signedAppTransaction,
+      deviceVerificationId,
+      environment;
   final bool revoked;
 }
 
@@ -154,4 +163,5 @@ class NativeIosDeviceProof {
       }))!;
   Future<String> deviceToken() async =>
       (await channel.invokeMethod<String>('deviceCheckToken'))!;
+  Future<void> resetKey() => channel.invokeMethod<void>('resetAttestationKey');
 }

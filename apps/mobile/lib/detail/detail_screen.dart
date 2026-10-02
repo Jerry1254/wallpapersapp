@@ -170,7 +170,7 @@ class _DetailScreenState extends State<DetailScreen> {
     WallpaperDeliveryOption option,
   ) async {
     final ios = widget.iosAcquisition;
-    if (ios != null) {
+    if (ios != null && !wallpaper.isFree) {
       try {
         if (!await ios.acquire(widget.id) || !mounted) return;
         await _openDownload(option);
@@ -378,11 +378,13 @@ class _DetailScreenState extends State<DetailScreen> {
               }
               final usable = options.isNotEmpty;
               final ios = widget.iosAcquisition;
-              final waitsForOwnership = ios != null
+              final usesIosAcquisition = ios != null && !wallpaper.isFree;
+              final waitsForOwnership = usesIosAcquisition
                   ? ios.busy
                   : !wallpaper.isFree && trials != null && owned == null;
               final hasAccess =
-                  ios?.owns(widget.id) ?? (wallpaper.isFree || owned == true);
+                  wallpaper.isFree ||
+                  (usesIosAcquisition ? ios.owns(widget.id) : owned == true);
               final downloadState = widget.downloads?.value;
               final downloadingCurrent =
                   previewOption != null &&
@@ -410,7 +412,7 @@ class _DetailScreenState extends State<DetailScreen> {
                         : '下载中 $progress%'
                   : !usable
                   ? '暂无可用资源'
-                  : ios != null
+                  : usesIosAcquisition
                   ? justSavedToPhotos && ios.owns(widget.id)
                         ? '已保存到相册，请设置'
                         : ios.label(widget.id)
@@ -675,7 +677,7 @@ class _DetailScreenState extends State<DetailScreen> {
                                         usable &&
                                             !waitsForOwnership &&
                                             !downloadingCurrent &&
-                                            (ios != null
+                                            (usesIosAcquisition
                                                 ? ios.canAcquire(widget.id)
                                                 : (wallpaper.isFree ||
                                                       ownershipError == null))

@@ -26,6 +26,23 @@ class AcquisitionCatalog extends FakeCatalog {
   });
 }
 
+class FreeAcquisitionCatalog extends AcquisitionCatalog {
+  @override
+  Future<Wallpaper> detail(String id) async => Wallpaper.fromJson({
+    'id': id,
+    'title': '免费壁纸测试',
+    'accessType': 'FREE',
+    'cover': {'contentUrl': '/cover'},
+    'availableCapabilities': [
+      {
+        'deliveryPlatform': 'UNIVERSAL',
+        'resourceType': 'STATIC_IMAGE',
+        'placements': ['HOME'],
+      },
+    ],
+  });
+}
+
 class AcquisitionSessions extends DeviceSessionManager {
   AcquisitionSessions()
     : super(HttpDeviceTransport(Uri.parse('https://unused.invalid/api/v1')));
@@ -113,6 +130,32 @@ void main() {
       expect(find.text('下载壁纸'), findsOneWidget);
     },
   );
+
+  testWidgets('iOS FREE wallpaper bypasses first-free acquisition', (
+    tester,
+  ) async {
+    final api = TestAcquisitionApi(), store = TestPurchaseStore();
+    final flow = IosAcquisitionController(api, store);
+    addTearDown(flow.dispose);
+    await flow.initialize();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: QjTheme.light,
+        home: DetailScreen(
+          repository: FreeAcquisitionCatalog(),
+          id: '1',
+          iosAcquisition: flow,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('下载壁纸'), findsOneWidget);
+    expect(find.text('首次免费获取'), findsNothing);
+    await tester.tap(find.text('下载壁纸'));
+    await tester.pumpAndSettle();
+    expect(api.claims, isEmpty);
+    expect(store.purchases, 0);
+  });
 
   testWidgets(
     'My screen places Restore beside acquired wallpapers and syncs only on tap',

@@ -218,7 +218,7 @@ paths:
       operationId: completeIosTestFreeReset
       summary: 指定测试手机提供新证明，推进管理员授权的一次首免重置
       description: |
-        待实现；需要现有设备会话、P256 签名、App Attest 及 FREE_RESET challenge。
+        已实现；需要现有设备会话、P256 签名、App Attest 及 FREE_RESET challenge。
         resetId、keyId、当前安装、免费代次必须匹配；不接受客户端自行申请或选择 bit。
         先持久化状态并冻结领取，苹果确认仅清 bit0 后，事务撤销旧免费来源并增加代次。
         保留 bit1、付费来源和审计；苹果写入与数据库之间失败要保持待核查并补偿。

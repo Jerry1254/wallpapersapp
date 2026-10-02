@@ -18,7 +18,9 @@ void main() {
 class PreviewApi implements IosAcquisitionApi {
   final free = <String>{}, paid = <String>{};
   IosAcquisitionState get snapshot => IosAcquisitionState(
+    installationId: '05bb9418-3219-4c8b-92b9-b72ff7b425dc',
     accountToken: '4e86cb85-94b2-49e0-bad0-a8d00b8cb0d9',
+    freeGeneration: 0,
     products: const {
       '1': 'com.qingjing.bizhi.test.wallpaper.1',
       '2': 'com.qingjing.bizhi.test.wallpaper.2',
@@ -61,6 +63,13 @@ class PreviewApi implements IosAcquisitionApi {
       paid.add(id);
     }
     return snapshot;
+  }
+
+  @override
+  Future<IosAcquisitionState> completeFreeReset(IosPendingFreeReset reset) {
+    throw UnsupportedError(
+      'The local preview does not create test-device resets',
+    );
   }
 }
 

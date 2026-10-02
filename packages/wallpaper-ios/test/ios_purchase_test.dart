@@ -10,6 +10,8 @@ void main() {
     'id': '41',
     'productId': 'example.wallpaper',
     'signedTransaction': 'apple-jws',
+    'signedAppTransaction': 'apple-app-jws',
+    'deviceVerificationId': 'b4df37cb-0d4b-4c21-84be-62d5969eab07',
     'environment': 'SANDBOX',
     'revoked': false,
   };
@@ -44,6 +46,11 @@ void main() {
         '7bf3e8f0-f5e5-4b4d-a03c-81924eebbaea',
       );
       expect(result.transaction!.signedTransaction, 'apple-jws');
+      expect(result.transaction!.signedAppTransaction, 'apple-app-jws');
+      expect(
+        result.transaction!.deviceVerificationId,
+        'b4df37cb-0d4b-4c21-84be-62d5969eab07',
+      );
       expect(calls.last.arguments, {
         'productId': 'example.wallpaper',
         'accountToken': '7bf3e8f0-f5e5-4b4d-a03c-81924eebbaea',

@@ -49,7 +49,7 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
                 product.type == .nonConsumable else { throw Failure.productUnavailable }
           switch try await product.purchase(options: [.appAccountToken(token)]) {
           case .success(let verification):
-            result(["status": "PURCHASED", "transaction": try transaction(verification)])
+            result(["status": "PURCHASED", "transaction": try await transaction(verification)])
           case .userCancelled: result(["status": "CANCELLED"])
           case .pending: result(["status": "PENDING"])
           @unknown default: throw Failure.purchaseUnavailable
@@ -60,11 +60,11 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
           if call.method == "restore" { try await AppStore.sync() }
           var found: [String: [String: Any]] = [:]
           for await verification in Transaction.currentEntitlements {
-            let value = try transaction(verification)
+            let value = try await transaction(verification)
             found[value["id"] as! String] = value
           }
           for await verification in Transaction.unfinished {
-            let value = try transaction(verification)
+            let value = try await transaction(verification)
             found[value["id"] as! String] = value
           }
           result(Array(found.values))
@@ -85,7 +85,7 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
                 guard let self else { break }
                 do {
                   self.channel.invokeMethod("transactionUpdated",
-                                            arguments: try self.transaction(verification))
+                                            arguments: try await self.transaction(verification))
                 } catch {
                   // An unverified update cannot confer access or be finished.
                 }
@@ -117,6 +117,10 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
           guard let id = args["keyId"] as? String,
                 id == UserDefaults.standard.string(forKey: keyIdKey) else { throw Failure.invalidArguments }
           UserDefaults.standard.set(true, forKey: registeredKey); result(nil)
+        case "resetAttestationKey":
+          UserDefaults.standard.removeObject(forKey: keyIdKey)
+          UserDefaults.standard.removeObject(forKey: registeredKey)
+          result(nil)
         case "attest", "assertion":
           guard let id = args["keyId"] as? String,
                 id == UserDefaults.standard.string(forKey: keyIdKey),
@@ -143,14 +147,22 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
     }
   }
 
-  private func transaction(_ verification: VerificationResult<Transaction>) throws -> [String: Any] {
+  private func transaction(_ verification: VerificationResult<Transaction>) async throws -> [String: Any] {
     guard case .verified(let item) = verification, item.productType == .nonConsumable else {
       throw Failure.unverifiedTransaction
+    }
+    guard #available(iOS 16.0, *) else { throw Failure.proofUnavailable }
+    let appTransaction = try await AppTransaction.shared
+    guard case .verified = appTransaction,
+          let deviceVerificationId = AppStore.deviceVerificationID else {
+      throw Failure.proofUnavailable
     }
     var environment = "UNKNOWN"
     if #available(iOS 16.0, *) { environment = item.environment.rawValue.uppercased() }
     return ["id": String(item.id), "productId": item.productID,
             "signedTransaction": verification.jwsRepresentation,
+            "signedAppTransaction": appTransaction.jwsRepresentation,
+            "deviceVerificationId": deviceVerificationId.uuidString.lowercased(),
             "environment": environment, "revoked": item.revocationDate != nil]
   }
   private func scopedCacheKey(_ args: [String: Any]) throws -> String {

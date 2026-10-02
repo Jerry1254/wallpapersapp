@@ -4,24 +4,91 @@ import 'package:flutter/foundation.dart';
 import 'package:wallpaper_ios/wallpaper_ios.dart';
 import '../device/device_session.dart';
 
-enum IosFreeAllowance { unknown, available, used, unavailable }
+enum IosFreeAllowance { unknown, available, used, unavailable, pendingReset }
+
+class IosPendingFreeReset {
+  const IosPendingFreeReset({
+    required this.resetId,
+    required this.expectedGeneration,
+    required this.status,
+    required this.expiresAt,
+  });
+
+  factory IosPendingFreeReset.fromJson(Map<String, dynamic> value) {
+    final resetId = value['resetId'] as String;
+    final expectedGeneration = value['expectedGeneration'] as int;
+    final status = value['status'] as String;
+    final expiresAt = DateTime.parse(value['expiresAt'] as String).toUtc();
+    if (!_uuid.hasMatch(resetId) ||
+        expectedGeneration < 0 ||
+        status.isEmpty ||
+        !expiresAt.isAfter(
+          DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+        )) {
+      throw const FormatException('Invalid pending iOS free reset');
+    }
+    return IosPendingFreeReset(
+      resetId: resetId,
+      expectedGeneration: expectedGeneration,
+      status: status,
+      expiresAt: expiresAt,
+    );
+  }
+
+  final String resetId, status;
+  final int expectedGeneration;
+  final DateTime expiresAt;
+
+  Map<String, dynamic> toJson() => {
+    'resetId': resetId,
+    'expectedGeneration': expectedGeneration,
+    'status': status,
+    'expiresAt': expiresAt.toIso8601String(),
+  };
+}
+
+final _uuid = RegExp(
+  r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+);
 
 class IosAcquisitionState {
   const IosAcquisitionState({
+    required this.installationId,
     required this.accountToken,
+    required this.freeGeneration,
     required this.products,
     this.freeAllowance = IosFreeAllowance.unknown,
     this.freeWallpaperIds = const {},
     this.purchasedWallpaperIds = const {},
+    this.pendingFreeReset,
+    this.checkedAt,
   });
   factory IosAcquisitionState.fromJson(Map<String, dynamic> value) {
+    final installationId = value['installationId'] as String;
     final token = value['accountToken'] as String;
-    if (!RegExp(
-      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
-    ).hasMatch(token)) {
-      throw const FormatException('Invalid App Store account token');
+    final generation = value['freeGeneration'] as int;
+    if (!_uuid.hasMatch(installationId) ||
+        !_uuid.hasMatch(token) ||
+        generation < 0) {
+      throw const FormatException('Invalid iOS acquisition identity');
     }
-    final products = Map<String, String>.from(value['products'] as Map);
+    final products = <String, String>{};
+    final productValue = value['products'];
+    if (productValue is List) {
+      for (final item in productValue) {
+        final product = Map<String, dynamic>.from(item as Map);
+        final wallpaperId = product['wallpaperId'] as String;
+        final productId = product['productId'] as String;
+        if (products.putIfAbsent(wallpaperId, () => productId) != productId) {
+          throw const FormatException('Duplicate wallpaper product mapping');
+        }
+      }
+    } else if (productValue is Map) {
+      // Accept the previous on-device cache shape during the one-time upgrade.
+      products.addAll(Map<String, String>.from(productValue));
+    } else {
+      throw const FormatException('Invalid wallpaper product mapping');
+    }
     final free = Set<String>.from(value['freeWallpaperIds'] as List);
     final paid = Set<String>.from(value['purchasedWallpaperIds'] as List);
     if ([
@@ -37,29 +104,61 @@ class IosAcquisitionState {
       'AVAILABLE' => IosFreeAllowance.available,
       'USED' => IosFreeAllowance.used,
       'UNAVAILABLE' => IosFreeAllowance.unavailable,
+      'PENDING_RESET' => IosFreeAllowance.pendingReset,
       'UNKNOWN' => IosFreeAllowance.unknown,
       _ => throw const FormatException('Unknown free allowance'),
     };
+    final pendingValue = value['pendingFreeReset'];
+    final pending = pendingValue == null
+        ? null
+        : IosPendingFreeReset.fromJson(
+            Map<String, dynamic>.from(pendingValue as Map),
+          );
+    if ((allowance == IosFreeAllowance.pendingReset) != (pending != null)) {
+      throw const FormatException('Inconsistent iOS free reset state');
+    }
     return IosAcquisitionState(
+      installationId: installationId,
       accountToken: token,
+      freeGeneration: generation,
       products: products,
       freeAllowance: allowance,
       freeWallpaperIds: free,
       purchasedWallpaperIds: paid,
+      pendingFreeReset: pending,
+      checkedAt: value['checkedAt'] == null
+          ? null
+          : DateTime.parse(value['checkedAt'] as String).toUtc(),
     );
   }
-  final String accountToken;
+  final String installationId, accountToken;
+  final int freeGeneration;
   final Map<String, String> products;
   final IosFreeAllowance freeAllowance;
   final Set<String> freeWallpaperIds, purchasedWallpaperIds;
+  final IosPendingFreeReset? pendingFreeReset;
+  final DateTime? checkedAt;
   bool owns(String id) =>
       freeWallpaperIds.contains(id) || purchasedWallpaperIds.contains(id);
   Map<String, dynamic> toJson({bool cache = false}) => {
-    'accountToken': accountToken, 'products': products,
+    'installationId': installationId,
+    'accountToken': accountToken,
+    'freeGeneration': freeGeneration,
+    'products': [
+      for (final entry in products.entries)
+        {'wallpaperId': entry.key, 'productId': entry.value},
+    ],
     // A cached AVAILABLE response never makes a new device eligible offline.
-    'freeAllowance': cache ? 'UNKNOWN' : freeAllowance.name.toUpperCase(),
+    'freeAllowance': cache && freeAllowance == IosFreeAllowance.available
+        ? 'UNKNOWN'
+        : switch (freeAllowance) {
+            IosFreeAllowance.pendingReset => 'PENDING_RESET',
+            _ => freeAllowance.name.toUpperCase(),
+          },
     'freeWallpaperIds': freeWallpaperIds.toList(),
     'purchasedWallpaperIds': purchasedWallpaperIds.toList(),
+    'pendingFreeReset': pendingFreeReset?.toJson(),
+    'checkedAt': checkedAt?.toIso8601String(),
   };
 }
 
@@ -72,10 +171,11 @@ abstract interface class IosAcquisitionApi {
   Future<IosAcquisitionState> state();
   Future<IosAcquisitionState> claimFree(String wallpaperId, String requestId);
   Future<IosAcquisitionState> synchronize(IosStoreTransaction transaction);
+  Future<IosAcquisitionState> completeFreeReset(IosPendingFreeReset reset);
 }
 
-/// Proposed API is intentionally separate from the deployed 2.13 contract.
-/// Enable its build flag only after the server implements this interface.
+/// OpenAPI 2.14 acquisition adapter. Keep its build flag disabled until the
+/// matching server configuration and database migrations are deployed.
 class SessionIosAcquisitionApi implements IosAcquisitionApi {
   SessionIosAcquisitionApi(
     this.sessions, {
@@ -84,6 +184,15 @@ class SessionIosAcquisitionApi implements IosAcquisitionApi {
   final DeviceSessionManager sessions;
   final NativeIosDeviceProof proof;
   Future<String>? _key;
+  Future<String> _keyId() async {
+    try {
+      return await (_key ??= _enroll());
+    } catch (_) {
+      _key = null;
+      rethrow;
+    }
+  }
+
   Future<String> _enroll() async {
     final value = await proof.key();
     final key = value['keyId'] as String;
@@ -124,9 +233,46 @@ class SessionIosAcquisitionApi implements IosAcquisitionApi {
     String path, {
     String? wallpaperId,
     String? requestId,
+    String? resetId,
+    int? expectedGeneration,
   }) async {
-    try {
-      final key = await (_key ??= _enroll());
+    for (
+      var enrollmentAttempt = 0;
+      enrollmentAttempt < 2;
+      enrollmentAttempt++
+    ) {
+      try {
+        return await _withFreshChallenge(
+          action,
+          path,
+          wallpaperId: wallpaperId,
+          requestId: requestId,
+          resetId: resetId,
+          expectedGeneration: expectedGeneration,
+        );
+      } on DeviceApiError catch (failure) {
+        if (enrollmentAttempt == 0 &&
+            failure.code == 'IOS_ATTESTATION_INVALID') {
+          await proof.resetKey();
+          _key = null;
+          continue;
+        }
+        rethrow;
+      }
+    }
+    throw const DeviceApiError(0, 'IOS_DEVICE_PROOF_UNAVAILABLE');
+  }
+
+  Future<IosAcquisitionState> _withFreshChallenge(
+    String action,
+    String path, {
+    String? wallpaperId,
+    String? requestId,
+    String? resetId,
+    int? expectedGeneration,
+  }) async {
+    final key = await _keyId();
+    for (var challengeAttempt = 0; challengeAttempt < 2; challengeAttempt++) {
       final challenge = await sessions.authenticated(
         '/device/ios/attestation/challenges',
         method: 'POST',
@@ -135,6 +281,7 @@ class SessionIosAcquisitionApi implements IosAcquisitionApi {
           'keyId': key,
           'action': action,
           'wallpaperId': ?wallpaperId,
+          'resetId': ?resetId,
         }),
       );
       final body = jsonEncode({
@@ -143,25 +290,34 @@ class SessionIosAcquisitionApi implements IosAcquisitionApi {
         'deviceToken': await proof.deviceToken(),
         'wallpaperId': ?wallpaperId,
         'requestId': ?requestId,
+        'expectedGeneration': ?expectedGeneration,
       });
-      // The server hashes the exact UTF-8 request bytes, not reserialized JSON.
       final assertion = await proof.assertion(key, body);
-      final response = await sessions.authenticated(
-        path,
-        method: 'POST',
-        body: body,
-        signed: true,
-        headers: {
-          'X-App-Attest-Key-Id': key,
-          'X-App-Attest-Assertion': assertion,
-        },
-      );
-      return IosAcquisitionState.fromJson(response);
-    } catch (_) {
-      _key =
-          null; // Retry transient enrollment failure, never fall back to a local ID.
-      rethrow;
+      try {
+        return IosAcquisitionState.fromJson(
+          await sessions.authenticated(
+            path,
+            method: 'POST',
+            body: body,
+            signed: true,
+            headers: {
+              'X-App-Attest-Key-Id': key,
+              'X-App-Attest-Assertion': assertion,
+            },
+          ),
+        );
+      } on DeviceApiError catch (failure) {
+        if (challengeAttempt == 0 &&
+            const {
+              'IOS_ASSERTION_REPLAY',
+              'IOS_CHALLENGE_EXPIRED',
+            }.contains(failure.code)) {
+          continue;
+        }
+        rethrow;
+      }
     }
+    throw const DeviceApiError(0, 'IOS_DEVICE_PROOF_UNAVAILABLE');
   }
 
   @override
@@ -179,37 +335,77 @@ class SessionIosAcquisitionApi implements IosAcquisitionApi {
   Future<IosAcquisitionState> synchronize(
     IosStoreTransaction transaction,
   ) async {
-    try {
-      final key = await (_key ??= _enroll());
-      final challenge = await sessions.authenticated(
-        '/device/ios/attestation/challenges',
-        method: 'POST',
-        signed: true,
-        body: jsonEncode({'keyId': key, 'action': 'PURCHASE_SYNC'}),
-      );
-      final body = jsonEncode({
-        'challengeId': challenge['challengeId'],
-        'nonce': challenge['nonce'],
-        'signedTransaction': transaction.signedTransaction,
-      });
-      final assertion = await proof.assertion(key, body);
-      return IosAcquisitionState.fromJson(
-        await sessions.authenticated(
-          '/device/ios/acquisition/purchases',
-          method: 'POST',
-          signed: true,
-          body: body,
-          headers: {
-            'X-App-Attest-Key-Id': key,
-            'X-App-Attest-Assertion': assertion,
-          },
-        ),
-      );
-    } catch (_) {
-      _key = null;
-      rethrow;
+    for (
+      var enrollmentAttempt = 0;
+      enrollmentAttempt < 2;
+      enrollmentAttempt++
+    ) {
+      final key = await _keyId();
+      try {
+        for (
+          var challengeAttempt = 0;
+          challengeAttempt < 2;
+          challengeAttempt++
+        ) {
+          final challenge = await sessions.authenticated(
+            '/device/ios/attestation/challenges',
+            method: 'POST',
+            signed: true,
+            body: jsonEncode({'keyId': key, 'action': 'PURCHASE_SYNC'}),
+          );
+          final body = jsonEncode({
+            'challengeId': challenge['challengeId'],
+            'nonce': challenge['nonce'],
+            'signedTransaction': transaction.signedTransaction,
+            'signedAppTransaction': transaction.signedAppTransaction,
+            'deviceVerificationId': transaction.deviceVerificationId,
+          });
+          final assertion = await proof.assertion(key, body);
+          try {
+            return IosAcquisitionState.fromJson(
+              await sessions.authenticated(
+                '/device/ios/acquisition/purchases',
+                method: 'POST',
+                signed: true,
+                body: body,
+                headers: {
+                  'X-App-Attest-Key-Id': key,
+                  'X-App-Attest-Assertion': assertion,
+                },
+              ),
+            );
+          } on DeviceApiError catch (failure) {
+            if (challengeAttempt == 0 &&
+                const {
+                  'IOS_ASSERTION_REPLAY',
+                  'IOS_CHALLENGE_EXPIRED',
+                }.contains(failure.code)) {
+              continue;
+            }
+            rethrow;
+          }
+        }
+      } on DeviceApiError catch (failure) {
+        if (enrollmentAttempt == 0 &&
+            failure.code == 'IOS_ATTESTATION_INVALID') {
+          await proof.resetKey();
+          _key = null;
+          continue;
+        }
+        rethrow;
+      }
     }
+    throw const DeviceApiError(0, 'IOS_DEVICE_PROOF_UNAVAILABLE');
   }
+
+  @override
+  Future<IosAcquisitionState> completeFreeReset(IosPendingFreeReset reset) =>
+      _withProof(
+        'FREE_RESET',
+        '/device/ios/acquisition/free-resets/${reset.resetId}/complete',
+        resetId: reset.resetId,
+        expectedGeneration: reset.expectedGeneration,
+      );
 }
 
 /// One coordinator per running installation. Details read this cache without
@@ -221,8 +417,10 @@ class IosAcquisitionController extends ChangeNotifier {
   IosAcquisitionState? state;
   Map<String, IosStoreProduct> products = {};
   bool busy = false, ready = false;
+  bool unavailable = false;
   String? error;
   String? _pendingFreeId, _pendingRequestId;
+  int? _pendingFreeGeneration;
   Future<void>? _initialization;
   final List<IosStoreTransaction> _updates = [];
   bool _closed = false;
@@ -244,6 +442,7 @@ class IosAcquisitionController extends ChangeNotifier {
         final pending = value['pendingFree'] as Map<String, dynamic>?;
         _pendingFreeId = pending?['wallpaperId'] as String?;
         _pendingRequestId = pending?['requestId'] as String?;
+        _pendingFreeGeneration = pending?['freeGeneration'] as int?;
         _notify();
       }
     } catch (_) {
@@ -266,15 +465,25 @@ class IosAcquisitionController extends ChangeNotifier {
     if (busy) return;
     busy = true;
     error = null;
+    unavailable = false;
     _notify();
     try {
-      await _accept(await api.state());
+      var fresh = await api.state();
+      await _accept(fresh);
+      if (fresh.pendingFreeReset != null) {
+        fresh = await api.completeFreeReset(fresh.pendingFreeReset!);
+        await _accept(fresh);
+      }
       final found = await store.products(state!.products.values.toSet());
       products = {for (final product in found) product.id: product};
       ready = true;
       for (final transaction in await store.transactions()) {
         await _deliver(transaction);
       }
+    } on DeviceApiError catch (failure) {
+      _applyApiFailure(failure);
+    } on IosAcquisitionNotice catch (notice) {
+      error = notice.message;
     } catch (_) {
       error = '获取资格暂时无法确认，请重试';
     } finally {
@@ -286,7 +495,11 @@ class IosAcquisitionController extends ChangeNotifier {
 
   String label(String wallpaperId) {
     if (owns(wallpaperId)) return '再次下载';
+    if (unavailable) return 'Apple 验证暂不可用';
     if (busy) return '正在确认资格';
+    if (state?.freeAllowance == IosFreeAllowance.pendingReset) {
+      return '测试资格重置处理中';
+    }
     if (!ready || error != null) return '重试获取资格';
     if (state!.freeAllowance == IosFreeAllowance.unknown) return '重试获取资格';
     if (state!.freeAllowance == IosFreeAllowance.available) return '首次免费获取';
@@ -296,6 +509,8 @@ class IosAcquisitionController extends ChangeNotifier {
 
   bool canAcquire(String id) =>
       !busy &&
+      !unavailable &&
+      state?.freeAllowance != IosFreeAllowance.pendingReset &&
       (owns(id) ||
           !ready ||
           error != null ||
@@ -307,6 +522,7 @@ class IosAcquisitionController extends ChangeNotifier {
   /// Only a server-confirmed entitlement permits the caller to request delivery.
   Future<bool> acquire(String wallpaperId) async {
     if (busy) throw const IosAcquisitionNotice('正在处理，请稍候');
+    if (unavailable) throw const IosAcquisitionNotice('Apple 验证暂不可用，请稍后重试');
     if (owns(wallpaperId)) return true;
     if (!ready ||
         error != null ||
@@ -314,8 +530,12 @@ class IosAcquisitionController extends ChangeNotifier {
       await refresh();
       return false;
     }
+    if (state!.freeAllowance == IosFreeAllowance.pendingReset) {
+      throw const IosAcquisitionNotice('测试资格重置处理中，请稍后重试');
+    }
     busy = true;
     error = null;
+    unavailable = false;
     _notify();
     try {
       if (state!.freeAllowance == IosFreeAllowance.available ||
@@ -325,6 +545,7 @@ class IosAcquisitionController extends ChangeNotifier {
         }
         _pendingFreeId = wallpaperId;
         _pendingRequestId ??= requestUuid();
+        _pendingFreeGeneration ??= state!.freeGeneration;
         await _cache(); // Durable before dispatch; retry the same acquisition.
         await _accept(await api.claimFree(wallpaperId, _pendingRequestId!));
         if (!owns(wallpaperId)) {
@@ -354,11 +575,31 @@ class IosAcquisitionController extends ChangeNotifier {
       }
       return true;
     } on DeviceApiError catch (failure) {
-      if (failure.code == 'IOS_FREE_ALLOWANCE_USED' && _pendingFreeId != null) {
+      if (const {
+            'IOS_FREE_ALLOWANCE_USED',
+            'IOS_FREE_CLAIM_RESET',
+            'IOS_FREE_GENERATION_CONFLICT',
+          }.contains(failure.code) &&
+          _pendingFreeId != null) {
         _pendingFreeId = null;
         _pendingRequestId = null;
+        _pendingFreeGeneration = null;
         await _cache();
-        error = '免费资格已使用，请重新确认获取方式';
+        error = failure.code == 'IOS_FREE_ALLOWANCE_USED'
+            ? '免费资格已使用，请重新确认获取方式'
+            : '免费资格已经重置，请重新确认获取方式';
+        throw IosAcquisitionNotice(error!);
+      }
+      if (failure.code == 'IOS_FREE_RESET_PENDING') {
+        error = '测试资格重置处理中，请稍后重试';
+        throw IosAcquisitionNotice(error!);
+      }
+      if (const {
+        'IOS_ACQUISITION_UNAVAILABLE',
+        'IOS_DEVICE_PROOF_UNAVAILABLE',
+      }.contains(failure.code)) {
+        unavailable = true;
+        error = 'Apple 验证暂不可用，请稍后重试';
         throw IosAcquisitionNotice(error!);
       }
       throw const IosAcquisitionNotice('获取结果尚未确认，请重试或恢复购买；无需重复付款');
@@ -435,10 +676,17 @@ class IosAcquisitionController extends ChangeNotifier {
 
   Future<void> _accept(IosAcquisitionState value) async {
     state = value;
+    if (_pendingFreeGeneration != null &&
+        _pendingFreeGeneration != value.freeGeneration) {
+      _pendingFreeId = null;
+      _pendingRequestId = null;
+      _pendingFreeGeneration = null;
+    }
     if (_pendingFreeId != null &&
         value.freeWallpaperIds.contains(_pendingFreeId)) {
       _pendingFreeId = null;
       _pendingRequestId = null;
+      _pendingFreeGeneration = null;
     }
     await _cache();
     _notify();
@@ -451,9 +699,28 @@ class IosAcquisitionController extends ChangeNotifier {
         'pendingFree': {
           'wallpaperId': _pendingFreeId,
           'requestId': _pendingRequestId,
+          'freeGeneration': _pendingFreeGeneration,
         },
     }),
   );
+
+  void _applyApiFailure(DeviceApiError failure) {
+    if (const {
+      'IOS_ACQUISITION_UNAVAILABLE',
+      'IOS_DEVICE_PROOF_UNAVAILABLE',
+    }.contains(failure.code)) {
+      unavailable = true;
+      ready = false;
+      error = 'Apple 验证暂不可用，请稍后重试';
+      return;
+    }
+    if (failure.code == 'IOS_FREE_RESET_PENDING') {
+      error = '测试资格重置处理中，请稍后重试';
+      return;
+    }
+    error = '获取资格暂时无法确认，请重试';
+  }
+
   void _notify() {
     if (!_closed) notifyListeners();
   }

@@ -6,11 +6,14 @@ import 'package:qingjing_wallpaper/entitlements/ios_acquisition.dart';
 import 'package:wallpaper_ios/wallpaper_ios.dart';
 
 const productMap = {'1': 'test.wallpaper.1', '2': 'test.wallpaper.2'};
+const installationId = 'ec9a0c33-f7b2-4293-90ee-c662d78165bc';
 const accountToken = '43b10b19-f3ed-46fc-9a07-0757d72e5996';
 const paidTransaction = IosStoreTransaction(
   id: '101',
   productId: 'test.wallpaper.2',
   signedTransaction: 'signed-test-transaction',
+  signedAppTransaction: 'signed-test-app-transaction',
+  deviceVerificationId: '4561cd09-07d7-4901-bf0b-ad6f7182079c',
   environment: 'XCODE',
 );
 
@@ -18,16 +21,23 @@ class TestAcquisitionApi implements IosAcquisitionApi {
   IosFreeAllowance allowance = IosFreeAllowance.available;
   final free = <String>{}, paid = <String>{};
   final claims = <(String, String)>[];
-  int stateCalls = 0, purchaseCalls = 0;
+  int generation = 0;
+  IosPendingFreeReset? pendingReset;
+  int stateCalls = 0, purchaseCalls = 0, resetCalls = 0;
   bool offline = false, rejectPurchase = false, claimTimeout = false;
   bool denyClaim = false, grantPaid = true;
   Completer<void>? holdClaim;
   IosAcquisitionState get snapshot => IosAcquisitionState(
+    installationId: installationId,
     accountToken: accountToken,
+    freeGeneration: generation,
     products: productMap,
-    freeAllowance: allowance,
+    freeAllowance: pendingReset == null
+        ? allowance
+        : IosFreeAllowance.pendingReset,
     freeWallpaperIds: Set.of(free),
     purchasedWallpaperIds: Set.of(paid),
+    pendingFreeReset: pendingReset,
   );
   @override
   Future<IosAcquisitionState> state() async {
@@ -66,6 +76,21 @@ class TestAcquisitionApi implements IosAcquisitionApi {
     } else if (grantPaid) {
       paid.add(id);
     }
+    return snapshot;
+  }
+
+  @override
+  Future<IosAcquisitionState> completeFreeReset(
+    IosPendingFreeReset reset,
+  ) async {
+    resetCalls++;
+    if (pendingReset?.resetId != reset.resetId) {
+      throw const DeviceApiError(404, 'IOS_FREE_RESET_NOT_FOUND');
+    }
+    free.clear();
+    generation++;
+    allowance = IosFreeAllowance.available;
+    pendingReset = null;
     return snapshot;
   }
 }
@@ -125,6 +150,63 @@ class TestPurchaseStore implements IosPurchaseStore {
   }
 }
 
+class RecordingIosProof extends NativeIosDeviceProof {
+  final assertedBodies = <String>[];
+  @override
+  Future<Map<String, dynamic>> key() async => {
+    'keyId': 'app-attest-key',
+    'registered': true,
+  };
+  @override
+  Future<String> assertion(String keyId, String clientData) async {
+    assertedBodies.add(clientData);
+    return 'app-attest-assertion';
+  }
+
+  @override
+  Future<String> deviceToken() async => 'device-check-token';
+}
+
+class RecordingIosSessions extends DeviceSessionManager {
+  RecordingIosSessions()
+    : super(HttpDeviceTransport(Uri.parse('https://unused.invalid/api/v1')));
+  final requests =
+      <({String path, String body, Map<String, String> headers})>[];
+  int challenges = 0;
+  @override
+  Future<Map<String, dynamic>> authenticated(
+    String path, {
+    String method = 'GET',
+    String? body,
+    bool signed = false,
+    Map<String, String> headers = const {},
+    Set<int> accepted = const {},
+  }) async {
+    requests.add((path: path, body: body ?? '', headers: headers));
+    if (path == '/device/ios/attestation/challenges') {
+      challenges++;
+      return {
+        'challengeId': '2cc99fa7-a7d7-42d5-9d06-d2e6c9bcc43$challenges',
+        'nonce': 'server-nonce-$challenges',
+      };
+    }
+    return {
+      'installationId': installationId,
+      'accountToken': accountToken,
+      'freeGeneration': path.contains('free-resets') ? 1 : 0,
+      'freeAllowance': 'AVAILABLE',
+      'freeWallpaperIds': <String>[],
+      'purchasedWallpaperIds': <String>['2'],
+      'products': [
+        {'wallpaperId': '1', 'productId': 'test.wallpaper.1'},
+        {'wallpaperId': '2', 'productId': 'test.wallpaper.2'},
+      ],
+      'pendingFreeReset': null,
+      'checkedAt': '2026-10-02T09:00:00Z',
+    };
+  }
+}
+
 void main() {
   late TestAcquisitionApi api;
   late TestPurchaseStore store;
@@ -135,6 +217,69 @@ void main() {
     controller = IosAcquisitionController(api, store);
   });
   tearDown(() => controller.dispose());
+
+  test('purchase and reset requests match the 2.14 proof contract', () async {
+    final sessions = RecordingIosSessions();
+    final proof = RecordingIosProof();
+    final client = SessionIosAcquisitionApi(sessions, proof: proof);
+    await client.synchronize(paidTransaction);
+    final purchase = sessions.requests.singleWhere(
+      (request) => request.path == '/device/ios/acquisition/purchases',
+    );
+    expect(jsonDecode(purchase.body), {
+      'challengeId': '2cc99fa7-a7d7-42d5-9d06-d2e6c9bcc431',
+      'nonce': 'server-nonce-1',
+      'signedTransaction': 'signed-test-transaction',
+      'signedAppTransaction': 'signed-test-app-transaction',
+      'deviceVerificationId': '4561cd09-07d7-4901-bf0b-ad6f7182079c',
+    });
+    expect(purchase.headers['X-App-Attest-Key-Id'], 'app-attest-key');
+    expect(proof.assertedBodies.single, purchase.body);
+
+    final reset = IosPendingFreeReset(
+      resetId: '530b034f-b849-43f9-bcf6-bd60b62397e4',
+      expectedGeneration: 0,
+      status: 'WAITING_DEVICE',
+      expiresAt: DateTime.utc(2027),
+    );
+    await client.completeFreeReset(reset);
+    final challenge = jsonDecode(sessions.requests[2].body) as Map;
+    expect(challenge['action'], 'FREE_RESET');
+    expect(challenge['resetId'], reset.resetId);
+    final completion = sessions.requests.last;
+    expect(
+      completion.path,
+      '/device/ios/acquisition/free-resets/${reset.resetId}/complete',
+    );
+    expect(jsonDecode(completion.body), {
+      'challengeId': '2cc99fa7-a7d7-42d5-9d06-d2e6c9bcc432',
+      'nonce': 'server-nonce-2',
+      'deviceToken': 'device-check-token',
+      'expectedGeneration': 0,
+    });
+    expect(proof.assertedBodies.last, completion.body);
+  });
+
+  test('server acquisition state parses the 2.14 product array', () {
+    final state = IosAcquisitionState.fromJson({
+      'installationId': installationId,
+      'accountToken': accountToken,
+      'freeGeneration': 4,
+      'freeAllowance': 'AVAILABLE',
+      'freeWallpaperIds': <String>[],
+      'purchasedWallpaperIds': <String>['2'],
+      'products': [
+        {'wallpaperId': '1', 'productId': 'test.wallpaper.1'},
+        {'wallpaperId': '2', 'productId': 'test.wallpaper.2'},
+      ],
+      'pendingFreeReset': null,
+      'checkedAt': '2026-10-02T09:00:00Z',
+    });
+    expect(state.installationId, installationId);
+    expect(state.freeGeneration, 4);
+    expect(state.products, productMap);
+    expect(state.purchasedWallpaperIds, {'2'});
+  });
 
   test(
     'initialization runs once; detail cache reads never sync Apple or query quota',
@@ -160,6 +305,27 @@ void main() {
       expect(api.free, {'1'});
       expect(controller.label('1'), '再次下载');
       expect(controller.label('2'), '¥1.00 购买并下载');
+    },
+  );
+
+  test(
+    'pending test reset is completed before acquisition becomes ready',
+    () async {
+      api
+        ..free.add('1')
+        ..allowance = IosFreeAllowance.used
+        ..pendingReset = IosPendingFreeReset(
+          resetId: '530b034f-b849-43f9-bcf6-bd60b62397e4',
+          expectedGeneration: 0,
+          status: 'WAITING_DEVICE',
+          expiresAt: DateTime.utc(2027),
+        );
+      await controller.initialize();
+      expect(api.resetCalls, 1);
+      expect(controller.state!.freeGeneration, 1);
+      expect(controller.state!.pendingFreeReset, isNull);
+      expect(controller.state!.freeWallpaperIds, isEmpty);
+      expect(controller.label('1'), '首次免费获取');
     },
   );
 
@@ -306,6 +472,8 @@ void main() {
           id: 'wrong',
           productId: 'test.wallpaper.1',
           signedTransaction: 'other',
+          signedAppTransaction: 'other-app-transaction',
+          deviceVerificationId: '4561cd09-07d7-4901-bf0b-ad6f7182079c',
           environment: 'XCODE',
         ),
       );
@@ -344,6 +512,8 @@ void main() {
           id: '101',
           productId: 'test.wallpaper.2',
           signedTransaction: 'signed-revocation',
+          signedAppTransaction: 'signed-app-revocation',
+          deviceVerificationId: '4561cd09-07d7-4901-bf0b-ad6f7182079c',
           environment: 'XCODE',
           revoked: true,
         ),
