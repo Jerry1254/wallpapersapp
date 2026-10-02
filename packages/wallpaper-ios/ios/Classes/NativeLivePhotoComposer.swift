@@ -187,14 +187,9 @@ enum NativeLivePhotoComposer {
     }
 
     let sourceAspectRatio = sourceSize.width / sourceSize.height
-    let minimumPhoneAspectRatio = CGFloat(9.0 / 16.0)
     var width: CGFloat
     var height: CGFloat
-    if targetAspectRatio <= minimumPhoneAspectRatio,
-       sourceAspectRatio < targetAspectRatio {
-      width = sourceSize.width
-      height = width / targetAspectRatio
-    } else if sourceAspectRatio < targetAspectRatio {
+    if sourceAspectRatio < targetAspectRatio {
       height = sourceSize.height
       width = height * targetAspectRatio
     } else {
@@ -202,13 +197,13 @@ enum NativeLivePhotoComposer {
       height = width / targetAspectRatio
     }
 
-    let maximumDimension: CGFloat = 4096
+    let maximumDimension: CGFloat = 1920
     let scale = min(1, maximumDimension / max(width, height))
     width *= scale
     height *= scale
 
-    let evenWidth = max(2, Int(floor(width / 2)) * 2)
-    let evenHeight = max(2, Int(floor(height / 2)) * 2)
+    let evenWidth = max(2, Int(ceil(width / 2)) * 2)
+    let evenHeight = max(2, Int(ceil(height / 2)) * 2)
     guard evenWidth <= Int(maximumDimension), evenHeight <= Int(maximumDimension) else {
       throw CompositionError.invalidCanvasSize
     }
