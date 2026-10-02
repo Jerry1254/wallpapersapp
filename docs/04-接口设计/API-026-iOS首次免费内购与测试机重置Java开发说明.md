@@ -1,8 +1,8 @@
 # API-026 iOS 首次免费、苹果内购与测试机重置 Java 开发说明
 
-更新日期：2026-10-02。状态：**Java 真实 Apple 验证、故障补偿、管理端状态提示和 `2.14.1` 契约已完成并推送；尚未部署，也未配置目标环境 Secret。iOS 契约对齐及首免、购买、退款、重置真机验收仍待完成。**
+更新日期：2026-10-02。状态：**OpenAPI `2.14.1`、Flyway V16、Java Apple 验证、iOS 前端、商品映射、正式 iOS Live Photo、测试机标记及 Notifications V2 地址均已部署或配置到 `ONLINE_MAIN`。真机 ENROLL 已通过，但 STATUS 被 Java 的 App Attest assertion flags 规则误拒绝；第 12.10 节给出唯一剩余修复和复验步骤。首免领取、Sandbox 购买、恢复、退款及重置仍须在该修复部署后完成。**
 
-本文件集中说明本次业务、后端接口、管理后台、前端待补部分及账号持有人需要办理的事项。当前入库主契约为 [openapi.yaml](../../contracts/openapi/openapi.yaml)，版本 `2.14.1`；早期增量方案见 [ios-acquisition.draft.yaml](../../contracts/openapi/ios-acquisition.draft.yaml)。入库版本不代表线上已部署。第 11 节记录 Java 实现结果；**本次给 iOS 和运维的真实对接状态、配置及剩余事项请看第 12 节**。前文示例与主契约不同时，以主契约及第 11、12 节为准。
+本文件集中说明本次业务、后端接口、管理后台、前端待补部分及账号持有人需要办理的事项。当前入库主契约为 [openapi.yaml](../../contracts/openapi/openapi.yaml)，版本 `2.14.1`；早期增量方案见 [ios-acquisition.draft.yaml](../../contracts/openapi/ios-acquisition.draft.yaml)。第 11 节记录实现结果；**当前线上配置、真机证据及剩余修复以第 12.10 节为准**。前文示例与主契约不同时，以主契约及第 11、12 节为准。
 
 ## 1. 本次确定的业务
 
@@ -618,7 +618,7 @@ DeviceCheck 生产端点为 `https://api.devicecheck.apple.com`，开发端点�
 
 正式服务需能安全处理审核使用的 Sandbox 交易，同时隔离账本和授权范围。Java 现在可按 `QJ_APPLE_ACCEPTED_STORE_ENVIRONMENTS` 装配一个或两个严格验证器；每份交易仍必须通过对应环境的 Apple 签名校验，并以 `environment + bundleId + transactionId` 独立入账。具体生产是否同时接受 Sandbox，需在部署前确定数据和审核流程，不能在任意失败时降级放行，也不能把 Sandbox 权益写成正式付款。
 
-### 12.4 Java 实现结果与剩余工作
+### 12.4 Java 实现结果与剩余工作（部署前快照）
 
 | 顺序 | 任务 | 当前结果 |
 | --- | --- | --- |
@@ -676,7 +676,7 @@ SHA384(lowercase(deviceVerificationNonce UUID)
 
 ### 12.6 商品映射及 Apple 通知配置
 
-普贤菩萨的 **真实业务 wallpaperId 尚未在本次交接确认**。通过管理后台定位该壁纸，再调用现有管理配置接口；不要把本文示例 `123`、App Apple ID 或 IAP 数字 ID 当业务壁纸 ID。
+2026-10-02 已确认普贤菩萨动态壁纸的真实业务 `wallpaperId=1`，并通过线上管理后台完成以下配置：商品获取方式为 `REDEEM`，Product ID 为 `com.qingjing.bizhi.wallpaper.puxian`，`enabled=true`，`firstFreeEligible=true`，iOS Live Photo 已生成、发布并达到 `READY`。以下请求仅保留为接口参考，不再是待办：
 
 ```http
 PUT /api/v1/admin/wallpapers/<真实wallpaperId>/ios-acquisition
@@ -690,7 +690,7 @@ PUT /api/v1/admin/wallpapers/<真实wallpaperId>/ios-acquisition
 }
 ```
 
-以上是隔离测试配置示例，需确认目标素材及活动规则。商品价格从 Apple 读取，后台不添加 `0.1` 或 `1` 的支付金额字段。原本 FREE 壁纸继续免费，不消耗设备首免机会；Android/HarmonyOS 兑换规则保持现有流程。
+商品价格从 Apple 读取，后台不添加 `0.1` 或 `1` 的支付金额字段。原本 FREE 壁纸继续免费，不消耗设备首免机会；Android/HarmonyOS 兑换规则保持现有流程。
 
 Apple 通知的既有路由为：
 
@@ -704,11 +704,11 @@ POST /api/v1/integrations/apple/app-store-notifications
 https://wallpaper.biguo66.top/api/v1/integrations/apple/app-store-notifications
 ```
 
-**候选 URL 未在本次操作配置、测试或验证部署。** Java 先完成路由、Apple 验签、TLS 和独立账本，再提供可用 Production / Sandbox 完整 URL。测试 API 的公网域名尚未确认，不编造地址，也不把 Sandbox 临时写入正式库。
+2026-10-02 已在 App Store Connect 的 Production 与 Sandbox 两栏保存同一个 V2 回调地址。URL 保存成功不等于 Apple TEST 通知验收成功；TEST 投递、通知账本落库和退款闭环仍需单独验证。
 
 账号侧设置入口：[App Store Connect](https://appstoreconnect.apple.com/) → Apps → 倾境动态壁纸 → General / App Information → App Store Server Notifications → 分别填写 Production 和 Sandbox URL，选择 **Version 2**。路由只豁免设备登录，依然严格校验 Apple 签名；按签名核验后的环境分流。调用 Apple Request a Test Notification，并用返回 token 查询实际投递结果，不能以在网页保存 URL 视为验收。[Apple URL 设置步骤](https://developer.apple.com/help/app-store-connect/configure-in-app-purchase-settings/enter-server-urls-for-app-store-notifications/)、[Apple 测试通知](https://developer.apple.com/documentation/appstoreserverapi/request-a-test-notification)
 
-### 12.7 联调顺序与验收表
+### 12.7 原联调顺序与验收表（部署前计划）
 
 1. Java 真实 gateway 已提交；下一步在隔离测试环境配置 Secret，执行并核验 V15/V16，完成商品映射，再提供可用测试 API base。
 2. iOS 第 12.5 节差异已完成；下一步用匹配证明环境的 Release 包连接隔离测试 API，先验证 ENROLL → STATUS。
@@ -731,7 +731,7 @@ https://wallpaper.biguo66.top/api/v1/integrations/apple/app-store-notifications
 | Apple 通知与退款 | TEST 实际投递；重复/乱序可处理；退款撤销所有对应购买来源及未使用票据 | 待测 |
 | TestFlight 和旧平台回归 | 证明/购买环境组合正确；Android/HarmonyOS 兑换、下载可用 | 待测 |
 
-### 12.8 本次 Java 交付确认
+### 12.8 Java 交付确认（部署前快照）
 
 | 项目 | 结果 |
 | --- | --- |
@@ -751,9 +751,9 @@ https://wallpaper.biguo66.top/api/v1/integrations/apple/app-store-notifications
 
 iOS 前端已按第 11.2、12.5 节补齐。Java 不再为旧请求字段降级兼容；后续工作转为隔离环境部署、商品映射和真实 Apple 联调。
 
-### 12.9 iOS 前端完成后的 Java / 运维执行清单
+### 12.9 iOS 前端完成后的 Java / 运维执行清单（历史计划）
 
-按当前 OpenAPI `2.14.1`，Java **不需要继续增加业务接口或放宽验证**。后端接下来执行部署与联调：
+本节是部署前计划，实际结果和新的 Java 修复要求以第 12.10 节为准。
 
 1. 部署隔离测试 API，先备份并在测试 MySQL 执行 Flyway V15/V16，核验表、索引、外键和启动日志；不得直接拿生产数据库做首轮测试。
 2. 通过部署平台 Secret 或仅服务账户可读的文件挂载提供两份 `.p8`。配置第 12.3 节已有 Apple 标识；开发签名 Release 首轮使用 `QJ_APPLE_APP_ATTEST_ENVIRONMENT=DEVELOPMENT`、`QJ_APPLE_DEVICECHECK_ENVIRONMENT=DEVELOPMENT`、`QJ_APPLE_STORE_ENVIRONMENT=SANDBOX`、`QJ_APPLE_ACCEPTED_STORE_ENVIRONMENTS=SANDBOX`、`QJ_APPLE_ACCEPTED_BUNDLE_VERSIONS=10021`。
@@ -762,3 +762,85 @@ iOS 前端已按第 11.2、12.5 节补齐。Java 不再为旧请求字段降级�
 5. 在 App Store Connect 的 Sandbox 和 Production 通知栏配置可访问的 V2 回调 `/api/v1/integrations/apple/app-store-notifications`，先发送 Apple TEST 通知并核对通知账本和重试任务。
 6. 按第 12.7 节完成 ENROLL、STATUS、首次免费、同机重装、并发、¥1 Sandbox 购买、恢复、复制证明拒绝、退款、测试机重置和故障补偿验收。开发签名测试完成后，再单独以 App Attest `PRODUCTION` + StoreKit `SANDBOX` 验证 TestFlight。
 7. 隔离测试全部通过后，另行安排正式服务配置和上线；本节不授权生产发布、生产迁移或生产数据变更。
+
+### 12.10 ONLINE_MAIN 配置结果与 App Attest 真机修复
+
+#### 12.10.1 已完成配置
+
+2026-10-02 在用户明确授权后，已通过正式管理 API 完成并回读以下结果：
+
+| 项目 | 当前结果 |
+| --- | --- |
+| 运行基线 | Git `2a0de85`，OpenAPI `2.14.1`，Flyway V16；蓝绿 API 健康 |
+| Apple 环境 | 开发签名 Release 使用 App Attest `DEVELOPMENT`、DeviceCheck `DEVELOPMENT`、StoreKit `SANDBOX`；接受 iOS build `10021` |
+| 商品映射 | `wallpaperId=1` → `com.qingjing.bizhi.wallpaper.puxian`，允许购买并参与首次免费 |
+| 壁纸状态 | “普贤菩萨动态壁纸”已设为需兑换并发布，五种资源 `5/5` 就绪 |
+| iOS 正式资源 | 原始 HEVC MP4 已生成并发布为 Live Photo；状态 `READY`，HEIC 与 MOV 齐全，`1080×1926`、`60fps`、`1000ms` |
+| 测试机 | 当前 iPhone 安装已标记为测试机；不在文档保存内部设备 ID、安装编号或证明材料 |
+| Notifications V2 | Production 与 Sandbox 均已保存 `https://wallpaper.biguo66.top/api/v1/integrations/apple/app-store-notifications`；Apple TEST 投递尚待验证 |
+| iOS App | Release `1.0.0 (10021)`、Bundle ID `com.qingjing.bizhi`，开启真实 iOS acquisition，签名通过并重新安装启动 |
+
+#### 12.10.2 真机失败证据
+
+真机启动后的真实调用顺序为：
+
+```text
+ENROLL challenge                 200
+attestation registration        200
+STATUS challenge                200
+acquisition/status              403 IOS_ATTESTATION_INVALID
+```
+
+数据库侧同时满足：App Attest key 已登记为 `ACTIVE / DEVELOPMENT`，但 `assertion_counter` 仍为 `0`，STATUS challenge 未消费，`devicecheck_checked_at` 为空，免费资格保持 `UNAVAILABLE`。这证明请求在 `verifyProof()` 的 assertion 校验阶段失败，尚未进入 DeviceCheck 查询；商品映射、测试机标记和 StoreKit 配置不是本次 403 的原因。
+
+为定位问题，iOS 只在本机临时记录并解析了 assertion 结构，随后已删除诊断代码、控制台文件和断言内容，并重新构建安装无诊断代码的 Release 包。两次真实 assertion 的公共结构特征为：
+
+```text
+authenticatorData length = 37
+flags = 0x40
+counter = 1 / 2（正常递增）
+rpIdHash = SHA256("NFXT4L28FU.com.qingjing.bizhi")（匹配）
+extensions = 无
+```
+
+Java 当前在 `AppAttestVerifier.assertion()` 中额外要求：
+
+```java
+(auth[32] & 0x40) == 0
+```
+
+该条件与当前真机 `DCAppAttestService.generateAssertion` 返回值冲突，所以合法 assertion 在校验签名和计数器之前就被拒绝。Apple 的服务端验证步骤要求核对签名、RP ID、递增计数器、challenge，以及存在时的扩展，没有要求 assertion 的 `0x40` 位必须清零。[Apple：Validating apps that connect to your server](https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server)
+
+#### 12.10.3 Java 唯一修复范围
+
+不新增接口、不修改 OpenAPI、不降低签名、RP ID、challenge、原始 body 或计数器验证。只调整 `services/api-server/src/main/java/com/qingjing/wallpaper/iosacquisition/AppAttestVerifier.java` 的 assertion 结构检查：
+
+1. 保留 `authenticatorData.length >= 37`。
+2. 删除 assertion 对 `(auth[32] & 0x40) == 0` 的硬性限制，接受真机签名绑定的 `0x40`。
+3. 保留 RP ID 必须匹配。
+4. `0x80` 扩展位存在时继续解析并校验 validation category 与 bundle version；没有扩展时仍要求总长度恰好为 37。
+5. 保留 `counter > previousCounter`、ECDSA 签名、原始请求 body、challenge 绑定和 challenge 原子消费。
+
+建议核心判断改为等价逻辑：
+
+```java
+require(auth.length >= 37 && MessageDigest.isEqual(rpId, Arrays.copyOf(auth, 32)));
+if ((auth[32] & 0x80) != 0) {
+    validateExtensions(cbor.readTree(Arrays.copyOfRange(auth, 37, auth.length)));
+} else {
+    require(auth.length == 37);
+}
+```
+
+必须补一条回归测试：构造 `length=37`、`flags=0x40`、递增 counter、正确 RP ID 和签名的 assertion，验证通过；同时保留 body 篡改、错误 RP ID、counter 重放和错误签名拒绝测试。测试不得把真机断言、DeviceCheck token、`.p8` 或私钥写入 fixture、日志或 Git。
+
+#### 12.10.4 修复部署后的验收顺序
+
+1. 运行 `AppAttestVerifierTest`、iOS acquisition 服务测试、OpenAPI 契约测试和 Maven `verify`。
+2. 按 `OPS-005` 使用不可变制品发布同一 Git 提交到 ONLINE_MAIN 蓝绿槽，回读 Git、源码 SHA-256、OpenAPI、Jar SHA-256、Flyway、环境 ID 和部署阶段。
+3. 保持 App 为 build `10021` 并重新启动。客户端收到旧 key 的 `IOS_ATTESTATION_INVALID` 时会安全重建一次 key；不需要手工写库或删除设备。
+4. 后台确认 STATUS 返回 200、App Attest counter 大于 0、challenge 已消费、`devicecheck_checked_at` 有值、免费资格为 `AVAILABLE`，且商品数组包含 `wallpaperId=1` 的 Product ID。
+5. 再执行首次免费领取，确认只授予一张壁纸并能下载原始 MP4；随后验证再次领取转为 Apple 购买。
+6. 继续完成 ¥1 Sandbox 购买、恢复购买、退款通知、测试机重置、重装防重复、并发和异常补偿场景。
+
+在第 4 步通过前，不能把“商品已发布”报告为首免闭环完成，也不要通过 SQL 把 `UNAVAILABLE` 改成 `AVAILABLE` 绕过 DeviceCheck 和 App Attest。
