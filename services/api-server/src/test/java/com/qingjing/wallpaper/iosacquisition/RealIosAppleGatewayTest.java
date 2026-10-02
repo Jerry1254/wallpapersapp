@@ -60,4 +60,11 @@ class RealIosAppleGatewayTest {
                 "35f336ef-9df5-4fba-85dc-5c2640c44cbe"))
                 .isInstanceOf(ApiException.class);
     }
+
+    @Test
+    void acceptsDocumentedAndObservedMissingBitStateResponses() {
+        assertThat(RealIosAppleGateway.isMissingBitState("Bit State Not Found")).isTrue();
+        assertThat(RealIosAppleGateway.isMissingBitState("  Failed to find bit state\n")).isTrue();
+        assertThat(RealIosAppleGateway.isMissingBitState("Failed to find bit state later")).isFalse();
+    }
 }

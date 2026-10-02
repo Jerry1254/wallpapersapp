@@ -88,13 +88,19 @@ public class RealIosAppleGateway implements IosAppleGateway {
 
     @Override public DeviceBits queryDeviceBits(String deviceToken) {
         HttpResponse<String> response = deviceCall("/v1/query_two_bits", deviceToken, UUID.randomUUID().toString(), null);
-        if (response.body().strip().equals("Bit State Not Found")) return new DeviceBits(false, false, Instant.now());
+        if (isMissingBitState(response.body())) return new DeviceBits(false, false, Instant.now());
         try {
             JsonNode body = json.readTree(response.body());
             if (!body.path("bit0").isBoolean() || !body.path("bit1").isBoolean()) throw unavailable();
             return new DeviceBits(body.path("bit0").asBoolean(), body.path("bit1").asBoolean(), Instant.now());
         } catch (ApiException e) { throw e; }
         catch (Exception e) { throw unavailable(); }
+    }
+
+    static boolean isMissingBitState(String body) {
+        if (body == null) return false;
+        String value = body.strip();
+        return value.equals("Bit State Not Found") || value.equals("Failed to find bit state");
     }
     @Override public void markFirstFreeUsed(String token, String id) { deviceCall("/v1/update_two_bits", token, id, true); }
     @Override public void resetFirstFreeBit(String token, String id) { deviceCall("/v1/update_two_bits", token, id, false); }
