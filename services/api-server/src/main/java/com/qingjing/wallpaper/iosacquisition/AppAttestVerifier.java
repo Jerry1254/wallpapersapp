@@ -102,9 +102,11 @@ final class AppAttestVerifier {
             else require(auth.length == 37);
             long next = counter(auth);
             if (next <= previous) throw new ApiException(HttpStatus.FORBIDDEN, "IOS_ASSERTION_REPLAY", "App Attest counter did not advance");
+            byte[] clientDataHash = AppleCrypto.sha256(rawBody);
+            byte[] nonce = AppleCrypto.sha256(AppleCrypto.concat(auth, clientDataHash));
             Signature verifier = Signature.getInstance("SHA256withECDSA");
             verifier.initVerify(AppleCrypto.publicKey(pem));
-            verifier.update(AppleCrypto.concat(auth, AppleCrypto.sha256(rawBody)));
+            verifier.update(nonce);
             require(verifier.verify(binary(object, "signature")));
             return next;
         } catch (ApiException e) { throw e; }

@@ -87,6 +87,12 @@ class AppAttestVerifierTest {
         String pem=f.verifier.attest(f.keyId,f.attestation,"challenge").publicKeyPem();
         assertThatThrownBy(()->f.verifier.assertion(proof,pem,body,2)).isInstanceOf(ApiException.class);
     }
+    @Test void assertionRejectsAnotherPublicKey() throws Exception {
+        Fixture f=fixture("DEVELOPMENT"),other=fixture("DEVELOPMENT");byte[] body={1,2};
+        String proof=assertion(f.key,body,7,APP);
+        String anotherPem=other.verifier.attest(other.keyId,other.attestation,"challenge").publicKeyPem();
+        assertThatThrownBy(()->f.verifier.assertion(proof,anotherPem,body,2)).isInstanceOf(ApiException.class);
+    }
     @Test void parsesAppleLittleEndianValidationCategory() throws Exception {
         JsonNode binary = CBOR.readTree(CBOR.writeValueAsBytes(new byte[]{4,0,0,0}));
         assertThat(AppAttestVerifier.validationCategory(binary)).isEqualTo(4);
@@ -99,8 +105,10 @@ class AppAttestVerifierTest {
 
     private static String assertion(KeyPair key,byte[] body,int count,String app,int flags) throws Exception {
         byte[] auth=ByteBuffer.allocate(37).put(AppleCrypto.sha256(app.getBytes(StandardCharsets.UTF_8))).put((byte)flags).putInt(count).array();
+        byte[] clientDataHash=AppleCrypto.sha256(body);
+        byte[] nonce=AppleCrypto.sha256(AppleCrypto.concat(auth,clientDataHash));
         Signature signature=Signature.getInstance("SHA256withECDSA");signature.initSign(key.getPrivate());
-        signature.update(AppleCrypto.concat(auth,AppleCrypto.sha256(body)));
+        signature.update(nonce);
         return Base64.getEncoder().encodeToString(CBOR.writeValueAsBytes(Map.of("authenticatorData",auth,"signature",signature.sign())));
     }
 
