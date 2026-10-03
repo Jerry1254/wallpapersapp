@@ -989,22 +989,26 @@ struct Index {
   private DetailPage(item: WallpaperSummary) {
     Column() {
       if (!this.detailFullScreen) {
-        Row() {
-          Button() {
-            Image($r('app.media.chevron_left')).width(20).height(20).objectFit(ImageFit.Contain);
-          }
-          .width(44).height(44).padding(0).backgroundColor(T.surface).borderRadius(22)
-          .onClick(() => this.goBack());
-          Text('壁纸详情').layoutWeight(1).fontSize(18).fontWeight(FontWeight.Bold)
+        Stack({ alignContent: Alignment.Center }) {
+          Text('壁纸详情').width('100%').fontSize(18).fontWeight(FontWeight.Bold)
             .fontColor(T.ink).textAlign(TextAlign.Center);
-          Button() {
-            Row({ space: 5 }) {
-              Image($r('app.media.circle_play')).width(17).height(17).objectFit(ImageFit.Contain);
-              Text('设置教程').fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.accentStrong);
+          Row() {
+            Button() {
+              Image($r('app.media.chevron_left')).width(20).height(20).objectFit(ImageFit.Contain);
             }
+            .width(44).height(44).padding(0).backgroundColor(T.surface).borderRadius(22)
+            .onClick(() => this.goBack());
+            Blank();
+            Button() {
+              Row({ space: 5 }) {
+                Image($r('app.media.circle_play')).width(17).height(17).objectFit(ImageFit.Contain);
+                Text('设置教程').fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.accentStrong);
+              }
+            }
+            .height(44).padding({ left: 8, right: 8 }).backgroundColor(T.surface)
+            .onClick(() => this.openDetailTutorial());
           }
-          .height(44).padding({ left: 8, right: 8 }).backgroundColor(T.surface)
-          .onClick(() => this.openDetailTutorial());
+          .width('100%').height(T.topBarHeight);
         }
         .width('100%').height(T.topBarHeight);
         if (item.capabilities.length > 1) {
@@ -1084,7 +1088,7 @@ struct Index {
             .accessibilityText(this.detailFullScreen ? '退出全屏' : '全屏预览')
             .onClick(() => this.detailFullScreen = !this.detailFullScreen);
           }
-          .width('100%').padding(12).align(Alignment.Top);
+          .width('100%').padding(12).position({ x: 0, y: 0 });
           Column() {
             if (this.detailPreviewError.length > 0) {
               Text(this.detailPreviewError).fontSize(13).fontColor(T.inverseInk).backgroundColor('#BB191817')
