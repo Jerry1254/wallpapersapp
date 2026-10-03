@@ -203,12 +203,20 @@ enum NativeLivePhotoComposer {
       height = width / targetAspectRatio
     }
 
-    let scale = min(1, maximumDimension / max(width, height))
+    // The iPhone profile uses the same 1920px long edge for every source size.
+    // A cap alone lets 720p sources bypass the canvas verified on the phone.
+    // Keep the iPad profile's existing no-upscaling behavior.
+    let scale = maximumDimension == 1920
+      ? maximumDimension / max(width, height)
+      : min(1, maximumDimension / max(width, height))
     width *= scale
     height *= scale
 
-    let evenWidth = max(2, Int(ceil(width / 2)) * 2)
-    let evenHeight = max(2, Int(ceil(height / 2)) * 2)
+    let evenMaximum = Int(maximumDimension) / 2 * 2
+    // Floating-point scaling can produce 1920.0000000000002. Aligning that
+    // upward must not accidentally request a 1922px encoder canvas.
+    let evenWidth = min(evenMaximum, max(2, Int(ceil(width / 2)) * 2))
+    let evenHeight = min(evenMaximum, max(2, Int(ceil(height / 2)) * 2))
     guard evenWidth <= Int(maximumDimension), evenHeight <= Int(maximumDimension) else {
       throw CompositionError.invalidCanvasSize
     }
