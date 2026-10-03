@@ -102,8 +102,10 @@ class PreviewStore implements IosPurchaseStore {
   @override
   Future<void> finish(String id) => native.finish(id);
   @override
-  Future<void> observe(void Function(IosStoreTransaction) callback) =>
-      native.observe(callback);
+  Future<void> observe(
+    void Function(IosStoreTransaction) callback, {
+    void Function()? onStorefrontChanged,
+  }) => native.observe(callback, onStorefrontChanged: onStorefrontChanged);
   @override
   Future<void> stopObserving() => native.stopObserving();
 }

@@ -104,6 +104,9 @@ class TestPurchaseStore implements IosPurchaseStore {
   final unfinished = <IosStoreTransaction>[];
   Set<String>? availableProductIds;
   Set<String>? requestedProductIds;
+  String displayPrice = '¥1.00', currencyCode = 'CNY';
+  bool priceFailure = false;
+  void Function()? storefrontListener;
   int purchases = 0;
   IosPurchaseResult next = const IosPurchaseResult(
     'PURCHASED',
@@ -113,10 +116,11 @@ class TestPurchaseStore implements IosPurchaseStore {
   @override
   Future<List<IosStoreProduct>> products(Set<String> ids) async {
     requestedProductIds = Set.of(ids);
+    if (priceFailure) throw StateError('StoreKit unavailable');
     return [
       for (final id in ids)
         if (availableProductIds?.contains(id) ?? true)
-          IosStoreProduct(id, '¥1.00'),
+          IosStoreProduct(id, displayPrice, currencyCode: currencyCode),
     ];
   }
 
@@ -149,13 +153,18 @@ class TestPurchaseStore implements IosPurchaseStore {
   }
 
   @override
-  Future<void> observe(void Function(IosStoreTransaction) onTransaction) async {
+  Future<void> observe(
+    void Function(IosStoreTransaction) onTransaction, {
+    void Function()? onStorefrontChanged,
+  }) async {
     listener = onTransaction;
+    storefrontListener = onStorefrontChanged;
   }
 
   @override
   Future<void> stopObserving() async {
     listener = null;
+    storefrontListener = null;
   }
 }
 
@@ -355,6 +364,77 @@ void main() {
       expect(controller.label('2'), '¥1.00 购买并下载');
     },
   );
+
+  for (final currency in ['USD', 'JPY']) {
+    test(
+      'a $currency storefront can buy while displaying the China reference price',
+      () async {
+        api.allowance = IosFreeAllowance.used;
+        store.currencyCode = currency;
+        store.displayPrice = currency == 'USD' ? 'US\$0.99' : '¥150';
+        final flow = IosAcquisitionController(
+          api,
+          store,
+          chinaReferencePrices: {'test.wallpaper.2': '¥1.00'},
+        );
+        addTearDown(flow.dispose);
+        await flow.initialize();
+        expect(flow.label('2'), '¥1.00 购买并下载');
+        expect(flow.priceNote('2'), contains('中国区参考价'));
+        expect(
+          flow.products['test.wallpaper.2']!.displayPrice,
+          store.displayPrice,
+        );
+        expect(flow.canAcquire('2'), true);
+        expect(await flow.acquire('2'), true);
+        expect(store.purchases, 1);
+        expect(api.purchaseCalls, 1);
+      },
+    );
+  }
+
+  test(
+    'unconfigured China reference prices never invent RMB amounts or block payment',
+    () async {
+      api.allowance = IosFreeAllowance.used;
+      store.currencyCode = 'USD';
+      store.displayPrice = 'US\$0.99';
+      await controller.initialize();
+      expect(controller.label('2'), '购买并下载');
+      expect(controller.priceNote('2'), contains('实际价格和付款币种'));
+      expect(await controller.acquire('2'), true);
+      expect(store.purchases, 1);
+    },
+  );
+
+  test(
+    'switching storefront reloads RMB prices without restoring or querying quota',
+    () async {
+      api.allowance = IosFreeAllowance.used;
+      store.currencyCode = 'USD';
+      store.displayPrice = 'US\$0.99';
+      await controller.initialize();
+      store.currencyCode = 'CNY';
+      store.displayPrice = '¥1.00';
+      store.storefrontListener!();
+      await controller.refreshPrices();
+      expect(controller.label('2'), '¥1.00 购买并下载');
+      expect(api.stateCalls, 1);
+      expect(store.synchronization, [false]);
+      expect(store.purchases, 0);
+    },
+  );
+
+  test('a failed price refresh clears the previous storefront price', () async {
+    api.allowance = IosFreeAllowance.used;
+    await controller.initialize();
+    store.priceFailure = true;
+    await controller.refreshPrices();
+    expect(controller.label('2'), 'App Store 暂不可购买');
+    expect(controller.canAcquire('2'), false);
+    expect(controller.products, isEmpty);
+    expect(api.stateCalls, 1);
+  });
 
   test(
     'pending test reset is completed before acquisition becomes ready',

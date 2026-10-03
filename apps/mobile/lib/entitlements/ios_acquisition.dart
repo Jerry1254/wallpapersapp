@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:wallpaper_ios/wallpaper_ios.dart';
 import '../device/device_session.dart';
+import 'ios_china_prices.dart';
 
 enum IosFreeAllowance { unknown, available, used, unavailable, pendingReset }
 
@@ -411,17 +412,24 @@ class SessionIosAcquisitionApi implements IosAcquisitionApi {
 /// One coordinator per running installation. Details read this cache without
 /// prompting Apple or checking the free quota on every navigation.
 class IosAcquisitionController extends ChangeNotifier {
-  IosAcquisitionController(this.api, this.store);
+  IosAcquisitionController(
+    this.api,
+    this.store, {
+    this.chinaReferencePrices = iosChinaReferencePrices,
+  });
   final IosAcquisitionApi api;
   final IosPurchaseStore store;
+  final Map<String, String> chinaReferencePrices;
   IosAcquisitionState? state;
   Map<String, IosStoreProduct> products = {};
   bool busy = false, ready = false;
   bool unavailable = false;
+  bool pricesLoading = false, _priceRefreshPending = false;
   String? error;
   String? _pendingFreeId, _pendingRequestId;
   int? _pendingFreeGeneration;
   Future<void>? _initialization;
+  Future<void>? _productRefresh;
   final List<IosStoreTransaction> _updates = [];
   bool _closed = false;
   bool owns(String id) => state?.owns(id) == true;
@@ -458,7 +466,7 @@ class IosAcquisitionController extends ChangeNotifier {
         _updates.removeWhere((value) => value.id == transaction.id);
         _updates.add(transaction);
         _drainUpdates();
-      });
+      }, onStorefrontChanged: () => unawaited(refreshPrices()));
     } catch (_) {
       error = '无法监听购买结果，请稍后重试';
     }
@@ -479,8 +487,7 @@ class IosAcquisitionController extends ChangeNotifier {
         fresh = await api.completeFreeReset(fresh.pendingFreeReset!);
         await _accept(fresh);
       }
-      final found = await store.products(state!.products.values.toSet());
-      products = {for (final product in found) product.id: product};
+      await refreshPrices();
       ready = true;
       for (final transaction in await store.transactions()) {
         await _deliver(transaction);
@@ -498,6 +505,40 @@ class IosAcquisitionController extends ChangeNotifier {
     }
   }
 
+  /// Refresh Apple prices after switching accounts, without querying free quota
+  /// or invoking Restore (which can require authentication).
+  Future<void> refreshPrices() {
+    if (_closed || state == null) return Future.value();
+    _priceRefreshPending = true;
+    return _productRefresh ??= _refreshPrices().whenComplete(() {
+      _productRefresh = null;
+    });
+  }
+
+  Future<void> _refreshPrices() async {
+    pricesLoading = true;
+    products = {};
+    _notify();
+    try {
+      do {
+        _priceRefreshPending = false;
+        var found = <IosStoreProduct>[];
+        try {
+          found = await store.products(state!.products.values.toSet());
+        } catch (_) {
+          // A failed price query must not leave a stale price on screen.
+        }
+        if (_closed) return;
+        if (!_priceRefreshPending) {
+          products = {for (final product in found) product.id: product};
+        }
+      } while (_priceRefreshPending);
+    } finally {
+      pricesLoading = false;
+      _notify();
+    }
+  }
+
   String label(String wallpaperId) {
     if (owns(wallpaperId)) return '再次下载';
     if (unavailable) return 'Apple 验证暂不可用';
@@ -510,10 +551,30 @@ class IosAcquisitionController extends ChangeNotifier {
     final productId = _productId(wallpaperId);
     if (productId == null) return '商品尚未配置';
     if (state!.freeAllowance == IosFreeAllowance.available) return '首次免费获取';
+    if (pricesLoading) return '正在获取价格';
     final product = products[productId];
-    return product == null
-        ? 'App Store 暂不可购买'
-        : '${product.displayPrice} 购买并下载';
+    if (product == null) return 'App Store 暂不可购买';
+    final price = product.isRenminbi
+        ? product.displayPrice
+        : chinaReferencePrices[productId];
+    return price == null ? '购买并下载' : '$price 购买并下载';
+  }
+
+  String? priceNote(String wallpaperId) {
+    if (owns(wallpaperId) ||
+        busy ||
+        pricesLoading ||
+        !ready ||
+        error != null ||
+        state?.freeAllowance != IosFreeAllowance.used) {
+      return null;
+    }
+    final productId = _productId(wallpaperId);
+    final product = products[productId];
+    if (product == null || product.isRenminbi) return null;
+    return chinaReferencePrices.containsKey(productId)
+        ? '中国区参考价，实际付款以 Apple 确认页为准'
+        : '实际价格和付款币种以 Apple 确认页为准';
   }
 
   bool canAcquire(String id) {
@@ -531,7 +592,7 @@ class IosAcquisitionController extends ChangeNotifier {
     final productId = _productId(id);
     if (productId == null) return false;
     return state!.freeAllowance == IosFreeAllowance.available ||
-        products.containsKey(productId);
+        (!pricesLoading && products.containsKey(productId));
   }
 
   /// False indicates cancellation, deferred approval, or an eligibility refresh.

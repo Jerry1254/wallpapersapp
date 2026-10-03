@@ -22,7 +22,11 @@ void main() {
           calls.add(call);
           return switch (call.method) {
             'products' => [
-              {'id': 'example.wallpaper', 'displayPrice': '¥6.00'},
+              {
+                'id': 'example.wallpaper',
+                'displayPrice': '¥6.00',
+                'currencyCode': 'CNY',
+              },
             ],
             'purchase' => {'status': 'PURCHASED', 'transaction': transaction},
             'transactions' || 'restore' => [transaction],
@@ -41,6 +45,8 @@ void main() {
       const store = NativeIosPurchaseStore();
       final products = await store.products({'example.wallpaper'});
       expect(products.single.displayPrice, '¥6.00');
+      expect(products.single.currencyCode, 'CNY');
+      expect(products.single.isRenminbi, true);
       final result = await store.purchase(
         'example.wallpaper',
         '7bf3e8f0-f5e5-4b4d-a03c-81924eebbaea',

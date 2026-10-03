@@ -1,8 +1,13 @@
 import 'package:flutter/services.dart';
 
 class IosStoreProduct {
-  const IosStoreProduct(this.id, this.displayPrice);
-  final String id, displayPrice;
+  const IosStoreProduct(
+    this.id,
+    this.displayPrice, {
+    required this.currencyCode,
+  });
+  final String id, displayPrice, currencyCode;
+  bool get isRenminbi => currencyCode == 'CNY';
 }
 
 class IosStoreTransaction {
@@ -47,7 +52,10 @@ abstract interface class IosPurchaseStore {
   Future<void> finish(String transactionId);
   Future<String?> readCache();
   Future<void> writeCache(String value);
-  Future<void> observe(void Function(IosStoreTransaction) onTransaction);
+  Future<void> observe(
+    void Function(IosStoreTransaction) onTransaction, {
+    void Function()? onStorefrontChanged,
+  });
   Future<void> stopObserving();
 }
 
@@ -71,6 +79,7 @@ class NativeIosPurchaseStore implements IosPurchaseStore {
           (value) => IosStoreProduct(
             value['id'] as String,
             value['displayPrice'] as String,
+            currencyCode: value['currencyCode'] as String,
           ),
         )
         .toList();
@@ -124,7 +133,10 @@ class NativeIosPurchaseStore implements IosPurchaseStore {
     {'value': value, 'cacheScope': cacheScope},
   );
   @override
-  Future<void> observe(void Function(IosStoreTransaction) onTransaction) async {
+  Future<void> observe(
+    void Function(IosStoreTransaction) onTransaction, {
+    void Function()? onStorefrontChanged,
+  }) async {
     channel.setMethodCallHandler((call) async {
       if (call.method == 'transactionUpdated') {
         onTransaction(
@@ -132,6 +144,8 @@ class NativeIosPurchaseStore implements IosPurchaseStore {
             Map<String, dynamic>.from(call.arguments as Map),
           ),
         );
+      } else if (call.method == 'storefrontUpdated') {
+        onStorefrontChanged?.call();
       }
     });
     await channel.invokeMethod<void>('observe');

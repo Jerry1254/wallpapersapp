@@ -158,6 +158,50 @@ void main() {
     },
   );
 
+  testWidgets(
+    'international storefront displays RMB reference without blocking Apple purchase',
+    (tester) async {
+      final api = TestAcquisitionApi()..allowance = IosFreeAllowance.used;
+      final store = TestPurchaseStore()
+        ..currencyCode = 'USD'
+        ..displayPrice = 'US\$0.99';
+      final flow = IosAcquisitionController(
+        api,
+        store,
+        chinaReferencePrices: {'test.wallpaper.2': '¥1.00'},
+      );
+      addTearDown(flow.dispose);
+      await flow.initialize();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: QjTheme.light,
+          home: DetailScreen(
+            repository: AcquisitionCatalog(),
+            id: '2',
+            iosAcquisition: flow,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('US\$0.99 购买并下载'), findsNothing);
+      expect(find.text('¥1.00 购买并下载'), findsOneWidget);
+      expect(find.text('中国区参考价，实际付款以 Apple 确认页为准'), findsOneWidget);
+      expect(
+        tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+        isNotNull,
+      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      store.currencyCode = 'CNY';
+      store.displayPrice = '¥6.00';
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(find.text('¥6.00 购买并下载'), findsOneWidget);
+      expect(find.text('中国区参考价，实际付款以 Apple 确认页为准'), findsNothing);
+      expect(api.stateCalls, 1);
+      expect(store.synchronization, [false]);
+    },
+  );
+
   testWidgets('iOS FREE wallpaper bypasses first-free acquisition', (
     tester,
   ) async {

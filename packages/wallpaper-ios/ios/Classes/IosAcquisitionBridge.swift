@@ -8,6 +8,7 @@ import StoreKit
 final class IosAcquisitionBridge: NSObject, FlutterPlugin {
   private let channel: FlutterMethodChannel
   private var updates: Task<Void, Never>?
+  private var storefrontUpdates: Task<Void, Never>?
   private let cacheKey = "qingjing.ios.acquisition.cache.v1"
   private let keyIdKey = "qingjing.ios.app-attest.key.v1"
   private let registeredKey = "qingjing.ios.app-attest.registered.v1"
@@ -30,7 +31,8 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
           }
           let products = try await Product.products(for: ids)
           result(products.filter { $0.type == .nonConsumable }.map {
-            ["id": $0.id, "displayPrice": $0.displayPrice]
+            ["id": $0.id, "displayPrice": $0.displayPrice,
+             "currencyCode": $0.priceFormatStyle.currencyCode]
           })
         case "purchase":
           if args["testOnly"] as? Bool == true {
@@ -92,9 +94,20 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
               }
             }
           }
+          if storefrontUpdates == nil {
+            storefrontUpdates = Task { @MainActor [weak self] in
+              for await _ in Storefront.updates {
+                if Task.isCancelled { break }
+                guard let self else { break }
+                self.channel.invokeMethod("storefrontUpdated", arguments: nil)
+              }
+            }
+          }
           result(nil)
         case "stopObserving":
-          updates?.cancel(); updates = nil; result(nil)
+          updates?.cancel(); updates = nil
+          storefrontUpdates?.cancel(); storefrontUpdates = nil
+          result(nil)
         case "readCache": result(UserDefaults.standard.string(forKey: try scopedCacheKey(args)))
         case "writeCache":
           guard let value = args["value"] as? String, value.utf8.count <= 2_000_000,
@@ -171,7 +184,7 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
     let hash = SHA256.hash(data: Data(scope.utf8)).map { String(format: "%02x", $0) }.joined()
     return cacheKey + "." + hash
   }
-  deinit { updates?.cancel() }
+  deinit { updates?.cancel(); storefrontUpdates?.cancel() }
   private enum Failure: String, Error {
     case invalidArguments = "INVALID_ARGUMENTS"
     case productUnavailable = "PRODUCT_UNAVAILABLE"

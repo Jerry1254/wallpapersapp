@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:wallpaper_android/wallpaper_android.dart';
@@ -50,7 +51,8 @@ class DetailScreen extends StatefulWidget {
   State<DetailScreen> createState() => _DetailScreenState();
 }
 
-class _DetailScreenState extends State<DetailScreen> {
+class _DetailScreenState extends State<DetailScreen>
+    with WidgetsBindingObserver {
   late Future<Wallpaper> future;
   late final TrialManager? trials =
       widget.trials ??
@@ -73,6 +75,19 @@ class _DetailScreenState extends State<DetailScreen> {
     future = widget.repository.detail(widget.id);
     widget.downloads?.addListener(_downloadChanged);
     widget.iosAcquisition?.addListener(_downloadChanged);
+    if (widget.iosAcquisition != null) {
+      WidgetsBinding.instance.addObserver(this);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(widget.iosAcquisition!.refreshPrices());
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && widget.iosAcquisition != null) {
+      unawaited(widget.iosAcquisition!.refreshPrices());
+    }
   }
 
   void _downloadChanged() {
@@ -306,6 +321,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.downloads?.removeListener(_downloadChanged);
     widget.iosAcquisition?.removeListener(_downloadChanged);
     if (widget.trials == null) trials?.dispose();
@@ -550,6 +566,26 @@ class _DetailScreenState extends State<DetailScreen> {
                       child: LayoutBuilder(
                         builder: (context, available) {
                           final widthFromPage = available.maxWidth * .82;
+                          final priceNote = usesIosAcquisition
+                              ? ios.priceNote(widget.id)
+                              : null;
+                          final priceNoteStyle = Theme.of(
+                            context,
+                          ).textTheme.bodySmall;
+                          final notePainter = priceNote == null
+                              ? null
+                              : (TextPainter(
+                                  text: TextSpan(
+                                    text: priceNote,
+                                    style: priceNoteStyle,
+                                  ),
+                                  textDirection: Directionality.of(context),
+                                  textScaler: MediaQuery.textScalerOf(context),
+                                )..layout(maxWidth: widthFromPage));
+                          final noteHeight = notePainter == null
+                              ? 0.0
+                              : notePainter.height + T.space3;
+                          notePainter?.dispose();
                           final errorHeight =
                               !wallpaper.isFree && ownershipError != null
                               ? 56.0 + T.space3
@@ -558,7 +594,8 @@ class _DetailScreenState extends State<DetailScreen> {
                               available.maxHeight -
                               T.sizePrimaryControl -
                               T.space6 -
-                              errorHeight;
+                              errorHeight -
+                              noteHeight;
                           final widthFromHeight =
                               (availablePreviewHeight > 0
                                   ? availablePreviewHeight
@@ -686,6 +723,20 @@ class _DetailScreenState extends State<DetailScreen> {
                                         : null,
                                   ),
                                 ),
+                                if (priceNote != null)
+                                  SizedBox(
+                                    width: widthFromPage,
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(
+                                        top: T.space3,
+                                      ),
+                                      child: Text(
+                                        priceNote,
+                                        textAlign: TextAlign.center,
+                                        style: priceNoteStyle,
+                                      ),
+                                    ),
+                                  ),
                               ],
                             ),
                           );
