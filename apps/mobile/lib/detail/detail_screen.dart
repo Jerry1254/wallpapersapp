@@ -364,21 +364,12 @@ class _DetailScreenState extends State<DetailScreen>
         ],
       ),
     );
-    if (_isIosDetail) {
-      return Stack(
-        fit: StackFit.expand,
-        children: [
-          Center(child: title),
-          Align(alignment: Alignment.centerLeft, child: back),
-          Align(alignment: Alignment.centerRight, child: tutorial),
-        ],
-      );
-    }
-    return Row(
+    return Stack(
+      fit: StackFit.expand,
       children: [
-        back,
-        Expanded(child: title),
-        tutorial,
+        Center(child: title),
+        Align(alignment: Alignment.centerLeft, child: back),
+        Align(alignment: Alignment.centerRight, child: tutorial),
       ],
     );
   }

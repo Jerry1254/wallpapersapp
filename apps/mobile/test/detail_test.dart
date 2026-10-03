@@ -231,6 +231,7 @@ void main() {
     expect(tester.widget<Text>(title).textAlign, TextAlign.left);
     expect(tester.widget<Text>(title).style?.color, isNot(T.colorAccentStrong));
     expect(find.text('壁纸详情'), findsOneWidget);
+    expect(tester.getCenter(find.text('壁纸详情')).dx, closeTo(195, .01));
     expect(actionRect.top - titleRect.bottom, closeTo(16, 1));
     expect(actionRect.width, closeTo(350, 1));
     expect(actionRect.bottom, lessThanOrEqualTo(844));
@@ -303,6 +304,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(QjFilterChip), findsNothing);
     final before = tester.getRect(find.byKey(const ValueKey('detail-preview')));
+    expect(tester.getCenter(find.text('壁纸详情')).dx, closeTo(160, .01));
     expect(before.width, 280);
     expect(before.height, greaterThan(300));
     expect(
