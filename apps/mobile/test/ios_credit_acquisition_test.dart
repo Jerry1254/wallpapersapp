@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:qingjing_wallpaper/device/device_session.dart';
 import 'package:qingjing_wallpaper/entitlements/ios_acquisition.dart';
 import 'package:wallpaper_ios/wallpaper_ios.dart';
 import 'ios_acquisition_test.dart'
@@ -21,6 +22,8 @@ class CreditApi extends TestAcquisitionApi implements IosCreditAcquisitionApi {
   int orderCalls = 0, restoreCalls = 0;
   String? orderedWall;
   bool paymentAllowed = true;
+  Object? confirmationFailure;
+  bool fulfilledBeforeFailure = false;
   @override
   IosAcquisitionState get snapshot => IosAcquisitionState(
     installationId: installationId,
@@ -69,7 +72,15 @@ class CreditApi extends TestAcquisitionApi implements IosCreditAcquisitionApi {
   ) async {
     purchaseCalls++;
     if (rejectPurchase) throw StateError('Offline after payment');
-    paid.add(orderedWall!);
+    if (confirmationFailure != null) {
+      if (fulfilledBeforeFailure) paid.add(orderedWall!);
+      throw confirmationFailure!;
+    }
+    if (transaction.revoked) {
+      paid.remove(orderedWall!);
+    } else {
+      paid.add(orderedWall!);
+    }
     return snapshot;
   }
 
@@ -84,6 +95,7 @@ class CreditApi extends TestAcquisitionApi implements IosCreditAcquisitionApi {
 
 class CreditStore extends TestPurchaseStore implements IosCreditPurchaseStore {
   int? purchasedQuantity, purchasedPack;
+  bool emitPaymentUpdate = false;
   @override
   Future<Map<String, dynamic>> appIdentity({bool refresh = false}) async => {
     'signedAppTransaction': 'signed-app',
@@ -121,8 +133,10 @@ class CreditStore extends TestPurchaseStore implements IosCreditPurchaseStore {
       environment: 'SANDBOX',
       productType: 'CONSUMABLE',
       quantity: quantity,
+      accountToken: token,
     );
     unfinished.add(transaction);
+    if (emitPaymentUpdate) listener?.call(transaction);
     return IosPurchaseResult('PURCHASED', transaction);
   }
 }
@@ -131,6 +145,12 @@ class UnresponsivePriceStore extends CreditStore {
   final query = Completer<List<IosStoreProduct>>();
   @override
   Future<List<IosStoreProduct>> products(Set<String> ids) => query.future;
+}
+
+class UnresponsiveFinishStore extends CreditStore {
+  final completion = Completer<void>();
+  @override
+  Future<void> finish(String id) => completion.future;
 }
 
 void main() {
@@ -208,6 +228,136 @@ void main() {
     expect(controller.label('1'), 'App Store 暂不可购买');
     expect(store.purchases, 0);
   });
+  test(
+    'lost confirmation response reads back paid rights without another charge',
+    () async {
+      final api = CreditApi()
+        ..confirmationFailure = const DeviceApiError(0, 'NETWORK_TIMEOUT')
+        ..fulfilledBeforeFailure = true;
+      final store = CreditStore();
+      final controller = IosAcquisitionController(api, store);
+      await controller.initialize();
+      expect(await controller.acquire('1'), true);
+      expect(api.restoreCalls, 1);
+      expect(controller.owns('1'), true);
+      expect(controller.owns('2'), false);
+      expect(store.purchases, 1);
+      expect(
+        store.finished,
+        isEmpty,
+      ); // Full receipt synchronization still pending.
+      final history = jsonDecode(store.cache!)['purchaseDiagnostics'] as List;
+      expect(history.map((item) => item['code']), [
+        'NETWORK_TIMEOUT',
+        'CONFIRMED',
+      ]);
+      expect(
+        history.every((item) => (item as Map).keys.toSet().length == 5),
+        true,
+      );
+      api.confirmationFailure = null;
+      await controller.refresh();
+      expect(store.finished, ['credit-transaction']);
+      expect(
+        jsonDecode(store.cache!)['purchaseDiagnostics'].first['code'],
+        'NETWORK_TIMEOUT',
+      );
+      expect(store.purchases, 1);
+      controller.dispose();
+    },
+  );
+  test(
+    'readback cannot grant a wallpaper before server payment confirmation',
+    () async {
+      final api = CreditApi()
+        ..confirmationFailure = const DeviceApiError(0, 'NETWORK_TIMEOUT');
+      final store = CreditStore();
+      final controller = IosAcquisitionController(api, store);
+      await controller.initialize();
+      await expectLater(
+        controller.acquire('1'),
+        throwsA(isA<IosAcquisitionNotice>()),
+      );
+      expect(api.restoreCalls, 1);
+      expect(controller.owns('1'), false);
+      expect(store.finished, isEmpty);
+      expect(controller.label('1'), '确认购买结果');
+      expect(store.purchases, 1);
+      controller.dispose();
+    },
+  );
+  test(
+    'invalid receipt is never recovered as a transient network failure',
+    () async {
+      final api = CreditApi()
+        ..confirmationFailure = const DeviceApiError(
+          403,
+          'IOS_CREDIT_PURCHASE_INVALID',
+        )
+        ..fulfilledBeforeFailure = true;
+      final store = CreditStore();
+      final controller = IosAcquisitionController(api, store);
+      await controller.initialize();
+      await expectLater(
+        controller.acquire('1'),
+        throwsA(isA<IosAcquisitionNotice>()),
+      );
+      expect(api.restoreCalls, 0);
+      expect(controller.owns('1'), false);
+      expect(store.finished, isEmpty);
+      controller.dispose();
+    },
+  );
+  test(
+    'identical successful callbacks are ignored but refunds still synchronize',
+    () async {
+      final api = CreditApi();
+      final store = CreditStore()..emitPaymentUpdate = true;
+      final controller = IosAcquisitionController(api, store);
+      await controller.initialize();
+      expect(await controller.acquire('1'), true);
+      await Future<void>.delayed(Duration.zero);
+      expect(api.purchaseCalls, 1);
+      expect(controller.busy, false);
+      final refund = IosStoreTransaction(
+        id: 'credit-transaction',
+        productId: api.mappings['1']!,
+        signedTransaction: 'new-refunded-proof',
+        signedAppTransaction: 'signed-app',
+        deviceVerificationId: installationId,
+        environment: 'SANDBOX',
+        productType: 'CONSUMABLE',
+        quantity: 9,
+        accountToken: accountToken,
+        revoked: true,
+      );
+      store.listener?.call(refund);
+      await Future<void>.delayed(Duration.zero);
+      expect(api.purchaseCalls, 2);
+      expect(controller.owns('1'), false);
+      expect(controller.busy, false);
+      controller.dispose();
+    },
+  );
+  test(
+    'confirmed rights do not hang on an unresponsive StoreKit finish',
+    () async {
+      final api = CreditApi(), store = UnresponsiveFinishStore();
+      final controller = IosAcquisitionController(api, store);
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      final acquisition = controller.acquire('1');
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.owns('1'), true);
+      expect(await acquisition, true);
+      expect(controller.busy, false);
+      expect(store.purchases, 1);
+      expect(
+        jsonDecode(store.cache!)['purchaseDiagnostics'].last['phase'],
+        'finish',
+      );
+    },
+  );
   test(
     'pending approval survives restart and blocks repeated payment',
     () async {

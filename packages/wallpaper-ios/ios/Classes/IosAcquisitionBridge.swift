@@ -23,6 +23,13 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
   func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     let args = call.arguments as? [String: Any] ?? [:]
     Task { @MainActor in
+      let started = ProcessInfo.processInfo.systemUptime
+      var completed = false
+      defer {
+        if ["purchase", "appIdentity", "transactions", "restore", "finish", "assertion", "attest", "deviceCheckToken"].contains(call.method) {
+          recordTiming(call.method, started: started, completed: completed)
+        }
+      }
       do {
         switch call.method {
         case "products":
@@ -170,6 +177,7 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
           result(data.base64EncodedString())
         default: result(FlutterMethodNotImplemented)
         }
+        completed = true
       } catch let failure as Failure {
         result(FlutterError(code: failure.rawValue, message: failure.message, details: nil))
       } catch {
@@ -184,6 +192,9 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
       throw Failure.unverifiedTransaction
     }
     guard #available(iOS 16.0, *) else { throw Failure.proofUnavailable }
+    let started = ProcessInfo.processInfo.systemUptime
+    var completed = false
+    defer { recordTiming("transactionProof", started: started, completed: completed) }
     let appTransaction = try await AppTransaction.shared
     guard case .verified = appTransaction,
           let deviceVerificationId = AppStore.deviceVerificationID else {
@@ -191,6 +202,7 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
     }
     var environment = "UNKNOWN"
     if #available(iOS 16.0, *) { environment = item.environment.rawValue.uppercased() }
+    completed = true
     return ["id": String(item.id), "productId": item.productID,
             "signedTransaction": verification.jwsRepresentation,
             "signedAppTransaction": appTransaction.jwsRepresentation,
@@ -198,6 +210,15 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
             "environment": environment, "revoked": item.revocationDate != nil,
             "productType": item.productType == .consumable ? "CONSUMABLE" : "NON_CONSUMABLE",
             "quantity": item.purchasedQuantity, "accountToken": item.appAccountToken?.uuidString.lowercased() ?? ""]
+  }
+  private func recordTiming(_ phase: String, started: TimeInterval, completed: Bool) {
+    // Store timings only. Never persist arguments, JWS receipts or identifiers.
+    let key = "qingjing.ios.purchase.timing.v1"
+    var history = UserDefaults.standard.array(forKey: key) as? [[String: Any]] ?? []
+    history.append(["phase": phase, "at": ISO8601DateFormatter().string(from: Date()),
+                    "elapsedMs": Int((ProcessInfo.processInfo.systemUptime - started) * 1_000),
+                    "completed": completed])
+    UserDefaults.standard.set(Array(history.suffix(20)), forKey: key)
   }
   private func scopedCacheKey(_ args: [String: Any]) throws -> String {
     let scope = args["cacheScope"] as? String ?? "prod"

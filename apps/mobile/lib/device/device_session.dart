@@ -193,9 +193,18 @@ class HttpDeviceTransport implements DeviceTransport {
           );
         }
         return data;
-      })().timeout(const Duration(seconds: 15));
+      })().timeout(
+        // Apple confirmation performs several remote verification steps. Its
+        // budget must outlast Apple's 15-second per-request server timeout.
+        path == '/device/ios/acquisition/purchases' ||
+                path == '/device/ios/acquisition/credit-restores'
+            ? const Duration(seconds: 60)
+            : const Duration(seconds: 15),
+      );
     } on DeviceApiError {
       rethrow;
+    } on TimeoutException {
+      throw const DeviceApiError(0, 'NETWORK_TIMEOUT');
     } catch (_) {
       throw const DeviceApiError(0, 'NETWORK_ERROR');
     } finally {

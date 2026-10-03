@@ -701,7 +701,10 @@ class IosAcquisitionController extends ChangeNotifier {
   Future<void>? _productRefresh;
   final List<IosStoreTransaction> _updates = [];
   final Map<String, String> _failedTransactionUpdates = {};
+  final Map<String, String> _confirmedTransactionUpdates = {};
+  final List<Map<String, Object>> _purchaseDiagnostics = [];
   Map<String, Object>? _lastPurchaseFailure;
+  bool _confirmingPurchase = false;
   bool _closed = false;
   bool owns(String id) => state?.owns(id) == true;
 
@@ -740,6 +743,21 @@ class IosAcquisitionController extends ChangeNotifier {
       final cache = await store.readCache();
       if (cache != null) {
         final value = jsonDecode(cache) as Map<String, dynamic>;
+        for (final item in (value['purchaseDiagnostics'] as List? ?? []).take(
+          10,
+        )) {
+          if (item is Map &&
+              item['phase'] is String &&
+              item['at'] is String &&
+              item['elapsedMs'] is int &&
+              item['code'] is String &&
+              item['status'] is int) {
+            _purchaseDiagnostics.add({
+              for (final key in ['phase', 'at', 'elapsedMs', 'code', 'status'])
+                key: item[key] as Object,
+            });
+          }
+        }
         state = IosAcquisitionState.fromJson(
           value['state'] as Map<String, dynamic>,
         );
@@ -763,7 +781,9 @@ class IosAcquisitionController extends ChangeNotifier {
     try {
       await store.observe((transaction) {
         if (_failedTransactionUpdates[transaction.id] ==
-            transaction.signedTransaction) {
+                transaction.signedTransaction ||
+            _confirmedTransactionUpdates[transaction.id] ==
+                transaction.signedTransaction) {
           return;
         }
         _updates.removeWhere((value) => value.id == transaction.id);
@@ -868,7 +888,7 @@ class IosAcquisitionController extends ChangeNotifier {
   String label(String wallpaperId) {
     if (owns(wallpaperId)) return '再次下载';
     if (unavailable) return 'Apple 验证暂不可用';
-    if (busy) return '正在确认资格';
+    if (busy) return _confirmingPurchase ? '正在确认付款' : '正在确认资格';
     if (state?.freeAllowance == IosFreeAllowance.pendingReset) {
       return '测试资格重置处理中';
     }
@@ -1209,13 +1229,29 @@ class IosAcquisitionController extends ChangeNotifier {
   Future<void> _deliver(IosStoreTransaction transaction) async {
     // Receiving PURCHASED alone never grants local access. Keep transactions
     // unfinished on API failure so startup/Restore can retry after interruption.
+    _confirmingPurchase = true;
+    _notify();
+    final elapsed = Stopwatch()..start();
     try {
       final fresh = await api
           .synchronize(transaction)
-          .timeout(const Duration(seconds: 45));
+          .timeout(const Duration(seconds: 75));
       _failedTransactionUpdates.remove(transaction.id);
       _lastPurchaseFailure = null;
+      _recordPurchaseDiagnostic('confirmation', elapsed);
       await _accept(fresh);
+      _confirmedTransactionUpdates[transaction.id] =
+          transaction.signedTransaction;
+      if (_confirmedTransactionUpdates.length > 100) {
+        _confirmedTransactionUpdates.remove(
+          _confirmedTransactionUpdates.keys.first,
+        );
+      }
+      _updates.removeWhere(
+        (value) =>
+            value.id == transaction.id &&
+            value.signedTransaction == transaction.signedTransaction,
+      );
     } catch (failure) {
       _failedTransactionUpdates[transaction.id] = transaction.signedTransaction;
       _updates.removeWhere(
@@ -1230,10 +1266,17 @@ class IosAcquisitionController extends ChangeNotifier {
             : 'CONFIRMATION_UNAVAILABLE',
         'status': failure is DeviceApiError ? failure.status : 0,
       };
+      _recordPurchaseDiagnostic('confirmation', elapsed, failure: failure);
       try {
         await _cache();
       } catch (_) {}
+      // A lost HTTP response does not mean Apple declined payment. Read back
+      // trusted server grants once, without another checkout or Apple sync UI.
+      // Keep this receipt unfinished until its full synchronization succeeds.
+      if (await _recoverCreditPurchase(transaction, failure)) return;
       rethrow;
+    } finally {
+      _confirmingPurchase = false;
     }
     if (transaction.productType == 'CONSUMABLE' &&
         transaction.accountToken != null &&
@@ -1254,8 +1297,84 @@ class IosAcquisitionController extends ChangeNotifier {
     // Delivery is already durable. A failed finish must not make a confirmed
     // purchase look unsuccessful; its unfinished transaction can be retried.
     try {
-      await store.finish(transaction.id);
-    } catch (_) {}
+      await store.finish(transaction.id).timeout(const Duration(seconds: 5));
+    } catch (failure) {
+      _recordPurchaseDiagnostic('finish', elapsed, failure: failure);
+      try {
+        await _cache();
+      } catch (_) {}
+    }
+  }
+
+  Future<bool> _recoverCreditPurchase(
+    IosStoreTransaction transaction,
+    Object failure,
+  ) async {
+    final pending = _pendingCredit;
+    final transient =
+        failure is TimeoutException ||
+        (failure is DeviceApiError &&
+            (failure.status == 0 ||
+                failure.status == 408 ||
+                failure.status >= 500));
+    if (!transient ||
+        transaction.revoked ||
+        transaction.productType != 'CONSUMABLE' ||
+        pending == null ||
+        transaction.accountToken != pending.token ||
+        transaction.productId != pending.productId ||
+        transaction.quantity != pending.quantity ||
+        api is! IosCreditAcquisitionApi) {
+      return false;
+    }
+    final elapsed = Stopwatch()..start();
+    try {
+      final fresh = await (api as IosCreditAcquisitionApi)
+          .restoreCredits({
+            'signedAppTransaction': transaction.signedAppTransaction,
+            'deviceVerificationId': transaction.deviceVerificationId,
+          })
+          .timeout(const Duration(seconds: 75));
+      final confirmed = fresh.purchasedWallpaperIds.contains(
+        pending.wallpaperId,
+      );
+      _recordPurchaseDiagnostic(
+        'readback',
+        elapsed,
+        code: confirmed ? 'CONFIRMED' : 'PENDING',
+      );
+      await _accept(fresh);
+      return confirmed;
+    } catch (readbackFailure) {
+      _recordPurchaseDiagnostic('readback', elapsed, failure: readbackFailure);
+      try {
+        await _cache();
+      } catch (_) {}
+      return false;
+    }
+  }
+
+  void _recordPurchaseDiagnostic(
+    String phase,
+    Stopwatch elapsed, {
+    Object? failure,
+    String code = 'CONFIRMED',
+  }) {
+    // No receipt, device identifier, account token or request body is recorded.
+    _purchaseDiagnostics.add({
+      'phase': phase,
+      'at': DateTime.now().toUtc().toIso8601String(),
+      'elapsedMs': elapsed.elapsedMilliseconds,
+      'code': failure is DeviceApiError
+          ? failure.code
+          : failure is TimeoutException
+          ? 'NETWORK_TIMEOUT'
+          : failure == null
+          ? code
+          : 'CONFIRMATION_UNAVAILABLE',
+      'status': failure is DeviceApiError ? failure.status : 0,
+    });
+    if (_purchaseDiagnostics.length > 10) _purchaseDiagnostics.removeAt(0);
   }
 
   void _drainUpdates() {
@@ -1307,6 +1426,8 @@ class IosAcquisitionController extends ChangeNotifier {
       'pendingCreditCancelled': _pendingCreditCancelled,
       if (_lastPurchaseFailure != null)
         'lastPurchaseFailure': _lastPurchaseFailure,
+      if (_purchaseDiagnostics.isNotEmpty)
+        'purchaseDiagnostics': _purchaseDiagnostics,
       if (_pendingFreeId != null)
         'pendingFree': {
           'wallpaperId': _pendingFreeId,
