@@ -72,8 +72,8 @@ class _DetailScreenState extends State<DetailScreen>
   String? selectedPreviewKey;
   List<WallpaperTutorial>? tutorialCache;
   bool _fullScreen = false;
-  bool get _allowsFullScreen =>
-      !Platform.isIOS && widget.iosAcquisition == null;
+  bool get _isIosDetail => Platform.isIOS || widget.iosAcquisition != null;
+  bool get _allowsFullScreen => !_isIosDetail;
   final _previewKey = GlobalKey();
   @override
   void initState() {
@@ -336,6 +336,53 @@ class _DetailScreenState extends State<DetailScreen>
     fit: _fullScreen ? BoxFit.contain : BoxFit.cover,
   );
 
+  Widget _header(Wallpaper wallpaper) {
+    final back = IconButton(
+      tooltip: '返回',
+      onPressed: () => Navigator.maybePop(context),
+      icon: const QjIcon('chevron-left', size: 22),
+    );
+    final title = Text(
+      '壁纸详情',
+      textAlign: TextAlign.center,
+      style: Theme.of(
+        context,
+      ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+    );
+    final tutorial = TextButton(
+      style: TextButton.styleFrom(
+        foregroundColor: T.colorAccentStrong,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+      ),
+      onPressed: () => _openTutorial(wallpaper),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          QjIcon('circle-play', size: 17, color: T.colorAccentStrong),
+          SizedBox(width: 5),
+          Text('设置教程'),
+        ],
+      ),
+    );
+    if (_isIosDetail) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(child: title),
+          Align(alignment: Alignment.centerLeft, child: back),
+          Align(alignment: Alignment.centerRight, child: tutorial),
+        ],
+      );
+    }
+    return Row(
+      children: [
+        back,
+        Expanded(child: title),
+        tutorial,
+      ],
+    );
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -512,49 +559,11 @@ class _DetailScreenState extends State<DetailScreen>
                         if (!_fullScreen) ...[
                           SizedBox(
                             height: T.sizeTopBar,
-                            child: Row(
-                              children: [
-                                IconButton(
-                                  tooltip: '返回',
-                                  onPressed: () => Navigator.maybePop(context),
-                                  icon: const QjIcon('chevron-left', size: 22),
-                                ),
-                                Expanded(
-                                  child: Text(
-                                    '壁纸详情',
-                                    textAlign: TextAlign.center,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium
-                                        ?.copyWith(fontWeight: FontWeight.w700),
-                                  ),
-                                ),
-                                TextButton(
-                                  style: TextButton.styleFrom(
-                                    foregroundColor: T.colorAccentStrong,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                    ),
-                                  ),
-                                  onPressed: () => _openTutorial(wallpaper),
-                                  child: const Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      QjIcon(
-                                        'circle-play',
-                                        size: 17,
-                                        color: T.colorAccentStrong,
-                                      ),
-                                      SizedBox(width: 5),
-                                      Text('设置教程'),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
+                            key: const ValueKey('detail-header'),
+                            child: _header(wallpaper),
                           ),
                           if (showsPreviewTabs) ...[
-                            const SizedBox(height: T.space2),
+                            SizedBox(height: _isIosDetail ? 2 : T.space2),
                             SizedBox(
                               height: 40,
                               child: LayoutBuilder(

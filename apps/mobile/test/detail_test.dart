@@ -13,6 +13,8 @@ import 'package:qingjing_wallpaper/downloads/download_panel.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
 import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
 import 'catalog_test.dart' show FakeCatalog;
+import 'package:qingjing_wallpaper/entitlements/ios_acquisition.dart';
+import 'ios_acquisition_test.dart' show TestAcquisitionApi, TestPurchaseStore;
 
 Wallpaper wallpaper(
   List<Map<String, dynamic>> capabilities, {
@@ -327,6 +329,58 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     manager.dispose();
     await installer.controller.close();
+  });
+
+  testWidgets('iPhone标题以页面居中，Tab与顶部栏仅留2点间距', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final flow = IosAcquisitionController(
+      TestAcquisitionApi(),
+      TestPurchaseStore(),
+    );
+    addTearDown(flow.dispose);
+    await flow.initialize();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: QjTheme.light,
+        home: DetailScreen(
+          repository: DualEffectDetailCatalog(),
+          id: '1',
+          iosAcquisition: flow,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final titleRect = tester.getRect(find.text('壁纸详情'));
+    final tutorialRect = tester.getRect(
+      find.widgetWithText(TextButton, '设置教程'),
+    );
+    final headerRect = tester.getRect(
+      find.byKey(const ValueKey('detail-header')),
+    );
+    expect(titleRect.center.dx, closeTo(195, .01));
+    expect(titleRect.right, lessThan(tutorialRect.left));
+    expect(
+      titleRect.left,
+      greaterThan(tester.getRect(find.byTooltip('返回')).right),
+    );
+    expect(
+      tester.getRect(find.widgetWithText(QjFilterChip, '4D壁纸')).top -
+          headerRect.bottom,
+      2,
+    );
+    expect(find.byTooltip('全屏预览'), findsNothing);
+    expect(tester.takeException(), isNull);
+    tester.view.physicalSize = const Size(320, 568);
+    await tester.pumpAndSettle();
+    expect(tester.getCenter(find.text('壁纸详情')).dx, closeTo(160, .01));
+    expect(
+      tester.getRect(find.text('壁纸详情')).right,
+      lessThan(tester.getRect(find.widgetWithText(TextButton, '设置教程')).left),
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('详情主按钮同步显示当前资源下载进度', (tester) async {
