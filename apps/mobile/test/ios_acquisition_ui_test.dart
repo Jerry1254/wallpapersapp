@@ -7,8 +7,10 @@ import 'package:qingjing_wallpaper/design_system/qj_theme.dart';
 import 'package:qingjing_wallpaper/entitlements/entitlements_screen.dart';
 import 'package:qingjing_wallpaper/entitlements/ios_acquisition.dart';
 import 'package:qingjing_wallpaper/entitlements/redemption.dart';
+import 'package:wallpaper_ios/wallpaper_ios.dart';
 import 'catalog_test.dart' show FakeCatalog;
 import 'ios_acquisition_test.dart' show TestAcquisitionApi, TestPurchaseStore;
+import 'ios_credit_acquisition_test.dart' show CreditApi, CreditStore;
 
 class AcquisitionCatalog extends FakeCatalog {
   @override
@@ -71,7 +73,164 @@ class EmptyPending implements PendingStore {
   Future<void> write(PendingRedemption? value) async {}
 }
 
+class CancelOnceCreditApi extends CreditApi {
+  int cancelAttempts = 0;
+  @override
+  Future<IosAcquisitionState> cancelCreditOrder(
+    String id,
+    Map<String, dynamic> identity,
+  ) async {
+    if (++cancelAttempts == 1) {
+      throw StateError('Cancellation temporarily offline');
+    }
+    return snapshot;
+  }
+}
+
 void main() {
+  testWidgets('取消付款后清理订单失败，重试仍先确认新兑换', (tester) async {
+    final api = CancelOnceCreditApi();
+    final store = CreditStore()..next = const IosPurchaseResult('CANCELLED');
+    final flow = IosAcquisitionController(api, store);
+    addTearDown(flow.dispose);
+    await flow.initialize();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: QjTheme.light,
+        home: DetailScreen(
+          repository: AcquisitionCatalog(),
+          id: '1',
+          iosAcquisition: flow,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('18个积分兑换壁纸'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确认兑换'));
+    await tester.pumpAndSettle();
+    expect(store.purchases, 1);
+    expect(flow.owns('1'), isFalse);
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    store.next = const IosPurchaseResult('PURCHASED');
+    await tester.tap(find.text('确认购买结果'));
+    await tester.pumpAndSettle();
+    expect(find.text('兑换说明'), findsOneWidget);
+    expect(store.purchases, 1);
+    await tester.tap(find.text('确认兑换'));
+    await tester.pumpAndSettle();
+    expect(store.purchases, 2);
+    expect(find.text('再次下载'), findsOneWidget);
+  });
+
+  testWidgets('积分说明只在兑换弹窗出现，取消不付款，确认后付款并获取权益', (tester) async {
+    final api = CreditApi(), store = CreditStore();
+    final flow = IosAcquisitionController(api, store);
+    addTearDown(flow.dispose);
+    await flow.initialize();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: QjTheme.light,
+        home: DetailScreen(
+          repository: AcquisitionCatalog(),
+          id: '1',
+          iosAcquisition: flow,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('1积分＝1元'), findsNothing);
+    expect(find.byTooltip('全屏预览'), findsNothing);
+    await tester.tap(find.text('18个积分兑换壁纸'));
+    await tester.pumpAndSettle();
+    expect(find.text('兑换说明'), findsOneWidget);
+    expect(find.text('18个积分'), findsOneWidget);
+    expect(find.text('¥18.00'), findsOneWidget);
+    expect(find.textContaining('1积分＝1元'), findsOneWidget);
+    expect(find.textContaining('永久使用'), findsOneWidget);
+    expect(store.purchases, 0);
+    expect(api.orderCalls, 0);
+    await tester.tap(find.byTooltip('关闭兑换说明'));
+    await tester.pumpAndSettle();
+    expect(store.purchases, 0);
+    await tester.tap(find.text('18个积分兑换壁纸'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确认兑换'));
+    await tester.pumpAndSettle();
+    expect(store.purchases, 1);
+    expect(api.orderCalls, 1);
+    expect(find.text('再次下载'), findsOneWidget);
+    await tester.tap(find.text('再次下载'));
+    await tester.pumpAndSettle();
+    expect(find.text('兑换说明'), findsNothing);
+    expect(store.purchases, 1);
+  });
+
+  testWidgets('弹窗期间积分变化禁止用旧价格确认', (tester) async {
+    final api = CreditApi(), store = CreditStore();
+    final flow = IosAcquisitionController(api, store);
+    addTearDown(flow.dispose);
+    await flow.initialize();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: QjTheme.light,
+        home: DetailScreen(
+          repository: AcquisitionCatalog(),
+          id: '1',
+          iosAcquisition: flow,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('18个积分兑换壁纸'));
+    await tester.pumpAndSettle();
+    api.offers['1'] = const IosCreditOffer(20, 2, 10, true);
+    await flow.refreshPrices();
+    await tester.pumpAndSettle();
+    expect(find.text('价格或资格已更新，请关闭后重新确认。'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, '确认兑换'))
+          .onPressed,
+      isNull,
+    );
+    expect(store.purchases, 0);
+    await tester.tap(find.byTooltip('关闭兑换说明'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('20个积分兑换壁纸'));
+    await tester.pumpAndSettle();
+    expect(find.text('¥20.00'), findsOneWidget);
+    await tester.tap(find.text('确认兑换'));
+    await tester.pumpAndSettle();
+    expect(store.purchasedQuantity, 10);
+    expect(store.purchases, 1);
+  });
+
+  testWidgets('尚有首免额度但当前壁纸不适用时仍须确认付款', (tester) async {
+    final api = CreditApi()..allowance = IosFreeAllowance.available;
+    final store = CreditStore();
+    final flow = IosAcquisitionController(api, store);
+    addTearDown(flow.dispose);
+    await flow.initialize();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: QjTheme.light,
+        home: DetailScreen(
+          repository: AcquisitionCatalog(),
+          id: '2',
+          iosAcquisition: flow,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('20个积分兑换壁纸'));
+    await tester.pumpAndSettle();
+    expect(find.text('兑换说明'), findsOneWidget);
+    expect(store.purchases, 0);
+    expect(api.claims, isEmpty);
+  });
+
   testWidgets(
     'iOS first free acquisition updates detail button without a redemption sheet',
     (tester) async {
@@ -181,7 +340,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('US\$0.99 购买并下载'), findsNothing);
       expect(find.text('¥1.00 购买并下载'), findsOneWidget);
-      expect(find.text('中国区参考价，实际付款以 Apple 确认页为准'), findsOneWidget);
+      expect(find.text('中国区参考价，实际付款以 Apple 确认页为准'), findsNothing);
       expect(
         tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
         isNotNull,
@@ -193,7 +352,7 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
       expect(find.text('¥6.00 购买并下载'), findsOneWidget);
-      expect(find.text('中国区参考价，实际付款以 Apple 确认页为准'), findsOneWidget);
+      expect(find.text('中国区参考价，实际付款以 Apple 确认页为准'), findsNothing);
       expect(api.stateCalls, 1);
       expect(store.synchronization, [false]);
     },

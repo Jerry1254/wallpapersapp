@@ -968,6 +968,59 @@ class IosAcquisitionController extends ChangeNotifier {
     return (!pricesLoading && products.containsKey(productId));
   }
 
+  /// A snapshot of a new paid exchange. Free claims and purchase recovery do
+  /// not ask the user to approve another payment.
+  bool needsExchangeConfirmation(String id) =>
+      ready &&
+      !busy &&
+      !unavailable &&
+      !owns(id) &&
+      !_canFree(id) &&
+      _pendingFreeId == null &&
+      (error == null || _pendingCredit?.wallpaperId == id) &&
+      state?.freeAllowance != IosFreeAllowance.unknown &&
+      state?.freeAllowance != IosFreeAllowance.pendingReset &&
+      (_pendingCredit == null || _pendingCreditCancelled);
+
+  ({String productId, String amount, int? credits, int? pack, int? quantity})?
+  exchangeQuote(String id) {
+    if (!ready ||
+        busy ||
+        (error != null && !_pendingCreditCancelled) ||
+        pricesLoading ||
+        !canAcquire(id) ||
+        owns(id) ||
+        _canFree(id) ||
+        _pendingFreeId != null ||
+        (_pendingCredit != null && !_pendingCreditCancelled) ||
+        state?.freeAllowance == IosFreeAllowance.unknown) {
+      return null;
+    }
+    final productId = _productId(id);
+    if (productId == null) return null;
+    final credit = _offers.creditOffers[id];
+    if (credit != null) {
+      if (!_creditAvailable(id)) return null;
+      return (
+        productId: productId,
+        amount: '¥${credit.credits}.00',
+        credits: credit.credits,
+        pack: credit.packCredits,
+        quantity: credit.quantity,
+      );
+    }
+    final product = products[productId];
+    if (product == null) return null;
+    final price = _offers.chinaReferencePrices[productId];
+    return (
+      productId: productId,
+      amount: price == null ? product.displayPrice : '¥$price',
+      credits: null,
+      pack: null,
+      quantity: null,
+    );
+  }
+
   /// False indicates cancellation, deferred approval, or an eligibility refresh.
   /// Only a server-confirmed entitlement permits the caller to request delivery.
   Future<bool> acquire(String wallpaperId) async {

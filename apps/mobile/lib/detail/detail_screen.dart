@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:io';
 import 'package:wallpaper_android/wallpaper_android.dart';
 import '../catalog/catalog.dart';
@@ -15,6 +16,7 @@ import 'delivery.dart';
 import 'detail_preview.dart';
 import 'help_screen.dart';
 import 'ios_live_photo_preview.dart';
+import 'ios_exchange_sheet.dart';
 import 'trial_manager.dart';
 
 typedef DetailPreviewBuilder =
@@ -69,6 +71,10 @@ class _DetailScreenState extends State<DetailScreen>
   final Set<String> _checkingInstalled = {};
   String? selectedPreviewKey;
   List<WallpaperTutorial>? tutorialCache;
+  bool _fullScreen = false;
+  bool get _allowsFullScreen =>
+      !Platform.isIOS && widget.iosAcquisition == null;
+  final _previewKey = GlobalKey();
   @override
   void initState() {
     super.initState();
@@ -187,6 +193,15 @@ class _DetailScreenState extends State<DetailScreen>
     final ios = widget.iosAcquisition;
     if (ios != null && !wallpaper.isFree) {
       try {
+        if (!await confirmIosExchange(
+              context,
+              acquisition: ios,
+              wallpaperId: widget.id,
+              title: wallpaper.title,
+            ) ||
+            !mounted) {
+          return;
+        }
         if (!await ios.acquire(widget.id) || !mounted) return;
         await _openDownload(option);
       } on IosAcquisitionNotice catch (notice) {
@@ -302,6 +317,7 @@ class _DetailScreenState extends State<DetailScreen>
           deliveryPlatform: option.deliveryPlatform,
           resourceType: type,
           active: true,
+          fill: true,
           cover: cover,
         );
   }
@@ -317,6 +333,7 @@ class _DetailScreenState extends State<DetailScreen>
     deliveryPlatform: option.deliveryPlatform,
     resourceType: option.resourceType,
     cover: cover,
+    fit: _fullScreen ? BoxFit.contain : BoxFit.cover,
   );
 
   @override
@@ -329,424 +346,433 @@ class _DetailScreenState extends State<DetailScreen>
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: T.sizeContentMax),
-          child: FutureBuilder<Wallpaper>(
-            future: future,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (snapshot.hasError) {
-                final failure = snapshot.error is ApiFailure
-                    ? snapshot.error! as ApiFailure
-                    : null;
-                final unavailable =
-                    failure?.code == 'WALLPAPER_NOT_AVAILABLE_FOR_DEVICE';
-                return ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: T.space5),
-                  children: [
-                    const QjPageHeader(title: '壁纸详情'),
-                    const SizedBox(height: T.space6),
-                    QjStatePanel(
-                      kind: QjStateKind.error,
-                      description: failure != null
-                          ? failure.message
-                          : '详情加载失败，请重试',
-                      onPressed: () {
-                        if (unavailable) {
-                          Navigator.maybePop(context);
-                          return;
-                        }
-                        setState(() {
-                          owned = null;
-                          ownershipError = null;
-                          _ownershipKey = null;
-                          future = widget.repository.detail(widget.id);
-                        });
-                      },
-                      actionLabel: unavailable ? '返回列表' : '重新加载',
-                    ),
-                  ],
-                );
-              }
-              final wallpaper = snapshot.requireData;
-              _loadOwnership(wallpaper);
-              final options = deliveryOptions(wallpaper);
-              final previewOption =
-                  options
-                      .where((option) => option.key == selectedPreviewKey)
-                      .firstOrNull ??
-                  options.firstOrNull;
-              final previewTabs = options;
-              final showsPreviewTabs = previewTabs.length > 1;
-              if (options.isNotEmpty) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) {
-                    for (final option in options) {
-                      _installed(option);
-                    }
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_fullScreen,
+    onPopInvokedWithResult: (didPop, _) {
+      if (!didPop && _fullScreen) setState(() => _fullScreen = false);
+    },
+    child: Scaffold(
+      backgroundColor: _fullScreen ? Colors.black : null,
+      body: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: _fullScreen
+            ? const SystemUiOverlayStyle(
+                statusBarColor: Colors.transparent,
+                statusBarBrightness: Brightness.dark,
+                statusBarIconBrightness: Brightness.light,
+                systemNavigationBarColor: Colors.black,
+                systemNavigationBarIconBrightness: Brightness.light,
+              )
+            : qjSystemUiOverlayStyle,
+        child: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: _fullScreen ? double.infinity : T.sizeContentMax,
+              ),
+              child: FutureBuilder<Wallpaper>(
+                future: future,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return const Center(child: CircularProgressIndicator());
                   }
-                });
-              }
-              final usable = options.isNotEmpty;
-              final ios = widget.iosAcquisition;
-              final usesIosAcquisition = ios != null && !wallpaper.isFree;
-              final waitsForOwnership = usesIosAcquisition
-                  ? ios.busy
-                  : !wallpaper.isFree && trials != null && owned == null;
-              final hasAccess =
-                  wallpaper.isFree ||
-                  (usesIosAcquisition ? ios.owns(widget.id) : owned == true);
-              final downloadState = widget.downloads?.value;
-              final downloadingCurrent =
-                  previewOption != null &&
-                  downloadState?.busy == true &&
-                  downloadState?.wallpaperId == widget.id &&
-                  downloadState?.deliveryPlatform ==
-                      previewOption.deliveryPlatform &&
-                  downloadState?.resourceType == previewOption.resourceType;
-              final progress = downloadingCurrent && downloadState!.total > 0
-                  ? (downloadState.received / downloadState.total * 100)
-                        .clamp(0, 100)
-                        .round()
-                  : null;
-              final justSavedToPhotos =
-                  Platform.isIOS &&
-                  previewOption != null &&
-                  downloadState?.status == 'completed' &&
-                  downloadState?.wallpaperId == widget.id &&
-                  downloadState?.deliveryPlatform ==
-                      previewOption.deliveryPlatform &&
-                  downloadState?.resourceType == previewOption.resourceType;
-              final label = downloadingCurrent
-                  ? progress == null
-                        ? '下载中'
-                        : '下载中 $progress%'
-                  : !usable
-                  ? '暂无可用资源'
-                  : usesIosAcquisition
-                  ? justSavedToPhotos && ios.owns(widget.id)
-                        ? '已保存到相册，请设置'
-                        : ios.label(widget.id)
-                  : waitsForOwnership
-                  ? '正在确认权益'
-                  : !wallpaper.isFree && owned == false
-                  ? '兑换并下载'
-                  : justSavedToPhotos
-                  ? '已保存到相册，请设置'
-                  : Platform.isIOS &&
-                        previewOption != null &&
-                        installedIds[previewOption.key] != null
-                  ? '再次下载'
-                  : hasAccess &&
-                        previewOption != null &&
-                        (!previewOption.availableInClient ||
-                            installedIds[previewOption.key] != null)
-                  ? '设置壁纸'
-                  : '下载壁纸';
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  T.space5,
-                  0,
-                  T.space5,
-                  T.space4,
-                ),
-                child: Column(
-                  children: [
-                    SizedBox(
-                      height: T.sizeTopBar,
-                      child: Row(
-                        children: [
-                          IconButton(
-                            tooltip: '返回',
-                            onPressed: () => Navigator.maybePop(context),
-                            style: IconButton.styleFrom(
-                              side: const BorderSide(color: T.colorOutline),
-                              minimumSize: const Size(44, 44),
-                            ),
-                            icon: const QjIcon('chevron-left', size: 22),
+                  if (snapshot.hasError) {
+                    final failure = snapshot.error is ApiFailure
+                        ? snapshot.error! as ApiFailure
+                        : null;
+                    final unavailable =
+                        failure?.code == 'WALLPAPER_NOT_AVAILABLE_FOR_DEVICE';
+                    return ListView(
+                      padding: const EdgeInsets.symmetric(horizontal: T.space5),
+                      children: [
+                        const QjPageHeader(title: '壁纸详情'),
+                        const SizedBox(height: T.space6),
+                        QjStatePanel(
+                          kind: QjStateKind.error,
+                          description: failure != null
+                              ? failure.message
+                              : '详情加载失败，请重试',
+                          onPressed: () {
+                            if (unavailable) {
+                              Navigator.maybePop(context);
+                              return;
+                            }
+                            setState(() {
+                              owned = null;
+                              ownershipError = null;
+                              _ownershipKey = null;
+                              future = widget.repository.detail(widget.id);
+                            });
+                          },
+                          actionLabel: unavailable ? '返回列表' : '重新加载',
+                        ),
+                      ],
+                    );
+                  }
+                  final wallpaper = snapshot.requireData;
+                  _loadOwnership(wallpaper);
+                  final options = deliveryOptions(wallpaper);
+                  final previewOption =
+                      options
+                          .where((option) => option.key == selectedPreviewKey)
+                          .firstOrNull ??
+                      options.firstOrNull;
+                  final previewTabs = options;
+                  final showsPreviewTabs = previewTabs.length > 1;
+                  if (options.isNotEmpty) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) {
+                        for (final option in options) {
+                          _installed(option);
+                        }
+                      }
+                    });
+                  }
+                  final usable = options.isNotEmpty;
+                  final ios = widget.iosAcquisition;
+                  final usesIosAcquisition = ios != null && !wallpaper.isFree;
+                  final waitsForOwnership = usesIosAcquisition
+                      ? ios.busy
+                      : !wallpaper.isFree && trials != null && owned == null;
+                  final hasAccess =
+                      wallpaper.isFree ||
+                      (usesIosAcquisition
+                          ? ios.owns(widget.id)
+                          : owned == true);
+                  final downloadState = widget.downloads?.value;
+                  final downloadingCurrent =
+                      previewOption != null &&
+                      downloadState?.busy == true &&
+                      downloadState?.wallpaperId == widget.id &&
+                      downloadState?.deliveryPlatform ==
+                          previewOption.deliveryPlatform &&
+                      downloadState?.resourceType == previewOption.resourceType;
+                  final progress =
+                      downloadingCurrent && downloadState!.total > 0
+                      ? (downloadState.received / downloadState.total * 100)
+                            .clamp(0, 100)
+                            .round()
+                      : null;
+                  final justSavedToPhotos =
+                      Platform.isIOS &&
+                      previewOption != null &&
+                      downloadState?.status == 'completed' &&
+                      downloadState?.wallpaperId == widget.id &&
+                      downloadState?.deliveryPlatform ==
+                          previewOption.deliveryPlatform &&
+                      downloadState?.resourceType == previewOption.resourceType;
+                  final label = downloadingCurrent
+                      ? progress == null
+                            ? '下载中'
+                            : '下载中 $progress%'
+                      : !usable
+                      ? '暂无可用资源'
+                      : usesIosAcquisition
+                      ? justSavedToPhotos && ios.owns(widget.id)
+                            ? '已保存到相册，请设置'
+                            : ios.label(widget.id)
+                      : waitsForOwnership
+                      ? '正在确认权益'
+                      : !wallpaper.isFree && owned == false
+                      ? '兑换并下载'
+                      : justSavedToPhotos
+                      ? '已保存到相册，请设置'
+                      : Platform.isIOS &&
+                            previewOption != null &&
+                            installedIds[previewOption.key] != null
+                      ? '再次下载'
+                      : hasAccess &&
+                            previewOption != null &&
+                            (!previewOption.availableInClient ||
+                                installedIds[previewOption.key] != null)
+                      ? '设置壁纸'
+                      : '下载壁纸';
+                  final canAct =
+                      usable &&
+                      !waitsForOwnership &&
+                      !downloadingCurrent &&
+                      (usesIosAcquisition
+                          ? ios.canAcquire(widget.id)
+                          : wallpaper.isFree || ownershipError == null);
+                  final cover = CatalogImage(
+                    repository: widget.repository,
+                    path: wallpaper.cover,
+                    fit: _fullScreen ? BoxFit.contain : BoxFit.cover,
+                  );
+                  return Padding(
+                    padding: _fullScreen
+                        ? EdgeInsets.zero
+                        : const EdgeInsets.fromLTRB(
+                            T.space5,
+                            0,
+                            T.space5,
+                            T.space4,
                           ),
-                          const SizedBox(width: T.space2),
-                          const Spacer(),
-                          const SizedBox(width: T.space2),
-                          OutlinedButton(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: T.colorAccentStrong,
-                              backgroundColor: T.colorAccentSoft,
-                              side: const BorderSide(color: T.colorAccent),
-                              minimumSize: const Size(0, 44),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                              ),
-                              textStyle: QjTheme.type(
-                                12,
-                                FontWeight.w700,
-                                T.lineHeightCaption,
-                              ),
-                            ),
-                            onPressed: () => _openTutorial(wallpaper),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
+                    child: Column(
+                      children: [
+                        if (!_fullScreen) ...[
+                          SizedBox(
+                            height: T.sizeTopBar,
+                            child: Row(
                               children: [
-                                QjIcon(
-                                  'circle-play',
-                                  size: 16,
-                                  color: T.colorAccentStrong,
+                                IconButton(
+                                  tooltip: '返回',
+                                  onPressed: () => Navigator.maybePop(context),
+                                  icon: const QjIcon('chevron-left', size: 22),
                                 ),
-                                SizedBox(width: 5),
-                                Text('观看设置教程'),
+                                Expanded(
+                                  child: Text(
+                                    '壁纸详情',
+                                    textAlign: TextAlign.center,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.w700),
+                                  ),
+                                ),
+                                TextButton(
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: T.colorAccentStrong,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                    ),
+                                  ),
+                                  onPressed: () => _openTutorial(wallpaper),
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      QjIcon(
+                                        'circle-play',
+                                        size: 17,
+                                        color: T.colorAccentStrong,
+                                      ),
+                                      SizedBox(width: 5),
+                                      Text('设置教程'),
+                                    ],
+                                  ),
+                                ),
                               ],
                             ),
+                          ),
+                          if (showsPreviewTabs) ...[
+                            const SizedBox(height: T.space2),
+                            SizedBox(
+                              height: 40,
+                              child: LayoutBuilder(
+                                builder: (context, available) =>
+                                    SingleChildScrollView(
+                                      scrollDirection: Axis.horizontal,
+                                      child: ConstrainedBox(
+                                        constraints: BoxConstraints(
+                                          minWidth: available.maxWidth,
+                                        ),
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: previewTabs
+                                              .map(
+                                                (option) => Padding(
+                                                  padding: EdgeInsets.only(
+                                                    right:
+                                                        option ==
+                                                            previewTabs.last
+                                                        ? 0
+                                                        : T.space2,
+                                                  ),
+                                                  child: QjFilterChip(
+                                                    label: option.label,
+                                                    selected:
+                                                        option.key ==
+                                                        previewOption?.key,
+                                                    onPressed: () => setState(
+                                                      () => selectedPreviewKey =
+                                                          option.key,
+                                                    ),
+                                                  ),
+                                                ),
+                                              )
+                                              .toList(growable: false),
+                                        ),
+                                      ),
+                                    ),
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: T.space3),
+                        ],
+                        Expanded(
+                          child: Container(
+                            key: _previewKey,
+                            decoration: BoxDecoration(
+                              color: Colors.black,
+                              borderRadius: BorderRadius.circular(
+                                _fullScreen ? 0 : T.radiusCard,
+                              ),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(
+                                _fullScreen ? 0 : T.radiusCard,
+                              ),
+                              child: Stack(
+                                key: const ValueKey('detail-preview'),
+                                fit: StackFit.expand,
+                                children: [
+                                  if (widget.downloads != null &&
+                                      previewOption != null &&
+                                      previewOption.availableInClient &&
+                                      Platform.isIOS &&
+                                      previewOption.deliveryPlatform == 'IOS' &&
+                                      previewOption.resourceType ==
+                                          'LIVE_PHOTO')
+                                    _iosPreview(wallpaper, previewOption, cover)
+                                  else if (widget.downloads != null &&
+                                      previewOption != null &&
+                                      previewOption.availableInClient &&
+                                      !Platform.isIOS)
+                                    _preview(wallpaper, previewOption, cover)
+                                  else
+                                    cover,
+                                  if (previewOption != null)
+                                    Positioned(
+                                      top: 14,
+                                      left: 14,
+                                      child: IgnorePointer(
+                                        child: DecoratedBox(
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xB3191817),
+                                            borderRadius: BorderRadius.circular(
+                                              20,
+                                            ),
+                                            border: Border.all(
+                                              color: Colors.white38,
+                                            ),
+                                          ),
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 8,
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  previewOption.resourceType ==
+                                                          'LAYER_PARALLAX'
+                                                      ? Icons.layers_outlined
+                                                      : previewOption
+                                                                .resourceType ==
+                                                            'STATIC_IMAGE'
+                                                      ? Icons.image_outlined
+                                                      : Icons
+                                                            .play_circle_outline_rounded,
+                                                  color: Colors.white,
+                                                  size: 18,
+                                                ),
+                                                const SizedBox(width: 6),
+                                                Text(
+                                                  previewOption.resourceType ==
+                                                          'LAYER_PARALLAX'
+                                                      ? '4D 景深'
+                                                      : previewOption.label,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  if (_allowsFullScreen)
+                                    Positioned(
+                                      top: 10,
+                                      right: 10,
+                                      child: IconButton(
+                                        tooltip: _fullScreen ? '退出全屏' : '全屏预览',
+                                        onPressed: () => setState(
+                                          () => _fullScreen = !_fullScreen,
+                                        ),
+                                        style: IconButton.styleFrom(
+                                          backgroundColor: const Color(
+                                            0xB3191817,
+                                          ),
+                                          foregroundColor: Colors.white,
+                                          side: const BorderSide(
+                                            color: Colors.white38,
+                                          ),
+                                        ),
+                                        icon: Icon(
+                                          _fullScreen
+                                              ? Icons.fullscreen_exit_rounded
+                                              : Icons.fullscreen_rounded,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (!_fullScreen) ...[
+                          const SizedBox(height: T.space4),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              wallpaper.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.left,
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          if (ios != null && ios.error != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: T.space2),
+                              child: Text(
+                                ios.error!,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ),
+                          if (ios == null &&
+                              !wallpaper.isFree &&
+                              ownershipError != null)
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    ownershipError!,
+                                    maxLines: 2,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: _ownership,
+                                  child: const Text('重新加载'),
+                                ),
+                              ],
+                            ),
+                          const SizedBox(height: T.space4),
+                          QjPrimaryAction(
+                            label: label,
+                            accent: true,
+                            loading: waitsForOwnership,
+                            onPressed: canAct
+                                ? () => _action(wallpaper, previewOption!)
+                                : null,
                           ),
                         ],
-                      ),
+                      ],
                     ),
-                    if (showsPreviewTabs) ...[
-                      const SizedBox(height: T.space2),
-                      SizedBox(
-                        height: 40,
-                        child: LayoutBuilder(
-                          builder: (context, available) =>
-                              SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: ConstrainedBox(
-                                  constraints: BoxConstraints(
-                                    minWidth: available.maxWidth,
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: previewTabs
-                                        .map(
-                                          (option) => Padding(
-                                            padding: EdgeInsets.only(
-                                              right: option == previewTabs.last
-                                                  ? 0
-                                                  : T.space2,
-                                            ),
-                                            child: QjFilterChip(
-                                              label: option.label,
-                                              selected:
-                                                  option.key ==
-                                                  previewOption?.key,
-                                              onPressed: () => setState(
-                                                () => selectedPreviewKey =
-                                                    option.key,
-                                              ),
-                                            ),
-                                          ),
-                                        )
-                                        .toList(growable: false),
-                                  ),
-                                ),
-                              ),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: T.space6),
-                    FractionallySizedBox(
-                      widthFactor: .82,
-                      child: Text(
-                        wallpaper.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: T.colorAccentStrong,
-                            ),
-                      ),
-                    ),
-                    const SizedBox(height: T.space6),
-                    Expanded(
-                      child: LayoutBuilder(
-                        builder: (context, available) {
-                          final widthFromPage = available.maxWidth * .82;
-                          final priceNote = usesIosAcquisition
-                              ? ios.priceNote(widget.id)
-                              : null;
-                          final priceNoteStyle = Theme.of(
-                            context,
-                          ).textTheme.bodySmall;
-                          final notePainter = priceNote == null
-                              ? null
-                              : (TextPainter(
-                                  text: TextSpan(
-                                    text: priceNote,
-                                    style: priceNoteStyle,
-                                  ),
-                                  textDirection: Directionality.of(context),
-                                  textScaler: MediaQuery.textScalerOf(context),
-                                )..layout(maxWidth: widthFromPage));
-                          final noteHeight = notePainter == null
-                              ? 0.0
-                              : notePainter.height + T.space3;
-                          notePainter?.dispose();
-                          final errorHeight =
-                              !wallpaper.isFree && ownershipError != null
-                              ? 56.0 + T.space3
-                              : 0.0;
-                          final availablePreviewHeight =
-                              available.maxHeight -
-                              T.sizePrimaryControl -
-                              T.space6 -
-                              errorHeight -
-                              noteHeight;
-                          final widthFromHeight =
-                              (availablePreviewHeight > 0
-                                  ? availablePreviewHeight
-                                  : 0) *
-                              9 /
-                              16;
-                          final previewWidth = widthFromPage < widthFromHeight
-                              ? widthFromPage
-                              : widthFromHeight;
-                          return Align(
-                            alignment: Alignment.topCenter,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  key: const ValueKey('detail-preview'),
-                                  width: previewWidth,
-                                  height: previewWidth * 16 / 9,
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(
-                                      T.radiusCard,
-                                    ),
-                                    boxShadow: const [T.shadowCard],
-                                  ),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(
-                                      T.radiusCard,
-                                    ),
-                                    child: Stack(
-                                      fit: StackFit.expand,
-                                      children: [
-                                        if (widget.downloads != null &&
-                                            previewOption != null &&
-                                            previewOption.availableInClient &&
-                                            Platform.isIOS &&
-                                            previewOption.deliveryPlatform ==
-                                                'IOS' &&
-                                            previewOption.resourceType ==
-                                                'LIVE_PHOTO')
-                                          _iosPreview(
-                                            wallpaper,
-                                            previewOption,
-                                            CatalogImage(
-                                              repository: widget.repository,
-                                              path: wallpaper.cover,
-                                            ),
-                                          )
-                                        else if (widget.downloads != null &&
-                                            previewOption != null &&
-                                            previewOption.availableInClient &&
-                                            !Platform.isIOS)
-                                          _preview(
-                                            wallpaper,
-                                            previewOption,
-                                            CatalogImage(
-                                              repository: widget.repository,
-                                              path: wallpaper.cover,
-                                            ),
-                                          )
-                                        else
-                                          CatalogImage(
-                                            repository: widget.repository,
-                                            path: wallpaper.cover,
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                if (ios != null && ios.error != null)
-                                  Padding(
-                                    padding: const EdgeInsets.only(
-                                      top: T.space3,
-                                    ),
-                                    child: Text(
-                                      ios.error!,
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall,
-                                    ),
-                                  ),
-                                if (ios == null &&
-                                    !wallpaper.isFree &&
-                                    ownershipError != null)
-                                  SizedBox(
-                                    width: available.maxWidth,
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(
-                                        top: T.space3,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              ownershipError!,
-                                              style: Theme.of(
-                                                context,
-                                              ).textTheme.bodySmall,
-                                            ),
-                                          ),
-                                          TextButton(
-                                            onPressed: _ownership,
-                                            child: const Text('重新加载'),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                const SizedBox(height: T.space6),
-                                SizedBox(
-                                  width: available.maxWidth * .82,
-                                  child: QjPrimaryAction(
-                                    label: label,
-                                    accent: true,
-                                    loading: waitsForOwnership,
-                                    onPressed:
-                                        usable &&
-                                            !waitsForOwnership &&
-                                            !downloadingCurrent &&
-                                            (usesIosAcquisition
-                                                ? ios.canAcquire(widget.id)
-                                                : (wallpaper.isFree ||
-                                                      ownershipError == null))
-                                        ? () =>
-                                              _action(wallpaper, previewOption!)
-                                        : null,
-                                  ),
-                                ),
-                                if (priceNote != null)
-                                  SizedBox(
-                                    width: widthFromPage,
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(
-                                        top: T.space3,
-                                      ),
-                                      child: Text(
-                                        priceNote,
-                                        textAlign: TextAlign.center,
-                                        style: priceNoteStyle,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
+                  );
+                },
+              ),
+            ),
           ),
         ),
       ),

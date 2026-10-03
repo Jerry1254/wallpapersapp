@@ -423,6 +423,29 @@ class _DetailPreviewState extends State<DetailPreview>
               ),
             ),
           ),
+        if (widget.resourceType == 'LAYER_PARALLAX' && ready && error == null)
+          const Positioned(
+            left: 12,
+            right: 12,
+            bottom: 14,
+            child: IgnorePointer(
+              child: Center(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Color(0xB3191817),
+                    borderRadius: BorderRadius.all(Radius.circular(18)),
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    child: Text(
+                      '倾斜手机，感受立体景深',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         if (error != null)
           Positioned(
             left: 12,

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qingjing_wallpaper/catalog/catalog.dart';
+import 'package:qingjing_wallpaper/catalog/catalog_image.dart';
 import 'package:qingjing_wallpaper/device/device_session.dart';
 import 'package:qingjing_wallpaper/detail/delivery.dart';
 import 'package:qingjing_wallpaper/detail/detail_screen.dart';
@@ -16,14 +17,17 @@ import 'catalog_test.dart' show FakeCatalog;
 Wallpaper wallpaper(
   List<Map<String, dynamic>> capabilities, {
   String title = '静态测试',
+  bool free = false,
 }) => Wallpaper.fromJson({
   'id': '1',
   'title': title,
+  'accessType': free ? 'FREE' : 'PAID',
   'cover': {'contentUrl': '/image'},
   'availableCapabilities': capabilities,
 });
 
 class DetailCatalog extends FakeCatalog {
+  bool free = false;
   int attempts = 0;
   bool fail = false;
   @override
@@ -36,7 +40,7 @@ class DetailCatalog extends FakeCatalog {
         'resourceType': 'STATIC_IMAGE',
         'placements': ['HOME'],
       },
-    ]);
+    ], free: free);
   }
 }
 
@@ -214,30 +218,27 @@ void main() {
     expect(preview, findsOneWidget);
     expect(action, findsOneWidget);
     expect(title, findsOneWidget);
-    expect(find.text('观看设置教程'), findsOneWidget);
+    expect(find.text('设置教程'), findsOneWidget);
     final previewRect = tester.getRect(preview);
     final actionRect = tester.getRect(action);
     final titleRect = tester.getRect(title);
-    expect(previewRect.width / previewRect.height, closeTo(9 / 16, .001));
-    expect(previewRect.width, lessThan(350));
-    expect(
-      titleRect.top,
-      greaterThan(tester.getBottomLeft(find.text('动态壁纸').first).dy),
-    );
-    expect(titleRect.bottom, lessThan(previewRect.top));
-    expect(previewRect.top - titleRect.bottom, closeTo(24, 1));
+    expect(previewRect.width, closeTo(350, 1));
+    expect(titleRect.top, greaterThan(previewRect.bottom));
+    expect(titleRect.top - previewRect.bottom, closeTo(16, 1));
     expect(tester.widget<Text>(title).maxLines, 2);
-    expect(tester.widget<Text>(title).textAlign, TextAlign.center);
-    expect(tester.widget<Text>(title).style?.color, T.colorAccentStrong);
-    expect(
-      tester.getCenter(find.byTooltip('返回')).dy,
-      closeTo(tester.getCenter(find.text('观看设置教程')).dy, 1),
-    );
-    expect(actionRect.top, greaterThan(previewRect.bottom));
-    expect(actionRect.top - previewRect.bottom, closeTo(24, 1));
+    expect(tester.widget<Text>(title).textAlign, TextAlign.left);
+    expect(tester.widget<Text>(title).style?.color, isNot(T.colorAccentStrong));
+    expect(find.text('壁纸详情'), findsOneWidget);
+    expect(actionRect.top - titleRect.bottom, closeTo(16, 1));
+    expect(actionRect.width, closeTo(350, 1));
     expect(actionRect.bottom, lessThanOrEqualTo(844));
+    expect(
+      find.descendant(of: action, matching: find.byType(Icon)),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
 
-    await tester.tap(find.text('动态壁纸').first);
+    await tester.tap(find.widgetWithText(QjFilterChip, '动态壁纸'));
     await tester.pump();
     expect(chip('4D壁纸').selected, isFalse);
     expect(chip('动态壁纸').selected, isTrue);
@@ -265,7 +266,7 @@ void main() {
           .selected,
       isTrue,
     );
-    await tester.tap(find.text('动态壁纸'));
+    await tester.tap(find.widgetWithText(QjFilterChip, '动态壁纸'));
     await tester.pump();
     expect(
       tester
@@ -273,6 +274,59 @@ void main() {
           .selected,
       isTrue,
     );
+  });
+
+  testWidgets('小屏单类型不显示Tab，图片填充剩余空间，全屏返回保留预览', (tester) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final installer = _CurrentInstaller();
+    final manager = DownloadManager(
+      DeviceSessionManager(_UnusedTransport()),
+      Uri.parse('https://example.test/api/v1'),
+      installer: installer,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: QjTheme.light,
+        home: DetailScreen(
+          repository: DetailCatalog()..free = true,
+          id: '1',
+          downloads: manager,
+          detailPreviewBuilder: (_, _, _, _, cover, _) => cover,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(QjFilterChip), findsNothing);
+    final before = tester.getRect(find.byKey(const ValueKey('detail-preview')));
+    expect(before.width, 280);
+    expect(before.height, greaterThan(300));
+    expect(
+      tester.getBottomLeft(find.byType(QjPrimaryAction)).dy,
+      lessThanOrEqualTo(568),
+    );
+    final imageElement = tester.element(find.byType(CatalogImage));
+    await tester.tap(find.byTooltip('全屏预览'));
+    await tester.pumpAndSettle();
+    final full = tester.getRect(find.byKey(const ValueKey('detail-preview')));
+    expect(full.size, const Size(320, 568));
+    expect(find.text('静态测试'), findsNothing);
+    expect(find.byType(QjPrimaryAction), findsNothing);
+    expect(tester.element(find.byType(CatalogImage)), same(imageElement));
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('静态测试'), findsOneWidget);
+    expect(
+      tester.getRect(find.byKey(const ValueKey('detail-preview'))),
+      before,
+    );
+    expect(tester.element(find.byType(CatalogImage)), same(imageElement));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    manager.dispose();
+    await installer.controller.close();
   });
 
   testWidgets('详情主按钮同步显示当前资源下载进度', (tester) async {

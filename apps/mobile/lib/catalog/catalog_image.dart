@@ -3,9 +3,15 @@ import 'package:qingjing_design_tokens/qingjing_design_tokens.dart';
 import 'catalog.dart';
 
 class CatalogImage extends StatelessWidget {
-  const CatalogImage({super.key, required this.repository, required this.path});
+  const CatalogImage({
+    super.key,
+    required this.repository,
+    required this.path,
+    this.fit = BoxFit.cover,
+  });
   final CatalogRepository repository;
   final String path;
+  final BoxFit fit;
   @override
   Widget build(BuildContext context) {
     final fallback = Container(
@@ -19,7 +25,7 @@ class CatalogImage extends StatelessWidget {
     try {
       return Image.network(
         repository.media(path).toString(),
-        fit: BoxFit.cover,
+        fit: fit,
         errorBuilder: (_, error, stack) => fallback,
         loadingBuilder: (_, child, progress) =>
             progress == null ? child : fallback,

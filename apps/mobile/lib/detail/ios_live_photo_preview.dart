@@ -42,12 +42,14 @@ class IosLivePhotoPreviewView extends StatefulWidget {
     required this.resourceType,
     required this.cover,
     this.nativePreview = const IosLivePhotoPreview(),
+    this.fit = BoxFit.cover,
   });
 
   final DownloadManager manager;
   final String wallpaperId, deliveryPlatform, resourceType;
   final Widget cover;
   final IosLivePhotoPreview nativePreview;
+  final BoxFit fit;
 
   @override
   State<IosLivePhotoPreviewView> createState() =>
@@ -157,7 +159,7 @@ class _IosLivePhotoPreviewViewState extends State<IosLivePhotoPreviewView>
   }
 
   Widget _video(VideoPlayerController current) => FittedBox(
-    fit: BoxFit.cover,
+    fit: widget.fit,
     clipBehavior: Clip.hardEdge,
     child: SizedBox(
       width: current.value.aspectRatio,
@@ -195,7 +197,7 @@ class _IosLivePhotoPreviewViewState extends State<IosLivePhotoPreviewView>
           const Positioned(
             left: 0,
             right: 0,
-            top: 14,
+            bottom: 14,
             child: Center(
               child: DecoratedBox(
                 decoration: BoxDecoration(
@@ -216,7 +218,7 @@ class _IosLivePhotoPreviewViewState extends State<IosLivePhotoPreviewView>
           const Positioned(
             left: 0,
             right: 0,
-            top: 14,
+            bottom: 14,
             child: Center(
               child: DecoratedBox(
                 decoration: BoxDecoration(

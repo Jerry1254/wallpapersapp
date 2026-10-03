@@ -77,6 +77,7 @@ struct Index {
   @State detailPreviewLoading: boolean = false;
   @State detailPreviewEnded: boolean = false;
   @State detailPreviewError: string = '';
+  @State detailFullScreen: boolean = false;
   private context: common.UIAbilityContext | null = null;
   private api: CatalogApi | null = null;
   private videoController: VideoController = new VideoController();
@@ -230,6 +231,7 @@ struct Index {
 
   private async openDetail(item: WallpaperSummary): Promise<void> {
     this.clearDetailPreview();
+    this.detailFullScreen = false;
     this.detailSavedNowKey = '';
     this.selectedDetail = item;
     this.selectedCapability = item.capabilities[0].label;
@@ -284,7 +286,19 @@ struct Index {
     this.qrPreview = false;
   }
 
+  onBackPress(): boolean {
+    if (this.page === 'DETAIL' && this.detailFullScreen) {
+      this.detailFullScreen = false;
+      return true;
+    }
+    return false;
+  }
+
   private goBack(): void {
+    if (this.page === 'DETAIL' && this.detailFullScreen) {
+      this.detailFullScreen = false;
+      return;
+    }
     if (this.page === 'DETAIL') {
       this.clearDetailPreview();
       this.page = this.activeTab === 0 ? 'HOME' : 'MINE';
@@ -974,62 +988,48 @@ struct Index {
   @Builder
   private DetailPage(item: WallpaperSummary) {
     Column() {
-      Row() {
-        Button() {
-          Image($r('app.media.chevron_left')).width(20).height(20).objectFit(ImageFit.Contain);
-        }
-          .width(44).height(44).padding(0).backgroundColor(T.surface)
-          .border({ width: 1, color: T.outline }).borderRadius(22)
-          .onClick(() => this.goBack());
+      if (!this.detailFullScreen) {
         Row() {
-        }
-        .layoutWeight(1);
-        Button() {
-          Row({ space: 5 }) {
-            Image($r('app.media.circle_play')).width(17).height(17).objectFit(ImageFit.Contain);
-            Text('观看设置教程').fontSize(12).fontWeight(FontWeight.Bold).fontColor(T.accentStrong);
+          Button() {
+            Image($r('app.media.chevron_left')).width(20).height(20).objectFit(ImageFit.Contain);
           }
-        }
-          .height(44).padding({ left: 13, right: 13 })
-          .fontColor(T.accentStrong).backgroundColor(T.accentSoft)
-          .border({ width: 1, color: T.accent }).borderRadius(22)
+          .width(44).height(44).padding(0).backgroundColor(T.surface).borderRadius(22)
+          .onClick(() => this.goBack());
+          Text('壁纸详情').layoutWeight(1).fontSize(18).fontWeight(FontWeight.Bold)
+            .fontColor(T.ink).textAlign(TextAlign.Center);
+          Button() {
+            Row({ space: 5 }) {
+              Image($r('app.media.circle_play')).width(17).height(17).objectFit(ImageFit.Contain);
+              Text('设置教程').fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.accentStrong);
+            }
+          }
+          .height(44).padding({ left: 8, right: 8 }).backgroundColor(T.surface)
           .onClick(() => this.openDetailTutorial());
-      }
-      .width('100%').height(T.topBarHeight);
-      if (item.capabilities.length > 1) {
-        Scroll() {
-          Row({ space: 8 }) {
-            ForEach(item.capabilities, (capability: WallpaperCapability) => {
-              Button(this.detailCapabilityLabel(capability)).height(38).fontSize(13).fontWeight(FontWeight.Bold)
-                .fontColor(this.selectedCapability === capability.label ? T.inverseInk : T.ink)
-                .backgroundColor(this.selectedCapability === capability.label ? T.navigation : T.surface)
-                .border({ width: 1, color: T.outlineStrong }).borderRadius(19)
-                .onClick(() => {
-                  this.selectDetailCapability(item, capability);
-                });
-            }, (capability: WallpaperCapability) => capability.deliveryPlatform + capability.resourceType);
-          }
-          .width('100%').justifyContent(FlexAlign.Center);
         }
-        .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%').height(40)
-        .margin({ top: 8 });
+        .width('100%').height(T.topBarHeight);
+        if (item.capabilities.length > 1) {
+          Scroll() {
+            Row({ space: 8 }) {
+              ForEach(item.capabilities, (capability: WallpaperCapability) => {
+                Button(this.detailCapabilityLabel(capability)).height(38).fontSize(13).fontWeight(FontWeight.Bold)
+                  .fontColor(this.selectedCapability === capability.label ? T.inverseInk : T.ink)
+                  .backgroundColor(this.selectedCapability === capability.label ? T.navigation : T.surface)
+                  .border({ width: 1, color: T.outlineStrong }).borderRadius(19)
+                  .onClick(() => this.selectDetailCapability(item, capability));
+              }, (capability: WallpaperCapability) => capability.deliveryPlatform + capability.resourceType);
+            }
+            .width('100%').justifyContent(FlexAlign.Center);
+          }
+          .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%').height(40)
+          .margin({ top: 8 });
+        }
       }
-      Text(item.title)
-        .width('82%')
-        .fontSize(17)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(T.accentStrong)
-        .maxLines(2)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .textAlign(TextAlign.Center)
-        .margin({ top: 24 });
-      Column() {
         Stack({ alignContent: Alignment.Bottom }) {
-          Image(this.mediaUrl(item.coverUrl)).width('100%').height('100%').objectFit(ImageFit.Cover)
+          Image(this.mediaUrl(item.coverUrl)).width('100%').height('100%').objectFit(this.detailFullScreen ? ImageFit.Contain : ImageFit.Cover)
             .backgroundColor(T.surfaceMuted);
           if (this.detailPreviewPath.length > 0) {
             Video({ src: 'file://' + this.detailPreviewPath, controller: this.detailVideoController })
-              .width('100%').height('100%').objectFit(ImageFit.Cover).controls(false)
+              .width('100%').height('100%').objectFit(this.detailFullScreen ? ImageFit.Contain : ImageFit.Cover).controls(false)
               .autoPlay(!this.detailPreviewEnded).loop(false).muted(true)
               .onStart(() => {
                 this.detailPreviewEnded = false;
@@ -1068,6 +1068,23 @@ struct Index {
             }
           }
           .width('100%').height('100%');
+          Row() {
+            Text(this.selectedCapabilityFor(item).resourceType === 'LAYER_PARALLAX' ?
+              '4D 景深' : this.detailCapabilityLabel(this.selectedCapabilityFor(item)))
+              .fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.inverseInk)
+              .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+              .backgroundColor('#BB191817').border({ width: 1, color: '#66FFFFFF' }).borderRadius(20);
+            Blank();
+            Button() {
+              Image(this.detailFullScreen ? $r('app.media.fullscreen_exit') : $r('app.media.fullscreen'))
+                .width(24).height(24).objectFit(ImageFit.Contain);
+            }
+            .width(44).height(44).padding(0).backgroundColor('#BB191817')
+            .border({ width: 1, color: '#66FFFFFF' }).borderRadius(16)
+            .accessibilityText(this.detailFullScreen ? '退出全屏' : '全屏预览')
+            .onClick(() => this.detailFullScreen = !this.detailFullScreen);
+          }
+          .width('100%').padding(12).align(Alignment.Top);
           Column() {
             if (this.detailPreviewError.length > 0) {
               Text(this.detailPreviewError).fontSize(13).fontColor(T.inverseInk).backgroundColor('#BB191817')
@@ -1080,18 +1097,23 @@ struct Index {
           }
           .width('100%').padding(12).align(Alignment.Bottom);
         }
-        .width('82%').aspectRatio(9 / 16).borderRadius(T.cardRadius).clip(true);
+        .width('100%').layoutWeight(1).backgroundColor('#000000')
+        .borderRadius(this.detailFullScreen ? 0 : T.cardRadius).clip(true)
+        .margin({ top: this.detailFullScreen ? 0 : 12 });
+      if (!this.detailFullScreen) {
+        Text(item.title).width('100%').fontSize(24).fontWeight(FontWeight.Bold).fontColor(T.ink)
+          .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).textAlign(TextAlign.Start)
+          .margin({ top: 16 });
         Button(this.detailActionLabel(item))
-          .width('82%').height(T.primaryHeight).fontSize(17).fontWeight(FontWeight.Bold)
+          .width('100%').height(T.primaryHeight).fontSize(17).fontWeight(FontWeight.Bold)
           .fontColor(T.ink).backgroundColor(T.accent).borderRadius(27)
-          .margin({ top: 24, bottom: 16 })
+          .margin({ top: 16, bottom: 16 })
           .onClick(() => this.primaryDetailAction(item));
       }
-      .width('100%').layoutWeight(1).justifyContent(FlexAlign.Start).alignItems(HorizontalAlign.Center)
-      .margin({ top: 24 });
     }
     .width('100%').height('100%').alignItems(HorizontalAlign.Center)
-    .padding({ left: T.gutter, right: T.gutter });
+    .backgroundColor(this.detailFullScreen ? '#000000' : T.surface)
+    .padding({ left: this.detailFullScreen ? 0 : T.gutter, right: this.detailFullScreen ? 0 : T.gutter });
   }
 
   @Builder
