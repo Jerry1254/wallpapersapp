@@ -1,5 +1,4 @@
 import dayjs from 'dayjs';
-import { normalizeIosChinaPrice } from '@/domain/iosPricing';
 
 import type {
   AdminDashboard,
@@ -426,6 +425,11 @@ export class WallpaperSaveError extends Error {
 }
 
 export const adminRepository = {
+  async syncIosPrice(wallpaperId: string) {
+    return (await apiRequest<IosAcquisitionConfiguration>(`/admin/wallpapers/${wallpaperId}/ios-acquisition/price-sync`, {
+      method: 'POST', csrf: true, timeoutMs: 120_000
+    })).data;
+  },
   async login(username: string, password: string) {
     return (await apiRequest<ApiSession>('/admin/sessions', {
       method: 'POST',
@@ -505,10 +509,6 @@ export const adminRepository = {
     const iosAcquisition = input.iosAcquisition || {
       productId: '', firstFreeEligible: false, enabled: false, productIdLocked: false, verifiedTransactionAt: null
     };
-    const chinaReferencePrice = normalizeIosChinaPrice(iosAcquisition.chinaReferencePrice);
-    if ((iosAcquisition.enabled || iosAcquisition.chinaReferencePrice?.trim()) && !chinaReferencePrice) {
-      throw new ApiError(422, 'IOS_CHINA_PRICE_INVALID', '请输入大于 0 的人民币展示价，最多两位小数');
-    }
     if ((input.resources.parallaxPackage || input.capabilities.includes('android_parallax')) && !input.resources.parallaxPackage
         && !input.variants.some((variant) => variant.platform === 'ANDROID'
           && variant.resourceType === 'LAYER_PARALLAX'
@@ -552,7 +552,6 @@ export const adminRepository = {
           method: 'PUT',
           body: jsonBody({
             productId: iosAcquisition.productId.trim(),
-            chinaReferencePrice,
             firstFreeEligible: iosAcquisition.firstFreeEligible,
             enabled: iosAcquisition.enabled
           }),

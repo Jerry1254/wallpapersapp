@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.15.0
+  version: 2.16.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -2565,7 +2565,7 @@ paths:
       summary: 查询已启用商品与人民币展示价
       description: |
         仅需有效 iOS 设备会话；不执行 App Attest、DeviceCheck 首免查询或恢复购买。
-        展示价由管理后台维护，不作为支付金额、购买凭证或下载授权。
+        展示价由服务端从 App Store Connect 自动同步，不接受手工金额，不作为支付金额、购买凭证或下载授权。
         实际扣款仍由 StoreKit 对应账号地区的商品决定，不限制账号地区。
       security: [{deviceBearer: []}]
       responses:
@@ -2863,7 +2863,7 @@ paths:
     put:
       tags: [iOS Test Administration]
       operationId: updateAdminWallpaperIosAcquisition
-      summary: 保存壁纸的 Apple Product ID、人民币展示价和首免资格
+      summary: 保存壁纸的 Apple Product ID 和首免资格
       security: [{adminCookie: [], adminCsrf: []}]
       parameters:
         - in: path
@@ -2882,7 +2882,8 @@ paths:
                 productId: {type: string, minLength: 1, maxLength: 255, pattern: '^[A-Za-z0-9._-]+$'}
                 chinaReferencePrice:
                   allOf: [{$ref: '#/components/schemas/IosChinaReferencePrice'}]
-                  description: 人民币展示价；省略或 null 时保留同一 Product ID 的旧值，改绑新 Product ID 时不继承旧价。
+                  deprecated: true
+                  description: 兼容旧管理后台的废弃字段；值始终忽略，价格只能从 App Store Connect 自动同步。
                 firstFreeEligible: {type: boolean}
                 enabled: {type: boolean}
       responses:
@@ -2892,6 +2893,30 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/IosProductConfiguration'}
         '409': {$ref: '#/components/responses/Error'}
+
+  /admin/wallpapers/{wallpaperId}/ios-acquisition/price-sync:
+    post:
+      tags: [iOS Test Administration]
+      operationId: syncIosProductPrice
+      summary: 立即从 Apple 同步当前中国区价格
+      description: 仅查询 Apple 已生效的 customerPrice，不修改 Apple 定价。不接受金额参数；自动任务也使用同一同步服务。
+      security: [{adminCookie: [], adminCsrf: []}]
+      parameters:
+        - in: path
+          name: wallpaperId
+          required: true
+          schema: {$ref: '#/components/schemas/WallpaperId'}
+      responses:
+        '200':
+          description: 当前配置与同步结果；Apple 失败时 priceSyncStatus 为 ERROR，不返回未经确认的金额
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IosProductConfiguration'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
 
 components:
   securitySchemes:
@@ -3309,6 +3334,8 @@ components:
         - IOS_PURCHASE_INVALID
         - IOS_PURCHASE_ENVIRONMENT_INVALID
         - IOS_PRODUCT_ID_LOCKED
+        - IOS_PRICE_SYNC_UNAVAILABLE
+        - IOS_PRODUCT_CONFIGURATION_REQUIRED
         - IDEMPOTENCY_CONFLICT
 
     WallpaperKind:
@@ -4438,6 +4465,11 @@ components:
       properties:
         productId: {type: string, maxLength: 255}
         chinaReferencePrice: {$ref: '#/components/schemas/IosChinaReferencePrice'}
+        priceSource: {type: string, enum: [APP_STORE_CONNECT]}
+        priceCurrency: {type: string, enum: [CNY]}
+        priceSyncStatus: {type: string, enum: [UNSYNCED, READY, STALE, ERROR, UNAVAILABLE]}
+        priceSyncedAt: {type: string, format: date-time, nullable: true}
+        priceSyncError: {type: string, nullable: true, description: 脱敏同步错误码，不包含 Apple 密钥或响应原文}
         firstFreeEligible: {type: boolean}
         enabled: {type: boolean}
         productIdLocked: {type: boolean}
@@ -5438,7 +5470,7 @@ components:
       nullable: true
       pattern: '^(?:0\.(?:0[1-9]|[1-9][0-9])|[1-9][0-9]{0,7}\.[0-9]{2})$'
       example: '1.00'
-      description: CNY 十进制金额字符串，精确到分；null 表示未配置。不参与实际支付或权益验证。
+      description: Apple 中国区 customerPrice 的 CNY 十进制金额字符串，精确到分；仅 READY 状态返回金额，其他状态为 null。不参与实际支付或权益验证。
     IosStoreProductMapping:
       type: object
       required: [wallpaperId, productId]
@@ -5446,6 +5478,10 @@ components:
         wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
         productId: {type: string, minLength: 1}
         chinaReferencePrice: {$ref: '#/components/schemas/IosChinaReferencePrice'}
+        priceSource: {type: string, enum: [APP_STORE_CONNECT]}
+        priceCurrency: {type: string, enum: [CNY]}
+        priceSyncStatus: {type: string, enum: [UNSYNCED, READY, STALE, ERROR, UNAVAILABLE]}
+        priceSyncedAt: {type: string, format: date-time, nullable: true}
     IosProductCatalogue:
       type: object
       required: [items]
@@ -5477,7 +5513,7 @@ components:
           description: 仅本安装待处理重置；无操作时省略或 null。存在时免费状态为 UNAVAILABLE，旧客户端不能直接领取。
         products:
           type: array
-          description: 已发布且启用的壁纸与 Apple 非消耗型 productId 映射，以及后端维护的人民币展示价
+          description: 已发布且启用的壁纸与 Apple 非消耗型 productId 映射，以及自动同步的 Apple 中国区价格
           items: {$ref: '#/components/schemas/IosStoreProductMapping'}
         freeWallpaperIds:
           type: array

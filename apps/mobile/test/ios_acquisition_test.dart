@@ -230,6 +230,9 @@ class RecordingIosSessions extends DeviceSessionManager {
             'wallpaperId': '1',
             'productId': 'test.wallpaper.1',
             'chinaReferencePrice': '8.80',
+            'priceSource': 'APP_STORE_CONNECT',
+            'priceCurrency': 'CNY',
+            'priceSyncStatus': 'READY',
           },
         ],
       };
@@ -504,6 +507,46 @@ void main() {
   );
 
   test(
+    'manual, stale and non-CNY metadata cannot supply the displayed RMB amount',
+    () {
+      for (final fields in [
+        <String, String>{},
+        {
+          'priceSource': 'MANUAL',
+          'priceCurrency': 'CNY',
+          'priceSyncStatus': 'READY',
+        },
+        {
+          'priceSource': 'APP_STORE_CONNECT',
+          'priceCurrency': 'USD',
+          'priceSyncStatus': 'READY',
+        },
+        {
+          'priceSource': 'APP_STORE_CONNECT',
+          'priceCurrency': 'CNY',
+          'priceSyncStatus': 'STALE',
+        },
+        {
+          'priceSource': 'APP_STORE_CONNECT',
+          'priceCurrency': 'CNY',
+          'priceSyncStatus': 'ERROR',
+        },
+      ]) {
+        final catalogue = IosProductCatalogue.fromItems([
+          {
+            'wallpaperId': '1',
+            'productId': 'test.wallpaper.1',
+            'chinaReferencePrice': '99.00',
+            ...fields,
+          },
+        ]);
+        expect(catalogue.chinaReferencePrices, isEmpty);
+        expect(catalogue.productIds, {'1': 'test.wallpaper.1'});
+      }
+    },
+  );
+
+  test(
     'backend decimal reference prices retain cents across cache round trips',
     () {
       final catalogue = IosProductCatalogue.fromItems([
@@ -511,6 +554,9 @@ void main() {
           'wallpaperId': '1',
           'productId': 'test.wallpaper.1',
           'chinaReferencePrice': '0.10',
+          'priceSource': 'APP_STORE_CONNECT',
+          'priceCurrency': 'CNY',
+          'priceSyncStatus': 'READY',
         },
         {
           'wallpaperId': '2',

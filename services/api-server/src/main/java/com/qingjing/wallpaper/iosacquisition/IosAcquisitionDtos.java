@@ -49,7 +49,8 @@ public final class IosAcquisitionDtos {
             @NotBlank String deviceToken,
             @NotNull Long expectedGeneration) {}
 
-    public record Product(String wallpaperId, String productId, String chinaReferencePrice) {}
+    public record Product(String wallpaperId, String productId, String chinaReferencePrice,
+            String priceSource, String priceCurrency, String priceSyncStatus, Instant priceSyncedAt) {}
     public record ProductCatalogue(List<Product> items) {}
     public record PendingReset(String resetId, long expectedGeneration, String status, Instant expiresAt) {}
     public record AcquisitionState(
@@ -68,6 +69,11 @@ public final class IosAcquisitionDtos {
     public record IosProductConfiguration(
             String productId,
             String chinaReferencePrice,
+            String priceSource,
+            String priceCurrency,
+            String priceSyncStatus,
+            Instant priceSyncedAt,
+            String priceSyncError,
             boolean firstFreeEligible,
             boolean enabled,
             boolean productIdLocked,

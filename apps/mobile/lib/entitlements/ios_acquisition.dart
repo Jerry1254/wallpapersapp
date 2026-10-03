@@ -75,7 +75,13 @@ class IosProductCatalogue {
               price == '0.00') {
             throw const FormatException('Invalid China reference price');
           }
-          prices[productId] = price;
+          // Only accept fresh Apple-sourced CNY amounts. An older API's manually
+          // maintained reference price must not become a second pricing source.
+          if (product['priceSource'] == 'APP_STORE_CONNECT' &&
+              product['priceCurrency'] == 'CNY' &&
+              product['priceSyncStatus'] == 'READY') {
+            prices[productId] = price;
+          }
         }
       }
     } else if (value is Map) {
@@ -99,6 +105,11 @@ class IosProductCatalogue {
         'productId': entry.value,
         if (chinaReferencePrices[entry.value] != null)
           'chinaReferencePrice': chinaReferencePrices[entry.value],
+        if (chinaReferencePrices[entry.value] != null) ...{
+          'priceSource': 'APP_STORE_CONNECT',
+          'priceCurrency': 'CNY',
+          'priceSyncStatus': 'READY',
+        },
       },
   ];
 }

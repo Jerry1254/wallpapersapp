@@ -1,6 +1,11 @@
-export const normalizeIosChinaPrice = (value?: string | null): string | null => {
-  const raw = value?.trim() || '';
-  if (!/^(0|[1-9][0-9]{0,7})(\.[0-9]{1,2})?$/.test(raw) || Number(raw) <= 0) return null;
-  const [whole, fraction = ''] = raw.split('.');
-  return `${whole}.${fraction.padEnd(2, '0')}`;
+import type { IosAcquisitionConfiguration } from './admin';
+
+export const iosPriceSyncLabel = (value: IosAcquisitionConfiguration) => {
+  switch (value.priceSyncStatus) {
+    case 'READY': return value.chinaReferencePrice ? `¥${value.chinaReferencePrice}` : '价格同步中';
+    case 'ERROR': return '同步失败，请重试';
+    case 'STALE': return '价格已过期，等待同步';
+    case 'UNAVAILABLE': return '自动查价尚未启用';
+    default: return '等待从 Apple 同步';
+  }
 };

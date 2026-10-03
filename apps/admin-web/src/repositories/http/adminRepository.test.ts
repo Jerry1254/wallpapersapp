@@ -75,7 +75,7 @@ it('updates a fixed tutorial slot with optimistic locking', async () => {
   expect(JSON.parse(String(options.body))).toMatchObject({ videoAssetId: '902', enabled: true, sortOrder: 20 });
 });
 
-it('persists an edited RMB price through the admin API even when the product ID is locked', async () => {
+it('keeps the Apple price read-only and omits it from admin writes', async () => {
   setCsrfToken('csrf-token');
   const config = {
     productId: 'com.example.wallpaper.1', chinaReferencePrice: '1.00',
@@ -106,22 +106,26 @@ it('persists an edited RMB price through the admin API even when the product ID 
 
   const saved = await adminRepository.saveWallpaper(wallpaper, false);
 
-  expect(saved.iosAcquisition?.chinaReferencePrice).toBe('18.80');
+  expect(saved.iosAcquisition?.chinaReferencePrice).toBe('1.00');
   expect(saved.iosAcquisition?.productIdLocked).toBe(true);
   const [, options] = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/ios-acquisition'))!;
   expect(options.method).toBe('PUT');
   expect(JSON.parse(String(options.body))).toMatchObject({
-    productId: config.productId, chinaReferencePrice: '18.80', enabled: true
+    productId: config.productId, enabled: true
   });
+  expect(JSON.parse(String(options.body))).not.toHaveProperty('chinaReferencePrice');
   expect(new Headers(options.headers).get('X-CSRF-Token')).toBe('csrf-token');
 });
 
-it('rejects an enabled iOS product without a valid display price before saving anything', async () => {
-  const fetchMock = vi.fn();
+it('synchronizes Apple prices through an authenticated CSRF-protected POST without an amount', async () => {
+  setCsrfToken('csrf-token');
+  const result = { productId: 'test.product', chinaReferencePrice: '6.00', priceSyncStatus: 'READY' };
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } }));
   vi.stubGlobal('fetch', fetchMock);
-  for (const price of [null, '0.00', '1.001']) {
-    const wallpaper = { iosAcquisition: { enabled: true, chinaReferencePrice: price } } as unknown as Wallpaper;
-    await expect(adminRepository.saveWallpaper(wallpaper, false)).rejects.toMatchObject({ code: 'IOS_CHINA_PRICE_INVALID' });
-  }
-  expect(fetchMock).not.toHaveBeenCalled();
+  expect(await adminRepository.syncIosPrice('1')).toEqual(result);
+  const [url, options] = fetchMock.mock.calls[0]!;
+  expect(url).toBe('/api/v1/admin/wallpapers/1/ios-acquisition/price-sync');
+  expect(options.method).toBe('POST');
+  expect(options.body).toBeUndefined();
+  expect(new Headers(options.headers).get('X-CSRF-Token')).toBe('csrf-token');
 });

@@ -134,6 +134,11 @@ export interface Wallpaper {
 export interface IosAcquisitionConfiguration {
   productId: string;
   chinaReferencePrice?: string | null;
+  priceSource?: 'APP_STORE_CONNECT';
+  priceCurrency?: 'CNY';
+  priceSyncStatus?: 'UNSYNCED' | 'READY' | 'STALE' | 'ERROR' | 'UNAVAILABLE';
+  priceSyncedAt?: string | null;
+  priceSyncError?: string | null;
   firstFreeEligible: boolean;
   enabled: boolean;
   productIdLocked: boolean;

@@ -81,6 +81,12 @@ class InfrastructureIntegrationIT {
 
     @DynamicPropertySource
     static void infrastructureProperties(DynamicPropertyRegistry registry) {
+        registry.add("qingjing.ios-pricing.enabled", () -> true);
+        registry.add("qingjing.ios-pricing.issuer-id", () -> "test-issuer");
+        registry.add("qingjing.ios-pricing.key-id", () -> "test-price-key");
+        registry.add("qingjing.ios-pricing.private-key", () -> "unused-mocked-provider-key");
+        registry.add("qingjing.ios-pricing.initial-delay", () -> 3600000);
+        registry.add("qingjing.ios-acquisition.app-apple-id", () -> 6818362193L);
         registry.add("qingjing.delivery.signing-key-id", () -> "integration-resource-1");
         registry.add("qingjing.delivery.signing-private-key", () -> Base64.getEncoder().encodeToString(PACKAGE_SIGNER.getPrivate().getEncoded()));
         registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
@@ -115,6 +121,12 @@ class InfrastructureIntegrationIT {
     @Autowired
     com.qingjing.wallpaper.iosacquisition.IosProductService iosProducts;
 
+    @Autowired
+    com.qingjing.wallpaper.iosacquisition.IosPriceSyncService iosPriceSync;
+
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    com.qingjing.wallpaper.iosacquisition.ApplePriceGateway applePriceGateway;
+
     @Test
     void iosDisplayPricePersistsAndChangesWithoutRebindingPurchasedProducts() {
         ensureAdmin();
@@ -122,10 +134,19 @@ class InfrastructureIntegrationIT {
         String productId = "com.example.pricing." + wallpaperId;
         iosProducts.update(wallpaperId, new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(
                 productId, "1.00", true, true));
+        assertThat(iosProducts.get(wallpaperId).chinaReferencePrice()).isNull();
+        org.mockito.Mockito.when(applePriceGateway.currentChinaPrice(productId)).thenReturn(
+                new com.qingjing.wallpaper.iosacquisition.ApplePriceGateway.ChinaPrice("1234", "point", new java.math.BigDecimal("1.00")));
+        iosPriceSync.synchronize(wallpaperId);
         assertThat(iosProducts.get(wallpaperId).chinaReferencePrice()).isEqualTo("1.00");
         jdbc.update("UPDATE ios_product_mapping SET verified_transaction_at=UTC_TIMESTAMP(6) WHERE wallpaper_id=?", wallpaperId);
         iosProducts.update(wallpaperId, new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(
                 productId, "18.80", true, true));
+        // A forged legacy admin amount is ignored. The Apple response is the only writer.
+        assertThat(iosProducts.get(wallpaperId).chinaReferencePrice()).isEqualTo("1.00");
+        org.mockito.Mockito.when(applePriceGateway.currentChinaPrice(productId)).thenReturn(
+                new com.qingjing.wallpaper.iosacquisition.ApplePriceGateway.ChinaPrice("1234", "point2", new java.math.BigDecimal("18.80")));
+        iosPriceSync.synchronize(wallpaperId);
         assertThat(iosProducts.get(wallpaperId).productIdLocked()).isTrue();
         assertThat(iosProducts.catalogue()).anySatisfy(product -> {
             assertThat(product.wallpaperId()).isEqualTo(Long.toString(wallpaperId));
@@ -143,6 +164,14 @@ class InfrastructureIntegrationIT {
         assertThatThrownBy(() -> jdbc.update("UPDATE ios_product_mapping SET china_reference_price=-1 WHERE wallpaper_id=?", wallpaperId))
                 .isInstanceOf(DataAccessException.class)
                 .hasMessageContaining("ck_ios_china_reference_price");
+        jdbc.update("UPDATE ios_product_mapping SET price_synced_at=? WHERE wallpaper_id=?", java.sql.Timestamp.from(Instant.now().minusSeconds(1000)), wallpaperId);
+        assertThat(iosProducts.get(wallpaperId).priceSyncStatus()).isEqualTo("STALE");
+        assertThat(iosProducts.get(wallpaperId).chinaReferencePrice()).isNull();
+        org.mockito.Mockito.when(applePriceGateway.currentChinaPrice(productId))
+                .thenThrow(new com.qingjing.wallpaper.iosacquisition.ApplePriceGateway.PriceFailure("APPLE_UNAVAILABLE"));
+        iosPriceSync.synchronize(wallpaperId);
+        assertThat(iosProducts.get(wallpaperId).priceSyncStatus()).isEqualTo("ERROR");
+        assertThat(iosProducts.get(wallpaperId).chinaReferencePrice()).isNull();
         iosProducts.update(wallpaperId, new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(
                 productId, null, false, false));
         assertThat(iosProducts.catalogue()).noneSatisfy(product ->
@@ -154,6 +183,45 @@ class InfrastructureIntegrationIT {
         iosProducts.update(unpurchased, new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(
                 productId + ".rebound", null, false, true));
         assertThat(iosProducts.get(unpurchased).chinaReferencePrice()).isNull();
+    }
+
+    @Test
+    void iosPriceSyncRequiresAdminCsrfAndDiscardsResultsForReboundProducts() throws Exception {
+        ensureAdmin();
+        long wallpaperId = createPublishedWallpaperFixture();
+        String productId = "com.example.priceaccess." + wallpaperId;
+        iosProducts.update(wallpaperId, new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(
+                productId, null, false, true));
+        String path = "/api/v1/admin/wallpapers/" + wallpaperId + "/ios-acquisition/price-sync";
+        assertThat(http.postForEntity(path, Map.of(), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        AdminTestSession admin = login();
+        assertThat(http.exchange(path, HttpMethod.POST, new HttpEntity<>(Map.of(), headers(admin, false, null)), JsonNode.class)
+                .getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        org.mockito.Mockito.when(applePriceGateway.currentChinaPrice(productId)).thenReturn(
+                new com.qingjing.wallpaper.iosacquisition.ApplePriceGateway.ChinaPrice("1234", "point", new java.math.BigDecimal("1.00")));
+        var response = jsonExchange(path, HttpMethod.POST, Map.of(), admin, null);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().path("priceSource").asText()).isEqualTo("APP_STORE_CONNECT");
+        assertThat(response.getBody().path("chinaReferencePrice").asText()).isEqualTo("1.00");
+
+        long rebound = createPublishedWallpaperFixture();
+        String oldProduct = "com.example.rebound." + rebound;
+        String newProduct = oldProduct + ".new";
+        iosProducts.update(rebound, new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(
+                oldProduct, null, false, true));
+        org.mockito.Mockito.when(applePriceGateway.currentChinaPrice(oldProduct)).thenAnswer(call -> {
+            // A second trigger must reuse the in-flight lease instead of making another Apple request.
+            assertThat(iosPriceSync.synchronize(rebound).priceSyncStatus()).isEqualTo("UNSYNCED");
+            // The old request finishes after an admin has rebound the wallpaper.
+            iosProducts.update(rebound, new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(
+                    newProduct, null, false, true));
+            return new com.qingjing.wallpaper.iosacquisition.ApplePriceGateway.ChinaPrice("1234", "oldpoint", new java.math.BigDecimal("99.00"));
+        });
+        var configuration = iosPriceSync.synchronize(rebound);
+        assertThat(configuration.productId()).isEqualTo(newProduct);
+        assertThat(configuration.chinaReferencePrice()).isNull();
+        assertThat(configuration.priceSyncStatus()).isEqualTo("UNSYNCED");
+        org.mockito.Mockito.verify(applePriceGateway, org.mockito.Mockito.times(1)).currentChinaPrice(oldProduct);
     }
 
     @Test
@@ -2488,6 +2556,9 @@ class InfrastructureIntegrationIT {
         long pricedWallpaper = createPublishedWallpaperFixture();
         iosProducts.update(pricedWallpaper, new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(
                 "com.example.catalogue." + pricedWallpaper, "0.10", false, true));
+        org.mockito.Mockito.when(applePriceGateway.currentChinaPrice("com.example.catalogue." + pricedWallpaper)).thenReturn(
+                new com.qingjing.wallpaper.iosacquisition.ApplePriceGateway.ChinaPrice("5678", "point", new java.math.BigDecimal("0.10")));
+        iosPriceSync.synchronize(pricedWallpaper);
         ResponseEntity<JsonNode> catalogue = http.exchange("/api/v1/device/ios/products", HttpMethod.GET,
                 new HttpEntity<>(auth), JsonNode.class);
         assertThat(catalogue.getStatusCode()).isEqualTo(HttpStatus.OK);
