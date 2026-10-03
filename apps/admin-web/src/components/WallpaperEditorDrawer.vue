@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus';
 import { computed, reactive, ref, toRaw, watch } from 'vue';
 
 import ResourceFileField from '@/components/ResourceFileField.vue';
+import { normalizeIosChinaPrice } from '@/domain/iosPricing';
 import {
   wallpaperCapabilityLabels,
   type Category,
@@ -32,7 +33,7 @@ const blank = (): WallpaperForm => ({
   accessType: 'REDEEM', capabilities: [], status: 'draft', sort: 1,
   coverUrl: '', featuredRank: null, resources: {}, copyrightNote: '', updatedAt: '', version: 0,
   variants: [], iosAcquisition: {
-    productId: '', firstFreeEligible: false, enabled: false, productIdLocked: false, verifiedTransactionAt: null
+    productId: '', chinaReferencePrice: null, firstFreeEligible: false, enabled: false, productIdLocked: false, verifiedTransactionAt: null
   }
 });
 const form = reactive<WallpaperForm>(blank());
@@ -134,6 +135,10 @@ const validate = () => {
   if (form.iosAcquisition.productId && !/^[A-Za-z0-9._-]+$/.test(form.iosAcquisition.productId)) {
     next.iosProductId = 'Product ID 只能包含字母、数字、点、下划线和连字符';
   }
+  const price = form.iosAcquisition.chinaReferencePrice;
+  if ((form.iosAcquisition.enabled || price?.trim()) && !normalizeIosChinaPrice(price)) {
+    next.iosChinaPrice = '请输入大于 0 的人民币价格，最多两位小数';
+  }
   errors.value = next;
   return Object.keys(next).length === 0;
 };
@@ -219,12 +224,16 @@ const rebuildMovingPhoto = async () => {
         </section>
 
         <section v-if="hasCapability('ios_live_photo') || form.iosAcquisition.productId" class="editor-section">
-          <div class="editor-section__heading"><h3>iOS 首免与内购</h3><p>Product ID 在 App Store Connect 创建；价格由 Apple 返回，后台不填价格。</p></div>
+          <div class="editor-section__heading"><h3>iOS 首免与内购</h3><p>人民币展示价保存到后台，App 自动读取；实际付款以 Apple 确认页为准。</p></div>
           <ElForm label-position="top">
             <div class="form-grid">
               <ElFormItem label="非消耗型 Product ID" :error="errors.iosProductId">
                 <ElInput v-model="form.iosAcquisition.productId" :disabled="form.iosAcquisition.productIdLocked" placeholder="例如 com.qingjing.bizhi.wallpaper.123" />
                 <small v-if="form.iosAcquisition.productIdLocked">已有 Apple 验证交易，Product ID 已锁定。</small>
+              </ElFormItem>
+              <ElFormItem label="中国区展示价（元）" :error="errors.iosChinaPrice">
+                <ElInput v-model="form.iosAcquisition.chinaReferencePrice" inputmode="decimal" placeholder="填写 Apple 中国区售价，例如 1.00" />
+                <small>与 App Store Connect 中国区售价保持一致。修改此项不会改变苹果实际扣款。</small>
               </ElFormItem>
               <ElFormItem label="售卖状态"><ElSwitch v-model="form.iosAcquisition.enabled" active-text="允许购买" inactive-text="暂不售卖" /></ElFormItem>
               <ElFormItem label="首次免费"><ElSwitch v-model="form.iosAcquisition.firstFreeEligible" active-text="可作为首免选择" inactive-text="不参与首免" /></ElFormItem>

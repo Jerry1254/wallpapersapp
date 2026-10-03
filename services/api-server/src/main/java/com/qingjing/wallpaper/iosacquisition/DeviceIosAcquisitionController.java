@@ -4,8 +4,10 @@ import com.qingjing.wallpaper.device.DevicePrincipal;
 import com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.*;
 import com.qingjing.wallpaper.shared.web.RequestAttributes;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -17,6 +19,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class DeviceIosAcquisitionController {
     private final IosAcquisitionService acquisition;
     public DeviceIosAcquisitionController(IosAcquisitionService acquisition) { this.acquisition = acquisition; }
+
+    @GetMapping("/products")
+    ProductCatalogue products(HttpServletRequest request, HttpServletResponse response) {
+        response.setHeader("Cache-Control", "no-store");
+        return acquisition.productCatalogue(principal(request));
+    }
 
     @PostMapping("/attestation/challenges")
     ChallengeResponse challenge(

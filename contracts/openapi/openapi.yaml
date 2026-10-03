@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.14.1
+  version: 2.15.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -2558,6 +2558,28 @@ paths:
                   registered: {type: boolean, enum: [true]}
         '403': {$ref: '#/components/responses/Error'}
         default: {$ref: '#/components/responses/Error'}
+  /device/ios/products:
+    get:
+      tags: [iOS Acquisition]
+      operationId: getIosProductCatalogue
+      summary: 查询已启用商品与人民币展示价
+      description: |
+        仅需有效 iOS 设备会话；不执行 App Attest、DeviceCheck 首免查询或恢复购买。
+        展示价由管理后台维护，不作为支付金额、购买凭证或下载授权。
+        实际扣款仍由 StoreKit 对应账号地区的商品决定，不限制账号地区。
+      security: [{deviceBearer: []}]
+      responses:
+        '200':
+          description: 最新商品映射与中国区参考价格
+          headers:
+            Cache-Control:
+              schema: {type: string, enum: [no-store]}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IosProductCatalogue'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
   /device/ios/acquisition/status:
     post:
       tags: [iOS Acquisition]
@@ -2841,7 +2863,7 @@ paths:
     put:
       tags: [iOS Test Administration]
       operationId: updateAdminWallpaperIosAcquisition
-      summary: 保存壁纸的 Apple 非消耗型 Product ID 和首免资格
+      summary: 保存壁纸的 Apple Product ID、人民币展示价和首免资格
       security: [{adminCookie: [], adminCsrf: []}]
       parameters:
         - in: path
@@ -2858,6 +2880,9 @@ paths:
               required: [productId, firstFreeEligible, enabled]
               properties:
                 productId: {type: string, minLength: 1, maxLength: 255, pattern: '^[A-Za-z0-9._-]+$'}
+                chinaReferencePrice:
+                  allOf: [{$ref: '#/components/schemas/IosChinaReferencePrice'}]
+                  description: 人民币展示价；省略或 null 时保留同一 Product ID 的旧值，改绑新 Product ID 时不继承旧价。
                 firstFreeEligible: {type: boolean}
                 enabled: {type: boolean}
       responses:
@@ -4412,6 +4437,7 @@ components:
       required: [productId, firstFreeEligible, enabled, productIdLocked]
       properties:
         productId: {type: string, maxLength: 255}
+        chinaReferencePrice: {$ref: '#/components/schemas/IosChinaReferencePrice'}
         firstFreeEligible: {type: boolean}
         enabled: {type: boolean}
         productIdLocked: {type: boolean}
@@ -5407,6 +5433,26 @@ components:
         challengeId: {type: string, format: uuid}
         nonce: {type: string}
         deviceToken: {type: string, format: byte, maxLength: 16384}
+    IosChinaReferencePrice:
+      type: string
+      nullable: true
+      pattern: '^(?:0\.(?:0[1-9]|[1-9][0-9])|[1-9][0-9]{0,7}\.[0-9]{2})$'
+      example: '1.00'
+      description: CNY 十进制金额字符串，精确到分；null 表示未配置。不参与实际支付或权益验证。
+    IosStoreProductMapping:
+      type: object
+      required: [wallpaperId, productId]
+      properties:
+        wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
+        productId: {type: string, minLength: 1}
+        chinaReferencePrice: {$ref: '#/components/schemas/IosChinaReferencePrice'}
+    IosProductCatalogue:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/IosStoreProductMapping'}
     AcquisitionState:
       type: object
       required: [installationId, accountToken, freeAllowance, freeGeneration, products, freeWallpaperIds, purchasedWallpaperIds]
@@ -5431,13 +5477,8 @@ components:
           description: 仅本安装待处理重置；无操作时省略或 null。存在时免费状态为 UNAVAILABLE，旧客户端不能直接领取。
         products:
           type: array
-          description: 已发布且启用的壁纸与 Apple 非消耗型 productId 映射
-          items:
-            type: object
-            required: [wallpaperId, productId]
-            properties:
-              wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
-              productId: {type: string, minLength: 1}
+          description: 已发布且启用的壁纸与 Apple 非消耗型 productId 映射，以及后端维护的人民币展示价
+          items: {$ref: '#/components/schemas/IosStoreProductMapping'}
         freeWallpaperIds:
           type: array
           uniqueItems: true

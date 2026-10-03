@@ -32,6 +32,7 @@ public class IosAcquisitionService {
     private final IosAppleGateway apple;
     private final SecurityCrypto crypto;
     private final EntitlementGrantService grants;
+    private final IosProductService products;
 
     public IosAcquisitionService(
             JdbcTemplate jdbc,
@@ -39,13 +40,15 @@ public class IosAcquisitionService {
             IosAcquisitionProperties properties,
             IosAppleGateway apple,
             SecurityCrypto crypto,
-            EntitlementGrantService grants) {
+            EntitlementGrantService grants,
+            IosProductService products) {
         this.jdbc = jdbc;
         this.transactions = transactions;
         this.properties = properties;
         this.apple = apple;
         this.crypto = crypto;
         this.grants = grants;
+        this.products = products;
     }
 
     public ChallengeResponse challenge(DevicePrincipal principal, ChallengeRequest request) {
@@ -354,20 +357,20 @@ public class IosAcquisitionService {
         Installation installation = ensureInstallation(deviceId);
         List<String> free = grantWallpapers(deviceId, "IOS_FIRST_FREE");
         List<String> purchased = grantWallpapers(deviceId, "IOS_IAP");
-        List<Product> products = jdbc.query(
-                """
-                SELECT CAST(m.wallpaper_id AS CHAR) wallpaper_id,m.product_id
-                FROM ios_product_mapping m JOIN wallpaper w ON w.id=m.wallpaper_id
-                WHERE m.bundle_id=? AND m.enabled=TRUE AND w.status='PUBLISHED' AND EXISTS (SELECT 1 FROM wallpaper_variant v JOIN resource_version rv ON rv.variant_id=v.id WHERE v.wallpaper_id=w.id AND v.enabled=TRUE AND v.platform IN ('IOS','UNIVERSAL') AND rv.status='PUBLISHED')
-                ORDER BY m.wallpaper_id
-                """,
-                (rs,row)->new Product(rs.getString("wallpaper_id"),rs.getString("product_id")),
-                properties.getBundleId());
         PendingReset pending = pendingReset(deviceId);
         return new AcquisitionState(
                 publicDeviceId(deviceId), installation.accountToken(), installation.freeGeneration(),
                 pending == null ? FreeAllowance.valueOf(installation.allowance()) : FreeAllowance.PENDING_RESET,
-                free, purchased, products, pending, Instant.now());
+                free, purchased, products.catalogue(), pending, Instant.now());
+    }
+
+    public ProductCatalogue productCatalogue(DevicePrincipal principal) {
+        if (principal.platform() != DevicePlatform.IOS) {
+            throw forbidden("IOS_DEVICE_REQUIRED", "An iOS device session is required");
+        }
+        // Product metadata needs the device session, not a DeviceCheck quota
+        // query, App Attest challenge, Apple secret, or purchase restoration.
+        return new ProductCatalogue(products.catalogue());
     }
 
     private Challenge verifyProof(long deviceId, String keyId, String assertion, String challengeId,

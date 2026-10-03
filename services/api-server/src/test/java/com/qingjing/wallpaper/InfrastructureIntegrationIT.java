@@ -112,6 +112,50 @@ class InfrastructureIntegrationIT {
     @Autowired
     com.qingjing.wallpaper.delivery.DownloadTicketService downloadTickets;
 
+    @Autowired
+    com.qingjing.wallpaper.iosacquisition.IosProductService iosProducts;
+
+    @Test
+    void iosDisplayPricePersistsAndChangesWithoutRebindingPurchasedProducts() {
+        ensureAdmin();
+        long wallpaperId = createPublishedWallpaperFixture();
+        String productId = "com.example.pricing." + wallpaperId;
+        iosProducts.update(wallpaperId, new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(
+                productId, "1.00", true, true));
+        assertThat(iosProducts.get(wallpaperId).chinaReferencePrice()).isEqualTo("1.00");
+        jdbc.update("UPDATE ios_product_mapping SET verified_transaction_at=UTC_TIMESTAMP(6) WHERE wallpaper_id=?", wallpaperId);
+        iosProducts.update(wallpaperId, new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(
+                productId, "18.80", true, true));
+        assertThat(iosProducts.get(wallpaperId).productIdLocked()).isTrue();
+        assertThat(iosProducts.catalogue()).anySatisfy(product -> {
+            assertThat(product.wallpaperId()).isEqualTo(Long.toString(wallpaperId));
+            assertThat(product.chinaReferencePrice()).isEqualTo("18.80");
+        });
+        // An older admin client must not erase the new display price.
+        iosProducts.update(wallpaperId, new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(
+                productId, null, false, true));
+        assertThat(iosProducts.get(wallpaperId).chinaReferencePrice()).isEqualTo("18.80");
+        assertThatThrownBy(() -> iosProducts.update(wallpaperId,
+                new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(
+                        productId + ".other", "2.00", false, true)))
+                .isInstanceOf(com.qingjing.wallpaper.shared.web.ApiException.class)
+                .hasMessageContaining("cannot change");
+        assertThatThrownBy(() -> jdbc.update("UPDATE ios_product_mapping SET china_reference_price=-1 WHERE wallpaper_id=?", wallpaperId))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("ck_ios_china_reference_price");
+        iosProducts.update(wallpaperId, new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(
+                productId, null, false, false));
+        assertThat(iosProducts.catalogue()).noneSatisfy(product ->
+                assertThat(product.wallpaperId()).isEqualTo(Long.toString(wallpaperId)));
+
+        long unpurchased = createPublishedWallpaperFixture();
+        iosProducts.update(unpurchased, new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(
+                productId + ".new", "9.90", false, true));
+        iosProducts.update(unpurchased, new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(
+                productId + ".rebound", null, false, true));
+        assertThat(iosProducts.get(unpurchased).chinaReferencePrice()).isNull();
+    }
+
     @Test
     void emptyDatabaseMigratesToDomainAndSecureDeliveryTables() {
         Integer successfulMigrations = jdbc.queryForObject(
@@ -2383,6 +2427,7 @@ class InfrastructureIntegrationIT {
 
     @Test
     void iosInstallationProofSessionAndSignedRequestUseRealInfrastructure() throws Exception {
+        ensureAdmin();
         java.security.KeyPairGenerator generator = java.security.KeyPairGenerator.getInstance("EC");
         generator.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
 
@@ -2439,6 +2484,20 @@ class InfrastructureIntegrationIT {
         auth.setBearerAuth(token);
         assertThat(http.exchange("/api/v1/public/categories", HttpMethod.GET,
                 new HttpEntity<>(auth), JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        long pricedWallpaper = createPublishedWallpaperFixture();
+        iosProducts.update(pricedWallpaper, new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(
+                "com.example.catalogue." + pricedWallpaper, "0.10", false, true));
+        ResponseEntity<JsonNode> catalogue = http.exchange("/api/v1/device/ios/products", HttpMethod.GET,
+                new HttpEntity<>(auth), JsonNode.class);
+        assertThat(catalogue.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(catalogue.getHeaders().getCacheControl()).isEqualTo("no-store");
+        assertThat(catalogue.getBody().path("items")).anySatisfy(product -> {
+            assertThat(product.path("wallpaperId").asText()).isEqualTo(Long.toString(pricedWallpaper));
+            assertThat(product.path("chinaReferencePrice").asText()).isEqualTo("0.10");
+        });
+        assertThat(http.getForEntity("/api/v1/device/ios/products", JsonNode.class).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
 
         String ticketPath = "/api/v1/device/wallpapers/999999999/download-tickets";
         String ticketBody = objectMapper.writeValueAsString(

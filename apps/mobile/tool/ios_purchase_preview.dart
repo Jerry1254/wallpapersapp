@@ -34,6 +34,8 @@ class PreviewApi implements IosAcquisitionApi {
   @override
   Future<IosAcquisitionState> state() async => snapshot;
   @override
+  Future<IosProductCatalogue> productCatalogue() async => snapshot.catalogue;
+  @override
   Future<IosAcquisitionState> claimFree(
     String wallpaperId,
     String requestId,

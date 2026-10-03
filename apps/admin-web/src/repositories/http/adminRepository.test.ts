@@ -74,3 +74,54 @@ it('updates a fixed tutorial slot with optimistic locking', async () => {
   expect(new Headers(options.headers).get('If-Match')).toBe('"3"');
   expect(JSON.parse(String(options.body))).toMatchObject({ videoAssetId: '902', enabled: true, sortOrder: 20 });
 });
+
+it('persists an edited RMB price through the admin API even when the product ID is locked', async () => {
+  setCsrfToken('csrf-token');
+  const config = {
+    productId: 'com.example.wallpaper.1', chinaReferencePrice: '1.00',
+    enabled: true, firstFreeEligible: true, productIdLocked: true,
+    verifiedTransactionAt: '2026-10-03T00:00:00Z'
+  };
+  const detail = {
+    id: '1', title: '壁纸', slug: 'wallpaper-test', accessType: 'REDEEM',
+    rootCategory: { id: '1', name: '风景', slug: 'scenery' }, childCategory: null,
+    cover: { id: '2', originalFilename: 'cover.png', mimeType: 'image/png', sizeBytes: 128, validationStatus: 'READY' },
+    copyrightNote: '平台内容', variants: [], status: 'DRAFT', sortOrder: 1,
+    version: 1, updatedAt: '2026-10-03T00:00:00Z', iosAcquisition: config
+  };
+  const fetchMock = vi.fn().mockImplementation(async (url: string, options: RequestInit) => {
+    if (url.endsWith('/ios-acquisition')) {
+      Object.assign(config, JSON.parse(String(options.body)));
+      return new Response(JSON.stringify(config), { headers: { 'Content-Type': 'application/json' } });
+    }
+    return new Response(JSON.stringify(detail), { headers: { 'Content-Type': 'application/json' } });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  const wallpaper = {
+    id: '1', title: '壁纸', slug: 'wallpaper-test', accessType: 'REDEEM', categoryId: '1',
+    sort: 1, copyrightNote: '平台内容', version: 1, capabilities: [], variants: [],
+    resources: { cover: { assetId: '2', name: 'cover.png', size: 128, mime: 'image/png' } },
+    iosAcquisition: { ...config, chinaReferencePrice: '18.8' }
+  } as unknown as Wallpaper;
+
+  const saved = await adminRepository.saveWallpaper(wallpaper, false);
+
+  expect(saved.iosAcquisition?.chinaReferencePrice).toBe('18.80');
+  expect(saved.iosAcquisition?.productIdLocked).toBe(true);
+  const [, options] = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/ios-acquisition'))!;
+  expect(options.method).toBe('PUT');
+  expect(JSON.parse(String(options.body))).toMatchObject({
+    productId: config.productId, chinaReferencePrice: '18.80', enabled: true
+  });
+  expect(new Headers(options.headers).get('X-CSRF-Token')).toBe('csrf-token');
+});
+
+it('rejects an enabled iOS product without a valid display price before saving anything', async () => {
+  const fetchMock = vi.fn();
+  vi.stubGlobal('fetch', fetchMock);
+  for (const price of [null, '0.00', '1.001']) {
+    const wallpaper = { iosAcquisition: { enabled: true, chinaReferencePrice: price } } as unknown as Wallpaper;
+    await expect(adminRepository.saveWallpaper(wallpaper, false)).rejects.toMatchObject({ code: 'IOS_CHINA_PRICE_INVALID' });
+  }
+  expect(fetchMock).not.toHaveBeenCalled();
+});

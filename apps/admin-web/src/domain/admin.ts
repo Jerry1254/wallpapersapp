@@ -133,6 +133,7 @@ export interface Wallpaper {
 
 export interface IosAcquisitionConfiguration {
   productId: string;
+  chinaReferencePrice?: string | null;
   firstFreeEligible: boolean;
   enabled: boolean;
   productIdLocked: boolean;

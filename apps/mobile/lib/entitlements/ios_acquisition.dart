@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:wallpaper_ios/wallpaper_ios.dart';
 import '../device/device_session.dart';
-import 'ios_china_prices.dart';
 
 enum IosFreeAllowance { unknown, available, used, unavailable, pendingReset }
 
@@ -52,12 +51,65 @@ final _uuid = RegExp(
   r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
 );
 
+class IosProductCatalogue {
+  const IosProductCatalogue(
+    this.productIds, {
+    this.chinaReferencePrices = const {},
+  });
+  factory IosProductCatalogue.fromItems(dynamic value) {
+    final products = <String, String>{};
+    final prices = <String, String>{};
+    if (value is List) {
+      for (final item in value) {
+        final product = Map<String, dynamic>.from(item as Map);
+        final wallpaperId = product['wallpaperId'] as String;
+        final productId = product['productId'] as String;
+        if (products.containsKey(wallpaperId)) {
+          throw const FormatException('Duplicate wallpaper product mapping');
+        }
+        products[wallpaperId] = productId;
+        final price = product['chinaReferencePrice'];
+        if (price != null) {
+          if (price is! String ||
+              !RegExp(r'^(?:0|[1-9][0-9]{0,7})\.[0-9]{2}$').hasMatch(price) ||
+              price == '0.00') {
+            throw const FormatException('Invalid China reference price');
+          }
+          prices[productId] = price;
+        }
+      }
+    } else if (value is Map) {
+      // Retain compatibility with the previous installation cache shape.
+      products.addAll(Map<String, String>.from(value));
+    } else {
+      throw const FormatException('Invalid wallpaper product mapping');
+    }
+    if (products.keys.any((id) => !RegExp(r'^[1-9][0-9]*$').hasMatch(id)) ||
+        products.values.any((id) => id.isEmpty) ||
+        products.values.toSet().length != products.length) {
+      throw const FormatException('Invalid wallpaper product mapping');
+    }
+    return IosProductCatalogue(products, chinaReferencePrices: prices);
+  }
+  final Map<String, String> productIds, chinaReferencePrices;
+  List<Map<String, dynamic>> toJson() => [
+    for (final entry in productIds.entries)
+      {
+        'wallpaperId': entry.key,
+        'productId': entry.value,
+        if (chinaReferencePrices[entry.value] != null)
+          'chinaReferencePrice': chinaReferencePrices[entry.value],
+      },
+  ];
+}
+
 class IosAcquisitionState {
   const IosAcquisitionState({
     required this.installationId,
     required this.accountToken,
     required this.freeGeneration,
     required this.products,
+    this.chinaReferencePrices = const {},
     this.freeAllowance = IosFreeAllowance.unknown,
     this.freeWallpaperIds = const {},
     this.purchasedWallpaperIds = const {},
@@ -73,23 +125,8 @@ class IosAcquisitionState {
         generation < 0) {
       throw const FormatException('Invalid iOS acquisition identity');
     }
-    final products = <String, String>{};
-    final productValue = value['products'];
-    if (productValue is List) {
-      for (final item in productValue) {
-        final product = Map<String, dynamic>.from(item as Map);
-        final wallpaperId = product['wallpaperId'] as String;
-        final productId = product['productId'] as String;
-        if (products.putIfAbsent(wallpaperId, () => productId) != productId) {
-          throw const FormatException('Duplicate wallpaper product mapping');
-        }
-      }
-    } else if (productValue is Map) {
-      // Accept the previous on-device cache shape during the one-time upgrade.
-      products.addAll(Map<String, String>.from(productValue));
-    } else {
-      throw const FormatException('Invalid wallpaper product mapping');
-    }
+    final catalogue = IosProductCatalogue.fromItems(value['products']);
+    final products = catalogue.productIds;
     final free = Set<String>.from(value['freeWallpaperIds'] as List);
     final paid = Set<String>.from(value['purchasedWallpaperIds'] as List);
     if ([
@@ -123,6 +160,7 @@ class IosAcquisitionState {
       accountToken: token,
       freeGeneration: generation,
       products: products,
+      chinaReferencePrices: catalogue.chinaReferencePrices,
       freeAllowance: allowance,
       freeWallpaperIds: free,
       purchasedWallpaperIds: paid,
@@ -135,6 +173,9 @@ class IosAcquisitionState {
   final String installationId, accountToken;
   final int freeGeneration;
   final Map<String, String> products;
+  final Map<String, String> chinaReferencePrices;
+  IosProductCatalogue get catalogue =>
+      IosProductCatalogue(products, chinaReferencePrices: chinaReferencePrices);
   final IosFreeAllowance freeAllowance;
   final Set<String> freeWallpaperIds, purchasedWallpaperIds;
   final IosPendingFreeReset? pendingFreeReset;
@@ -145,10 +186,7 @@ class IosAcquisitionState {
     'installationId': installationId,
     'accountToken': accountToken,
     'freeGeneration': freeGeneration,
-    'products': [
-      for (final entry in products.entries)
-        {'wallpaperId': entry.key, 'productId': entry.value},
-    ],
+    'products': catalogue.toJson(),
     // A cached AVAILABLE response never makes a new device eligible offline.
     'freeAllowance': cache && freeAllowance == IosFreeAllowance.available
         ? 'UNKNOWN'
@@ -170,6 +208,7 @@ class IosAcquisitionNotice implements Exception {
 
 abstract interface class IosAcquisitionApi {
   Future<IosAcquisitionState> state();
+  Future<IosProductCatalogue> productCatalogue();
   Future<IosAcquisitionState> claimFree(String wallpaperId, String requestId);
   Future<IosAcquisitionState> synchronize(IosStoreTransaction transaction);
   Future<IosAcquisitionState> completeFreeReset(IosPendingFreeReset reset);
@@ -184,6 +223,12 @@ class SessionIosAcquisitionApi implements IosAcquisitionApi {
   });
   final DeviceSessionManager sessions;
   final NativeIosDeviceProof proof;
+  @override
+  Future<IosProductCatalogue> productCatalogue() async {
+    final value = await sessions.authenticated('/device/ios/products');
+    return IosProductCatalogue.fromItems(value['items']);
+  }
+
   Future<String>? _key;
   Future<String> _keyId() async {
     try {
@@ -412,19 +457,16 @@ class SessionIosAcquisitionApi implements IosAcquisitionApi {
 /// One coordinator per running installation. Details read this cache without
 /// prompting Apple or checking the free quota on every navigation.
 class IosAcquisitionController extends ChangeNotifier {
-  IosAcquisitionController(
-    this.api,
-    this.store, {
-    this.chinaReferencePrices = iosChinaReferencePrices,
-  });
+  IosAcquisitionController(this.api, this.store);
   final IosAcquisitionApi api;
   final IosPurchaseStore store;
-  final Map<String, String> chinaReferencePrices;
+  IosProductCatalogue? _catalogue;
   IosAcquisitionState? state;
   Map<String, IosStoreProduct> products = {};
   bool busy = false, ready = false;
   bool unavailable = false;
   bool pricesLoading = false, _priceRefreshPending = false;
+  bool _reloadCatalogueRequested = false;
   String? error;
   String? _pendingFreeId, _pendingRequestId;
   int? _pendingFreeGeneration;
@@ -435,7 +477,7 @@ class IosAcquisitionController extends ChangeNotifier {
   bool owns(String id) => state?.owns(id) == true;
 
   String? _productId(String wallpaperId) {
-    final value = state?.products[wallpaperId];
+    final value = (_catalogue?.productIds ?? state?.products)?[wallpaperId];
     return value == null || value.isEmpty ? null : value;
   }
 
@@ -487,7 +529,7 @@ class IosAcquisitionController extends ChangeNotifier {
         fresh = await api.completeFreeReset(fresh.pendingFreeReset!);
         await _accept(fresh);
       }
-      await refreshPrices();
+      await refreshPrices(reloadCatalogue: false);
       ready = true;
       for (final transaction in await store.transactions()) {
         await _deliver(transaction);
@@ -505,11 +547,12 @@ class IosAcquisitionController extends ChangeNotifier {
     }
   }
 
-  /// Refresh Apple prices after switching accounts, without querying free quota
-  /// or invoking Restore (which can require authentication).
-  Future<void> refreshPrices() {
+  /// Refresh backend display prices and StoreKit availability without querying
+  /// free quota or invoking Restore (which can require authentication).
+  Future<void> refreshPrices({bool reloadCatalogue = true}) {
     if (_closed || state == null) return Future.value();
     _priceRefreshPending = true;
+    _reloadCatalogueRequested |= reloadCatalogue;
     return _productRefresh ??= _refreshPrices().whenComplete(() {
       _productRefresh = null;
     });
@@ -522,14 +565,28 @@ class IosAcquisitionController extends ChangeNotifier {
     try {
       do {
         _priceRefreshPending = false;
+        final reloadCatalogue = _reloadCatalogueRequested;
+        _reloadCatalogueRequested = false;
+        var catalogue = _catalogue ?? state!.catalogue;
         var found = <IosStoreProduct>[];
         try {
-          found = await store.products(state!.products.values.toSet());
+          if (reloadCatalogue) {
+            try {
+              catalogue = await api.productCatalogue();
+            } on DeviceApiError catch (failure) {
+              if (failure.status != 404) rethrow;
+              // Until the server update is deployed, only use server status
+              // data. Never replace a missing reference price with app constants.
+              catalogue = state!.catalogue;
+            }
+          }
+          found = await store.products(catalogue.productIds.values.toSet());
         } catch (_) {
           // A failed price query must not leave a stale price on screen.
         }
         if (_closed) return;
         if (!_priceRefreshPending) {
+          _catalogue = catalogue;
           products = {for (final product in found) product.id: product};
         }
       } while (_priceRefreshPending);
@@ -554,10 +611,9 @@ class IosAcquisitionController extends ChangeNotifier {
     if (pricesLoading) return '正在获取价格';
     final product = products[productId];
     if (product == null) return 'App Store 暂不可购买';
-    final price = product.isRenminbi
-        ? product.displayPrice
-        : chinaReferencePrices[productId];
-    return price == null ? '购买并下载' : '$price 购买并下载';
+    final price =
+        (_catalogue ?? state!.catalogue).chinaReferencePrices[productId];
+    return price == null ? '购买并下载' : '¥$price 购买并下载';
   }
 
   String? priceNote(String wallpaperId) {
@@ -571,8 +627,10 @@ class IosAcquisitionController extends ChangeNotifier {
     }
     final productId = _productId(wallpaperId);
     final product = products[productId];
-    if (product == null || product.isRenminbi) return null;
-    return chinaReferencePrices.containsKey(productId)
+    if (product == null) return null;
+    return (_catalogue ?? state!.catalogue).chinaReferencePrices.containsKey(
+          productId,
+        )
         ? '中国区参考价，实际付款以 Apple 确认页为准'
         : '实际价格和付款币种以 Apple 确认页为准';
   }
@@ -756,6 +814,7 @@ class IosAcquisitionController extends ChangeNotifier {
 
   Future<void> _accept(IosAcquisitionState value) async {
     state = value;
+    _catalogue = value.catalogue;
     if (_pendingFreeGeneration != null &&
         _pendingFreeGeneration != value.freeGeneration) {
       _pendingFreeId = null;

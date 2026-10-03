@@ -1,6 +1,7 @@
 package com.qingjing.wallpaper.iosacquisition;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -48,7 +49,8 @@ public final class IosAcquisitionDtos {
             @NotBlank String deviceToken,
             @NotNull Long expectedGeneration) {}
 
-    public record Product(String wallpaperId, String productId) {}
+    public record Product(String wallpaperId, String productId, String chinaReferencePrice) {}
+    public record ProductCatalogue(List<Product> items) {}
     public record PendingReset(String resetId, long expectedGeneration, String status, Instant expiresAt) {}
     public record AcquisitionState(
             String installationId,
@@ -65,6 +67,7 @@ public final class IosAcquisitionDtos {
 
     public record IosProductConfiguration(
             String productId,
+            String chinaReferencePrice,
             boolean firstFreeEligible,
             boolean enabled,
             boolean productIdLocked,
@@ -72,6 +75,8 @@ public final class IosAcquisitionDtos {
     public record UpdateIosProductRequest(
             @NotBlank @Size(max=255)
             @Pattern(regexp="[A-Za-z0-9._-]+") String productId,
+            @Pattern(regexp="^(?:0|[1-9][0-9]{0,7})\\.[0-9]{2}$")
+            @DecimalMin(value="0.00", inclusive=false) String chinaReferencePrice,
             @NotNull Boolean firstFreeEligible,
             @NotNull Boolean enabled) {}
 

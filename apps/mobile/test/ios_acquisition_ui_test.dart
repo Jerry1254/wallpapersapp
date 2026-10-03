@@ -165,11 +165,7 @@ void main() {
       final store = TestPurchaseStore()
         ..currencyCode = 'USD'
         ..displayPrice = 'US\$0.99';
-      final flow = IosAcquisitionController(
-        api,
-        store,
-        chinaReferencePrices: {'test.wallpaper.2': '¥1.00'},
-      );
+      final flow = IosAcquisitionController(api, store);
       addTearDown(flow.dispose);
       await flow.initialize();
       await tester.pumpWidget(
@@ -193,10 +189,11 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       store.currencyCode = 'CNY';
       store.displayPrice = '¥6.00';
+      api.prices['test.wallpaper.2'] = '6.00';
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
       expect(find.text('¥6.00 购买并下载'), findsOneWidget);
-      expect(find.text('中国区参考价，实际付款以 Apple 确认页为准'), findsNothing);
+      expect(find.text('中国区参考价，实际付款以 Apple 确认页为准'), findsOneWidget);
       expect(api.stateCalls, 1);
       expect(store.synchronization, [false]);
     },

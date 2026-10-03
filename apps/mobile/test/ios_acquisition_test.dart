@@ -21,10 +21,13 @@ class TestAcquisitionApi implements IosAcquisitionApi {
   IosFreeAllowance allowance = IosFreeAllowance.available;
   final free = <String>{}, paid = <String>{};
   final products = Map<String, String>.of(productMap);
+  final prices = {'test.wallpaper.1': '1.00', 'test.wallpaper.2': '1.00'};
   final claims = <(String, String)>[];
   int generation = 0;
   IosPendingFreeReset? pendingReset;
   int stateCalls = 0, purchaseCalls = 0, resetCalls = 0;
+  int catalogueCalls = 0;
+  bool catalogueMissing = false;
   bool offline = false, rejectPurchase = false, claimTimeout = false;
   bool denyClaim = false, grantPaid = true;
   Completer<void>? holdClaim;
@@ -33,6 +36,7 @@ class TestAcquisitionApi implements IosAcquisitionApi {
     accountToken: accountToken,
     freeGeneration: generation,
     products: products,
+    chinaReferencePrices: Map.of(prices),
     freeAllowance: pendingReset == null
         ? allowance
         : IosFreeAllowance.pendingReset,
@@ -45,6 +49,17 @@ class TestAcquisitionApi implements IosAcquisitionApi {
     stateCalls++;
     if (offline) throw StateError('Network unavailable');
     return snapshot;
+  }
+
+  @override
+  Future<IosProductCatalogue> productCatalogue() async {
+    catalogueCalls++;
+    if (catalogueMissing) throw const DeviceApiError(404, 'NOT_FOUND');
+    if (offline) throw StateError('Network unavailable');
+    return IosProductCatalogue(
+      Map.of(products),
+      chinaReferencePrices: Map.of(prices),
+    );
   }
 
   @override
@@ -206,6 +221,17 @@ class RecordingIosSessions extends DeviceSessionManager {
       return {
         'challengeId': '2cc99fa7-a7d7-42d5-9d06-d2e6c9bcc43$challenges',
         'nonce': 'server-nonce-$challenges',
+      };
+    }
+    if (path == '/device/ios/products') {
+      return {
+        'items': [
+          {
+            'wallpaperId': '1',
+            'productId': 'test.wallpaper.1',
+            'chinaReferencePrice': '8.80',
+          },
+        ],
       };
     }
     return {
@@ -372,11 +398,7 @@ void main() {
         api.allowance = IosFreeAllowance.used;
         store.currencyCode = currency;
         store.displayPrice = currency == 'USD' ? 'US\$0.99' : '¥150';
-        final flow = IosAcquisitionController(
-          api,
-          store,
-          chinaReferencePrices: {'test.wallpaper.2': '¥1.00'},
-        );
+        final flow = IosAcquisitionController(api, store);
         addTearDown(flow.dispose);
         await flow.initialize();
         expect(flow.label('2'), '¥1.00 购买并下载');
@@ -397,6 +419,7 @@ void main() {
     'unconfigured China reference prices never invent RMB amounts or block payment',
     () async {
       api.allowance = IosFreeAllowance.used;
+      api.prices.clear();
       store.currencyCode = 'USD';
       store.displayPrice = 'US\$0.99';
       await controller.initialize();
@@ -435,6 +458,84 @@ void main() {
     expect(controller.products, isEmpty);
     expect(api.stateCalls, 1);
   });
+
+  test(
+    'backend price edits update an existing app and override StoreKit display currency',
+    () async {
+      api.allowance = IosFreeAllowance.used;
+      store.displayPrice = '¥99.00';
+      await controller.initialize();
+      expect(controller.label('2'), '¥1.00 购买并下载');
+      api.prices['test.wallpaper.2'] = '18.80';
+      await controller.refreshPrices();
+      expect(controller.label('2'), '¥18.80 购买并下载');
+      expect(api.stateCalls, 1);
+      expect(api.catalogueCalls, 1);
+      expect(store.synchronization, [false]);
+    },
+  );
+
+  test(
+    'the lightweight catalogue endpoint does not request Apple device proofs',
+    () async {
+      final sessions = RecordingIosSessions(), proof = RecordingIosProof();
+      final catalogue = await SessionIosAcquisitionApi(
+        sessions,
+        proof: proof,
+      ).productCatalogue();
+      expect(catalogue.chinaReferencePrices, {'test.wallpaper.1': '8.80'});
+      expect(sessions.requests.single.path, '/device/ios/products');
+      expect(sessions.challenges, 0);
+      expect(proof.assertedBodies, isEmpty);
+    },
+  );
+
+  test(
+    'legacy status and a missing catalogue endpoint never introduce hardcoded prices',
+    () async {
+      api.allowance = IosFreeAllowance.used;
+      api.prices.clear();
+      api.catalogueMissing = true;
+      await controller.initialize();
+      await controller.refreshPrices();
+      expect(controller.label('2'), '购买并下载');
+      expect(await controller.acquire('2'), true);
+    },
+  );
+
+  test(
+    'backend decimal reference prices retain cents across cache round trips',
+    () {
+      final catalogue = IosProductCatalogue.fromItems([
+        {
+          'wallpaperId': '1',
+          'productId': 'test.wallpaper.1',
+          'chinaReferencePrice': '0.10',
+        },
+        {
+          'wallpaperId': '2',
+          'productId': 'test.wallpaper.2',
+          'chinaReferencePrice': null,
+        },
+      ]);
+      expect(
+        IosProductCatalogue.fromItems(catalogue.toJson()).chinaReferencePrices,
+        {'test.wallpaper.1': '0.10'},
+      );
+      for (final invalid in [1.00, '0.00', '-1.00', '1.001', '1e2']) {
+        expect(
+          () => IosProductCatalogue.fromItems([
+            {
+              'wallpaperId': '1',
+              'productId': 'test.wallpaper.1',
+              'chinaReferencePrice': invalid,
+            },
+          ]),
+          throwsFormatException,
+        );
+      }
+    },
+  );
 
   test(
     'pending test reset is completed before acquisition becomes ready',

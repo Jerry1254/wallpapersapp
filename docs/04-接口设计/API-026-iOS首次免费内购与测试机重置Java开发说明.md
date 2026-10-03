@@ -970,7 +970,7 @@ signature.update(nonce);
 - 每款已发布、可在 iOS 下载的非免费壁纸，必须在 App Store Connect 有一个独立的 `NON_CONSUMABLE` 商品。
 - 一张壁纸对应一个 Product ID，一个 Product ID 不得复用给多张壁纸。
 - 用户首免只是对这些正式商品免费授予一次权益，不能让未绑定 Apple 商品的壁纸进入首免。
-- 首免使用后，App 显示 Apple 实时返回的本地化价格，点击后走 StoreKit 购买；后端不下发和伪造价格。
+- 首免使用后，App 显示 Java 下发的中国区人民币参考价，点击后走 StoreKit 购买；实际付款金额和币种由 Apple 决定。展示价字段及刷新规则见第 12.14 节。
 - 如果现有壁纸的 `accessType=FREE`，iOS 前端会按永久免费内容处理并绕过首免与内购。因此“所有 iOS 壁纸都是内购商品”的目录中，对应壁纸应为 `REDEEM`；仅明确的永久免费内容可保留 `FREE`。
 
 管理后台中的“倾境壁纸商品”和 App Store Connect 中的“Apple 内购商品”是两条记录。现阶段管理后台只负责绑定 Product ID，不能只在 MySQL 写一个字符串就当作已创建 Apple 商品。Apple 商品必须先在 App Store Connect 中创建；若以后要自动创建，需要另行接入 App Store Connect API。
@@ -1021,7 +1021,7 @@ iOS App 不内置某一张壁纸的 Product ID。启动后使用 `acquisition/st
 - 未返回 Product ID：按钮显示“商品尚未配置”，禁止购买，也不消耗首免。
 - 已有映射但 StoreKit 查不到：首免已用时显示“App Store 暂不可购买”，禁止发起支付。
 - 首免可用且商品已映射：显示“首次免费获取”，服务端仍再校验该壁纸可参与首免。
-- StoreKit 返回商品：显示 `Product.displayPrice + 购买并下载`，不在 App 中写死价格。
+- StoreKit 返回商品：显示 Java 下发的 `chinaReferencePrice + 购买并下载`，不在 App 中写死价格；未配置展示价时不编造金额，显示“购买并下载”。实际支付以 Apple 确认页为准，见第 12.14 节。
 - Apple 验签后的交易必须先同步到 Java 并确认权益，再 finish 交易和下载原 MP4。
 
 #### 12.12.6 存量商品一次性补齐和验收
@@ -1062,3 +1062,43 @@ iOS App 不内置某一张壁纸的 Product ID。启动后使用 `acquisition/st
 6. 如需重测首免，再通过后台对已标记测试机发起重置，待 App 完成新证明后确认状态成功；重置仅恢复一张首免机会，不清空 Apple 购买历史。
 
 **给 API 与管理后台的要求：** 沿用现有全量映射和接口，无需为了这三款商品新增接口。`acquisition/status.products[]` 应返回以上三组正确映射；不得只返回普贤或在客户端写死商品 ID。购买校验须按交易中的 Product ID 查对应壁纸，保持环境隔离、交易幂等和原有已购恢复规则。最终验收应同时有 StoreKit 真机结果、Java 交易/权益回读及下载成功结果；目前这三项购买证据仍待取得。
+
+
+### 12.14 人民币展示价由管理后台配置（2026-10-03）
+
+本节更新此前“直接显示 StoreKit 本地化价格”的交互：用户要求所有商店地区统一显示中国区人民币参考价，同时保留各区 Apple 购买流程。App 不包含商品价格表，修改展示价不需要重新打包。Apple 支付金额仍须在 App Store Connect 配置；管理后台字段只控制 App 展示，不能更改 Apple 实际扣款。
+
+**Java / MySQL：** 正式 OpenAPI `2.15.0`，新增 Flyway `V17__ios_china_reference_price.sql`。`ios_product_mapping.china_reference_price` 使用 `DECIMAL(10,2)`，不在迁移中填入测试商品价格；接口使用字符串（例如 `"1.00"`）避免小数舍入。
+
+- 现有 `PUT /api/v1/admin/wallpapers/{wallpaperId}/ios-acquisition` 新增 `chinaReferencePrice`；读取管理配置和壁纸详情也返回该字段。已有验证交易只锁定 Product ID，仍允许修改展示价。
+- 兼容旧后台：省略字段或传 `null`，同一个 Product ID 保留原价格；更换 Product ID 不继承原商品价格。金额必须大于 0 且精确到两位小数。
+- `acquisition/status.products[]` 和新增 `GET /api/v1/device/ios/products` 都返回同一份已发布、已启用的商品映射与价格。GET 只需有效 iOS 设备会话，返回 `Cache-Control: no-store`，不查询 DeviceCheck、不调用 App Attest，也不发放首免或购买权益。
+
+后台保存示例：
+
+```json
+{
+  "productId": "com.qingjing.bizhi.wallpaper.puxian",
+  "chinaReferencePrice": "1.00",
+  "firstFreeEligible": true,
+  "enabled": true
+}
+```
+
+App 商品查询响应示例：
+
+```json
+{
+  "items": [{
+    "wallpaperId": "1",
+    "productId": "com.qingjing.bizhi.wallpaper.puxian",
+    "chinaReferencePrice": "1.00"
+  }]
+}
+```
+
+**管理后台：** “iOS 首免与内购”区域新增“中国区展示价（元）”。编辑时填入与 App Store Connect 中国区售价一致的金额，保存时规范为两位小数并通过管理 API 写入 MySQL。售卖中的商品必须填正数展示价；Product ID 锁定不锁价格。改 Apple 中国区售价时同步修改该字段；当前不自动调用 App Store Connect 管理 API 同步定价。
+
+**App：** 首次启动随资格状态读取价格；进入详情页、从后台返回或商店地区变化时，通过轻量 GET 刷新商品配置，再查询 StoreKit 可购买状态，不重复验证首免、不自动恢复购买。后台改价后重新进入详情即可显示新值；同一详情保持前台时不做持续轮询。人民币按钮下显示“中国区参考价，实际付款以 Apple 确认页为准”。旧 API 没有 GET 时仅兼容服务端状态数据；缺少价格则显示“购买并下载”，绝不使用内置 ¥1 等默认价。地区不会在 App 中被额外限制，实际供应范围仍由 App Store Connect 决定。
+
+**部署顺序：** 先部署 API（执行 V17）及管理后台，通过后台为每款商品填展示价并回读，再使用包含此逻辑的 Release App 验收。本次代码已完成，不代表线上已部署或价格已配置。现有写死价格的 App 需要升级一次移除旧逻辑；之后普通改价无需再发版。验收应包含：后台改价 → 返回详情更新金额、已交易商品改价、不同商店地区仍能弹出 Apple 购买页、首免及恢复购买不受影响。
