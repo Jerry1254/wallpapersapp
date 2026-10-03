@@ -1,0 +1,70 @@
+export type Screen = 'app' | 'gallery' | 'photo' | 'permission' | 'preview' | 'success';
+export type Step = {
+  seconds: number;
+  title: string;
+  description: string;
+  screen: Screen;
+  action: string;
+  hint: string;
+  tag?: string;
+};
+export type Tutorial = {
+  id: string;
+  title: string;
+  platform: string;
+  effect: 'static' | 'video' | 'parallax';
+  format: string;
+  steps: Step[];
+};
+
+export const tutorials: Tutorial[] = [
+  {
+    id: '01-static', title: '静态壁纸设置', platform: '安卓 · 鸿蒙 · iOS', effect: 'static', format: '静态壁纸',
+    steps: [
+      { seconds: 5, title: '选择喜欢的静态壁纸', description: '在壁纸详情里选择「静态壁纸」', screen: 'app', action: '下载壁纸', hint: '先下载，再按手机平台完成设置。' },
+      { seconds: 6, title: '安卓：直接设置', description: '下载完成后，点击「设置壁纸」', screen: 'app', action: '设置壁纸', hint: '按提示选择桌面、锁屏或同时设置。', tag: '安卓' },
+      { seconds: 7, title: 'iOS / 鸿蒙：打开相册', description: '找到刚保存的图片，打开壁纸选项', screen: 'photo', action: '设为壁纸', hint: 'iOS：分享 → 用作墙纸\n鸿蒙：更多 → 设置为壁纸', tag: 'iOS / 鸿蒙' },
+      { seconds: 5, title: '确认后，就设置好了', description: '选择需要的位置，按系统提示确认', screen: 'success', action: '设置完成', hint: '同一张静态壁纸，三个平台都能使用。' },
+    ],
+  },
+  {
+    id: '02-android-video', title: '安卓动态壁纸', platform: 'ANDROID', effect: 'video', format: '动态壁纸',
+    steps: [
+      { seconds: 5, title: '下载喜欢的动态壁纸', description: '在详情里选择「动态壁纸」并下载', screen: 'app', action: '下载壁纸', hint: '等待下载完成，即可开始设置。' },
+      { seconds: 5, title: '点击「设置壁纸」', description: '按系统提示确认应用到桌面或锁屏', screen: 'preview', action: '设置壁纸', hint: '正常情况下，直接点击设置就可以。' },
+      { seconds: 9, title: '提示权限？这样开启', description: '手机设置 → 应用管理 → 当前倾境 App', screen: 'permission', action: '动态壁纸服务', hint: '权限管理 → 其他权限 → 允许动态壁纸服务\n开启后回到 App，重新检测并设置。', tag: '仅出现权限提示时' },
+      { seconds: 4, title: '让壁纸动起来', description: '返回桌面，查看动态效果', screen: 'success', action: '设置完成', hint: '权限名称和设置位置可能因手机品牌而不同。' },
+    ],
+  },
+  {
+    id: '03-android-4d', title: '安卓 4D 壁纸', platform: 'ANDROID · 4D', effect: 'parallax', format: '4D壁纸',
+    steps: [
+      { seconds: 5, title: '选择并下载 4D 壁纸', description: '在壁纸详情里选择「4D壁纸」', screen: 'app', action: '下载壁纸', hint: '下载完成后，即可一键设置。' },
+      { seconds: 5, title: '点击「设置壁纸」', description: '按系统提示确认，完成壁纸设置', screen: 'preview', action: '设置壁纸', hint: '正常情况下，直接点击设置就可以。' },
+      { seconds: 9, title: '提示权限？先允许服务', description: '手机设置 → 应用管理 → 当前倾境 App', screen: 'permission', action: '动态壁纸服务', hint: '权限管理 → 其他权限 → 允许动态壁纸服务\n开启后回到 App，重新检测并设置。', tag: '仅出现权限提示时' },
+      { seconds: 5, title: '轻轻转动手机', description: '前景和背景，随角度产生层次变化', screen: 'success', action: '设置完成', hint: '实际效果以当前手机和壁纸资源为准。' },
+    ],
+  },
+  {
+    id: '04-harmony-video', title: '鸿蒙动态壁纸', platform: 'HarmonyOS', effect: 'video', format: '动态壁纸',
+    steps: [
+      { seconds: 5, title: '先保存到相册', description: '在 App 下载壁纸，按提示保存到图库', screen: 'app', action: '保存到图库', hint: '首次保存时，按系统提示允许保存。' },
+      { seconds: 5, title: '打开「图库」', description: '找到刚保存的动态照片，点击打开', screen: 'gallery', action: '动态照片', hint: '请选择动态照片，而不是单独的视频。' },
+      { seconds: 6, title: '更多 → 设置为壁纸', description: '在动态照片页面，打开「更多」', screen: 'photo', action: '设置为壁纸', hint: '点击「设置为壁纸」，进入壁纸预览。' },
+      { seconds: 6, title: '保留动态，应用到锁屏', description: '保持动态效果开启，点击「应用」', screen: 'preview', action: '应用', hint: '根据系统提示，完成锁屏壁纸设置。' },
+      { seconds: 4, title: '锁屏也有动态效果', description: '设置完成，查看锁屏壁纸', screen: 'success', action: '设置完成', hint: '需要支持动态照片壁纸的鸿蒙版本和机型。' },
+    ],
+  },
+  {
+    id: '05-ios-video', title: 'iOS 动态壁纸', platform: 'iPhone · iOS 17 或更新版本', effect: 'video', format: '动态壁纸',
+    steps: [
+      { seconds: 5, title: '下载并保存实况照片', description: '在 App 下载动态壁纸，保存到相册', screen: 'app', action: '下载壁纸', hint: '首次下载时，按提示允许保存到照片。' },
+      { seconds: 5, title: '打开「照片」', description: '找到刚保存的实况照片，点击打开', screen: 'gallery', action: '实况照片', hint: '请选择带有 LIVE 标识的照片。' },
+      { seconds: 6, title: '分享 → 用作墙纸', description: '点击分享，在菜单中选择「用作墙纸」', screen: 'photo', action: '用作墙纸', hint: '也可从 设置 → 墙纸 → 添加新墙纸 进入。' },
+      { seconds: 7, title: '打开实况播放，点击添加', description: '保持播放开启，再确认墙纸组合', screen: 'preview', action: '添加', hint: '选择「设为墙纸组合」完成设置。' },
+      { seconds: 5, title: '唤醒锁屏，欣赏动态', description: '实况照片会在唤醒锁屏时播放', screen: 'success', action: '设置完成', hint: '动态效果显示在锁屏；主屏幕显示静态画面。' },
+    ],
+  },
+];
+
+export const duration = (tutorial: Tutorial) => tutorial.steps.reduce((total, step) => total + step.seconds, 0);
