@@ -73,7 +73,6 @@ class _DetailScreenState extends State<DetailScreen>
   List<WallpaperTutorial>? tutorialCache;
   bool _fullScreen = false;
   bool get _isIosDetail => Platform.isIOS || widget.iosAcquisition != null;
-  bool get _allowsFullScreen => !_isIosDetail;
   final _previewKey = GlobalKey();
   @override
   void initState() {
@@ -333,7 +332,7 @@ class _DetailScreenState extends State<DetailScreen>
     deliveryPlatform: option.deliveryPlatform,
     resourceType: option.resourceType,
     cover: cover,
-    fit: _fullScreen ? BoxFit.contain : BoxFit.cover,
+    fit: BoxFit.cover,
   );
 
   Widget _header(Wallpaper wallpaper) {
@@ -397,11 +396,15 @@ class _DetailScreenState extends State<DetailScreen>
                 statusBarColor: Colors.transparent,
                 statusBarBrightness: Brightness.dark,
                 statusBarIconBrightness: Brightness.light,
-                systemNavigationBarColor: Colors.black,
+                systemNavigationBarColor: Colors.transparent,
                 systemNavigationBarIconBrightness: Brightness.light,
               )
             : qjSystemUiOverlayStyle,
         child: SafeArea(
+          top: !_fullScreen,
+          bottom: !_fullScreen,
+          left: !_fullScreen,
+          right: !_fullScreen,
           child: Center(
             child: ConstrainedBox(
               constraints: BoxConstraints(
@@ -534,8 +537,11 @@ class _DetailScreenState extends State<DetailScreen>
                   final cover = CatalogImage(
                     repository: widget.repository,
                     path: wallpaper.cover,
-                    fit: _fullScreen ? BoxFit.contain : BoxFit.cover,
+                    fit: BoxFit.cover,
                   );
+                  final previewInsets = _fullScreen
+                      ? MediaQuery.paddingOf(context)
+                      : EdgeInsets.zero;
                   return Padding(
                     padding: _fullScreen
                         ? EdgeInsets.zero
@@ -633,8 +639,8 @@ class _DetailScreenState extends State<DetailScreen>
                                     cover,
                                   if (previewOption != null)
                                     Positioned(
-                                      top: 14,
-                                      left: 14,
+                                      top: 14 + previewInsets.top,
+                                      left: 14 + previewInsets.left,
                                       child: IgnorePointer(
                                         child: DecoratedBox(
                                           decoration: BoxDecoration(
@@ -684,31 +690,30 @@ class _DetailScreenState extends State<DetailScreen>
                                         ),
                                       ),
                                     ),
-                                  if (_allowsFullScreen)
-                                    Positioned(
-                                      top: 10,
-                                      right: 10,
-                                      child: IconButton(
-                                        tooltip: _fullScreen ? '退出全屏' : '全屏预览',
-                                        onPressed: () => setState(
-                                          () => _fullScreen = !_fullScreen,
+                                  Positioned(
+                                    top: 10 + previewInsets.top,
+                                    right: 10 + previewInsets.right,
+                                    child: IconButton(
+                                      tooltip: _fullScreen ? '退出全屏' : '全屏预览',
+                                      onPressed: () => setState(
+                                        () => _fullScreen = !_fullScreen,
+                                      ),
+                                      style: IconButton.styleFrom(
+                                        backgroundColor: const Color(
+                                          0xB3191817,
                                         ),
-                                        style: IconButton.styleFrom(
-                                          backgroundColor: const Color(
-                                            0xB3191817,
-                                          ),
-                                          foregroundColor: Colors.white,
-                                          side: const BorderSide(
-                                            color: Colors.white38,
-                                          ),
-                                        ),
-                                        icon: Icon(
-                                          _fullScreen
-                                              ? Icons.fullscreen_exit_rounded
-                                              : Icons.fullscreen_rounded,
+                                        foregroundColor: Colors.white,
+                                        side: const BorderSide(
+                                          color: Colors.white38,
                                         ),
                                       ),
+                                      icon: Icon(
+                                        _fullScreen
+                                            ? Icons.fullscreen_exit_rounded
+                                            : Icons.fullscreen_rounded,
+                                      ),
                                     ),
+                                  ),
                                 ],
                               ),
                             ),

@@ -373,7 +373,7 @@ void main() {
           headerRect.bottom,
       2,
     );
-    expect(find.byTooltip('全屏预览'), findsNothing);
+    expect(find.byTooltip('全屏预览'), findsOneWidget);
     expect(tester.takeException(), isNull);
     tester.view.physicalSize = const Size(320, 568);
     await tester.pumpAndSettle();

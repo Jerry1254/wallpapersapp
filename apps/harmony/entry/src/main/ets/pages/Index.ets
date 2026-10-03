@@ -1029,11 +1029,11 @@ struct Index {
         }
       }
         Stack({ alignContent: Alignment.Bottom }) {
-          Image(this.mediaUrl(item.coverUrl)).width('100%').height('100%').objectFit(this.detailFullScreen ? ImageFit.Contain : ImageFit.Cover)
+          Image(this.mediaUrl(item.coverUrl)).width('100%').height('100%').objectFit(ImageFit.Cover)
             .backgroundColor(T.surfaceMuted);
           if (this.detailPreviewPath.length > 0) {
             Video({ src: 'file://' + this.detailPreviewPath, controller: this.detailVideoController })
-              .width('100%').height('100%').objectFit(this.detailFullScreen ? ImageFit.Contain : ImageFit.Cover).controls(false)
+              .width('100%').height('100%').objectFit(ImageFit.Cover).controls(false)
               .autoPlay(!this.detailPreviewEnded).loop(false).muted(true)
               .onStart(() => {
                 this.detailPreviewEnded = false;
