@@ -223,6 +223,25 @@ void main() {
     store.currencyCode = 'USD';
     await controller.refreshPrices();
     expect(controller.canAcquire('1'), false);
+    expect(controller.label('1'), '请使用中国大陆商店');
+    expect(controller.priceNote('1'), '1积分＝1元，下载积分仅支持中国大陆商店');
+    await expectLater(
+      controller.acquire('1'),
+      throwsA(
+        isA<IosAcquisitionNotice>().having(
+          (notice) => notice.message,
+          'message',
+          '下载积分仅支持中国大陆商店，请切换后重试',
+        ),
+      ),
+    );
+    expect(store.purchases, 2);
+    store.currencyCode = 'CNY';
+    store.storefrontListener?.call();
+    await controller.refreshPrices();
+    expect(controller.canAcquire('1'), true);
+    expect(controller.label('1'), '18个积分兑换壁纸');
+    expect(controller.priceNote('1'), '1积分＝1元');
     controller.dispose();
   });
   test('first free respects eligibility and restore avoids payment', () async {

@@ -723,6 +723,13 @@ class IosAcquisitionController extends ChangeNotifier {
         num.tryParse(product?.price ?? '') == offer?.packCredits;
   }
 
+  bool _creditCurrencyMismatch(String id) {
+    final product = products[_productId(id)];
+    return _offers.creditOffers.containsKey(id) &&
+        product != null &&
+        product.currencyCode != 'CNY';
+  }
+
   Future<void> initialize() => _initialization ??= _initialize();
   Future<void> _initialize() async {
     busy = true;
@@ -861,6 +868,7 @@ class IosAcquisitionController extends ChangeNotifier {
     if (credit != null) {
       if (credit.credits == null) return '商品尚未配置';
       if (pricesLoading) return '正在获取价格';
+      if (_creditCurrencyMismatch(wallpaperId)) return '请使用中国大陆商店';
       return _creditAvailable(wallpaperId)
           ? '${credit.credits}个积分兑换壁纸'
           : 'App Store 暂不可购买';
@@ -879,6 +887,11 @@ class IosAcquisitionController extends ChangeNotifier {
     if (state != null &&
         _offers.creditOffers.containsKey(wallpaperId) &&
         !owns(wallpaperId)) {
+      if (!pricesLoading &&
+          !_canFree(wallpaperId) &&
+          _creditCurrencyMismatch(wallpaperId)) {
+        return '1积分＝1元，下载积分仅支持中国大陆商店';
+      }
       return '1积分＝1元';
     }
     if (owns(wallpaperId) ||
@@ -1048,6 +1061,9 @@ class IosAcquisitionController extends ChangeNotifier {
       throw const IosAcquisitionNotice('上次付款尚未确认，请在“我的”中恢复购买；无需再次付款');
     }
     if (!_creditAvailable(wallpaperId)) {
+      if (_creditCurrencyMismatch(wallpaperId)) {
+        throw const IosAcquisitionNotice('下载积分仅支持中国大陆商店，请切换后重试');
+      }
       throw const IosAcquisitionNotice('此壁纸暂不可购买，请稍后重试');
     }
     final order = await creditApi.creditOrder(
