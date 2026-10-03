@@ -19,6 +19,7 @@ enum NativeLivePhotoComposer {
     case frameCountInvalid
     case invalidCanvasSize
     case imageCreationFailed
+    case missingStillImageTime
     case sampleTransferFailed
   }
 
@@ -36,6 +37,7 @@ enum NativeLivePhotoComposer {
     let canvasURL = directory.appendingPathComponent("canvas.mov")
     let photoURL = directory.appendingPathComponent("photo.heic")
     let pairedVideoURL = directory.appendingPathComponent("paired.mov")
+    let photoTime = try await stillImageTime(from: metadataTemplateURL)
 
     try await createCanvasVideo(
       from: sourceURL,
@@ -43,7 +45,12 @@ enum NativeLivePhotoComposer {
       maximumCanvasDimension: maximumCanvasDimension,
       outputURL: canvasURL
     )
-    try await createImage(from: canvasURL, identifier: identifier, outputURL: photoURL)
+    try await createImage(
+      from: canvasURL,
+      at: photoTime,
+      identifier: identifier,
+      outputURL: photoURL
+    )
     try await createPairedVideo(
       from: canvasURL,
       metadataTemplateURL: metadataTemplateURL,
@@ -257,8 +264,40 @@ enum NativeLivePhotoComposer {
     )
   }
 
+  private static func stillImageTime(from metadataTemplateURL: URL) async throws -> CMTime {
+    let asset = AVURLAsset(url: metadataTemplateURL)
+    let tracks = try await asset.loadTracks(withMediaType: .metadata)
+    for track in tracks {
+      let reader = try AVAssetReader(asset: asset)
+      let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+      guard reader.canAdd(output) else { throw CompositionError.readerCreationFailed }
+      reader.add(output)
+      guard reader.startReading() else {
+        throw reader.error ?? CompositionError.readerCreationFailed
+      }
+      while let sample = output.copyNextSampleBuffer() {
+        guard let group = AVTimedMetadataGroup(sampleBuffer: sample),
+              group.items.contains(where: {
+                $0.identifier?.rawValue == "mdta/com.apple.quicktime.still-image-time"
+              }) else { continue }
+        let time = group.timeRange.start
+        reader.cancelReading()
+        guard time.isNumeric, CMTimeCompare(time, .zero) >= 0,
+              CMTimeCompare(time, CMTime(value: 60, timescale: 60)) < 0 else {
+          throw CompositionError.missingStillImageTime
+        }
+        return time
+      }
+      guard reader.status == .completed else {
+        throw reader.error ?? CompositionError.sampleTransferFailed
+      }
+    }
+    throw CompositionError.missingStillImageTime
+  }
+
   private static func createImage(
     from videoURL: URL,
+    at photoTime: CMTime,
     identifier: String,
     outputURL: URL
   ) async throws {
@@ -267,8 +306,10 @@ enum NativeLivePhotoComposer {
     generator.requestedTimeToleranceBefore = .zero
     generator.requestedTimeToleranceAfter = .zero
     var actualTime = CMTime.zero
+    // The still photo must match the marker copied into the paired movie.
+    // Taking frame zero can produce a black cover that contradicts that marker.
     let image = try generator.copyCGImage(
-      at: .zero,
+      at: photoTime,
       actualTime: &actualTime
     )
     guard let destination = CGImageDestinationCreateWithURL(
