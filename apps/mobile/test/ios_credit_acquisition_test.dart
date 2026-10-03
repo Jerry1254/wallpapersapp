@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qingjing_wallpaper/entitlements/ios_acquisition.dart';
@@ -126,6 +127,12 @@ class CreditStore extends TestPurchaseStore implements IosCreditPurchaseStore {
   }
 }
 
+class UnresponsivePriceStore extends CreditStore {
+  final query = Completer<List<IosStoreProduct>>();
+  @override
+  Future<List<IosStoreProduct>> products(Set<String> ids) => query.future;
+}
+
 void main() {
   test(
     'shared SKU retains wallpaper price and pays exact quantity once',
@@ -165,13 +172,42 @@ void main() {
       );
       expect(store.finished, isEmpty);
       expect(store.purchases, 1);
+      for (var repeat = 0; repeat < 10; repeat++) {
+        store.listener?.call(store.unfinished.single);
+      }
+      await Future<void>.delayed(Duration.zero);
+      expect(api.purchaseCalls, 1);
+      expect(controller.busy, false);
+      expect(controller.label('1'), '确认购买结果');
+      controller.error = '付款结果尚未确认，请恢复购买；无需再次付款';
       api.rejectPurchase = false;
       expect(await controller.acquire('1'), true);
       expect(store.purchases, 1);
       expect(store.finished, ['credit-transaction']);
+      expect(controller.error, isNull);
+      expect(
+        jsonDecode(store.cache!).containsKey('lastPurchaseFailure'),
+        false,
+      );
       controller.dispose();
     },
   );
+  testWidgets('unresponsive Apple price query cannot keep eligibility busy', (
+    tester,
+  ) async {
+    final api = CreditApi(), store = UnresponsivePriceStore();
+    final controller = IosAcquisitionController(api, store);
+    addTearDown(controller.dispose);
+    final initialization = controller.initialize();
+    await tester.pump();
+    expect(controller.busy, true);
+    await tester.pump(const Duration(seconds: 21));
+    await initialization;
+    expect(controller.busy, false);
+    expect(controller.ready, true);
+    expect(controller.label('1'), 'App Store 暂不可购买');
+    expect(store.purchases, 0);
+  });
   test(
     'pending approval survives restart and blocks repeated payment',
     () async {

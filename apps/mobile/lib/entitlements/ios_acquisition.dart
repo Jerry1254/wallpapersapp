@@ -700,6 +700,8 @@ class IosAcquisitionController extends ChangeNotifier {
   Future<void>? _initialization;
   Future<void>? _productRefresh;
   final List<IosStoreTransaction> _updates = [];
+  final Map<String, String> _failedTransactionUpdates = {};
+  Map<String, Object>? _lastPurchaseFailure;
   bool _closed = false;
   bool owns(String id) => state?.owns(id) == true;
 
@@ -760,6 +762,10 @@ class IosAcquisitionController extends ChangeNotifier {
     }
     try {
       await store.observe((transaction) {
+        if (_failedTransactionUpdates[transaction.id] ==
+            transaction.signedTransaction) {
+          return;
+        }
         _updates.removeWhere((value) => value.id == transaction.id);
         _updates.add(transaction);
         _drainUpdates();
@@ -786,7 +792,9 @@ class IosAcquisitionController extends ChangeNotifier {
       }
       await refreshPrices(reloadCatalogue: false);
       ready = true;
-      for (final transaction in await store.transactions()) {
+      for (final transaction in await store.transactions().timeout(
+        const Duration(seconds: 30),
+      )) {
         await _deliver(transaction);
       }
     } on DeviceApiError catch (failure) {
@@ -835,9 +843,13 @@ class IosAcquisitionController extends ChangeNotifier {
               catalogue = state!.catalogue;
             }
           }
-          found = await store.products(
-            catalogue.productIds.values.where((id) => id.isNotEmpty).toSet(),
-          );
+          found = await store
+              .products(
+                catalogue.productIds.values
+                    .where((id) => id.isNotEmpty)
+                    .toSet(),
+              )
+              .timeout(const Duration(seconds: 20));
         } catch (_) {
           // A failed price query must not leave a stale price on screen.
         }
@@ -859,6 +871,9 @@ class IosAcquisitionController extends ChangeNotifier {
     if (busy) return '正在确认资格';
     if (state?.freeAllowance == IosFreeAllowance.pendingReset) {
       return '测试资格重置处理中';
+    }
+    if (ready && _pendingCredit?.wallpaperId == wallpaperId) {
+      return '确认购买结果';
     }
     if (!ready || error != null) return '重试获取资格';
     if (state!.freeAllowance == IosFreeAllowance.unknown) return '重试获取资格';
@@ -940,7 +955,7 @@ class IosAcquisitionController extends ChangeNotifier {
     if (unavailable) throw const IosAcquisitionNotice('Apple 验证暂不可用，请稍后重试');
     if (owns(wallpaperId)) return true;
     if (!ready ||
-        error != null ||
+        (error != null && _pendingCredit?.wallpaperId != wallpaperId) ||
         state!.freeAllowance == IosFreeAllowance.unknown) {
       await refresh();
       return false;
@@ -1049,7 +1064,9 @@ class IosAcquisitionController extends ChangeNotifier {
       await _cache();
     }
     // Retry unfinished payments before starting a new Apple charge.
-    for (final transaction in await store.transactions()) {
+    for (final transaction in await store.transactions().timeout(
+      const Duration(seconds: 30),
+    )) {
       await _deliver(transaction);
     }
     if (owns(wallpaperId)) return true;
@@ -1192,7 +1209,32 @@ class IosAcquisitionController extends ChangeNotifier {
   Future<void> _deliver(IosStoreTransaction transaction) async {
     // Receiving PURCHASED alone never grants local access. Keep transactions
     // unfinished on API failure so startup/Restore can retry after interruption.
-    await _accept(await api.synchronize(transaction));
+    try {
+      final fresh = await api
+          .synchronize(transaction)
+          .timeout(const Duration(seconds: 45));
+      _failedTransactionUpdates.remove(transaction.id);
+      _lastPurchaseFailure = null;
+      await _accept(fresh);
+    } catch (failure) {
+      _failedTransactionUpdates[transaction.id] = transaction.signedTransaction;
+      _updates.removeWhere(
+        (value) =>
+            value.id == transaction.id &&
+            value.signedTransaction == transaction.signedTransaction,
+      );
+      // Keep only the error code; never persist purchase proofs or tokens here.
+      _lastPurchaseFailure = {
+        'code': failure is DeviceApiError
+            ? failure.code
+            : 'CONFIRMATION_UNAVAILABLE',
+        'status': failure is DeviceApiError ? failure.status : 0,
+      };
+      try {
+        await _cache();
+      } catch (_) {}
+      rethrow;
+    }
     if (transaction.productType == 'CONSUMABLE' &&
         transaction.accountToken != null &&
         transaction.accountToken == _pendingCredit?.token) {
@@ -1225,7 +1267,7 @@ class IosAcquisitionController extends ChangeNotifier {
       try {
         await _deliver(transaction);
       } catch (_) {
-        error = '购买结果尚未确认，请尝试恢复购买';
+        error = '付款结果尚未确认，请恢复购买；无需再次付款';
       } finally {
         busy = false;
         _notify();
@@ -1236,6 +1278,7 @@ class IosAcquisitionController extends ChangeNotifier {
 
   Future<void> _accept(IosAcquisitionState value) async {
     state = value;
+    error = null;
     _catalogue = value.catalogue;
     if (_pendingFreeGeneration != null &&
         _pendingFreeGeneration != value.freeGeneration) {
@@ -1262,6 +1305,8 @@ class IosAcquisitionController extends ChangeNotifier {
       'state': state!.toJson(cache: true),
       if (_pendingCredit != null) 'pendingCredit': _pendingCredit!.value,
       'pendingCreditCancelled': _pendingCreditCancelled,
+      if (_lastPurchaseFailure != null)
+        'lastPurchaseFailure': _lastPurchaseFailure,
       if (_pendingFreeId != null)
         'pendingFree': {
           'wallpaperId': _pendingFreeId,

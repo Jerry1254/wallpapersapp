@@ -166,11 +166,12 @@ class InfrastructureIntegrationIT {
         var wrong=new com.qingjing.wallpaper.iosacquisition.IosAppleGateway.VerifiedTransaction("SANDBOX","com.qingjing.bizhi",order.productId(),transaction,transaction,order.accountToken(),identity,purchased,null,purchased,identity,"CONSUMABLE",8,"CNY",18000L,"CHN");
         assertThatThrownBy(()->creditPurchases.purchase(device,wrong)).isInstanceOf(com.qingjing.wallpaper.shared.web.ApiException.class);
         var payment=new com.qingjing.wallpaper.iosacquisition.IosAppleGateway.VerifiedTransaction("SANDBOX","com.qingjing.bizhi",order.productId(),transaction,transaction,order.accountToken(),identity,purchased,null,purchased,identity,"CONSUMABLE",9,"CNY",18000L,"CHN");
-        var badPrice=new com.qingjing.wallpaper.iosacquisition.IosAppleGateway.VerifiedTransaction("SANDBOX","com.qingjing.bizhi",order.productId(),transaction,transaction,order.accountToken(),identity,purchased,null,purchased,identity,"CONSUMABLE",9,"CNY",2000L,"CHN");
+        var badPrice=new com.qingjing.wallpaper.iosacquisition.IosAppleGateway.VerifiedTransaction("SANDBOX","com.qingjing.bizhi",order.productId(),transaction,transaction,order.accountToken(),identity,purchased,null,purchased,identity,"CONSUMABLE",9,"CNY",1000L,"CHN");
         assertThatThrownBy(()->creditPurchases.purchase(device,badPrice)).isInstanceOf(com.qingjing.wallpaper.shared.web.ApiException.class);
         var badCurrency=new com.qingjing.wallpaper.iosacquisition.IosAppleGateway.VerifiedTransaction("SANDBOX","com.qingjing.bizhi",order.productId(),transaction,transaction,order.accountToken(),identity,purchased,null,purchased,identity,"CONSUMABLE",9,"USD",18000L,"USA");
         assertThatThrownBy(()->creditPurchases.purchase(device,badCurrency)).isInstanceOf(com.qingjing.wallpaper.shared.web.ApiException.class);
-        creditPurchases.purchase(device,payment); creditPurchases.purchase(device,payment);
+        var sandboxUnitPrice=new com.qingjing.wallpaper.iosacquisition.IosAppleGateway.VerifiedTransaction("SANDBOX","com.qingjing.bizhi",order.productId(),transaction,transaction,order.accountToken(),identity,purchased,null,purchased,identity,"CONSUMABLE",9,"CNY",2000L,"CHN");
+        creditPurchases.purchase(device,sandboxUnitPrice); creditPurchases.purchase(device,payment);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ios_credit_ledger WHERE order_id=?",Integer.class,order.orderId())).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT SUM(credits_delta) FROM ios_credit_ledger WHERE order_id=?",Integer.class,order.orderId())).isZero();
         org.mockito.Mockito.when(creditApple.latestTransaction("SANDBOX",transaction)).thenReturn(payment);

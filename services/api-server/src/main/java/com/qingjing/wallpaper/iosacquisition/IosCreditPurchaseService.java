@@ -117,9 +117,18 @@ public class IosCreditPurchaseService {
         if(!order.environment().equals(value.environment()) || !order.bundleId().equals(value.bundleId())
                 || !order.product().equals(value.productId()) || order.quantity()!=value.quantity()
                 || !order.token().equals(value.appAccountToken()) || value.priceMilliunits()==null
-                || value.priceMilliunits()!=order.credits()*1000L || !"CNY".equals(value.currency()) || !"CHN".equals(value.storefront())
+                || !matchesPrice(value,order.pack(),order.credits()) || !"CNY".equals(value.currency()) || !"CHN".equals(value.storefront())
                 || (verifyAccount && !order.appIdentity().equals(value.appTransactionId()))
                 || value.purchasedAt().isBefore(order.createdAt().minusSeconds(60)))throw invalid();
+    }
+    static boolean matchesPrice(VerifiedTransaction value,int packCredits,int credits) {
+        if(value.priceMilliunits()==null)return false;
+        if(value.priceMilliunits()==credits*1000L)return true;
+        // Sandbox has returned a signed unit price for a quantity purchase.
+        // Live payments still require the documented total; quantity, product,
+        // currency, storefront and account binding are checked separately.
+        return "SANDBOX".equals(value.environment()) && value.quantity()>1
+                && value.priceMilliunits()==packCredits*1000L;
     }
     private void requireCredit(VerifiedTransaction value) {
         if(!"CONSUMABLE".equals(value.productType()) || !properties.getBundleId().equals(value.bundleId())
