@@ -127,6 +127,62 @@ class InfrastructureIntegrationIT {
     @org.springframework.test.context.bean.override.mockito.MockitoBean
     com.qingjing.wallpaper.iosacquisition.ApplePriceGateway applePriceGateway;
 
+    @Autowired com.qingjing.wallpaper.iosacquisition.IosCreditProductService creditProducts;
+    @Autowired com.qingjing.wallpaper.iosacquisition.IosCreditPurchaseService creditPurchases;
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    com.qingjing.wallpaper.iosacquisition.IosAppleGateway creditApple;
+
+    @Test
+    void directCreditsVerifyExactPaymentPersistOnceRestoreAndRevokeAcrossInstallations() throws Exception {
+        ensureAdmin();
+        long wallpaper=createPublishedWallpaperFixture();
+        var registered=registerAndCreateSession("credit-fixture");
+        long device=jdbc.queryForObject("SELECT device_id FROM device_credential WHERE credential_key_id=?",Long.class,registered.credentialKeyId());
+        var second=registerAndCreateSession("credit-restore");
+        long secondDevice=jdbc.queryForObject("SELECT device_id FROM device_credential WHERE credential_key_id=?",Long.class,second.credentialKeyId());
+        String identity=UUID.randomUUID().toString();
+        org.mockito.Mockito.when(creditApple.verifyAppTransaction("credit-app-jws","verification")).thenReturn(
+            new com.qingjing.wallpaper.iosacquisition.IosAppleGateway.VerifiedAppIdentity("SANDBOX","com.qingjing.bizhi",identity));
+        for(int unit=1;unit<=3;unit++) org.mockito.Mockito.when(applePriceGateway.currentChinaPrice("com.qingjing.bizhi.credits."+unit,"CONSUMABLE"))
+            .thenReturn(new com.qingjing.wallpaper.iosacquisition.ApplePriceGateway.ChinaPrice("pack"+unit,"point",java.math.BigDecimal.valueOf(unit).setScale(2)));
+        creditProducts.synchronizePacks();
+        creditProducts.update(wallpaper,new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(null,null,true,true,"CREDITS",18));
+        var order=creditPurchases.create(device,wallpaper,"credit-app-jws","verification");
+        assertThat(order.packCredits()).isEqualTo(2);
+        assertThat(order.quantity()).isEqualTo(9);
+        assertThat(order.paymentAllowed()).isTrue();
+        assertThat(creditPurchases.create(secondDevice,wallpaper,"credit-app-jws","verification").paymentAllowed()).isFalse();
+        // A changed admin price cannot alter the already-issued Apple payment snapshot.
+        creditProducts.update(wallpaper,new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(null,null,true,true,"CREDITS",24));
+        assertThat(creditPurchases.create(device,wallpaper,"credit-app-jws","verification").credits()).isEqualTo(18);
+        long cancelledWall=createPublishedWallpaperFixture();
+        creditProducts.update(cancelledWall,new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(null,null,true,true,"CREDITS",5));
+        var cancelled=creditPurchases.create(device,cancelledWall,"credit-app-jws","verification");
+        creditPurchases.cancel(cancelled.orderId(),"credit-app-jws","verification");
+        creditProducts.update(cancelledWall,new com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.UpdateIosProductRequest(null,null,true,true,"CREDITS",9));
+        var retry=creditPurchases.create(device,cancelledWall,"credit-app-jws","verification");
+        assertThat(retry.paymentAllowed()).isTrue();assertThat(retry.credits()).isEqualTo(9);assertThat(retry.orderId()).isNotEqualTo(cancelled.orderId());
+        Instant purchased=Instant.now(); String transaction=Long.toString(System.nanoTime());
+        var wrong=new com.qingjing.wallpaper.iosacquisition.IosAppleGateway.VerifiedTransaction("SANDBOX","com.qingjing.bizhi",order.productId(),transaction,transaction,order.accountToken(),identity,purchased,null,purchased,identity,"CONSUMABLE",8,"CNY",18000L,"CHN");
+        assertThatThrownBy(()->creditPurchases.purchase(device,wrong)).isInstanceOf(com.qingjing.wallpaper.shared.web.ApiException.class);
+        var payment=new com.qingjing.wallpaper.iosacquisition.IosAppleGateway.VerifiedTransaction("SANDBOX","com.qingjing.bizhi",order.productId(),transaction,transaction,order.accountToken(),identity,purchased,null,purchased,identity,"CONSUMABLE",9,"CNY",18000L,"CHN");
+        var badPrice=new com.qingjing.wallpaper.iosacquisition.IosAppleGateway.VerifiedTransaction("SANDBOX","com.qingjing.bizhi",order.productId(),transaction,transaction,order.accountToken(),identity,purchased,null,purchased,identity,"CONSUMABLE",9,"CNY",2000L,"CHN");
+        assertThatThrownBy(()->creditPurchases.purchase(device,badPrice)).isInstanceOf(com.qingjing.wallpaper.shared.web.ApiException.class);
+        var badCurrency=new com.qingjing.wallpaper.iosacquisition.IosAppleGateway.VerifiedTransaction("SANDBOX","com.qingjing.bizhi",order.productId(),transaction,transaction,order.accountToken(),identity,purchased,null,purchased,identity,"CONSUMABLE",9,"USD",18000L,"USA");
+        assertThatThrownBy(()->creditPurchases.purchase(device,badCurrency)).isInstanceOf(com.qingjing.wallpaper.shared.web.ApiException.class);
+        creditPurchases.purchase(device,payment); creditPurchases.purchase(device,payment);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ios_credit_ledger WHERE order_id=?",Integer.class,order.orderId())).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT SUM(credits_delta) FROM ios_credit_ledger WHERE order_id=?",Integer.class,order.orderId())).isZero();
+        org.mockito.Mockito.when(creditApple.latestTransaction("SANDBOX",transaction)).thenReturn(payment);
+        creditPurchases.restore(secondDevice,"credit-app-jws","verification");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ios_credit_order_installation WHERE order_id=?",Integer.class,order.orderId())).isEqualTo(2);
+        var refund=new com.qingjing.wallpaper.iosacquisition.IosAppleGateway.VerifiedTransaction("SANDBOX","com.qingjing.bizhi",order.productId(),transaction,transaction,order.accountToken(),identity,purchased,purchased.plusSeconds(1),purchased.plusSeconds(2),identity,"CONSUMABLE",9,"CNY",18000L,"CHN");
+        creditPurchases.notification(refund);creditPurchases.purchase(device,payment);
+        assertThat(jdbc.queryForObject("SELECT status FROM ios_credit_order WHERE id=?",String.class,order.orderId())).isEqualTo("REFUNDED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM entitlement_grant g JOIN ios_credit_order_installation i ON i.source_reference=g.source_reference WHERE i.order_id=? AND g.status='ACTIVE'",Integer.class,order.orderId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ios_credit_ledger WHERE order_id=?",Integer.class,order.orderId())).isEqualTo(4);
+    }
+
     @Test
     void iosDisplayPricePersistsAndChangesWithoutRebindingPurchasedProducts() {
         ensureAdmin();

@@ -30,10 +30,20 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
             throw Failure.invalidArguments
           }
           let products = try await Product.products(for: ids)
-          result(products.filter { $0.type == .nonConsumable }.map {
+          result(products.filter { $0.type == .nonConsumable || $0.type == .consumable }.map {
             ["id": $0.id, "displayPrice": $0.displayPrice,
-             "currencyCode": $0.priceFormatStyle.currencyCode]
+             "currencyCode": $0.priceFormatStyle.currencyCode,
+             "price": NSDecimalNumber(decimal: $0.price).stringValue,
+             "productType": $0.type == .consumable ? "CONSUMABLE" : "NON_CONSUMABLE"]
           })
+        case "appIdentity":
+          guard #available(iOS 16.0, *) else { throw Failure.proofUnavailable }
+          let app: VerificationResult<AppTransaction>
+          if args["refresh"] as? Bool == true { app = try await AppTransaction.refresh() }
+          else { app = try await AppTransaction.shared }
+          guard case .verified = app, let id = AppStore.deviceVerificationID else { throw Failure.proofUnavailable }
+          result(["signedAppTransaction": app.jwsRepresentation,
+                  "deviceVerificationId": id.uuidString.lowercased()])
         case "purchase":
           if args["testOnly"] as? Bool == true {
 #if DEBUG
@@ -47,9 +57,17 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
           guard let id = args["productId"] as? String,
                 let tokenString = args["accountToken"] as? String,
                 let token = UUID(uuidString: tokenString),
-                let product = try await Product.products(for: [id]).first,
-                product.type == .nonConsumable else { throw Failure.productUnavailable }
-          switch try await product.purchase(options: [.appAccountToken(token)]) {
+                let product = try await Product.products(for: [id]).first else { throw Failure.productUnavailable }
+          let quantity = args["quantity"] as? Int ?? 1
+          var options: Set<Product.PurchaseOption> = [.appAccountToken(token)]
+          if let packCredits = args["packCredits"] as? Int {
+            guard product.type == .consumable, (1...3).contains(packCredits), (1...10).contains(quantity),
+                  product.priceFormatStyle.currencyCode == "CNY", product.price == Decimal(packCredits) else {
+              throw Failure.creditPriceUnavailable
+            }
+            options.insert(.quantity(quantity))
+          } else if product.type != .nonConsumable || quantity != 1 { throw Failure.productUnavailable }
+          switch try await product.purchase(options: options) {
           case .success(let verification):
             result(["status": "PURCHASED", "transaction": try await transaction(verification)])
           case .userCancelled: result(["status": "CANCELLED"])
@@ -161,7 +179,8 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
   }
 
   private func transaction(_ verification: VerificationResult<Transaction>) async throws -> [String: Any] {
-    guard case .verified(let item) = verification, item.productType == .nonConsumable else {
+    guard case .verified(let item) = verification,
+          item.productType == .nonConsumable || item.productType == .consumable else {
       throw Failure.unverifiedTransaction
     }
     guard #available(iOS 16.0, *) else { throw Failure.proofUnavailable }
@@ -176,7 +195,9 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
             "signedTransaction": verification.jwsRepresentation,
             "signedAppTransaction": appTransaction.jwsRepresentation,
             "deviceVerificationId": deviceVerificationId.uuidString.lowercased(),
-            "environment": environment, "revoked": item.revocationDate != nil]
+            "environment": environment, "revoked": item.revocationDate != nil,
+            "productType": item.productType == .consumable ? "CONSUMABLE" : "NON_CONSUMABLE",
+            "quantity": item.purchasedQuantity, "accountToken": item.appAccountToken?.uuidString.lowercased() ?? ""]
   }
   private func scopedCacheKey(_ args: [String: Any]) throws -> String {
     let scope = args["cacheScope"] as? String ?? "prod"
@@ -191,11 +212,13 @@ final class IosAcquisitionBridge: NSObject, FlutterPlugin {
     case purchaseUnavailable = "PURCHASE_UNAVAILABLE"
     case unverifiedTransaction = "UNVERIFIED_TRANSACTION"
     case proofUnavailable = "DEVICE_PROOF_UNAVAILABLE"
+    case creditPriceUnavailable = "CREDIT_PRICE_UNAVAILABLE"
     var message: String {
       switch self {
       case .productUnavailable: return "此壁纸暂不可购买，请稍后重试"
       case .proofUnavailable: return "暂时无法验证免费资格，请稍后重试"
       case .unverifiedTransaction: return "购买结果未通过验证，请尝试恢复购买"
+      case .creditPriceUnavailable: return "下载积分仅支持中国大陆商店，请确认商店账号及积分价格"
       default: return "暂时无法完成购买，请重试"
       }
     }

@@ -6,11 +6,13 @@
       "displayPrice": "1.00",
       "familyShareable": false,
       "internalID": "1B5B5B2A-425E-4502-BC70-F0F4C85E11BC",
-      "localizations": [{
-        "description": "本地测试商品，不会扣费，不代表正式价格",
-        "displayName": "壁纸一（测试）",
-        "locale": "zh_CN"
-      }],
+      "localizations": [
+        {
+          "description": "本地测试商品，不会扣费，不代表正式价格",
+          "displayName": "壁纸一（测试）",
+          "locale": "zh_CN"
+        }
+      ],
       "productID": "com.qingjing.bizhi.test.wallpaper.1",
       "referenceName": "Wallpaper 1 - TEST ONLY",
       "type": "NonConsumable"
@@ -19,14 +21,61 @@
       "displayPrice": "1.00",
       "familyShareable": false,
       "internalID": "4D87DA8E-3E18-44FD-B86F-BED941213C89",
-      "localizations": [{
-        "description": "本地测试商品，不会扣费，不代表正式价格",
-        "displayName": "壁纸二（测试）",
-        "locale": "zh_CN"
-      }],
+      "localizations": [
+        {
+          "description": "本地测试商品，不会扣费，不代表正式价格",
+          "displayName": "壁纸二（测试）",
+          "locale": "zh_CN"
+        }
+      ],
       "productID": "com.qingjing.bizhi.test.wallpaper.2",
       "referenceName": "Wallpaper 2 - TEST ONLY",
       "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "1.00",
+      "familyShareable": false,
+      "internalID": "C07FD55C-81BC-4F64-98F1-96BD7E63F044",
+      "localizations": [
+        {
+          "description": "1积分＝1元，购买后自动兑换所选壁纸。",
+          "displayName": "1下载积分",
+          "locale": "zh_CN"
+        }
+      ],
+      "productID": "com.qingjing.bizhi.credits.1",
+      "referenceName": "1 Credits - LOCAL TEST ONLY",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "2.00",
+      "familyShareable": false,
+      "internalID": "66F11DED-B157-4D8C-B826-D6007C2F9977",
+      "localizations": [
+        {
+          "description": "1积分＝1元，购买后自动兑换所选壁纸。",
+          "displayName": "2下载积分",
+          "locale": "zh_CN"
+        }
+      ],
+      "productID": "com.qingjing.bizhi.credits.2",
+      "referenceName": "2 Credits - LOCAL TEST ONLY",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "3.00",
+      "familyShareable": false,
+      "internalID": "E41968DE-2FC5-4D18-93BD-87EC4B393691",
+      "localizations": [
+        {
+          "description": "1积分＝1元，购买后自动兑换所选壁纸。",
+          "displayName": "3下载积分",
+          "locale": "zh_CN"
+        }
+      ],
+      "productID": "com.qingjing.bizhi.credits.3",
+      "referenceName": "3 Credits - LOCAL TEST ONLY",
+      "type": "Consumable"
     }
   ],
   "settings": {
@@ -39,5 +88,8 @@
     "_storeKitErrors": []
   },
   "subscriptionGroups": [],
-  "version": {"major": 3, "minor": 0}
+  "version": {
+    "major": 3,
+    "minor": 0
+  }
 }

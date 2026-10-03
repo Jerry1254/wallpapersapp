@@ -62,6 +62,27 @@ public class DeviceIosAcquisitionController {
         return acquisition.purchase(principal(request), keyId, assertion, body, rawBody(request));
     }
 
+    @PostMapping("/acquisition/credit-orders")
+    IosCreditDtos.Order creditOrder(@RequestHeader("X-App-Attest-Key-Id") String keyId,
+            @RequestHeader("X-App-Attest-Assertion") String assertion,
+            @Valid @RequestBody IosCreditDtos.OrderRequest body,HttpServletRequest request) {
+        return acquisition.creditOrder(principal(request),keyId,assertion,body,rawBody(request));
+    }
+
+    @PostMapping("/acquisition/credit-orders/{orderId}/cancel")
+    public AcquisitionState cancelCreditOrder(
+            @RequestHeader("X-App-Attest-Key-Id") String keyId,@RequestHeader("X-App-Attest-Assertion") String assertion,
+            @PathVariable String orderId,@Valid @RequestBody IosCreditDtos.RestoreRequest request,HttpServletRequest servlet) {
+        return acquisition.cancelCreditOrder(principal(servlet),keyId,assertion,orderId,request,rawBody(servlet));
+    }
+
+    @PostMapping("/acquisition/credit-restores")
+    AcquisitionState restoreCredits(@RequestHeader("X-App-Attest-Key-Id") String keyId,
+            @RequestHeader("X-App-Attest-Assertion") String assertion,
+            @Valid @RequestBody IosCreditDtos.RestoreRequest body,HttpServletRequest request) {
+        return acquisition.restoreCredits(principal(request),keyId,assertion,body,rawBody(request));
+    }
+
     @PostMapping("/acquisition/free-resets/{resetId}/complete")
     Object completeReset(
             @PathVariable String resetId,

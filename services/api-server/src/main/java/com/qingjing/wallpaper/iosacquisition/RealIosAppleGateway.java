@@ -137,16 +137,35 @@ public class RealIosAppleGateway implements IosAppleGateway {
                 // Always fetch current facts: a copied old JWS must not undo a refund.
                 VerifiedTransaction current = latestTransaction(original.environment(), original.transactionId());
                 if (!original.originalTransactionId().equals(current.originalTransactionId())
-                        || !original.productId().equals(current.productId())) throw invalidPurchase();
+                        || !original.productId().equals(current.productId()) || !original.productType().equals(current.productType())
+                        || original.quantity()!=current.quantity()
+                        || !java.util.Objects.equals(original.appAccountToken(),current.appAccountToken())) throw invalidPurchase();
                 return new VerifiedTransaction(current.environment(), current.bundleId(), current.productId(), current.transactionId(),
                         current.originalTransactionId(), original.appAccountToken(), deviceId, current.purchasedAt(),
-                        current.revokedAt(), current.signedAt(), original.appTransactionId());
+                        current.revokedAt(), current.signedAt(), app.getAppTransactionId(),current.productType(),current.quantity(),
+                        current.currency(),current.priceMilliunits(),current.storefront());
             } catch (VerificationException e) {
                 if (e.getStatus() != VerificationStatus.INVALID_ENVIRONMENT) throw invalidPurchase();
             } catch (ApiException e) { throw e; }
             catch (Exception e) { throw invalidPurchase(); }
         }
         throw new ApiException(HttpStatus.FORBIDDEN, "IOS_PURCHASE_ENVIRONMENT_INVALID", "Apple transaction environment is not accepted");
+    }
+
+    @Override public VerifiedAppIdentity verifyAppTransaction(String signedAppTransaction,String deviceVerificationId) {
+        for(var entry:verifiers.entrySet()) {
+            try {
+                AppTransaction app=entry.getValue().verifyAndDecodeAppTransaction(signedAppTransaction);
+                verifyDeviceHash(app.getDeviceVerificationNonce().toString(),app.getDeviceVerification(),deviceVerificationId);
+                if(app.getAppTransactionId()==null || !app.getAppTransactionId().matches("[A-Za-z0-9._:-]{1,128}")
+                        || app.getReceiptCreationDate()==null || app.getReceiptCreationDate()>System.currentTimeMillis()+60000)throw invalidPurchase();
+                return new VerifiedAppIdentity(entry.getKey().name(),app.getBundleId(),app.getAppTransactionId());
+            } catch(VerificationException failure) {
+                if(failure.getStatus()!=VerificationStatus.INVALID_ENVIRONMENT)throw invalidPurchase();
+            } catch(ApiException failure) {throw failure;}
+            catch(Exception failure) {throw invalidPurchase();}
+        }
+        throw invalidPurchase();
     }
 
     @Override public VerifiedTransaction latestTransaction(String environment, String transactionId) {
@@ -191,13 +210,14 @@ public class RealIosAppleGateway implements IosAppleGateway {
     }
 
     private VerifiedTransaction transaction(JWSTransactionDecodedPayload value, String deviceId) {
-        if (value.getType() != Type.NON_CONSUMABLE || value.getOriginalTransactionId() == null
+        if ((value.getType() != Type.NON_CONSUMABLE && value.getType()!=Type.CONSUMABLE) || value.getOriginalTransactionId() == null
                 || value.getPurchaseDate() == null || value.getSignedDate() == null || value.getProductId() == null) throw invalidPurchase();
         return new VerifiedTransaction(value.getEnvironment().name(), value.getBundleId(), value.getProductId(), value.getTransactionId(),
                 value.getOriginalTransactionId(), value.getAppAccountToken() == null ? null : value.getAppAccountToken().toString(),
                 deviceId, Instant.ofEpochMilli(value.getPurchaseDate()),
                 value.getRevocationDate() == null ? null : Instant.ofEpochMilli(value.getRevocationDate()),
-                Instant.ofEpochMilli(value.getSignedDate()), value.getAppTransactionId());
+                Instant.ofEpochMilli(value.getSignedDate()), value.getAppTransactionId(),value.getType().name(),
+                value.getQuantity()==null?0:value.getQuantity(),value.getCurrency(),value.getPrice(),value.getStorefront());
     }
 
     private JsonNode payload(String jws) throws Exception { return json.readTree(Base64.getUrlDecoder().decode(jws.split("\\.")[1])); }

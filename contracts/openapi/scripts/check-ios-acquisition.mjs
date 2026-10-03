@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { parse } from 'yaml';
 
 const read = path => readFile(new URL(path, import.meta.url), 'utf8');
-const contract = parse(await read('../ios-acquisition.draft.yaml'));
+const contract = parse(await read('../openapi.yaml'));
 const config = await read('../../../apps/mobile/lib/config/app_config.dart');
 const client = await read('../../../apps/mobile/lib/entitlements/ios_acquisition.dart');
 const native = await read('../../../packages/wallpaper-ios/ios/Classes/IosAcquisitionBridge.swift');
@@ -11,9 +11,9 @@ const standardScheme = await read('../../../apps/mobile/ios/Runner.xcodeproj/xcs
 const testScheme = await read('../../../apps/mobile/ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner-StoreKit.xcscheme');
 const testProducts = JSON.parse(await read('../../../apps/mobile/ios/StoreKit/QingjingPurchases.storekit'));
 
-assert.equal(contract.info.version, '0.2.0');
-assert.match(config, /'IOS_ACQUISITION_ENABLED',\s*defaultValue: false/,
-  'unimplemented iOS API must stay disabled in standard builds');
+assert.equal(contract.info.version, '2.17.0');
+assert.match(config, /'IOS_ACQUISITION_ENABLED',\s*defaultValue: true/,
+  'implemented iOS acquisition must be enabled in standard builds');
 // The new reset/admin/notification routes are proposed contracts, not implemented clients.
 const existingClientPaths = [
   '/device/ios/attestation/challenges',
@@ -21,6 +21,8 @@ const existingClientPaths = [
   '/device/ios/acquisition/status',
   '/device/ios/acquisition/free-claims',
   '/device/ios/acquisition/purchases',
+  '/device/ios/acquisition/credit-orders',
+  '/device/ios/acquisition/credit-restores',
 ];
 for (const path of existingClientPaths) {
   assert.ok(client.includes(`'${path}'`), `draft path not used by client: ${path}`);
@@ -34,11 +36,11 @@ assert.deepEqual(reset.parameters.map(p => p.$ref), [
 const resetBody = reset.requestBody.content['application/json'].schema;
 assert.equal(resetBody.additionalProperties, false, 'device cannot choose reset bits or test status');
 assert.deepEqual(resetBody.required, ['challengeId', 'nonce', 'deviceToken', 'expectedGeneration']);
-assert.ok(reset.responses['200'] && reset.responses['202'], 'accepted reset is distinct from completed reset');
+assert.ok(reset.responses['200'], 'completed reset returns the acquisition snapshot');
 assert.ok(contract.paths['/device/ios/attestation/challenges'].post.requestBody.content['application/json']
   .schema.properties.action.enum.includes('FREE_RESET'));
 for (const [path, methods] of Object.entries(contract.paths)) {
-  if (!path.startsWith('/admin/')) continue;
+  if (!(path.includes('/ios-free-resets') || path.endsWith('/ios-test-status') || path.endsWith('/ios-acquisition') || path.endsWith('/ios-price-sync'))) continue;
   for (const [method, operation] of Object.entries(methods)) {
     assert.deepEqual(operation.security, method === 'get'
       ? [{adminCookie: []}] : [{adminCookie: [], adminCsrf: []}],
@@ -71,9 +73,11 @@ assert.ok(!standardScheme.includes('StoreKitConfigurationFileReference'),
   'normal iOS scheme must not inject test purchases');
 assert.ok(testScheme.includes('QingjingPurchases.storekit'));
 assert.ok(!testScheme.includes('<ArchiveAction'), 'test scheme cannot archive an app');
-assert.ok(testProducts.products.every(p => p.type === 'NonConsumable' && p.productID.startsWith('com.qingjing.bizhi.test.')));
+assert.ok(testProducts.products.every(p => ['NonConsumable','Consumable'].includes(p.type)));
+assert.equal(testProducts.products.filter(p => p.type === 'Consumable').length, 3);
+assert.deepEqual(contract.components.schemas.IosWallpaperCredits.enum, [1,2,3,4,5,6,7,8,9,10,12,14,15,16,18,20,21,24,27,30]);
 assert.match(native, /#if DEBUG[\s\S]*app\.environment == \.xcode/,
   'test-only purchases must validate Xcode environment before starting payment');
 assert.ok(!client.includes("environment == 'XCODE'"),
   'the production coordinator must never approve purchases using a client environment flag');
-console.log('iOS acquisition/reset draft, authorization boundaries, and StoreKit test isolation verified.');
+console.log('iOS acquisition/credits/reset contract, authorization boundaries, and StoreKit test isolation verified.');

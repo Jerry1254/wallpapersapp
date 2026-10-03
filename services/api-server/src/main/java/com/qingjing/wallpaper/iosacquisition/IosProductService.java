@@ -18,16 +18,20 @@ public class IosProductService {
     private final JdbcTemplate jdbc;
     private final IosAcquisitionProperties properties;
     private final IosPricingProperties pricing;
+    private final IosCreditProductService credits;
 
-    public IosProductService(JdbcTemplate jdbc, IosAcquisitionProperties properties, IosPricingProperties pricing) {
+    public IosProductService(JdbcTemplate jdbc, IosAcquisitionProperties properties, IosPricingProperties pricing, IosCreditProductService credits) {
         this.jdbc = jdbc;
         this.properties = properties;
         this.pricing = pricing;
+        this.credits = credits;
     }
 
     @Transactional(readOnly = true)
     public IosProductConfiguration get(long wallpaperId) {
         ensureWallpaper(wallpaperId);
+        IosProductConfiguration credit=credits.get(wallpaperId);
+        if(credit!=null)return credit;
         List<IosProductConfiguration> rows = jdbc.query(
                 """
                 SELECT *
@@ -41,16 +45,17 @@ public class IosProductService {
                             rs.getTimestamp("verified_transaction_at") != null, timestamp(rs.getTimestamp("verified_transaction_at")));
                 },
                 wallpaperId, properties.getBundleId());
-        return rows.isEmpty() ? new IosProductConfiguration("", null, "APP_STORE_CONNECT", "CNY", "UNSYNCED", null, null, false, false, false, null) : rows.get(0);
+        return rows.isEmpty() ? credits.empty() : rows.get(0);
     }
 
     @Transactional(readOnly = true)
     public List<Product> catalogue() {
-        return jdbc.query(
+        var legacy=jdbc.query(
                 """
                 SELECT m.*
                 FROM ios_product_mapping m JOIN wallpaper w ON w.id=m.wallpaper_id
                 WHERE m.bundle_id=? AND m.enabled=TRUE AND w.status='PUBLISHED'
+                  AND NOT EXISTS (SELECT 1 FROM ios_wallpaper_credit_price c WHERE c.bundle_id=m.bundle_id AND c.wallpaper_id=m.wallpaper_id)
                   AND EXISTS (SELECT 1 FROM wallpaper_variant v JOIN resource_version rv ON rv.variant_id=v.id
                     WHERE v.wallpaper_id=w.id AND v.enabled=TRUE AND v.platform IN ('IOS','UNIVERSAL') AND rv.status='PUBLISHED')
                 ORDER BY m.wallpaper_id
@@ -60,11 +65,15 @@ public class IosProductService {
                     return new Product(rs.getString("wallpaper_id"), rs.getString("product_id"), price.amount(),
                             "APP_STORE_CONNECT", "CNY", price.status(), price.syncedAt());
                 }, properties.getBundleId());
+        var result=new java.util.ArrayList<Product>(legacy);result.addAll(credits.catalogue());return result;
     }
 
     @Transactional
     public IosProductConfiguration update(long wallpaperId, UpdateIosProductRequest request) {
         ensureWallpaper(wallpaperId);
+        if("CREDITS".equals(request.acquisitionMode()))return credits.update(wallpaperId,request);
+        if(credits.configured(wallpaperId))throw new ApiException(HttpStatus.CONFLICT,"IOS_CREDIT_CONFIGURATION_REQUIRED","Use credit configuration for new purchases; the legacy mapping is retained for restoration");
+        if(request.productId()==null || request.productId().isBlank())throw new ApiException(HttpStatus.BAD_REQUEST,"VALIDATION_FAILED","Product ID is required for legacy non-consumables");
         jdbc.queryForObject("SELECT id FROM wallpaper WHERE id=? FOR UPDATE", Long.class, wallpaperId);
         IosProductConfiguration previous = get(wallpaperId);
         // Keep accepting the deprecated field for older admin clients, but never persist it.

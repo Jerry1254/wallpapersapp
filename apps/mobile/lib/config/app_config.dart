@@ -21,10 +21,11 @@ class AppConfig {
   }
   final String environment;
   final Uri apiBase;
-  // Keep the deployed redemption flow until the new Apple-backed API is ready.
+  // iOS production uses Apple-backed acquisition. Default to enabled so an
+  // Xcode archive cannot accidentally expose the redemption-only fallback.
   static const iosAcquisitionEnabled = bool.fromEnvironment(
     'IOS_ACQUISITION_ENABLED',
-    defaultValue: false,
+    defaultValue: true,
   );
   static AppConfig fromBuild() {
     const endpoint = String.fromEnvironment(

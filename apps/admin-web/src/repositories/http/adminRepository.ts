@@ -317,7 +317,7 @@ const wallpaperFromApi = (value: ApiWallpaperDetail): Wallpaper => {
       version: item.version
     })),
     iosAcquisition: value.iosAcquisition || {
-      productId: '', firstFreeEligible: false, enabled: false, productIdLocked: false, verifiedTransactionAt: null
+      acquisitionMode: 'CREDITS', credits: null, productId: '', firstFreeEligible: false, enabled: false, productIdLocked: false, verifiedTransactionAt: null
     }
   };
 };
@@ -507,7 +507,7 @@ export const adminRepository = {
 
   async saveWallpaper(input: Wallpaper, publish: boolean) {
     const iosAcquisition = input.iosAcquisition || {
-      productId: '', firstFreeEligible: false, enabled: false, productIdLocked: false, verifiedTransactionAt: null
+      acquisitionMode: 'CREDITS', credits: null, productId: '', firstFreeEligible: false, enabled: false, productIdLocked: false, verifiedTransactionAt: null
     };
     if ((input.resources.parallaxPackage || input.capabilities.includes('android_parallax')) && !input.resources.parallaxPackage
         && !input.variants.some((variant) => variant.platform === 'ANDROID'
@@ -547,11 +547,13 @@ export const adminRepository = {
           })).data
         : (await apiRequest<ApiWallpaperDetail>('/admin/wallpapers', { method: 'POST', body: payload, csrf: true })).data;
 
-      if (iosAcquisition.productId.trim()) {
+      if ((input.iosAcquisition && iosAcquisition.acquisitionMode === 'CREDITS' && (iosAcquisition.credits != null || iosAcquisition.enabled || iosAcquisition.firstFreeEligible || input.capabilities.includes('ios_live_photo'))) || iosAcquisition.productId.trim()) {
         await apiRequest<IosAcquisitionConfiguration>(`/admin/wallpapers/${detail.id}/ios-acquisition`, {
           method: 'PUT',
           body: jsonBody({
-            productId: iosAcquisition.productId.trim(),
+            acquisitionMode: iosAcquisition.acquisitionMode || 'NON_CONSUMABLE',
+            credits: iosAcquisition.credits ?? null,
+            productId: iosAcquisition.acquisitionMode === 'CREDITS' ? null : iosAcquisition.productId.trim(),
             firstFreeEligible: iosAcquisition.firstFreeEligible,
             enabled: iosAcquisition.enabled
           }),

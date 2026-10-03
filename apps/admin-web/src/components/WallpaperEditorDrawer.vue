@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus';
 import { computed, reactive, ref, toRaw, watch } from 'vue';
 
 import ResourceFileField from '@/components/ResourceFileField.vue';
-import { iosPriceSyncLabel } from '@/domain/iosPricing';
+import { iosPriceSyncLabel, iosCreditPack as creditPack } from '@/domain/iosPricing';
 import {
   wallpaperCapabilityLabels,
   type Category,
@@ -33,14 +33,15 @@ const blank = (): WallpaperForm => ({
   accessType: 'REDEEM', capabilities: [], status: 'draft', sort: 1,
   coverUrl: '', featuredRank: null, resources: {}, copyrightNote: '', updatedAt: '', version: 0,
   variants: [], iosAcquisition: {
-    productId: '', chinaReferencePrice: null, firstFreeEligible: false, enabled: false, productIdLocked: false, verifiedTransactionAt: null
+    acquisitionMode: 'CREDITS', credits: null, productId: '', chinaReferencePrice: null, firstFreeEligible: false, enabled: false, productIdLocked: false, verifiedTransactionAt: null
   }
 });
+const creditSelection = computed(() => creditPack(form.iosAcquisition.credits));
 const form = reactive<WallpaperForm>(blank());
 const errors = ref<Record<string, string>>({});
 const syncingIosPrice = ref(false);
-const canSyncIosPrice = computed(() => Boolean(form.id && form.iosAcquisition.productId
-  && form.iosAcquisition.productId === props.wallpaper?.iosAcquisition?.productId));
+const canSyncIosPrice = computed(() => Boolean(form.id && (form.iosAcquisition.acquisitionMode === 'CREDITS' || (form.iosAcquisition.productId
+  && form.iosAcquisition.productId === props.wallpaper?.iosAcquisition?.productId))));
 const syncIosPrice = async () => {
   if (!canSyncIosPrice.value) return;
   syncingIosPrice.value = true;
@@ -146,11 +147,12 @@ const validate = () => {
     next.staticImage = '请上传高清静态原图';
   }
   if (!form.resources.cover && !form.coverUrl) next.cover = '请单独上传列表封面';
-  if ((form.iosAcquisition.enabled || form.iosAcquisition.firstFreeEligible) && !form.iosAcquisition.productId.trim()) {
-    next.iosProductId = '请先填写 App Store Connect 中已创建的非消耗型 Product ID';
-  }
-  if (form.iosAcquisition.productId && !/^[A-Za-z0-9._-]+$/.test(form.iosAcquisition.productId)) {
-    next.iosProductId = 'Product ID 只能包含字母、数字、点、下划线和连字符';
+  if (form.iosAcquisition.acquisitionMode === 'CREDITS') {
+    if ((form.iosAcquisition.enabled || form.iosAcquisition.firstFreeEligible) && !creditPack(form.iosAcquisition.credits)) {
+      next.iosCredits = '请选择支持的整数价格：1～10、12、14、15、16、18、20、21、24、27、30元';
+    }
+  } else if ((form.iosAcquisition.enabled || form.iosAcquisition.firstFreeEligible) && !form.iosAcquisition.productId.trim()) {
+    next.iosProductId = '请填写已有非消耗型 Product ID，或切换为下载积分';
   }
   errors.value = next;
   return Object.keys(next).length === 0;
@@ -237,18 +239,29 @@ const rebuildMovingPhoto = async () => {
         </section>
 
         <section v-if="hasCapability('ios_live_photo') || form.iosAcquisition.productId" class="editor-section">
-          <div class="editor-section__heading"><h3>iOS 首免与内购</h3><p>价格只在 App Store Connect 修改，后台自动同步，App 读取同步结果。</p></div>
+          <div class="editor-section__heading"><h3>iOS 首免与内购</h3><p>壁纸整数售价在此设置，自动转换为积分。1积分＝1元；共用三档 Apple 积分商品。</p></div>
           <ElForm label-position="top">
             <div class="form-grid">
-              <ElFormItem label="非消耗型 Product ID" :error="errors.iosProductId">
-                <ElInput v-model="form.iosAcquisition.productId" :disabled="form.iosAcquisition.productIdLocked" placeholder="例如 com.qingjing.bizhi.wallpaper.123" />
-                <small v-if="form.iosAcquisition.productIdLocked">已有 Apple 验证交易，Product ID 已锁定。</small>
+              <ElFormItem label="购买方式">
+                <ElSelect v-model="form.iosAcquisition.acquisitionMode">
+                  <ElOption label="下载积分（推荐）" value="CREDITS" />
+                  <ElOption v-if="form.iosAcquisition.acquisitionMode !== 'CREDITS'" label="旧非消耗型商品" value="NON_CONSUMABLE" />
+                </ElSelect>
+                <small>切换积分后，旧交易仍可恢复；后续上新无须逐张创建 Apple 商品。</small>
               </ElFormItem>
-              <ElFormItem label="Apple 中国区价格">
+              <ElFormItem v-if="form.iosAcquisition.acquisitionMode === 'CREDITS'" label="iOS 售价（元）" :error="errors.iosCredits">
+                <ElInputNumber v-model="form.iosAcquisition.credits" :min="1" :max="30" :precision="0" placeholder="填写整数售价" />
+                <small v-if="creditSelection">{{ form.iosAcquisition.credits }}个积分兑换壁纸：{{ creditSelection.pack }}积分商品 × {{ creditSelection.quantity }}份。1积分＝1元。</small>
+                <small>支持1～10、12、14、15、16、18、20、21、24、27、30元。订单按下单时价格完成，不向上取整。</small>
+              </ElFormItem>
+              <ElFormItem v-else label="旧非消耗型 Product ID" :error="errors.iosProductId">
+                <ElInput v-model="form.iosAcquisition.productId" :disabled="form.iosAcquisition.productIdLocked" />
+              </ElFormItem>
+              <ElFormItem label="Apple 积分商品核验">
                 <span>{{ iosPriceSyncLabel(form.iosAcquisition) }}</span>
                 <ElButton :loading="syncingIosPrice" :disabled="!canSyncIosPrice" @click="syncIosPrice">立即同步</ElButton>
                 <small v-if="form.iosAcquisition.priceSyncedAt">最近成功同步：{{ form.iosAcquisition.priceSyncedAt }}</small>
-                <small>自动同步已生效的人民币价格。新商品请先保存绑定；实际付款以 Apple 确认页为准。</small>
+                <small>核验积分包中国区价格：1、2、3元。修改壁纸价格后保存即可；积分包价格保持固定。</small>
               </ElFormItem>
               <ElFormItem label="售卖状态"><ElSwitch v-model="form.iosAcquisition.enabled" active-text="允许购买" inactive-text="暂不售卖" /></ElFormItem>
               <ElFormItem label="首次免费"><ElSwitch v-model="form.iosAcquisition.firstFreeEligible" active-text="可作为首免选择" inactive-text="不参与首免" /></ElFormItem>

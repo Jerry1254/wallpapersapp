@@ -44,6 +44,11 @@ public class AppStoreConnectPriceClient implements ApplePriceGateway {
     }
 
     @Override public ChinaPrice currentChinaPrice(String productId) {
+        return currentChinaPrice(productId,"NON_CONSUMABLE");
+    }
+
+    @Override public ChinaPrice currentChinaPrice(String productId, String productType) {
+        if (!java.util.Set.of("CONSUMABLE","NON_CONSUMABLE").contains(productType)) throw new PriceFailure("PRODUCT_TYPE_MISMATCH");
         if (!properties.configured() || acquisition.getAppAppleId() == null) throw new PriceFailure("NOT_CONFIGURED");
         String productPath = "/v1/apps/" + acquisition.getAppAppleId() + "/inAppPurchasesV2";
         List<JsonNode> products = pages(productPath + "?filter%5BproductId%5D=" + encode(productId)
@@ -51,7 +56,7 @@ public class AppStoreConnectPriceClient implements ApplePriceGateway {
         List<JsonNode> matches = products.stream().filter(p -> productId.equals(p.path("attributes").path("productId").asText())).toList();
         if (matches.size() != 1) throw new PriceFailure("PRODUCT_NOT_FOUND");
         JsonNode product = matches.get(0);
-        if (!"NON_CONSUMABLE".equals(product.path("attributes").path("inAppPurchaseType").asText()))
+        if (!productType.equals(product.path("attributes").path("inAppPurchaseType").asText()))
             throw new PriceFailure("PRODUCT_TYPE_MISMATCH");
         String appleId = product.path("id").asText();
         if (!appleId.matches("[0-9]+")) throw new PriceFailure("INVALID_RESPONSE");

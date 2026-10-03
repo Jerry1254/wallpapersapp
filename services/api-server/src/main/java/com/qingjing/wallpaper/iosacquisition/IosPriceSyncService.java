@@ -17,9 +17,11 @@ public class IosPriceSyncService {
     private final IosAcquisitionProperties acquisition;
     private final ApplePriceGateway apple;
     private final IosProductService products;
+    private final IosCreditProductService credits;
     public IosPriceSyncService(JdbcTemplate jdbc, IosPricingProperties pricing, IosAcquisitionProperties acquisition,
-            ApplePriceGateway apple, IosProductService products) {
+            ApplePriceGateway apple, IosProductService products, IosCreditProductService credits) {
         this.jdbc = jdbc; this.pricing = pricing; this.acquisition = acquisition; this.apple = apple; this.products = products;
+        this.credits=credits;
     }
 
     @Scheduled(initialDelayString="${qingjing.ios-pricing.initial-delay:15000}",
@@ -27,7 +29,8 @@ public class IosPriceSyncService {
     public void synchronizeDuePrices() {
         if (!pricing.configured() || acquisition.getAppAppleId() == null) return;
         var due = jdbc.queryForList("""
-                SELECT wallpaper_id FROM ios_product_mapping WHERE bundle_id=? AND enabled=TRUE
+                SELECT m.wallpaper_id FROM ios_product_mapping m WHERE m.bundle_id=? AND m.enabled=TRUE
+                    AND NOT EXISTS (SELECT 1 FROM ios_wallpaper_credit_price c WHERE c.wallpaper_id=m.wallpaper_id AND c.bundle_id=m.bundle_id)
                     AND (price_sync_next_at IS NULL OR price_sync_next_at<=UTC_TIMESTAMP(6))
                     AND (price_sync_lease_until IS NULL OR price_sync_lease_until<UTC_TIMESTAMP(6))
                 ORDER BY COALESCE(price_sync_next_at,'1970-01-01'),wallpaper_id LIMIT 20
@@ -37,6 +40,7 @@ public class IosPriceSyncService {
 
     public IosProductConfiguration synchronize(long wallpaperId) {
         var configuration = products.get(wallpaperId);
+        if("CREDITS".equals(configuration.acquisitionMode())) {credits.synchronizePacks();return products.get(wallpaperId);}
         if (configuration.productId().isEmpty()) throw new ApiException(HttpStatus.CONFLICT,
                 "IOS_PRODUCT_CONFIGURATION_REQUIRED", "Bind an Apple product before synchronizing its price");
         if (!pricing.configured() || acquisition.getAppAppleId() == null) throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,

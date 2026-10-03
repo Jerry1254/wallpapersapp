@@ -1,13 +1,13 @@
 {
   "name": "@qingjing/openapi-contract",
-  "version": "2.16.0",
+  "version": "2.17.0",
   "private": true,
   "scripts": {
     "lint": "redocly lint openapi.yaml",
     "test": "npm run lint && node scripts/check-contract.mjs",
     "bundle": "redocly bundle openapi.yaml --output dist/openapi.yaml",
     "baseline:check": "node scripts/check-baseline.mjs",
-    "test:ios-acquisition": "redocly lint ios-acquisition.draft.yaml && node scripts/check-ios-acquisition.mjs"
+    "test:ios-acquisition": "redocly lint openapi.yaml && node scripts/check-ios-acquisition.mjs"
   },
   "devDependencies": {
     "@redocly/cli": "2.52.0",

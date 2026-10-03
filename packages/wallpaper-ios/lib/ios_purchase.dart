@@ -5,8 +5,12 @@ class IosStoreProduct {
     this.id,
     this.displayPrice, {
     required this.currencyCode,
+    this.price,
+    this.productType = 'NON_CONSUMABLE',
   });
   final String id, displayPrice, currencyCode;
+  final String? price;
+  final String productType;
   bool get isRenminbi => currencyCode == 'CNY';
 }
 
@@ -19,6 +23,9 @@ class IosStoreTransaction {
     required this.deviceVerificationId,
     required this.environment,
     this.revoked = false,
+    this.productType = 'NON_CONSUMABLE',
+    this.quantity = 1,
+    this.accountToken,
   });
   factory IosStoreTransaction.fromJson(Map<String, dynamic> value) =>
       IosStoreTransaction(
@@ -29,6 +36,9 @@ class IosStoreTransaction {
         deviceVerificationId: value['deviceVerificationId'] as String,
         environment: value['environment'] as String,
         revoked: value['revoked'] == true,
+        productType: value['productType'] as String? ?? 'NON_CONSUMABLE',
+        quantity: value['quantity'] as int? ?? 1,
+        accountToken: value['accountToken'] as String?,
       );
   final String id,
       productId,
@@ -37,6 +47,19 @@ class IosStoreTransaction {
       deviceVerificationId,
       environment;
   final bool revoked;
+  final String productType;
+  final int quantity;
+  final String? accountToken;
+}
+
+abstract interface class IosCreditPurchaseStore {
+  Future<Map<String, dynamic>> appIdentity({bool refresh = false});
+  Future<IosPurchaseResult> purchaseCredits(
+    String productId,
+    String orderToken, {
+    required int quantity,
+    required int packCredits,
+  });
 }
 
 class IosPurchaseResult {
@@ -61,7 +84,8 @@ abstract interface class IosPurchaseStore {
 
 /// StoreKit performs the payment and signature verification. No client-side
 /// purchased flag is accepted as delivery authorization by the API.
-class NativeIosPurchaseStore implements IosPurchaseStore {
+class NativeIosPurchaseStore
+    implements IosPurchaseStore, IosCreditPurchaseStore {
   const NativeIosPurchaseStore({
     this.testOnly = false,
     this.cacheScope = 'prod',
@@ -80,9 +104,42 @@ class NativeIosPurchaseStore implements IosPurchaseStore {
             value['id'] as String,
             value['displayPrice'] as String,
             currencyCode: value['currencyCode'] as String,
+            price: value['price'] as String?,
+            productType: value['productType'] as String? ?? 'NON_CONSUMABLE',
           ),
         )
         .toList();
+  }
+
+  @override
+  Future<Map<String, dynamic>> appIdentity({bool refresh = false}) async =>
+      (await channel.invokeMapMethod<String, dynamic>('appIdentity', {
+        'refresh': refresh,
+      }))!;
+
+  @override
+  Future<IosPurchaseResult> purchaseCredits(
+    String productId,
+    String orderToken, {
+    required int quantity,
+    required int packCredits,
+  }) async {
+    final value = await channel.invokeMapMethod<String, dynamic>('purchase', {
+      'productId': productId,
+      'accountToken': orderToken,
+      'quantity': quantity,
+      'packCredits': packCredits,
+      'testOnly': testOnly,
+    });
+    if (value == null) throw StateError('Missing StoreKit purchase result');
+    return IosPurchaseResult(
+      value['status'] as String,
+      value['transaction'] == null
+          ? null
+          : IosStoreTransaction.fromJson(
+              Map<String, dynamic>.from(value['transaction'] as Map),
+            ),
+    );
   }
 
   @override

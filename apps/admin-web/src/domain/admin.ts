@@ -132,6 +132,11 @@ export interface Wallpaper {
 }
 
 export interface IosAcquisitionConfiguration {
+  acquisitionMode?: 'CREDITS' | 'NON_CONSUMABLE';
+  credits?: number | null;
+  packCredits?: number | null;
+  purchaseQuantity?: number | null;
+  priceVersion?: number | null;
   productId: string;
   chinaReferencePrice?: string | null;
   priceSource?: 'APP_STORE_CONNECT';

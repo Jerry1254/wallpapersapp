@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.16.0
+  version: 2.17.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -2506,7 +2506,7 @@ paths:
               additionalProperties: false
               properties:
                 keyId: {type: string, minLength: 1, maxLength: 256}
-                action: {type: string, enum: [ENROLL, STATUS, FREE_CLAIM, PURCHASE_SYNC, FREE_RESET]}
+                action: {type: string, enum: [ENROLL, STATUS, FREE_CLAIM, PURCHASE_SYNC, FREE_RESET, CREDIT_ORDER, CREDIT_RESTORE, CREDIT_CANCEL]}
                 wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
                 resetId: {type: string, format: uuid}
       responses:
@@ -2649,7 +2649,7 @@ paths:
       description: |
         按可信 Apple transactionId/originalTransactionId 幂等，商品映射和正式价格由服务端和 Apple 管理。
         不接受客户端 purchased=true、壁纸 ID、客户端 environment 或价格作为购买证明。
-        已购买壁纸为非消耗型商品；卸载重装后支持有效恢复，不重新收费，不重新发放免费额度。
+        新购买为订单绑定的消耗型积分商品；旧非消耗型继续恢复。必须核对数量、CNY金额、CHN商店和订单appAccountToken；一笔交易只能兑换固定壁纸。
         服务端验证撤销/退款，返回免费和付费两种来源的最新快照，不能误删同壁纸独立免费权益。
         只有当前购买或有效历史恢复验证完成后才发放本安装权益；不能信任粘贴来的任意 JWT。
       parameters:
@@ -2676,6 +2676,107 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/AcquisitionState'}
         '403': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /device/ios/acquisition/credit-orders:
+    post:
+      tags: [iOS Acquisition]
+      operationId: createIosCreditOrder
+      summary: 创建固定壁纸的积分购买订单
+      description: 需要设备会话、设备签名和App Attest。验证Apple签名AppTransaction及deviceVerification。订单固定金额、积分包、数量、壁纸和专属token；客户端不能传价格。相同未完成订单幂等返回，保留价格快照。
+      parameters:
+        - {$ref: '#/components/parameters/AppAttestKey'}
+        - {$ref: '#/components/parameters/AppAttestAssertion'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [challengeId, nonce, signedAppTransaction, deviceVerificationId, wallpaperId]
+              properties:
+                challengeId: {type: string, format: uuid}
+                nonce: {type: string}
+                signedAppTransaction: {type: string, minLength: 10, maxLength: 32768}
+                deviceVerificationId: {type: string, minLength: 1, maxLength: 256}
+                wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
+      responses:
+        '200':
+          description: 服务端验证完成并持久化结果
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IosCreditOrder'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /device/ios/acquisition/credit-restores:
+    post:
+      tags: [iOS Acquisition]
+      operationId: restoreIosCreditEntitlements
+      summary: 通过Apple签名账户身份恢复已兑换壁纸
+      description: 需要设备会话、设备签名和App Attest。验证Apple签名AppTransaction及deviceVerification。不重复发积分；先从Apple核查退款，再恢复当前安装的权益。不发放新的首免额度。
+      parameters:
+        - {$ref: '#/components/parameters/AppAttestKey'}
+        - {$ref: '#/components/parameters/AppAttestAssertion'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [challengeId, nonce, signedAppTransaction, deviceVerificationId]
+              properties:
+                challengeId: {type: string, format: uuid}
+                nonce: {type: string}
+                signedAppTransaction: {type: string, minLength: 10, maxLength: 32768}
+                deviceVerificationId: {type: string, minLength: 1, maxLength: 256}
+      responses:
+        '200':
+          description: 服务端验证完成并持久化结果
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AcquisitionState'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /device/ios/acquisition/credit-orders/{orderId}/cancel:
+    post:
+      tags: [iOS Acquisition]
+      operationId: cancelIosCreditOrder
+      summary: 明确取消付款后关闭当前订单，允许重新下单
+      description: 需要CREDIT_CANCEL证明及订单所属Apple账户。仅OPEN转CANCELLED；如Apple后来返回成功，仍按原价格快照交付，不能丢弃已付交易。网络异常不视为取消。
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema: {type: string, format: uuid}
+        - {$ref: '#/components/parameters/AppAttestKey'}
+        - {$ref: '#/components/parameters/AppAttestAssertion'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [challengeId, nonce, signedAppTransaction, deviceVerificationId]
+              properties:
+                challengeId: {type: string, format: uuid}
+                nonce: {type: string}
+                signedAppTransaction: {type: string, minLength: 10, maxLength: 32768}
+                deviceVerificationId: {type: string, minLength: 1, maxLength: 256}
+      responses:
+        '200':
+          description: 服务端验证完成并持久化结果
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AcquisitionState'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
         default: {$ref: '#/components/responses/Error'}
   /device/ios/acquisition/free-resets/{resetId}/complete:
@@ -2863,7 +2964,7 @@ paths:
     put:
       tags: [iOS Test Administration]
       operationId: updateAdminWallpaperIosAcquisition
-      summary: 保存壁纸的 Apple Product ID 和首免资格
+      summary: 保存壁纸积分价和首免资格，兼容旧非消耗型映射
       security: [{adminCookie: [], adminCsrf: []}]
       parameters:
         - in: path
@@ -2877,9 +2978,11 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [productId, firstFreeEligible, enabled]
+              required: [firstFreeEligible, enabled]
               properties:
-                productId: {type: string, minLength: 1, maxLength: 255, pattern: '^[A-Za-z0-9._-]+$'}
+                productId: {type: string, nullable: true, minLength: 1, maxLength: 255, pattern: '^[A-Za-z0-9._-]+$'}
+                acquisitionMode: {type: string, enum: [CREDITS, NON_CONSUMABLE], default: NON_CONSUMABLE}
+                credits: {$ref: '#/components/schemas/IosWallpaperCredits'}
                 chinaReferencePrice:
                   allOf: [{$ref: '#/components/schemas/IosChinaReferencePrice'}]
                   deprecated: true
@@ -3334,6 +3437,12 @@ components:
         - IOS_PURCHASE_INVALID
         - IOS_PURCHASE_ENVIRONMENT_INVALID
         - IOS_PRODUCT_ID_LOCKED
+        - IOS_CREDIT_PRICE_REQUIRED
+        - IOS_CREDIT_PRICE_UNSUPPORTED
+        - IOS_CREDIT_CONFIGURATION_REQUIRED
+        - IOS_CREDIT_WALLPAPER_UNAVAILABLE
+        - IOS_CREDIT_PRICE_UNAVAILABLE
+        - IOS_CREDIT_PURCHASE_INVALID
         - IOS_PRICE_SYNC_UNAVAILABLE
         - IOS_PRODUCT_CONFIGURATION_REQUIRED
         - IDEMPOTENCY_CONFLICT
@@ -4463,6 +4572,12 @@ components:
       type: object
       required: [productId, firstFreeEligible, enabled, productIdLocked]
       properties:
+        acquisitionMode: {type: string, enum: [CREDITS, NON_CONSUMABLE]}
+        credits: {$ref: '#/components/schemas/IosWallpaperCredits'}
+        packCredits: {type: integer, nullable: true, enum: [1, 2, 3]}
+        purchaseQuantity: {type: integer, nullable: true, minimum: 1, maximum: 10}
+        priceVersion: {type: integer, format: int64, nullable: true, minimum: 1}
+
         productId: {type: string, maxLength: 255}
         chinaReferencePrice: {$ref: '#/components/schemas/IosChinaReferencePrice'}
         priceSource: {type: string, enum: [APP_STORE_CONNECT]}
@@ -5475,13 +5590,40 @@ components:
       type: object
       required: [wallpaperId, productId]
       properties:
+        acquisitionMode: {type: string, enum: [CREDITS, NON_CONSUMABLE]}
+        credits: {$ref: '#/components/schemas/IosWallpaperCredits'}
+        packCredits: {type: integer, nullable: true, enum: [1, 2, 3]}
+        purchaseQuantity: {type: integer, nullable: true, minimum: 1, maximum: 10}
+        priceVersion: {type: integer, format: int64, nullable: true, minimum: 1}
+
+        firstFreeEligible: {type: boolean}
         wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
-        productId: {type: string, minLength: 1}
+        productId: {type: string, description: 积分价未配置时可为空；多个壁纸可共用同一积分商品}
         chinaReferencePrice: {$ref: '#/components/schemas/IosChinaReferencePrice'}
         priceSource: {type: string, enum: [APP_STORE_CONNECT]}
         priceCurrency: {type: string, enum: [CNY]}
         priceSyncStatus: {type: string, enum: [UNSYNCED, READY, STALE, ERROR, UNAVAILABLE]}
         priceSyncedAt: {type: string, format: date-time, nullable: true}
+    IosWallpaperCredits:
+      type: integer
+      nullable: true
+      enum: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30]
+      description: 壁纸整数售价自动转为同数量积分，1积分＝1元。不能用三个积分商品一次精确支付的金额拒绝保存。
+    IosCreditOrder:
+      type: object
+      required: [orderId, wallpaperId, productId, packCredits, quantity, credits, amount, accountToken, priceVersion, status, paymentAllowed]
+      properties:
+        orderId: {type: string, format: uuid}
+        wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
+        productId: {type: string}
+        packCredits: {type: integer, enum: [1, 2, 3]}
+        quantity: {type: integer, minimum: 1, maximum: 10}
+        credits: {$ref: '#/components/schemas/IosWallpaperCredits'}
+        amount: {type: string, pattern: '^[1-9][0-9]*\.00$', description: CNY订单总额等于积分数}
+        accountToken: {type: string, format: uuid, description: 每个订单专属的Apple appAccountToken}
+        priceVersion: {type: integer, format: int64}
+        status: {type: string, enum: [OPEN, FULFILLED]}
+        paymentAllowed: {type: boolean, description: 仅新建或未发起付款的订单为true；重复下单禁止再次调起Apple付款}
     IosProductCatalogue:
       type: object
       required: [items]
@@ -5513,7 +5655,7 @@ components:
           description: 仅本安装待处理重置；无操作时省略或 null。存在时免费状态为 UNAVAILABLE，旧客户端不能直接领取。
         products:
           type: array
-          description: 已发布且启用的壁纸与 Apple 非消耗型 productId 映射，以及自动同步的 Apple 中国区价格
+          description: 已发布且启用的壁纸，含CREDITS共用商品、壁纸积分价、数量和首免资格；旧非消耗型继续兼容。
           items: {$ref: '#/components/schemas/IosStoreProductMapping'}
         freeWallpaperIds:
           type: array

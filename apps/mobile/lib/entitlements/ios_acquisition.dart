@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:wallpaper_ios/wallpaper_ios.dart';
 import '../device/device_session.dart';
 
@@ -51,61 +52,156 @@ final _uuid = RegExp(
   r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
 );
 
+class IosCreditOffer {
+  const IosCreditOffer(
+    this.credits,
+    this.packCredits,
+    this.quantity,
+    this.ready,
+  );
+  factory IosCreditOffer.fromJson(Map<String, dynamic> value) {
+    final credits = value['credits'] as int?;
+    final pack = value['packCredits'] as int?;
+    final quantity = value['purchaseQuantity'] as int?;
+    if (credits != null &&
+        (pack == null ||
+            quantity == null ||
+            pack < 1 ||
+            pack > 3 ||
+            quantity < 1 ||
+            quantity > 10 ||
+            credits != pack * quantity)) {
+      throw const FormatException('Invalid credit offer');
+    }
+    return IosCreditOffer(
+      credits,
+      pack,
+      quantity,
+      value['priceSyncStatus'] == 'READY' &&
+          value['priceSource'] == 'APP_STORE_CONNECT' &&
+          value['priceCurrency'] == 'CNY',
+    );
+  }
+  final int? credits, packCredits, quantity;
+  final bool ready;
+  Map<String, dynamic> toJson() => {
+    'acquisitionMode': 'CREDITS',
+    'credits': credits,
+    'packCredits': packCredits,
+    'purchaseQuantity': quantity,
+    'priceSyncStatus': ready ? 'READY' : 'UNAVAILABLE',
+    'priceSource': 'APP_STORE_CONNECT',
+    'priceCurrency': 'CNY',
+  };
+}
+
+class IosCreditOrder {
+  IosCreditOrder(this.value) {
+    if (!_uuid.hasMatch(id) ||
+        !_uuid.hasMatch(token) ||
+        !RegExp(r'^[1-9][0-9]*$').hasMatch(wallpaperId) ||
+        quantity < 1 ||
+        quantity > 10 ||
+        packCredits < 1 ||
+        packCredits > 3 ||
+        credits != quantity * packCredits ||
+        value['amount'] != '$credits.00' ||
+        !{'OPEN', 'FULFILLED'}.contains(value['status'])) {
+      throw const FormatException('Invalid credit order');
+    }
+  }
+  final Map<String, dynamic> value;
+  String get id => value['orderId'] as String;
+  String get wallpaperId => value['wallpaperId'] as String;
+  String get productId => value['productId'] as String;
+  String get token => value['accountToken'] as String;
+  int get credits => value['credits'] as int;
+  int get packCredits => value['packCredits'] as int;
+  int get quantity => value['quantity'] as int;
+  bool get paymentAllowed => value['paymentAllowed'] == true;
+  bool get fulfilled => value['status'] == 'FULFILLED';
+}
+
 class IosProductCatalogue {
   const IosProductCatalogue(
     this.productIds, {
     this.chinaReferencePrices = const {},
+    this.creditOffers = const {},
+    this.freeEligible = const {},
   });
   factory IosProductCatalogue.fromItems(dynamic value) {
     final products = <String, String>{};
     final prices = <String, String>{};
+    final offers = <String, IosCreditOffer>{};
+    final free = <String, bool>{};
+    final legacyIds = <String>{};
     if (value is List) {
       for (final item in value) {
         final product = Map<String, dynamic>.from(item as Map);
         final wallpaperId = product['wallpaperId'] as String;
         final productId = product['productId'] as String;
-        if (products.containsKey(wallpaperId)) {
+        final isCredit = product['acquisitionMode'] == 'CREDITS';
+        if (products.containsKey(wallpaperId) ||
+            (!isCredit && !legacyIds.add(productId))) {
           throw const FormatException('Duplicate wallpaper product mapping');
         }
+        if (!isCredit && productId.isEmpty) {
+          throw const FormatException('Empty product ID');
+        }
         products[wallpaperId] = productId;
-        final price = product['chinaReferencePrice'];
-        if (price != null) {
-          if (price is! String ||
-              !RegExp(r'^(?:0|[1-9][0-9]{0,7})\.[0-9]{2}$').hasMatch(price) ||
-              price == '0.00') {
-            throw const FormatException('Invalid China reference price');
+        free[wallpaperId] = product['firstFreeEligible'] != false;
+        if (isCredit) {
+          offers[wallpaperId] = IosCreditOffer.fromJson(product);
+          if (offers[wallpaperId]!.credits != null && productId.isEmpty) {
+            throw const FormatException('Empty credit product ID');
           }
-          // Only accept fresh Apple-sourced CNY amounts. An older API's manually
-          // maintained reference price must not become a second pricing source.
-          if (product['priceSource'] == 'APP_STORE_CONNECT' &&
-              product['priceCurrency'] == 'CNY' &&
-              product['priceSyncStatus'] == 'READY') {
-            prices[productId] = price;
+        } else {
+          final price = product['chinaReferencePrice'];
+          if (price != null) {
+            if (price is! String ||
+                !RegExp(r'^(?:0|[1-9][0-9]{0,7})\.[0-9]{2}$').hasMatch(price) ||
+                price == '0.00') {
+              throw const FormatException('Invalid China reference price');
+            }
+            if (product['priceSource'] == 'APP_STORE_CONNECT' &&
+                product['priceCurrency'] == 'CNY' &&
+                product['priceSyncStatus'] == 'READY') {
+              prices[productId] = price;
+            }
           }
         }
       }
     } else if (value is Map) {
-      // Retain compatibility with the previous installation cache shape.
       products.addAll(Map<String, String>.from(value));
+      if (products.values.any((id) => id.isEmpty) ||
+          products.values.toSet().length != products.length) {
+        throw const FormatException('Invalid legacy mapping');
+      }
     } else {
       throw const FormatException('Invalid wallpaper product mapping');
     }
-    if (products.keys.any((id) => !RegExp(r'^[1-9][0-9]*$').hasMatch(id)) ||
-        products.values.any((id) => id.isEmpty) ||
-        products.values.toSet().length != products.length) {
-      throw const FormatException('Invalid wallpaper product mapping');
+    if (products.keys.any((id) => !RegExp(r'^[1-9][0-9]*$').hasMatch(id))) {
+      throw const FormatException('Invalid wallpaper ID');
     }
-    return IosProductCatalogue(products, chinaReferencePrices: prices);
+    return IosProductCatalogue(
+      products,
+      chinaReferencePrices: prices,
+      creditOffers: offers,
+      freeEligible: free,
+    );
   }
   final Map<String, String> productIds, chinaReferencePrices;
+  final Map<String, IosCreditOffer> creditOffers;
+  final Map<String, bool> freeEligible;
   List<Map<String, dynamic>> toJson() => [
     for (final entry in productIds.entries)
       {
         'wallpaperId': entry.key,
         'productId': entry.value,
-        if (chinaReferencePrices[entry.value] != null)
-          'chinaReferencePrice': chinaReferencePrices[entry.value],
-        if (chinaReferencePrices[entry.value] != null) ...{
+        'firstFreeEligible': freeEligible[entry.key] ?? true,
+        if (creditOffers[entry.key] case final offer?) ...offer.toJson(),
+        if (chinaReferencePrices[entry.value] case final price?) ...{
+          'chinaReferencePrice': price,
           'priceSource': 'APP_STORE_CONNECT',
           'priceCurrency': 'CNY',
           'priceSyncStatus': 'READY',
@@ -121,6 +217,8 @@ class IosAcquisitionState {
     required this.freeGeneration,
     required this.products,
     this.chinaReferencePrices = const {},
+    this.creditOffers = const {},
+    this.freeEligible = const {},
     this.freeAllowance = IosFreeAllowance.unknown,
     this.freeWallpaperIds = const {},
     this.purchasedWallpaperIds = const {},
@@ -141,12 +239,10 @@ class IosAcquisitionState {
     final free = Set<String>.from(value['freeWallpaperIds'] as List);
     final paid = Set<String>.from(value['purchasedWallpaperIds'] as List);
     if ([
-          ...products.keys,
-          ...free,
-          ...paid,
-        ].any((id) => !RegExp(r'^[1-9][0-9]*$').hasMatch(id)) ||
-        products.values.any((id) => id.isEmpty) ||
-        products.values.toSet().length != products.length) {
+      ...products.keys,
+      ...free,
+      ...paid,
+    ].any((id) => !RegExp(r'^[1-9][0-9]*$').hasMatch(id))) {
       throw const FormatException('Invalid wallpaper product mapping');
     }
     final allowance = switch (value['freeAllowance']) {
@@ -172,6 +268,8 @@ class IosAcquisitionState {
       freeGeneration: generation,
       products: products,
       chinaReferencePrices: catalogue.chinaReferencePrices,
+      creditOffers: catalogue.creditOffers,
+      freeEligible: catalogue.freeEligible,
       freeAllowance: allowance,
       freeWallpaperIds: free,
       purchasedWallpaperIds: paid,
@@ -185,8 +283,14 @@ class IosAcquisitionState {
   final int freeGeneration;
   final Map<String, String> products;
   final Map<String, String> chinaReferencePrices;
-  IosProductCatalogue get catalogue =>
-      IosProductCatalogue(products, chinaReferencePrices: chinaReferencePrices);
+  final Map<String, IosCreditOffer> creditOffers;
+  final Map<String, bool> freeEligible;
+  IosProductCatalogue get catalogue => IosProductCatalogue(
+    products,
+    chinaReferencePrices: chinaReferencePrices,
+    creditOffers: creditOffers,
+    freeEligible: freeEligible,
+  );
   final IosFreeAllowance freeAllowance;
   final Set<String> freeWallpaperIds, purchasedWallpaperIds;
   final IosPendingFreeReset? pendingFreeReset;
@@ -225,9 +329,22 @@ abstract interface class IosAcquisitionApi {
   Future<IosAcquisitionState> completeFreeReset(IosPendingFreeReset reset);
 }
 
-/// OpenAPI 2.14 acquisition adapter. Keep its build flag disabled until the
+abstract interface class IosCreditAcquisitionApi {
+  Future<IosCreditOrder> creditOrder(
+    String wallpaperId,
+    Map<String, dynamic> identity,
+  );
+  Future<IosAcquisitionState> restoreCredits(Map<String, dynamic> identity);
+  Future<IosAcquisitionState> cancelCreditOrder(
+    String orderId,
+    Map<String, dynamic> identity,
+  );
+}
+
+/// Acquisition adapter. Keep its build flag disabled until the
 /// matching server configuration and database migrations are deployed.
-class SessionIosAcquisitionApi implements IosAcquisitionApi {
+class SessionIosAcquisitionApi
+    implements IosAcquisitionApi, IosCreditAcquisitionApi {
   SessionIosAcquisitionApi(
     this.sessions, {
     this.proof = const NativeIosDeviceProof(),
@@ -455,6 +572,103 @@ class SessionIosAcquisitionApi implements IosAcquisitionApi {
     throw const DeviceApiError(0, 'IOS_DEVICE_PROOF_UNAVAILABLE');
   }
 
+  Future<Map<String, dynamic>> _creditProof(
+    String action,
+    String path,
+    Map<String, dynamic> identity, {
+    String? wallpaperId,
+  }) async {
+    for (var enrollment = 0; enrollment < 2; enrollment++) {
+      try {
+        final key = await _keyId();
+        for (var attempt = 0; attempt < 2; attempt++) {
+          final challenge = await sessions.authenticated(
+            '/device/ios/attestation/challenges',
+            method: 'POST',
+            signed: true,
+            body: jsonEncode({
+              'keyId': key,
+              'action': action,
+              'wallpaperId': ?wallpaperId,
+            }),
+          );
+          final body = jsonEncode({
+            'challengeId': challenge['challengeId'],
+            'nonce': challenge['nonce'],
+            'wallpaperId': ?wallpaperId,
+            'signedAppTransaction': identity['signedAppTransaction'],
+            'deviceVerificationId': identity['deviceVerificationId'],
+          });
+          final assertion = await proof.assertion(key, body);
+          try {
+            return await sessions.authenticated(
+              path,
+              method: 'POST',
+              signed: true,
+              body: body,
+              headers: {
+                'X-App-Attest-Key-Id': key,
+                'X-App-Attest-Assertion': assertion,
+              },
+            );
+          } on DeviceApiError catch (failure) {
+            if (attempt == 0 &&
+                {
+                  'IOS_ASSERTION_REPLAY',
+                  'IOS_CHALLENGE_EXPIRED',
+                }.contains(failure.code)) {
+              continue;
+            }
+            rethrow;
+          }
+        }
+      } on DeviceApiError catch (failure) {
+        if (enrollment == 0 && failure.code == 'IOS_ATTESTATION_INVALID') {
+          await proof.resetKey();
+          _key = null;
+          continue;
+        }
+        rethrow;
+      }
+    }
+    throw const DeviceApiError(0, 'IOS_DEVICE_PROOF_UNAVAILABLE');
+  }
+
+  @override
+  Future<IosCreditOrder> creditOrder(
+    String wallpaperId,
+    Map<String, dynamic> identity,
+  ) async => IosCreditOrder(
+    await _creditProof(
+      'CREDIT_ORDER',
+      '/device/ios/acquisition/credit-orders',
+      identity,
+      wallpaperId: wallpaperId,
+    ),
+  );
+  @override
+  Future<IosAcquisitionState> restoreCredits(
+    Map<String, dynamic> identity,
+  ) async => IosAcquisitionState.fromJson(
+    await _creditProof(
+      'CREDIT_RESTORE',
+      '/device/ios/acquisition/credit-restores',
+      identity,
+    ),
+  );
+
+  @override
+  Future<IosAcquisitionState> cancelCreditOrder(
+    String orderId,
+    Map<String, dynamic> identity,
+  ) async => IosAcquisitionState.fromJson(
+    await _creditProof(
+      'CREDIT_CANCEL',
+      '/device/ios/acquisition/credit-orders/$orderId/cancel',
+      identity,
+    ),
+  );
+
   @override
   Future<IosAcquisitionState> completeFreeReset(IosPendingFreeReset reset) =>
       _withProof(
@@ -481,6 +695,8 @@ class IosAcquisitionController extends ChangeNotifier {
   String? error;
   String? _pendingFreeId, _pendingRequestId;
   int? _pendingFreeGeneration;
+  IosCreditOrder? _pendingCredit;
+  bool _pendingCreditCancelled = false;
   Future<void>? _initialization;
   Future<void>? _productRefresh;
   final List<IosStoreTransaction> _updates = [];
@@ -490,6 +706,21 @@ class IosAcquisitionController extends ChangeNotifier {
   String? _productId(String wallpaperId) {
     final value = (_catalogue?.productIds ?? state?.products)?[wallpaperId];
     return value == null || value.isEmpty ? null : value;
+  }
+
+  IosProductCatalogue get _offers => _catalogue ?? state!.catalogue;
+  bool _canFree(String id) =>
+      state?.freeAllowance == IosFreeAllowance.available &&
+      _offers.productIds.containsKey(id) &&
+      (_offers.freeEligible[id] ?? true);
+  bool _creditAvailable(String id) {
+    final offer = _offers.creditOffers[id];
+    final product = products[_productId(id)];
+    return offer?.ready == true &&
+        offer?.credits != null &&
+        product?.productType == 'CONSUMABLE' &&
+        product?.currencyCode == 'CNY' &&
+        num.tryParse(product?.price ?? '') == offer?.packCredits;
   }
 
   Future<void> initialize() => _initialization ??= _initialize();
@@ -509,6 +740,12 @@ class IosAcquisitionController extends ChangeNotifier {
         _pendingFreeId = pending?['wallpaperId'] as String?;
         _pendingRequestId = pending?['requestId'] as String?;
         _pendingFreeGeneration = pending?['freeGeneration'] as int?;
+        _pendingCreditCancelled = value['pendingCreditCancelled'] == true;
+        if (value['pendingCredit'] is Map) {
+          _pendingCredit = IosCreditOrder(
+            Map<String, dynamic>.from(value['pendingCredit'] as Map),
+          );
+        }
         _notify();
       }
     } catch (_) {
@@ -591,7 +828,9 @@ class IosAcquisitionController extends ChangeNotifier {
               catalogue = state!.catalogue;
             }
           }
-          found = await store.products(catalogue.productIds.values.toSet());
+          found = await store.products(
+            catalogue.productIds.values.where((id) => id.isNotEmpty).toSet(),
+          );
         } catch (_) {
           // A failed price query must not leave a stale price on screen.
         }
@@ -616,9 +855,18 @@ class IosAcquisitionController extends ChangeNotifier {
     }
     if (!ready || error != null) return '重试获取资格';
     if (state!.freeAllowance == IosFreeAllowance.unknown) return '重试获取资格';
+    if (_canFree(wallpaperId)) return '首次免费获取';
+    if (_pendingCredit?.wallpaperId == wallpaperId) return '确认购买结果';
+    final credit = _offers.creditOffers[wallpaperId];
+    if (credit != null) {
+      if (credit.credits == null) return '商品尚未配置';
+      if (pricesLoading) return '正在获取价格';
+      return _creditAvailable(wallpaperId)
+          ? '${credit.credits}个积分兑换壁纸'
+          : 'App Store 暂不可购买';
+    }
     final productId = _productId(wallpaperId);
     if (productId == null) return '商品尚未配置';
-    if (state!.freeAllowance == IosFreeAllowance.available) return '首次免费获取';
     if (pricesLoading) return '正在获取价格';
     final product = products[productId];
     if (product == null) return 'App Store 暂不可购买';
@@ -628,6 +876,11 @@ class IosAcquisitionController extends ChangeNotifier {
   }
 
   String? priceNote(String wallpaperId) {
+    if (state != null &&
+        _offers.creditOffers.containsKey(wallpaperId) &&
+        !owns(wallpaperId)) {
+      return '1积分＝1元';
+    }
     if (owns(wallpaperId) ||
         busy ||
         pricesLoading ||
@@ -658,10 +911,13 @@ class IosAcquisitionController extends ChangeNotifier {
         state!.freeAllowance == IosFreeAllowance.unknown) {
       return true;
     }
+    if (_canFree(id) || _pendingCredit?.wallpaperId == id) return true;
+    if (_offers.creditOffers.containsKey(id)) {
+      return !pricesLoading && _creditAvailable(id);
+    }
     final productId = _productId(id);
     if (productId == null) return false;
-    return state!.freeAllowance == IosFreeAllowance.available ||
-        (!pricesLoading && products.containsKey(productId));
+    return (!pricesLoading && products.containsKey(productId));
   }
 
   /// False indicates cancellation, deferred approval, or an eligibility refresh.
@@ -680,7 +936,7 @@ class IosAcquisitionController extends ChangeNotifier {
       throw const IosAcquisitionNotice('测试资格重置处理中，请稍后重试');
     }
     final productId = _productId(wallpaperId);
-    if (productId == null) {
+    if (productId == null && !_canFree(wallpaperId)) {
       throw const IosAcquisitionNotice('此壁纸尚未配置 Apple 内购，请稍后重试');
     }
     busy = true;
@@ -688,8 +944,7 @@ class IosAcquisitionController extends ChangeNotifier {
     unavailable = false;
     _notify();
     try {
-      if (state!.freeAllowance == IosFreeAllowance.available ||
-          _pendingFreeId != null) {
+      if (_canFree(wallpaperId) || _pendingFreeId != null) {
         if (_pendingFreeId != null && _pendingFreeId != wallpaperId) {
           throw const IosAcquisitionNotice('上次免费获取尚未确认，请回到原壁纸重试');
         }
@@ -701,11 +956,13 @@ class IosAcquisitionController extends ChangeNotifier {
         if (!owns(wallpaperId)) {
           throw const IosAcquisitionNotice('免费获取结果尚未确认，请重试');
         }
+      } else if (_offers.creditOffers.containsKey(wallpaperId)) {
+        if (!await _buyCredits(wallpaperId)) return false;
       } else {
         if (!products.containsKey(productId)) {
           throw const IosAcquisitionNotice('此壁纸暂不可购买，请稍后重试');
         }
-        final result = await store.purchase(productId, state!.accountToken);
+        final result = await store.purchase(productId!, state!.accountToken);
         if (result.status == 'CANCELLED') return false;
         if (result.status == 'PENDING') {
           throw const IosAcquisitionNotice('购买正在等待批准，完成后会自动更新权益');
@@ -763,6 +1020,129 @@ class IosAcquisitionController extends ChangeNotifier {
     }
   }
 
+  Future<bool> _buyCredits(String wallpaperId) async {
+    if (store is! IosCreditPurchaseStore || api is! IosCreditAcquisitionApi) {
+      throw const IosAcquisitionNotice('请更新 App 后购买');
+    }
+    final creditStore = store as IosCreditPurchaseStore;
+    final creditApi = api as IosCreditAcquisitionApi;
+    if (_pendingCredit != null && _pendingCreditCancelled) {
+      await creditApi.cancelCreditOrder(
+        _pendingCredit!.id,
+        await creditStore.appIdentity(),
+      );
+      _pendingCredit = null;
+      _pendingCreditCancelled = false;
+      await _cache();
+    }
+    // Retry unfinished payments before starting a new Apple charge.
+    for (final transaction in await store.transactions()) {
+      await _deliver(transaction);
+    }
+    if (owns(wallpaperId)) return true;
+    if (_pendingCredit != null) {
+      await _accept(
+        await creditApi.restoreCredits(await creditStore.appIdentity()),
+      );
+      if (owns(wallpaperId)) return true;
+      throw const IosAcquisitionNotice('上次付款尚未确认，请在“我的”中恢复购买；无需再次付款');
+    }
+    if (!_creditAvailable(wallpaperId)) {
+      throw const IosAcquisitionNotice('此壁纸暂不可购买，请稍后重试');
+    }
+    final order = await creditApi.creditOrder(
+      wallpaperId,
+      await creditStore.appIdentity(),
+    );
+    if (order.wallpaperId != wallpaperId) {
+      throw const IosAcquisitionNotice('购买订单未通过验证');
+    }
+    if (order.fulfilled) {
+      await _accept(
+        await creditApi.restoreCredits(await creditStore.appIdentity()),
+      );
+      return owns(wallpaperId);
+    }
+    if (!order.paymentAllowed) {
+      _pendingCredit = order;
+      await _cache();
+      await _accept(
+        await creditApi.restoreCredits(await creditStore.appIdentity()),
+      );
+      if (owns(wallpaperId)) return true;
+      throw const IosAcquisitionNotice('已有付款待确认，请恢复购买；无需再次付款');
+    }
+    final offer = _offers.creditOffers[wallpaperId]!;
+    if (offer.credits != order.credits ||
+        offer.packCredits != order.packCredits ||
+        offer.quantity != order.quantity ||
+        _productId(wallpaperId) != order.productId) {
+      await creditApi.cancelCreditOrder(
+        order.id,
+        await creditStore.appIdentity(),
+      );
+      throw const IosAcquisitionNotice('价格已更新，请刷新后重新确认');
+    }
+    _pendingCredit = order;
+    await _cache(); // Persist before Apple; interruption cannot trigger a second charge.
+    IosPurchaseResult result;
+    try {
+      result = await creditStore.purchaseCredits(
+        order.productId,
+        order.token,
+        quantity: order.quantity,
+        packCredits: order.packCredits,
+      );
+    } on PlatformException catch (failure) {
+      if ({
+        'PRODUCT_UNAVAILABLE',
+        'CREDIT_PRICE_UNAVAILABLE',
+        'INVALID_ARGUMENTS',
+      }.contains(failure.code)) {
+        _pendingCreditCancelled = true;
+        await _cache();
+        await creditApi.cancelCreditOrder(
+          order.id,
+          await creditStore.appIdentity(),
+        );
+        _pendingCredit = null;
+        _pendingCreditCancelled = false;
+        await _cache();
+        throw IosAcquisitionNotice(failure.message ?? '此壁纸暂不可购买，请稍后重试');
+      }
+      rethrow;
+    }
+    if (result.status == 'CANCELLED') {
+      _pendingCreditCancelled = true;
+      await _cache();
+      await creditApi.cancelCreditOrder(
+        order.id,
+        await creditStore.appIdentity(),
+      );
+      _pendingCredit = null;
+      _pendingCreditCancelled = false;
+      await _cache();
+      return false;
+    }
+    if (result.status == 'PENDING') {
+      throw const IosAcquisitionNotice('购买正在等待批准，完成后会自动更新权益');
+    }
+    final transaction = result.transaction;
+    if (result.status != 'PURCHASED' ||
+        transaction == null ||
+        transaction.productId != order.productId ||
+        transaction.productType != 'CONSUMABLE' ||
+        transaction.quantity != order.quantity ||
+        transaction.revoked) {
+      throw const IosAcquisitionNotice('付款结果尚未确认，请恢复购买；无需再次付款');
+    }
+    await _deliver(transaction);
+    if (!owns(wallpaperId)) {
+      throw const IosAcquisitionNotice('付款已完成，请恢复购买；无需再次付款');
+    }
+    return true;
+  }
+
   Future<String> restore() async {
     if (busy) throw const IosAcquisitionNotice('正在处理，请稍候');
     busy = true;
@@ -773,7 +1153,15 @@ class IosAcquisitionController extends ChangeNotifier {
       for (final transaction in transactions) {
         await _deliver(transaction);
       }
-      return transactions.any((value) => !value.revoked)
+      if (api is IosCreditAcquisitionApi && store is IosCreditPurchaseStore) {
+        await _accept(
+          await (api as IosCreditAcquisitionApi).restoreCredits(
+            await (store as IosCreditPurchaseStore).appIdentity(refresh: true),
+          ),
+        );
+      }
+      return state?.purchasedWallpaperIds.isNotEmpty == true ||
+              transactions.any((value) => !value.revoked)
           ? '已恢复购买，可以再次下载'
           : '当前苹果账户没有可恢复的购买';
     } catch (_) {
@@ -789,7 +1177,14 @@ class IosAcquisitionController extends ChangeNotifier {
     // Receiving PURCHASED alone never grants local access. Keep transactions
     // unfinished on API failure so startup/Restore can retry after interruption.
     await _accept(await api.synchronize(transaction));
-    if (!transaction.revoked) {
+    if (transaction.productType == 'CONSUMABLE' &&
+        transaction.accountToken != null &&
+        transaction.accountToken == _pendingCredit?.token) {
+      _pendingCredit = null;
+      _pendingCreditCancelled = false;
+      await _cache();
+    }
+    if (!transaction.revoked && transaction.productType != 'CONSUMABLE') {
       final mapping = state!.products.entries.where(
         (entry) => entry.value == transaction.productId,
       );
@@ -838,6 +1233,10 @@ class IosAcquisitionController extends ChangeNotifier {
       _pendingRequestId = null;
       _pendingFreeGeneration = null;
     }
+    if (_pendingCredit != null && value.owns(_pendingCredit!.wallpaperId)) {
+      _pendingCredit = null;
+      _pendingCreditCancelled = false;
+    }
     await _cache();
     _notify();
   }
@@ -845,6 +1244,8 @@ class IosAcquisitionController extends ChangeNotifier {
   Future<void> _cache() => store.writeCache(
     jsonEncode({
       'state': state!.toJson(cache: true),
+      if (_pendingCredit != null) 'pendingCredit': _pendingCredit!.value,
+      'pendingCreditCancelled': _pendingCreditCancelled,
       if (_pendingFreeId != null)
         'pendingFree': {
           'wallpaperId': _pendingFreeId,

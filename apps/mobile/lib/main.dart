@@ -54,7 +54,7 @@ class _QingjingAppState extends State<QingjingApp> {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: '倾境壁纸',
+    title: '倾境动态壁纸',
     debugShowCheckedModeBanner: false,
     navigatorObservers: [detailPreviewRouteObserver],
     theme: QjTheme.light,

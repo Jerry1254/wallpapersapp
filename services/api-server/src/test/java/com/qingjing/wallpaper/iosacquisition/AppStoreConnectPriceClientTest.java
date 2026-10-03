@@ -26,6 +26,7 @@ class AppStoreConnectPriceClientTest {
     final Clock clock = Clock.fixed(Instant.parse("2026-10-03T00:00:00Z"), ZoneOffset.UTC);
     String manual = prices("1.00", "CNY", true), automatic = prices("2.00", "CNY", true);
     int status = 200;
+    String productType = "NON_CONSUMABLE";
     final KeyPair key;
     final AppStoreConnectPriceClient client;
 
@@ -44,7 +45,7 @@ class AppStoreConnectPriceClientTest {
             when(response.statusCode()).thenReturn(status);
             String path = request.uri().getPath();
             String body = path.endsWith("inAppPurchasesV2")
-                    ? "{\"data\":[{\"id\":\"1234\",\"attributes\":{\"productId\":\"com.test.wallpaper\",\"inAppPurchaseType\":\"NON_CONSUMABLE\"}}]}"
+                    ? "{\"data\":[{\"id\":\"1234\",\"attributes\":{\"productId\":\"com.test.wallpaper\",\"inAppPurchaseType\":\"" + productType + "\"}}]}"
                     : path.endsWith("iapPriceSchedule") ? "{\"data\":{\"id\":\"1234\"}}"
                     : path.endsWith("manualPrices") ? manual : automatic;
             when(response.body()).thenReturn(body);
@@ -68,6 +69,12 @@ class AppStoreConnectPriceClientTest {
             assertThat(token.getClaim("scope").asArray(String.class)).containsExactly("GET " + request.uri().getRawPath()
                     + (request.uri().getRawQuery() == null ? "" : "?" + request.uri().getRawQuery()));
         }
+    }
+
+    @Test void consumablePacksAreValidatedAgainstTheirActualAppleProductType() {
+        productType="CONSUMABLE";
+        assertThat(client.currentChinaPrice("com.test.wallpaper","CONSUMABLE").customerPrice().toPlainString()).isEqualTo("1.00");
+        assertThatThrownBy(()->client.currentChinaPrice("com.test.wallpaper")).isInstanceOf(ApplePriceGateway.PriceFailure.class);
     }
 
     @Test void fallsBackToAutomaticallyGeneratedChinaPriceAndNeverUsesScheduledFuturePrice() {
