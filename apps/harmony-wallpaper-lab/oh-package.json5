@@ -1,0 +1,8 @@
+{
+  "modelVersion": "6.0.2",
+  "name": "qingjing-harmony-wallpaper-lab",
+  "version": "0.1.0",
+  "description": "鸿蒙壁纸公共能力独立实验工具",
+  "dependencies": {},
+  "devDependencies": {}
+}
