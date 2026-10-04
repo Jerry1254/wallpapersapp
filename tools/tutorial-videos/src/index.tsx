@@ -121,18 +121,21 @@ function RedemptionScreen({tutorial,step,frame}:{tutorial:Tutorial,step:Step,fra
 
 function GalleryScreen({tutorial,step,frame}:{tutorial:Tutorial,step:Step,frame:number}) {
   const ios = step.device==='ios' || tutorial.id.includes('ios');
+  const harmony = step.device==='harmony' || tutorial.id.includes('harmony');
   const isStatic = tutorial.effect==='static';
   return <>
     <div style={{padding:'9px 16px 12px'}}><Txt size={24} weight={750}>{ios?'照片':'图库'}</Txt><Txt size={11} color={C.muted}>最近保存</Txt></div>
     <div style={{padding:'0 12px',display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:5}}>{[0,1,2,3,4,5,6,7,8].map(n=><div key={n} style={{height:94,borderRadius:7,overflow:'hidden',position:'relative',filter:n===0?'none':`saturate(.4) hue-rotate(${n*16}deg)`,opacity:n===0?1:.4,outline:n===0?'3px solid #F4A91E':'none'}}><Landscape uid={`thumb-${n}`} frame={0} effect="static"/>{n===0&&<div style={{position:'absolute',top:4,left:4,fontSize:7,background:'#ffffffdc',borderRadius:4,padding:3}}>{isStatic?'刚刚保存':ios?'◎ LIVE':'◎ 动态'}</div>}</div>)}</div>
-    <div style={{position:'absolute',bottom:15,left:0,right:0,textAlign:'center',fontSize:10,color:C.muted}}>{isStatic?(ios?'图库　　相簿':'照片　　相册'):'照片　　相册　　搜索'}</div>
+    <div style={{position:'absolute',bottom:15,left:0,right:0,textAlign:'center',fontSize:10,color:C.muted}}>{isStatic?(ios?'图库　　相簿':'照片　　相册'):harmony?'照片　　相册':'照片　　相册　　搜索'}</div>
     <Click frame={frame} x={44} y={124}/>
   </>;
 }
 
-function StaticSaveScreen({tutorial,step,frame}:{tutorial:Tutorial,step:Step,frame:number}) {
+function SaveScreen({tutorial,step,frame}:{tutorial:Tutorial,step:Step,frame:number}) {
   const harmony = step.device==='harmony';
-  const saved = frame>=110;
+  const movingPhoto = harmony && tutorial.effect==='video';
+  const ready = !movingPhoto || frame>=85;
+  const saved = frame>=(movingPhoto?190:110);
   if (!harmony) {
     const label = saved ? '已保存到相册，请设置' : frame>=70 ? `下载中 ${Math.min(99,Math.round((frame-70)*2.5))}%` : '下载壁纸';
     return <>
@@ -141,24 +144,25 @@ function StaticSaveScreen({tutorial,step,frame}:{tutorial:Tutorial,step:Step,fra
     </>;
   }
   return <>
-    <AppScreen tutorial={tutorial} step={{...step,action:'下载壁纸'}} frame={100}/>
+    <AppScreen tutorial={tutorial} step={{...step,action:movingPhoto&&saved?'已保存到相册，请设置':'下载壁纸'}} frame={100}/>
     <div style={{position:'absolute',inset:0,background:'#19181738'}}/>
     <div style={{position:'absolute',top:127,left:15,right:15,padding:'18px 12px',borderRadius:18,background:'white',textAlign:'center',boxShadow:'0 8px 22px #19181720'}}>
       <div style={{width:37,height:37,borderRadius:19,margin:'0 auto 10px',background:saved?'#E7F4EC':C.pale,display:'grid',placeItems:'center'}}><Icon name="check" color={saved?C.green:C.ink}/></div>
-      <Txt size={17} weight={750}>{saved?'已保存到相册':'下载完成'}</Txt>
-      <Txt size={10} color={C.muted} style={{marginTop:7,whiteSpace:'pre-line'}}>{saved?'请前往手机图库设置壁纸':'点击保存按钮\n将静态图片保存到手机图库'}</Txt>
-      <div style={{display:'flex',gap:7,marginTop:15}}><div style={{flex:1,border:`1px solid ${C.line}`,borderRadius:18,padding:'10px 0'}}><Txt size={10}>暂不保存</Txt></div><div style={{flex:1,background:saved?'#E7F4EC':C.gold,borderRadius:18,padding:'10px 0'}}><Txt size={10} weight={700} color={saved?C.green:C.ink}>{saved?'保存成功':'保存图片'}</Txt></div></div>
+      <Txt size={17} weight={750}>{saved?'已保存到相册':ready?'下载完成':'兑换成功'}</Txt>
+      <Txt size={10} color={C.muted} style={{marginTop:7,whiteSpace:'pre-line'}}>{saved?'请前往手机图库设置壁纸':!ready?'正在下载动态壁纸':movingPhoto?'点击保存按钮\n将动态照片保存到手机图库':'点击保存按钮\n将静态图片保存到手机图库'}</Txt>
+      {ready?<div style={{display:'flex',gap:7,marginTop:15}}><div style={{flex:1,border:`1px solid ${C.line}`,borderRadius:18,padding:'10px 0'}}><Txt size={10}>暂不保存</Txt></div><div style={{flex:1,background:saved?'#E7F4EC':C.gold,borderRadius:18,padding:'10px 0'}}><Txt size={10} weight={700} color={saved?C.green:C.ink}>{saved?'保存成功':'保存图片'}</Txt></div></div>:<div style={{marginTop:17}}><div style={{height:5,borderRadius:4,background:C.line,overflow:'hidden'}}><div style={{width:`${Math.min(100,Math.round(frame/85*100))}%`,height:'100%',background:C.gold}}/></div><Txt size={10} color={C.muted} style={{marginTop:7}}>{Math.min(100,Math.round(frame/85*100))}%</Txt></div>}
     </div>
-    <Click frame={frame} x={157} y={286}/>
+    <Click frame={frame} x={157} y={286} delay={movingPhoto?135:36}/>
   </>;
 }
 
-function StaticPhotoScreen({step,frame}:{step:Step,frame:number}) {
+function AlbumPhotoScreen({tutorial,step,frame}:{tutorial:Tutorial,step:Step,frame:number}) {
   const ios = step.device==='ios';
+  const dynamic = tutorial.effect!=='static';
   const menu = lerp(frame,75,87,0,1);
   return <>
     <div style={{padding:'9px 13px',display:'flex',justifyContent:'space-between',alignItems:'center'}}><Icon name="back" size={18}/><Txt size={11} weight={600}>刚刚保存</Txt><div style={{borderRadius:12,padding:3,background:ios?'transparent':C.pale}}><Icon name="more" size={19}/></div></div>
-    <div style={{height:312,margin:'2px 12px',borderRadius:12,overflow:'hidden'}}><Landscape uid={`static-photo-${step.device}`} frame={0} effect="static"/></div>
+    <div style={{height:312,margin:'2px 12px',borderRadius:12,overflow:'hidden',position:'relative'}}><Landscape uid={`static-photo-${step.device}`} frame={dynamic?frame:0} effect={tutorial.effect}/>{dynamic&&<div style={{position:'absolute',top:10,left:10,display:'flex',alignItems:'center',gap:4,padding:'4px 7px',borderRadius:10,background:'#ffffffdd'}}><Icon name="live" size={13}/><Txt size={9} weight={600}>动态照片</Txt></div>}</div>
     <div style={{position:'absolute',bottom:20,left:15,right:15,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
       <div style={{padding:'6px 9px',background:ios?C.pale:'transparent',borderRadius:12,display:'flex',gap:5,alignItems:'center'}}><Icon name="share" size={20}/><Txt size={10}>分享</Txt></div><Txt size={11} color={C.muted}>编辑</Txt><Icon name="more" size={20}/>
     </div>
@@ -232,6 +236,20 @@ function PhotoScreen({tutorial,step,frame}:{tutorial:Tutorial,step:Step,frame:nu
   </>;
 }
 
+function HarmonyPreviewScreen({tutorial,frame}:{tutorial:Tutorial,frame:number}) {
+  const applied = frame>=160;
+  return <>
+    <div style={{position:'absolute',inset:0}}><Landscape uid="harmony-preview" frame={frame} effect={tutorial.effect}/></div>
+    <div style={{position:'absolute',top:54,left:0,right:0,textAlign:'center',color:'#28473B'}}><Txt size={12} color="#28473B">星期日</Txt><Txt size={57} color="#28473B" weight={650}>09:41</Txt></div>
+    <div style={{position:'absolute',top:5,left:12,right:12,display:'flex',alignItems:'center',justifyContent:'space-between'}}><Txt size={11}>取消</Txt><Txt size={11} weight={700} style={{padding:'6px 13px',borderRadius:15,background:C.gold}}>应用</Txt></div>
+    <div style={{position:'absolute',bottom:24,left:17,right:17,padding:'13px 11px',borderRadius:18,background:'#fffffff2'}}>
+      <div style={{display:'flex',alignItems:'center',gap:7}}><div style={{width:28,height:28,borderRadius:14,background:'#E7F4EC',display:'grid',placeItems:'center'}}><Icon name={applied?'check':'live'} size={19} color={C.green}/></div><Txt size={11} color={C.green} weight={700}>{applied?'锁屏壁纸已设置':'动态效果已开启'}</Txt></div>
+      <Txt size={10} color={C.muted} style={{marginTop:8}}>{applied?'设置完成，前往锁屏查看效果':'保持开启，再按提示设为锁屏壁纸'}</Txt>
+    </div>
+    <Click frame={frame} x={185} y={18} delay={105}/>
+  </>;
+}
+
 function PermissionScreen({frame,tutorial}:{frame:number,tutorial:Tutorial}) {
   const enabled = frame > 105;
   return <>
@@ -249,7 +267,7 @@ function PreviewScreen({tutorial,step,frame,success=false}:{tutorial:Tutorial,st
   const lock = ios || harmony || tutorial.effect==='static';
   return <>
     <div style={{position:'absolute',inset:0}}><Landscape uid="full" frame={frame} effect={tutorial.effect}/></div>
-    {lock?<div style={{position:'absolute',top:54,left:0,right:0,textAlign:'center',color:'#28473B'}}><div style={{fontSize:12,fontWeight:600}}>10月3日　星期六</div><div style={{fontSize:57,lineHeight:1.25,fontWeight:650,letterSpacing:-2}}>09:41</div></div>:<div style={{position:'absolute',top:51,left:16,right:16,display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:16}}>{[0,1,2,3,4,5,6,7].map(n=><div key={n} style={{height:35,width:35,borderRadius:11,background:['#ffffffc8','#ddb589dd','#789988e6','#4c7563e6'][n%4],boxShadow:'0 2px 6px #0000000b'}}/>)}</div>}
+    {lock?<div style={{position:'absolute',top:54,left:0,right:0,textAlign:'center',color:'#28473B'}}><div style={{fontSize:12,fontWeight:600}}>{harmony?'星期日':'10月3日　星期六'}</div><div style={{fontSize:57,lineHeight:1.25,fontWeight:650,letterSpacing:-2}}>09:41</div></div>:<div style={{position:'absolute',top:51,left:16,right:16,display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:16}}>{[0,1,2,3,4,5,6,7].map(n=><div key={n} style={{height:35,width:35,borderRadius:11,background:['#ffffffc8','#ddb589dd','#789988e6','#4c7563e6'][n%4],boxShadow:'0 2px 6px #0000000b'}}/>)}</div>}
     {!success&&<>
       <div style={{position:'absolute',top:4,left:10,right:10,display:'flex',justifyContent:'space-between',alignItems:'center'}}><Txt size={11}>取消</Txt><div style={{fontSize:11,background:'#fff8',padding:'6px 12px',borderRadius:20,fontWeight:600}}>{ios?'添加':harmony?'应用':'预览'}</div></div>
       <div style={{position:'absolute',bottom:16,left:12,right:12,padding:12,borderRadius:16,background:'#ffffffed'}}>
@@ -263,10 +281,14 @@ function PreviewScreen({tutorial,step,frame,success=false}:{tutorial:Tutorial,st
 }
 
 function PhoneScreen({tutorial,step,frame}:{tutorial:Tutorial,step:Step,frame:number}) {
+  if (step.screen==='save') return <SaveScreen tutorial={tutorial} step={step} frame={frame}/>;
+  if (step.device==='harmony'&&tutorial.effect==='video') {
+    if (step.screen==='photo') return <AlbumPhotoScreen tutorial={tutorial} step={step} frame={frame}/>;
+    if (step.screen==='preview') return <HarmonyPreviewScreen tutorial={tutorial} frame={frame}/>;
+  }
   if (tutorial.effect==='static') {
     if (step.screen==='android-set') return <StaticAndroidScreen tutorial={tutorial} step={step} frame={frame}/>;
-    if (step.screen==='save') return <StaticSaveScreen tutorial={tutorial} step={step} frame={frame}/>;
-    if (step.screen==='photo') return <StaticPhotoScreen step={step} frame={frame}/>;
+    if (step.screen==='photo') return <AlbumPhotoScreen tutorial={tutorial} step={step} frame={frame}/>;
     if (step.screen==='placement') return <StaticPlacementScreen step={step} frame={frame}/>;
     if (step.screen==='preview'&&step.device==='ios') return <StaticIosPreview frame={frame}/>;
   }

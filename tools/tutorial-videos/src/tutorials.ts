@@ -64,11 +64,15 @@ export const tutorials: Tutorial[] = [
   {
     id: '04-harmony-video', title: '鸿蒙动态壁纸', platform: 'HarmonyOS', effect: 'video', format: '动态壁纸',
     steps: [
-      { seconds: 5, title: '先保存到相册', description: '在 App 下载壁纸，按提示保存到图库', screen: 'app', action: '保存到图库', hint: '首次保存时，按系统提示允许保存。' },
-      { seconds: 5, title: '打开「图库」', description: '找到刚保存的动态照片，点击打开', screen: 'gallery', action: '动态照片', hint: '请选择动态照片，而不是单独的视频。' },
-      { seconds: 6, title: '更多 → 设置为壁纸', description: '在动态照片页面，打开「更多」', screen: 'photo', action: '设置为壁纸', hint: '点击「设置为壁纸」，进入壁纸预览。' },
-      { seconds: 6, title: '保留动态，应用到锁屏', description: '保持动态效果开启，点击「应用」', screen: 'preview', action: '应用', hint: '根据系统提示，完成锁屏壁纸设置。' },
-      { seconds: 4, title: '锁屏也有动态效果', description: '设置完成，查看锁屏壁纸', screen: 'success', action: '设置完成', hint: '需要支持动态照片壁纸的鸿蒙版本和机型。' },
+      { seconds: 7, title: '先选择喜欢的动态壁纸', description: '需要兑换的壁纸，使用客服发来的兑换码', screen: 'app', action: '兑换并下载', hint: '免费或已兑换的壁纸，可直接下载。\n已有兑换码，可直接看第 4 步。', tag: '需要兑换时', device: 'harmony' },
+      { seconds: 6, title: '没有码？点首页右上角客服', description: '回到首页，点击右上角「客服」', screen: 'home', action: '客服', hint: '没有兑换码时，先从这里联系获取。\n已有兑换码，可以跳过第 2、3 步。', tag: '仅没有兑换码时', device: 'harmony' },
+      { seconds: 7, title: '添加客服微信，获取兑换码', description: '复制微信号，在微信中搜索并添加客服', screen: 'support', action: '复制', hint: '添加客服微信，联系获取兑换码。\n收到后，返回这张壁纸继续兑换。', tag: '仅没有兑换码时', device: 'harmony' },
+      { seconds: 8, title: '返回详情，输入兑换码', description: '点击「兑换并下载」，再「验证并兑换」', screen: 'redeem', action: '验证并兑换', hint: '请输入客服发来的兑换码。\n验证成功后，即可下载这张壁纸。', device: 'harmony' },
+      { seconds: 9, title: '下载完成，保存到相册', description: '点击「保存图片」，将动态照片存入图库', screen: 'save', action: '保存图片', hint: '看到「已保存到相册，请设置」后，再打开图库。\n首次保存时，按系统提示允许保存。', device: 'harmony' },
+      { seconds: 6, title: '打开图库，找到动态照片', description: '在最近保存的照片里，点击打开这张壁纸', screen: 'gallery', action: '动态照片', hint: '选择刚保存的动态照片，留意动态标识。', device: 'harmony' },
+      { seconds: 6, title: '右上角更多 → 设置为壁纸', description: '打开动态照片右上角「⋯」，选择壁纸选项', screen: 'photo', action: '设置为壁纸', hint: '点击「设置为壁纸」，进入壁纸预览。', device: 'harmony' },
+      { seconds: 7, title: '保留动态，应用到锁屏', description: '保持动态效果开启，点击右上角「应用」', screen: 'preview', action: '应用', hint: '按系统提示，将动态照片设为锁屏壁纸。', device: 'harmony' },
+      { seconds: 6, title: '锁屏也有动态效果', description: '设置完成，查看手机锁屏壁纸', screen: 'success', action: '设置完成', hint: '动态效果显示在锁屏。\n需要支持动态照片壁纸的鸿蒙版本和机型。', device: 'harmony' },
     ],
   },
   {
