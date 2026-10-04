@@ -16,7 +16,8 @@ const router = createRouter({
         { path: 'tutorials', name: 'tutorials', component: () => import('@/views/TutorialsView.vue'), meta: { title: '设置教程' } },
         { path: 'codes', name: 'codes', component: () => import('@/views/CodesView.vue'), meta: { title: '兑换码' } },
         { path: 'redemptions', name: 'redemptions', component: () => import('@/views/RedemptionsView.vue'), meta: { title: '兑换记录' } },
-        { path: 'devices', name: 'devices', component: () => import('@/views/DevicesView.vue'), meta: { title: '设备权益' } }
+        { path: 'devices', name: 'devices', component: () => import('@/views/DevicesView.vue'), meta: { title: '设备权益' } },
+        { path: 'app-releases', name: 'app-releases', component: () => import('@/views/AppReleasesView.vue'), meta: { title: 'App 版本管理' } }
       ]
     },
     { path: '/:pathMatch(.*)*', redirect: '/dashboard' }

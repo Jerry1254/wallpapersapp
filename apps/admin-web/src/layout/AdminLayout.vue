@@ -9,6 +9,7 @@ import {
   Menu as MenuIcon,
   Picture,
   VideoPlay,
+  Upload,
   SwitchButton
 } from '@element-plus/icons-vue';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
@@ -29,7 +30,8 @@ const items = [
   { path: '/tutorials', label: '设置教程', icon: VideoPlay },
   { path: '/codes', label: '兑换码', icon: Key },
   { path: '/redemptions', label: '兑换记录', icon: List },
-  { path: '/devices', label: '设备权益', icon: Iphone }
+  { path: '/devices', label: '设备权益', icon: Iphone },
+  { path: '/app-releases', label: 'App 版本管理', icon: Upload }
 ];
 
 const pageTitle = computed(() => String(route.meta.title || '工作台'));

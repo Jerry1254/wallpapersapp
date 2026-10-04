@@ -139,6 +139,11 @@ export const apiDownload = async (
 };
 
 const errorLabels: Record<string, string> = {
+  APP_RELEASE_INVALID: '版本信息不符合要求，请检查版本号、更新说明和应用商店链接',
+  APP_APK_INVALID: '安装包校验失败，请上传正式签名且可解析的 APK',
+  APP_RELEASE_CONFLICT: '版本状态或发布顺序不符合要求，请刷新并检查版本递增、签名一致及弃用状态',
+  APP_RELEASE_NOT_FOUND: '版本记录已不存在，请刷新列表',
+  APP_UPDATE_REQUIRED: '当前 App 版本已不再支持，请先完成更新',
   VERSION_CONFLICT: '数据已被更新，请刷新后重试',
   SESSION_EXPIRED: '登录已过期，请重新登录', UNAUTHORIZED: '登录已过期，请重新登录',
   CSRF_INVALID: '登录状态已变化，请重新登录后再操作',
