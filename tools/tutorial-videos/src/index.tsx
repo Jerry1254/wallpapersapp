@@ -50,7 +50,7 @@ function Click({frame,x,y,delay=36}:{frame:number,x:number,y:number,delay?:numbe
   </div>;
 }
 
-const Button = ({label, yellow=false}:{label:string,yellow?:boolean}) => <div style={{height:40,borderRadius:20,background:yellow?C.gold:C.ink,color:yellow?C.ink:'white',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,fontWeight:600}}>{label}</div>;
+const Button = ({label, yellow=false}:{label:string,yellow?:boolean}) => <div style={{height:40,borderRadius:20,background:yellow?C.gold:C.ink,color:yellow?C.ink:'white',display:'flex',alignItems:'center',justifyContent:'center',fontSize:label.length>10?11:15,fontWeight:600}}>{label}</div>;
 
 function AppScreen({tutorial,step,frame}:{tutorial:Tutorial,step:Step,frame:number}) {
   const downloading = step.action==='下载中';
@@ -119,13 +119,101 @@ function RedemptionScreen({tutorial,step,frame}:{tutorial:Tutorial,step:Step,fra
   </>;
 }
 
-function GalleryScreen({tutorial,frame}:{tutorial:Tutorial,frame:number}) {
-  const ios = tutorial.id.includes('ios');
+function GalleryScreen({tutorial,step,frame}:{tutorial:Tutorial,step:Step,frame:number}) {
+  const ios = step.device==='ios' || tutorial.id.includes('ios');
+  const isStatic = tutorial.effect==='static';
   return <>
     <div style={{padding:'9px 16px 12px'}}><Txt size={24} weight={750}>{ios?'照片':'图库'}</Txt><Txt size={11} color={C.muted}>最近保存</Txt></div>
-    <div style={{padding:'0 12px',display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:5}}>{[0,1,2,3,4,5,6,7,8].map(n=><div key={n} style={{height:94,borderRadius:7,overflow:'hidden',position:'relative',filter:n===0?'none':`saturate(.4) hue-rotate(${n*16}deg)`,opacity:n===0?1:.4,outline:n===0?'3px solid #F4A91E':'none'}}><Landscape uid={`thumb-${n}`} frame={0} effect="static"/>{n===0&&<div style={{position:'absolute',top:4,left:4,fontSize:7,background:'#ffffffdc',borderRadius:4,padding:3}}>{ios?'◎ LIVE':'◎ 动态'}</div>}</div>)}</div>
-    <div style={{position:'absolute',bottom:15,left:0,right:0,textAlign:'center',fontSize:10,color:C.muted}}>照片　　相册　　搜索</div>
+    <div style={{padding:'0 12px',display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:5}}>{[0,1,2,3,4,5,6,7,8].map(n=><div key={n} style={{height:94,borderRadius:7,overflow:'hidden',position:'relative',filter:n===0?'none':`saturate(.4) hue-rotate(${n*16}deg)`,opacity:n===0?1:.4,outline:n===0?'3px solid #F4A91E':'none'}}><Landscape uid={`thumb-${n}`} frame={0} effect="static"/>{n===0&&<div style={{position:'absolute',top:4,left:4,fontSize:7,background:'#ffffffdc',borderRadius:4,padding:3}}>{isStatic?'刚刚保存':ios?'◎ LIVE':'◎ 动态'}</div>}</div>)}</div>
+    <div style={{position:'absolute',bottom:15,left:0,right:0,textAlign:'center',fontSize:10,color:C.muted}}>{isStatic?(ios?'图库　　相簿':'照片　　相册'):'照片　　相册　　搜索'}</div>
     <Click frame={frame} x={44} y={124}/>
+  </>;
+}
+
+function StaticSaveScreen({tutorial,step,frame}:{tutorial:Tutorial,step:Step,frame:number}) {
+  const harmony = step.device==='harmony';
+  const saved = frame>=110;
+  if (!harmony) {
+    const label = saved ? '已保存到相册，请设置' : frame>=70 ? `下载中 ${Math.min(99,Math.round((frame-70)*2.5))}%` : '下载壁纸';
+    return <>
+      <AppScreen tutorial={tutorial} step={{...step,action:label}} frame={saved?100:frame}/>
+      {saved&&<div style={{position:'absolute',top:287,left:26,right:26,padding:'10px 6px',borderRadius:12,background:'#E7F4EC',display:'flex',justifyContent:'center',alignItems:'center',gap:5}}><Icon name="check" size={15} color={C.green}/><Txt size={10} color={C.green} weight={650}>图片已保存到手机照片</Txt></div>}
+    </>;
+  }
+  return <>
+    <AppScreen tutorial={tutorial} step={{...step,action:'下载壁纸'}} frame={100}/>
+    <div style={{position:'absolute',inset:0,background:'#19181738'}}/>
+    <div style={{position:'absolute',top:127,left:15,right:15,padding:'18px 12px',borderRadius:18,background:'white',textAlign:'center',boxShadow:'0 8px 22px #19181720'}}>
+      <div style={{width:37,height:37,borderRadius:19,margin:'0 auto 10px',background:saved?'#E7F4EC':C.pale,display:'grid',placeItems:'center'}}><Icon name="check" color={saved?C.green:C.ink}/></div>
+      <Txt size={17} weight={750}>{saved?'已保存到相册':'下载完成'}</Txt>
+      <Txt size={10} color={C.muted} style={{marginTop:7,whiteSpace:'pre-line'}}>{saved?'请前往手机图库设置壁纸':'点击保存按钮\n将静态图片保存到手机图库'}</Txt>
+      <div style={{display:'flex',gap:7,marginTop:15}}><div style={{flex:1,border:`1px solid ${C.line}`,borderRadius:18,padding:'10px 0'}}><Txt size={10}>暂不保存</Txt></div><div style={{flex:1,background:saved?'#E7F4EC':C.gold,borderRadius:18,padding:'10px 0'}}><Txt size={10} weight={700} color={saved?C.green:C.ink}>{saved?'保存成功':'保存图片'}</Txt></div></div>
+    </div>
+    <Click frame={frame} x={157} y={286}/>
+  </>;
+}
+
+function StaticPhotoScreen({step,frame}:{step:Step,frame:number}) {
+  const ios = step.device==='ios';
+  const menu = lerp(frame,75,87,0,1);
+  return <>
+    <div style={{padding:'9px 13px',display:'flex',justifyContent:'space-between',alignItems:'center'}}><Icon name="back" size={18}/><Txt size={11} weight={600}>刚刚保存</Txt><div style={{borderRadius:12,padding:3,background:ios?'transparent':C.pale}}><Icon name="more" size={19}/></div></div>
+    <div style={{height:312,margin:'2px 12px',borderRadius:12,overflow:'hidden'}}><Landscape uid={`static-photo-${step.device}`} frame={0} effect="static"/></div>
+    <div style={{position:'absolute',bottom:20,left:15,right:15,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+      <div style={{padding:'6px 9px',background:ios?C.pale:'transparent',borderRadius:12,display:'flex',gap:5,alignItems:'center'}}><Icon name="share" size={20}/><Txt size={10}>分享</Txt></div><Txt size={11} color={C.muted}>编辑</Txt><Icon name="more" size={20}/>
+    </div>
+    {menu>0&&(ios?<div style={{position:'absolute',bottom:12,left:6,right:6,padding:12,borderRadius:20,background:'white',boxShadow:'0 -6px 20px #19181722',opacity:menu,transform:`translateY(${(1-menu)*18}px)`}}>
+      <div style={{width:28,height:3,background:C.line,borderRadius:3,margin:'0 auto 8px'}}/>
+      <Txt size={10} color={C.muted}>分享图片 · 向上滑动查看选项</Txt>
+      <div style={{display:'flex',justifyContent:'space-between',margin:'11px 0 9px'}}>{['隔空投送','信息','邮件'].map((label,index)=><div key={label} style={{textAlign:'center'}}><div style={{width:32,height:32,borderRadius:9,background:['#6C9BC1','#62A377','#90A7BB'][index],margin:'0 auto 4px'}}/><Txt size={8} color={C.muted}>{label}</Txt></div>)}</div>
+      {['拷贝照片','添加到相簿','用作墙纸'].map(label=><div key={label} style={{padding:'9px 8px',borderRadius:10,background:label==='用作墙纸'?C.pale:'#F6F5F2',marginTop:5,display:'flex',alignItems:'center',justifyContent:'space-between'}}><Txt size={12} weight={label==='用作墙纸'?700:500}>{label}</Txt>{label==='用作墙纸'&&<Icon name="wallpaper" size={17}/>}</div>)}
+    </div>:<div style={{position:'absolute',top:51,left:47,right:10,padding:8,borderRadius:15,background:'white',boxShadow:'0 7px 22px #19181730',opacity:menu,transform:`translateY(${(1-menu)*-8}px)`}}>
+      {['分享','收藏','设置为壁纸','详细信息'].map(label=><div key={label} style={{padding:'10px 8px',borderRadius:9,background:label==='设置为壁纸'?C.pale:'transparent',display:'flex',alignItems:'center',gap:6}}>{label==='设置为壁纸'&&<Icon name="wallpaper" size={15}/>}<Txt size={11} weight={label==='设置为壁纸'?750:500}>{label}</Txt></div>)}
+    </div>)}
+    <Click frame={frame} x={ios?42:201} y={ios?382:22}/>
+    <Click frame={frame} x={ios?113:133} y={ios?377:152} delay={125}/>
+  </>;
+}
+
+function StaticPlacementScreen({step,frame}:{step:Step,frame:number}) {
+  const harmony = step.device==='harmony';
+  const showChoices = !harmony || frame>=75;
+  const complete = frame>=(harmony?190:110);
+  return <>
+    <div style={{position:'absolute',inset:0}}><Landscape uid={`static-placement-${step.device}`} frame={0} effect="static"/></div>
+    <div style={{position:'absolute',top:58,left:0,right:0,textAlign:'center',color:'#28473B'}}><Txt size={12} color="#28473B">星期日</Txt><Txt size={54} color="#28473B" weight={650}>09:41</Txt></div>
+    <div style={{position:'absolute',top:5,left:12,right:12,display:'flex',justifyContent:'space-between',alignItems:'center'}}><Txt size={11}>取消</Txt><Txt size={11} weight={700} style={{padding:'6px 13px',borderRadius:15,background:C.gold}}>{harmony?'应用':'预览'}</Txt></div>
+    {showChoices&&!complete&&<div style={{position:'absolute',bottom:14,left:8,right:8,padding:13,borderRadius:20,background:'#fffffff2'}}>
+      <Txt size={13} weight={750} style={{marginBottom:9}}>选择设置位置</Txt>
+      {['设为锁屏','设为桌面','同时设置'].map((label,index)=><div key={label} style={{padding:'10px 9px',borderRadius:12,background:index===0?C.pale:'#F4F3F0',marginTop:6,display:'flex',justifyContent:'space-between',alignItems:'center'}}><Txt size={12} weight={index===0?700:500}>{label}</Txt>{index===0&&<Icon name="check" size={15} color={C.green}/>}</div>)}
+    </div>}
+    {complete&&<div style={{position:'absolute',bottom:54,left:27,right:27,padding:'12px 8px',borderRadius:18,background:'#ffffffed',display:'flex',justifyContent:'center',alignItems:'center',gap:7}}><Icon name="check" size={18} color={C.green}/><Txt size={12} weight={700}>锁屏壁纸已设置</Txt></div>}
+    {harmony&&<Click frame={frame} x={185} y={18}/>}<Click frame={frame} x={109} y={285} delay={harmony?140:55}/>
+  </>;
+}
+
+function StaticAndroidScreen({tutorial,step,frame}:{tutorial:Tutorial,step:Step,frame:number}) {
+  const preview = lerp(frame,85,97,0,1);
+  return <>
+    <AppScreen tutorial={tutorial} step={step} frame={frame}/>
+    {preview>0&&<div style={{position:'absolute',inset:0,opacity:preview}}><StaticPlacementScreen step={step} frame={frame-85}/></div>}
+  </>;
+}
+
+function StaticIosPreview({frame}:{frame:number}) {
+  const pair = lerp(frame,75,87,0,1);
+  const complete = frame>=210;
+  return <>
+    <div style={{position:'absolute',inset:0}}><Landscape uid="static-ios-lock" frame={0} effect="static"/></div>
+    <div style={{position:'absolute',top:55,left:0,right:0,textAlign:'center',color:'#28473B'}}><Txt size={12} color="#28473B">星期日</Txt><Txt size={57} color="#28473B" weight={650}>09:41</Txt></div>
+    <div style={{position:'absolute',top:4,left:12,right:12,display:'flex',alignItems:'center',justifyContent:'space-between'}}><Txt size={11}>取消</Txt><Txt size={11} weight={700} style={{background:C.gold,padding:'6px 12px',borderRadius:15}}>添加</Txt></div>
+    {pair>0&&!complete&&<div style={{position:'absolute',bottom:15,left:7,right:7,padding:12,borderRadius:20,background:'#ffffffed',opacity:pair}}>
+      <Txt size={10} weight={650} style={{textAlign:'center'}}>在锁屏和主屏幕上使用这张墙纸</Txt>
+      <div style={{display:'flex',justifyContent:'center',gap:14,margin:'10px 0'}}>{['锁屏','主屏幕'].map((label,index)=><div key={label} style={{width:50,textAlign:'center'}}><div style={{height:67,borderRadius:8,overflow:'hidden',position:'relative'}}><Landscape uid={`static-ios-pair-${index}`} frame={0} effect="static"/>{index===0?<Txt size={12} weight={700} style={{position:'absolute',top:11,left:0,right:0}}>09:41</Txt>:<div style={{position:'absolute',top:12,left:7,right:7,display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:5}}>{[0,1,2,3,4,5].map(n=><div key={n} style={{height:8,borderRadius:2,background:'#ffffffe0'}}/>)}</div>}</div><Txt size={8} color={C.muted} style={{marginTop:3}}>{label}</Txt></div>)}</div>
+      <div style={{height:36,borderRadius:18,background:C.gold,display:'grid',placeItems:'center'}}><Txt size={12} weight={750}>设为墙纸组合</Txt></div><Txt size={11} color={C.muted} style={{marginTop:9,textAlign:'center'}}>自定义主屏幕</Txt>
+    </div>}
+    {complete&&<div style={{position:'absolute',bottom:57,left:17,right:17,padding:'12px 9px',borderRadius:20,background:'#ffffffed',display:'flex',alignItems:'center',justifyContent:'center',gap:6}}><Icon name="check" color={C.green} size={18}/><Txt size={11} weight={700}>锁屏与主屏幕已设置</Txt></div>}
+    <Click frame={frame} x={185} y={17}/><Click frame={frame} x={112} y={356} delay={145}/>
   </>;
 }
 
@@ -175,12 +263,19 @@ function PreviewScreen({tutorial,step,frame,success=false}:{tutorial:Tutorial,st
 }
 
 function PhoneScreen({tutorial,step,frame}:{tutorial:Tutorial,step:Step,frame:number}) {
+  if (tutorial.effect==='static') {
+    if (step.screen==='android-set') return <StaticAndroidScreen tutorial={tutorial} step={step} frame={frame}/>;
+    if (step.screen==='save') return <StaticSaveScreen tutorial={tutorial} step={step} frame={frame}/>;
+    if (step.screen==='photo') return <StaticPhotoScreen step={step} frame={frame}/>;
+    if (step.screen==='placement') return <StaticPlacementScreen step={step} frame={frame}/>;
+    if (step.screen==='preview'&&step.device==='ios') return <StaticIosPreview frame={frame}/>;
+  }
   return <>
     {step.screen==='app'&&<AppScreen tutorial={tutorial} step={step} frame={frame}/>}
     {step.screen==='home'&&<HomeScreen tutorial={tutorial} frame={frame}/>}
     {step.screen==='support'&&<SupportScreen tutorial={tutorial} frame={frame}/>}
     {step.screen==='redeem'&&<RedemptionScreen tutorial={tutorial} step={step} frame={frame}/>}
-    {step.screen==='gallery'&&<GalleryScreen tutorial={tutorial} frame={frame}/>}
+    {step.screen==='gallery'&&<GalleryScreen tutorial={tutorial} step={step} frame={frame}/>}
     {step.screen==='photo'&&<PhotoScreen tutorial={tutorial} step={step} frame={frame}/>}
     {step.screen==='permission'&&<PermissionScreen tutorial={tutorial} frame={frame}/>}
     {(step.screen==='preview'||step.screen==='success')&&<PreviewScreen tutorial={tutorial} step={step} frame={frame} success={step.screen==='success'}/>}
@@ -225,7 +320,7 @@ export function SettingTutorial({tutorial}:{tutorial:Tutorial}) {
       <Phone tutorial={tutorial} step={step} previous={tutorial.steps[index-1]} frame={local}/>
       <div style={{position:'absolute',top:836,left:26,right:26,textAlign:'center'}}><Txt size={13} weight={550} style={{whiteSpace:'pre-line',lineHeight:1.7}}>{step.hint}</Txt></div>
       <div style={{position:'absolute',bottom:25,left:34,right:34,display:'flex',justifyContent:'space-between',alignItems:'center'}}><Txt size={10} color={C.muted}>操作示意 · 请以手机实际界面为准</Txt><Txt size={10} color={C.muted}>{index+1} / {tutorial.steps.length}</Txt></div>
-      <div style={{position:'absolute',top:390,left:44,fontSize:96,fontWeight:800,color:'#E7E3DD',letterSpacing:-5,zIndex:-1}}>0{index+1}</div>
+      <div style={{position:'absolute',top:390,left:44,fontSize:96,fontWeight:800,color:'#E7E3DD',letterSpacing:-5,zIndex:-1}}>{String(index+1).padStart(2,'0')}</div>
     </div>
   </AbsoluteFill>;
 }

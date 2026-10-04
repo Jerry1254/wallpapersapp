@@ -1,4 +1,4 @@
-export type Screen = 'app' | 'home' | 'support' | 'redeem' | 'gallery' | 'photo' | 'permission' | 'preview' | 'success';
+export type Screen = 'app' | 'home' | 'support' | 'redeem' | 'gallery' | 'photo' | 'permission' | 'preview' | 'success' | 'save' | 'android-set' | 'placement';
 export type Step = {
   seconds: number;
   title: string;
@@ -7,6 +7,7 @@ export type Step = {
   action: string;
   hint: string;
   tag?: string;
+  device?: 'android' | 'harmony' | 'ios';
 };
 export type Tutorial = {
   id: string;
@@ -21,10 +22,17 @@ export const tutorials: Tutorial[] = [
   {
     id: '01-static', title: '静态壁纸设置', platform: '安卓 · 鸿蒙 · iOS', effect: 'static', format: '静态壁纸',
     steps: [
-      { seconds: 5, title: '选择喜欢的静态壁纸', description: '在壁纸详情里选择「静态壁纸」', screen: 'app', action: '下载壁纸', hint: '先下载，再按手机平台完成设置。' },
-      { seconds: 6, title: '安卓：直接设置', description: '下载完成后，点击「设置壁纸」', screen: 'app', action: '设置壁纸', hint: '按提示选择桌面、锁屏或同时设置。', tag: '安卓' },
-      { seconds: 7, title: 'iOS / 鸿蒙：打开相册', description: '找到刚保存的图片，打开壁纸选项', screen: 'photo', action: '设为壁纸', hint: 'iOS：分享 → 用作墙纸\n鸿蒙：更多 → 设置为壁纸', tag: 'iOS / 鸿蒙' },
-      { seconds: 5, title: '确认后，就设置好了', description: '选择需要的位置，按系统提示确认', screen: 'success', action: '设置完成', hint: '同一张静态壁纸，三个平台都能使用。' },
+      { seconds: 5, title: '选择喜欢的静态壁纸', description: '在壁纸详情里选择「静态壁纸」', screen: 'app', action: '下载壁纸', hint: '安卓看第 2 步 · 鸿蒙看第 3～6 步\n苹果看第 7～10 步' },
+      { seconds: 8, title: '安卓：下载后直接设置', description: '点击「设置壁纸」，按系统提示确认', screen: 'android-set', action: '设置壁纸', hint: '选择桌面、锁屏或同时设置，即可完成。', tag: '安卓手机', device: 'android' },
+      { seconds: 6, title: '鸿蒙：下载后保存到相册', description: '下载完成，点击保存按钮存入手机图库', screen: 'save', action: '保存图片', hint: '看到「已保存到相册」后，再前往手机图库。', tag: '华为鸿蒙 · 1 / 4', device: 'harmony' },
+      { seconds: 5, title: '打开图库，找到这张壁纸', description: '在最近保存的图片里，点击打开壁纸', screen: 'gallery', action: '打开壁纸', hint: '打开的是刚保存的静态图片。', tag: '华为鸿蒙 · 2 / 4', device: 'harmony' },
+      { seconds: 6, title: '右上角菜单 → 设置为壁纸', description: '打开照片右上角「⋯」，选择壁纸选项', screen: 'photo', action: '设置为壁纸', hint: '部分版本显示为「设置为 → 壁纸」。', tag: '华为鸿蒙 · 3 / 4', device: 'harmony' },
+      { seconds: 8, title: '应用到锁屏或桌面', description: '调整图片位置，点击「应用」并选择位置', screen: 'placement', action: '应用', hint: '可选择锁屏、桌面，或同时设置。', tag: '华为鸿蒙 · 4 / 4', device: 'harmony' },
+      { seconds: 6, title: '苹果：下载并保存到相册', description: '下载静态壁纸，确认已保存到手机照片', screen: 'save', action: '下载壁纸', hint: '首次保存时，按提示允许保存到照片。', tag: '苹果 iPhone · 1 / 4', device: 'ios' },
+      { seconds: 5, title: '打开照片，找到这张壁纸', description: '在最近保存的图片里，点击打开壁纸', screen: 'gallery', action: '打开壁纸', hint: '找到刚保存的静态图片，点击查看大图。', tag: '苹果 iPhone · 2 / 4', device: 'ios' },
+      { seconds: 7, title: '分享 → 用作墙纸', description: '点击分享图标，在菜单中找到「用作墙纸」', screen: 'photo', action: '用作墙纸', hint: '分享图标是方框加向上箭头。\n向上滑动分享菜单，可找到墙纸选项。', tag: '苹果 iPhone · 3 / 4', device: 'ios' },
+      { seconds: 8, title: '添加 → 设为墙纸组合', description: '调整图片位置，点击右上角「添加」', screen: 'preview', action: '添加', hint: '「设为墙纸组合」同时应用到锁屏和主屏幕。\n也可选择「自定义主屏幕」单独调整。', tag: '苹果 iPhone · 4 / 4', device: 'ios' },
+      { seconds: 4, title: '静态壁纸，设置好了', description: '按照你的手机平台，完成对应操作即可', screen: 'success', action: '设置完成', hint: '安卓直接设置 · 鸿蒙和苹果从手机相册设置' },
     ],
   },
   {
