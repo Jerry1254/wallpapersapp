@@ -37,7 +37,8 @@ class CatalogScreen extends StatefulWidget {
   State<CatalogScreen> createState() => _CatalogScreenState();
 }
 
-class _CatalogScreenState extends State<CatalogScreen> {
+class _CatalogScreenState extends State<CatalogScreen>
+    with WidgetsBindingObserver {
   late final CatalogController controller;
   final searchText = TextEditingController();
   List<Category> categories = [];
@@ -48,6 +49,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     searchText.text = widget.search ?? '';
     controller = CatalogController(widget.repository)..addListener(_update);
     _reload();
@@ -56,6 +58,11 @@ class _CatalogScreenState extends State<CatalogScreen> {
 
   void _update() {
     if (mounted) setState(() {});
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) _reload();
   }
 
   Map<String, String> get query {
@@ -166,6 +173,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
   );
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     controller.removeListener(_update);
     controller.dispose();
     searchText.dispose();

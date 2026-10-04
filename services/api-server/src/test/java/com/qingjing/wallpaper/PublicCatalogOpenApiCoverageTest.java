@@ -26,10 +26,11 @@ class PublicCatalogOpenApiCoverageTest {
         Set<String> controllerOperations = controllerOperations(List.of(
                 PublicCatalogController.class,
                 PublicAssetController.class,
+                com.qingjing.wallpaper.asset.PublicPreviewCoverController.class,
                 PublicWallpaperTutorialController.class));
 
         assertThat(controllerOperations).containsExactlyInAnyOrderElementsOf(contractOperations);
-        assertThat(contractOperations).hasSize(7);
+        assertThat(contractOperations).hasSize(8);
     }
 
     @SuppressWarnings("unchecked")
@@ -42,7 +43,7 @@ class PublicCatalogOpenApiCoverageTest {
         Map<String, Map<String, Object>> paths = (Map<String, Map<String, Object>>) document.get("paths");
         Set<String> operations = new HashSet<>();
         paths.forEach((path, item) -> {
-            if (!path.startsWith("/public/")) {
+            if (!path.startsWith("/public/") && !path.equals("/wallpapers/{wallpaperId}/cover")) {
                 return;
             }
             item.keySet().stream()

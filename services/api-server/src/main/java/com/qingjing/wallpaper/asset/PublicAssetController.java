@@ -31,7 +31,7 @@ public class PublicAssetController {
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(descriptor.mimeType()))
                 .contentLength(descriptor.sizeBytes())
-                .cacheControl(CacheControl.maxAge(Duration.ofHours(1)).cachePublic())
+                .cacheControl(CacheControl.noStore())
                 .header(HttpHeaders.ETAG, '"' + descriptor.sha256() + '"')
                 .body(new InputStreamResource(content.inputStream()));
     }

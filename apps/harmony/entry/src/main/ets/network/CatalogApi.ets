@@ -75,6 +75,7 @@ export interface PreviewDescriptor {
   purpose: string;
   durationSeconds: number;
   wallpaperId: string;
+  previewRevision?: number;
   ticket: string;
   video?: DeliveryFile;
 }

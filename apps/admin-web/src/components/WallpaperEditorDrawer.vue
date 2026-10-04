@@ -5,6 +5,7 @@ import { computed, reactive, ref, toRaw, watch } from 'vue';
 
 import ResourceFileField from '@/components/ResourceFileField.vue';
 import { iosPriceSyncLabel, iosCreditPack as creditPack } from '@/domain/iosPricing';
+import { hasPreviewWatermark, mergePreviewGeneration, previewGenerationLabel } from '@/domain/previewWatermark';
 import {
   wallpaperCapabilityLabels,
   type Category,
@@ -25,12 +26,14 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: boolean];
   saved: [value: Wallpaper];
+  'preview-rebuilt': [value: Wallpaper];
 }>();
 
 type WallpaperForm = Wallpaper & { iosAcquisition: NonNullable<Wallpaper['iosAcquisition']> };
 const blank = (): WallpaperForm => ({
   id: '', title: '', slug: '', categoryId: '', subcategoryId: '',
   accessType: 'REDEEM', capabilities: [], status: 'draft', sort: 1,
+  previewWatermarkEnabled: true, previewGenerationStatus: undefined, previewRevision: 0, previewGenerationError: null,
   coverUrl: '', featuredRank: null, resources: {}, copyrightNote: '', updatedAt: '', version: 0,
   variants: [], iosAcquisition: {
     acquisitionMode: 'CREDITS', credits: null, productId: '', chinaReferencePrice: null, firstFreeEligible: true, enabled: true, productIdLocked: false, verifiedTransactionAt: null
@@ -106,6 +109,7 @@ const coverPreviewSrc = computed(() => form.resources.cover?.url
   || form.coverUrl);
 const dynamicPreviewSrc = computed(() => form.resources.androidVideo?.url || form.resources.iosVideo?.url);
 const previewHasContent = computed(() => Boolean(dynamicPreviewSrc.value || coverPreviewSrc.value));
+const showPreviewWatermark = computed(() => hasPreviewWatermark(form));
 
 const cloneIntoForm = (value?: Wallpaper) => {
   const next = value ? structuredClone(toRaw(value)) : blank();
@@ -118,6 +122,23 @@ const cloneIntoForm = (value?: Wallpaper) => {
 };
 watch(() => props.modelValue, (open) => { if (open) cloneIntoForm(props.wallpaper); }, { immediate: true });
 watch(() => props.wallpaper, (value) => { if (props.modelValue) cloneIntoForm(value); });
+watch(() => [props.wallpaper?.previewGenerationStatus, props.wallpaper?.previewRevision, props.wallpaper?.previewGenerationError], () => {
+  const value = props.wallpaper;
+  if (props.modelValue && value && value.id === form.id) mergePreviewGeneration(form, value);
+});
+const rebuildingPreview = ref(false);
+const rebuildPreview = async () => {
+  if (!form.id) return;
+  rebuildingPreview.value = true;
+  try {
+    const result = await adminRepository.rebuildWallpaperPreview(form.id);
+    mergePreviewGeneration(form, result);
+    emit('preview-rebuilt', result);
+    ElMessage.success('预览已加入重新生成队列，正式下载原文件保持不变');
+  } catch (cause) {
+    ElMessage.error(readableApiError(cause, '预览重新生成失败'));
+  } finally { rebuildingPreview.value = false; }
+};
 
 const setResource = (key: keyof Wallpaper['resources'], value: ResourceFile | undefined) => {
   form.resources[key] = value;
@@ -237,6 +258,16 @@ const rebuildMovingPhoto = async () => {
               <ElFormItem label="排序值"><ElInputNumber v-model="form.sort" :min="0" :max="999999" controls-position="right" style="width:100%" /></ElFormItem>
               <ElFormItem label="精选推荐"><div class="featured-controls"><ElCheckbox :model-value="form.featuredRank !== null" @change="form.featuredRank = $event ? 1 : null">加入首页精选</ElCheckbox><ElInputNumber v-if="form.featuredRank !== null" v-model="form.featuredRank" :min="0" :max="999999" /></div></ElFormItem>
               <ElFormItem label="获取方式" :error="errors.accessType"><ElRadioGroup v-model="form.accessType"><ElRadio value="REDEEM">需要兑换</ElRadio><ElRadio value="FREE">免费</ElRadio></ElRadioGroup></ElFormItem>
+              <ElFormItem v-if="form.accessType === 'REDEEM'" label="预览加水印">
+                <ElSwitch v-model="form.previewWatermarkEnabled" active-text="开启" inactive-text="关闭" />
+                <small>付费默认开启。保存后自动重新生成预览；4D 仅最前一层加水印，正式下载不受影响。</small>
+              </ElFormItem>
+              <ElFormItem v-if="form.id && form.previewGenerationStatus" label="预览资源状态">
+                <span :class="form.previewGenerationStatus === 'FAILED' ? 'warning-text' : undefined">{{ previewGenerationLabel(form) }}</span>
+                <ElButton v-if="form.previewGenerationStatus === 'FAILED' && form.status !== 'archived'" :loading="rebuildingPreview" :disabled="saving" @click="rebuildPreview">重新生成预览</ElButton>
+                <small v-if="form.previewGenerationError" class="warning-text">{{ form.previewGenerationError }}</small>
+                <small v-else-if="['PENDING', 'PROCESSING'].includes(form.previewGenerationStatus)">预览正在重新生成，完成后自动供 App 使用。</small>
+              </ElFormItem>
             </div>
           </ElForm>
         </section>
@@ -341,6 +372,7 @@ const rebuildMovingPhoto = async () => {
           <video v-if="dynamicPreviewSrc" :src="dynamicPreviewSrc" autoplay loop muted playsinline></video>
           <img v-else-if="coverPreviewSrc" :src="coverPreviewSrc" alt="壁纸预览" />
           <ElIcon v-if="!previewHasContent" :size="42" style="position:absolute;inset:42% auto auto 40%;color:rgba(255,255,255,.7)"><PictureFilled /></ElIcon>
+          <span v-if="showPreviewWatermark && previewHasContent" class="preview-phone__watermark" aria-hidden="true">预览专用</span>
           <div class="preview-phone__meta"><strong>{{ form.title || '未命名壁纸' }}</strong><small>{{ derivedCapabilities.map((item) => wallpaperCapabilityLabels[item]).join(' / ') || '尚未上传正式资源' }}</small></div>
         </div></div>
         <div class="preview-checklist"><div v-for="item in resourceRows" :key="item.label"><span>{{ item.label }}</span><span :class="item.ready ? 'success-text' : 'warning-text'"><ElIcon v-if="item.ready"><Check /></ElIcon>{{ item.ready ? '已选择' : '待上传' }}</span></div></div>

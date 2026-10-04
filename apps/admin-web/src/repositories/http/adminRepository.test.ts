@@ -129,3 +129,125 @@ it('synchronizes Apple prices through an authenticated CSRF-protected POST witho
   expect(options.body).toBeUndefined();
   expect(new Headers(options.headers).get('X-CSRF-Token')).toBe('csrf-token');
 });
+
+it.each([
+  { accessType: 'REDEEM' as const, enabled: undefined, expected: true, creating: true },
+  { accessType: 'REDEEM' as const, enabled: false, expected: false, creating: false },
+  { accessType: 'FREE' as const, enabled: true, expected: true, creating: false },
+  { accessType: 'FREE' as const, enabled: false, expected: false, creating: false }
+])('saves the preview policy without losing an explicit override ($accessType, $enabled)', async ({ accessType, enabled, expected, creating }) => {
+  setCsrfToken('csrf-token');
+  const detail = {
+    id: '1', title: '壁纸', slug: 'wallpaper-test', accessType,
+    rootCategory: { id: '1', name: '风景', slug: 'scenery' }, childCategory: null,
+    cover: { id: '2', originalFilename: 'cover.png', mimeType: 'image/png', sizeBytes: 128, validationStatus: 'READY' },
+    copyrightNote: '平台内容', variants: [], status: 'DRAFT', sortOrder: 1,
+    version: 2, updatedAt: '2026-10-04T00:00:00Z',
+    previewWatermarkEnabled: expected, previewGenerationStatus: 'PENDING', previewRevision: 3,
+    previewGenerationError: null
+  };
+  const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify(detail), {
+    headers: { 'Content-Type': 'application/json' }
+  }));
+  vi.stubGlobal('fetch', fetchMock);
+  const wallpaper = {
+    id: creating ? '' : '1', title: '壁纸', slug: 'wallpaper-test', accessType, categoryId: '1', subcategoryId: '',
+    sort: 1, copyrightNote: '平台内容', version: 1, capabilities: [], variants: [],
+    previewWatermarkEnabled: enabled,
+    resources: { cover: { assetId: '2', name: 'cover.png', size: 128, mime: 'image/png' } }
+  } as unknown as Wallpaper;
+
+  const saved = await adminRepository.saveWallpaper(wallpaper, false);
+
+  const [, options] = fetchMock.mock.calls[0]!;
+  expect(options.method).toBe(creating ? 'POST' : 'PATCH');
+  expect(JSON.parse(String(options.body))).toMatchObject({ accessType, previewWatermarkEnabled: expected });
+  expect(new Headers(options.headers).get('X-CSRF-Token')).toBe('csrf-token');
+  expect(saved.previewWatermarkEnabled).toBe(expected);
+  expect(saved.previewGenerationStatus).toBe('PENDING');
+  expect(saved.previewRevision).toBe(3);
+  expect(saved.previewGenerationError).toBeNull();
+});
+
+it('retains a failed preview generation result when loading the admin wallpaper list', async () => {
+  const detail = {
+    id: '1', title: '壁纸', slug: 'wallpaper-test', accessType: 'REDEEM',
+    rootCategory: { id: '1', name: '风景', slug: 'scenery' }, childCategory: null,
+    cover: { id: '2', originalFilename: 'cover.png', mimeType: 'image/png', sizeBytes: 128, validationStatus: 'READY' },
+    copyrightNote: '平台内容', variants: [], status: 'PUBLISHED', sortOrder: 1,
+    version: 2, updatedAt: '2026-10-04T00:00:00Z',
+    previewWatermarkEnabled: false, previewGenerationStatus: 'FAILED', previewRevision: 5,
+    previewGenerationError: 'PREVIEW_GENERATION_FAILED'
+  };
+  const fetchMock = vi.fn().mockImplementation(async (url: string) => new Response(JSON.stringify(
+    url.endsWith('/1') ? detail : { items: [detail], page: { page: 1, pageSize: 100, totalItems: 1, totalPages: 1 } }
+  ), { headers: { 'Content-Type': 'application/json' } }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  const [wallpaper] = await adminRepository.wallpapers();
+
+  expect(wallpaper).toMatchObject({
+    previewWatermarkEnabled: false, previewGenerationStatus: 'FAILED', previewRevision: 5,
+    previewGenerationError: 'PREVIEW_GENERATION_FAILED'
+  });
+});
+
+it('reads a rebuild plan and queues all previews with CSRF without sending resource bodies', async () => {
+  setCsrfToken('csrf-token');
+  const result = { wallpaperCount: 12, resourceVersionCount: 22, watermarkedWallpaperCount: 9, cleanWallpaperCount: 3 };
+  const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify(result), {
+    headers: { 'Content-Type': 'application/json' }
+  }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  expect(await adminRepository.previewRebuildPlan()).toEqual(result);
+  expect(await adminRepository.rebuildAllPreviews()).toEqual(result);
+
+  const [planUrl, planRequest] = fetchMock.mock.calls[0]!;
+  expect(planUrl).toBe('/api/v1/admin/wallpaper-previews/rebuild-plan');
+  expect(planRequest.method || 'GET').toBe('GET');
+  const [rebuildUrl, rebuildRequest] = fetchMock.mock.calls[1]!;
+  expect(rebuildUrl).toBe('/api/v1/admin/wallpaper-previews/rebuild');
+  expect(rebuildRequest.method).toBe('POST');
+  expect(rebuildRequest.body).toBeUndefined();
+  expect(new Headers(rebuildRequest.headers).get('X-CSRF-Token')).toBe('csrf-token');
+});
+
+it('queues a single preview and returns generation progress without a write body', async () => {
+  setCsrfToken('csrf-token');
+  const detail = {
+    id: '1', title: '壁纸', slug: 'wallpaper-test', accessType: 'REDEEM',
+    rootCategory: { id: '1', name: '风景', slug: 'scenery' }, childCategory: null,
+    cover: { id: '2', originalFilename: 'cover.png', mimeType: 'image/png', sizeBytes: 128, validationStatus: 'READY' },
+    copyrightNote: '平台内容', variants: [], status: 'PUBLISHED', sortOrder: 1,
+    version: 2, updatedAt: '2026-10-04T00:00:00Z',
+    previewWatermarkEnabled: true, previewGenerationStatus: 'PENDING', previewRevision: 6, previewGenerationError: null
+  };
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(detail), { headers: { 'Content-Type': 'application/json' } }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  expect(await adminRepository.rebuildWallpaperPreview('1')).toMatchObject({
+    previewGenerationStatus: 'PENDING', previewRevision: 6, version: 2
+  });
+
+  const [url, options] = fetchMock.mock.calls[0]!;
+  expect(url).toBe('/api/v1/admin/wallpapers/1/preview-rebuild');
+  expect(options.method).toBe('POST');
+  expect(options.body).toBeUndefined();
+  expect(new Headers(options.headers).get('X-CSRF-Token')).toBe('csrf-token');
+});
+
+it('refreshes preview statuses using summary pages without fetching every wallpaper detail', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    items: [{ id: '1', previewGenerationStatus: 'PROCESSING', previewRevision: 9, previewGenerationError: null }],
+    page: { page: 1, pageSize: 100, totalItems: 1, totalPages: 1 }
+  }), { headers: { 'Content-Type': 'application/json' } }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  expect(await adminRepository.wallpaperPreviewStates({ accessType: 'REDEEM' })).toEqual([
+    { id: '1', previewGenerationStatus: 'PROCESSING', previewRevision: 9, previewGenerationError: null }
+  ]);
+
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/admin/wallpapers?page=1&pageSize=100&accessType=REDEEM');
+});

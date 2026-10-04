@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.18.0
+  version: 2.19.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -161,12 +161,60 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /wallpapers/{wallpaperId}/cover:
+    get:
+      tags: [Public Catalog]
+      operationId: readWallpaperPreviewCover
+      summary: 按作品当前预览策略读取封面
+      description: |
+        无需设备会话；仅返回已发布壁纸的当前预览封面。免费壁纸无水印；付费壁纸默认有水印，管理员可关闭。
+        revision 仅用于客户端缓存分代，不允许读取旧策略或正式原图。预览尚在生成或失败时拒绝返回，不回退原图。
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/WallpaperId'
+        - name: revision
+          in: query
+          required: false
+          description: 公开目录返回的 previewRevision；仅作为缓存版本标识，服务端始终执行当前策略。
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+      responses:
+        '200':
+          description: 当前策略下的预览封面；水印衍生图为 PNG，关闭水印时保持原图 MIME。
+          headers:
+            Cache-Control:
+              description: 禁止客户端和代理缓存跨策略复用的封面内容。
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            image/jpeg:
+              schema: {type: string, format: binary}
+            image/png:
+              schema: {type: string, format: binary}
+            image/webp:
+              schema: {type: string, format: binary}
+            image/svg+xml:
+              schema: {type: string, format: binary}
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/PreviewUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /public/assets/{assetId}/content:
     get:
       tags: [Public Catalog]
       operationId: readPublicAssetContent
       summary: 读取允许公开展示的分类图标或壁纸封面
-      description: 仅 Asset 被已发布目录投影引用且角色允许公开展示时返回文件字节。
+      description: |
+        仅 Asset 被已发布目录投影引用且角色允许公开展示时返回文件字节。
+        关联付费且开启水印的壁纸时禁止回源原图；作品策略无歧义时可返回当前水印衍生封面。
+        同一封面被多个不同预览策略的壁纸或分类复用时拒绝请求，客户端改用按作品隔离的 /wallpapers/{wallpaperId}/cover。
+        生成未完成或失败时拒绝返回，不回退干净源；付费水印预览使用 Cache-Control: no-store。
       parameters:
         - $ref: '#/components/parameters/AssetId'
       responses:
@@ -199,6 +247,8 @@ paths:
                 format: binary
         '404':
           $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/PreviewUnavailable'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -1434,6 +1484,81 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /admin/wallpaper-previews/rebuild-plan:
+    get:
+      tags: [Admin Catalog]
+      operationId: getWallpaperPreviewRebuildPlan
+      summary: 统计存量壁纸预览重建范围
+      description: 按当前收费和水印开关统计所有未归档壁纸及其资源版本，不修改正式资源。
+      security:
+        - adminCookie: []
+      responses:
+        '200':
+          description: 本次重建范围及水印策略统计
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewRebuildPlan'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/wallpaper-previews/rebuild:
+    post:
+      tags: [Admin Catalog]
+      operationId: rebuildAllWallpaperPreviews
+      summary: 将全部未归档壁纸异步排入预览重建队列
+      description: |
+        无请求体。按当前收费和水印开关重建封面、缩略图、图片、视频和 4D 最前层预览；正式交付源不修改。
+        响应表示任务已排队，实际完成状态由壁纸 previewGenerationStatus 查询；重建时 previewRevision 递增并停止读取旧策略预览。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: 已异步排队的重建范围
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewRebuildPlan'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/wallpapers/{wallpaperId}/preview-rebuild:
+    post:
+      tags: [Admin Catalog]
+      operationId: rebuildWallpaperPreview
+      summary: 按当前策略异步重建一款壁纸预览
+      description: 无请求体；递增 previewRevision，排队生成独立预览衍生资源。免费资源保持无水印，正式交付不变。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/WallpaperId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: 已排队重建的壁纸详情，包含新的预览代次和生成状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminWallpaperDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /admin/wallpapers:
     get:
       tags: [Admin Catalog]
@@ -2349,9 +2474,10 @@ paths:
       summary: 为 App 按精确资源类型签发详情效果预览描述
       description: |
         需设备会话与持钥签名，无需权益，不扣兑换额度。服务端按请求的 deliveryPlatform/resourceType 精确选择已发布资源，不读取设备能力档案，也不跨类型回退。
-        Android、通用资源使用与正式版本绑定一致的 APP_PREVIEW 加密包。
-        IOS/LIVE_PHOTO 直接返回 live_photo_package 中 READY 且符合 IntoLive 前 60 帧顺序、60 fps、精确 1 秒的标准化 MOV，使用独立短时预览票据，不读取源 MP4，也不产生权益或正式下载记录。
-        HarmonyOS/MOVING_PHOTO 返回发布时生成的不超过 2 秒 H.264 MP4 动态片段，鸿蒙 App 缓存后自动播放一次，结束后仅由用户点击重新播放；正式保存仍使用下载接口交付 JPEG 与 MP4 两个文件。
+        Android、通用资源使用当前 previewRevision 的 APP_PREVIEW 加密包，内含独立生成的预览素材；4D 只在最前面的图层烧录水印，其他图层保持正常景深效果。
+        IOS/LIVE_PHOTO 从 live_photo_package 标准化 MOV 生成独立预览视频，保持 IntoLive 前 60 帧顺序、60 fps、精确 1 秒；付费且开启水印时每帧烧录“预览专用”。使用独立短时预览票据，不读取源 MP4，也不产生权益或正式下载记录。
+        HarmonyOS/MOVING_PHOTO 返回保持原尺寸、帧率和不超过 2 秒时长的独立预览 MP4，付费且开启水印时每帧烧录水印。鸿蒙 App 缓存后自动播放一次，结束后仅由用户点击重新播放；正式保存仍使用下载接口交付 JPEG 与 MP4 两个文件。
+        免费壁纸的预览无水印；付费默认有水印，管理员可关闭。策略变化和重建后旧代次票据不得继续读取；生成未完成或失败时返回 503，不回退正式资源。
         所有预览票据有效 90 秒；Android App 的解密预览窗口仍由客户端单调时钟限制为 120 秒。
       security:
         - deviceBearer: []
@@ -2388,6 +2514,8 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/PreviewUnavailable"
         "500":
           $ref: "#/components/responses/InternalError"
   /preview/files:
@@ -3530,6 +3658,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorEnvelope'
+    PreviewUnavailable:
+      description: 当前预览未就绪；503 PREVIEW_PROCESSING 表示等待或处理中，PREVIEW_GENERATION_FAILED 表示失败，不返回干净源或旧代次预览。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
     InternalError:
       description: 未预期服务错误；不返回堆栈、秘密或内部路径
       content:
@@ -3684,6 +3818,11 @@ components:
         - SECURE_PACKAGE_NOT_READY
         - SIGNED_REQUEST_INVALID
         - TIMESTAMP_INVALID
+        - PREVIEW_PROCESSING
+        - PREVIEW_GENERATION_FAILED
+        - PREVIEW_SOURCE_NOT_READY
+        - PREVIEW_SUPERSEDED
+        - PREVIEW_WATERMARK_FAILED
         - PREVIEW_TICKET_INVALID
         - PREVIEW_RESOURCE_NOT_READY
         - TUTORIAL_NOT_FOUND
@@ -3910,6 +4049,8 @@ components:
           title,
           slug,
           accessType,
+          previewRevision,
+          previewGenerationStatus,
           rootCategory,
           cover,
           featured,
@@ -3930,6 +4071,13 @@ components:
           pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
         accessType:
           $ref: '#/components/schemas/WallpaperAccessType'
+        previewRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: 当前预览策略代次；策略变化或手动重建后递增，App 按此隔离并清理旧预览缓存。
+        previewGenerationStatus:
+          $ref: '#/components/schemas/PreviewGenerationStatus'
         rootCategory:
           $ref: '#/components/schemas/CategorySummary'
         childCategory:
@@ -4732,6 +4880,10 @@ components:
           pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
         accessType:
           $ref: '#/components/schemas/WallpaperAccessType'
+        previewWatermarkEnabled:
+          type: boolean
+          default: true
+          description: 创建时未提供默认为 true；PATCH 未提供时保留原开关。只有 accessType=REDEEM 且开关为 true 时添加水印，免费始终无水印。切换开关或收费规则会异步重新生成预览。
         rootCategoryId:
           $ref: '#/components/schemas/LongId'
         childCategoryId:
@@ -4764,6 +4916,10 @@ components:
           title,
           slug,
           accessType,
+          previewRevision,
+          previewGenerationStatus,
+          previewWatermarkEnabled,
+          previewGenerationError,
           rootCategory,
           cover,
           featured,
@@ -4785,6 +4941,21 @@ components:
           maxLength: 64
         accessType:
           $ref: '#/components/schemas/WallpaperAccessType'
+        previewRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: 当前预览策略代次；策略变化或手动重建后递增，App 按此隔离并清理旧预览缓存。
+        previewGenerationStatus:
+          $ref: '#/components/schemas/PreviewGenerationStatus'
+        previewWatermarkEnabled:
+          type: boolean
+          description: 管理员保存的付费预览水印开关；免费壁纸始终不加水印。默认 true。
+        previewGenerationError:
+          type: string
+          nullable: true
+          maxLength: 100
+          description: 生成失败错误码；成功或生成中为 null，不暴露路径和原始文件内容。
         rootCategory:
           $ref: '#/components/schemas/CategorySummary'
         childCategory:
@@ -5778,6 +5949,7 @@ components:
         - ticket
         - expiresAt
         - resourceVersion
+        - previewRevision
       properties:
         deliveryMode:
           type: string
@@ -5810,6 +5982,11 @@ components:
           format: date-time
         resourceVersion:
           $ref: "#/components/schemas/DownloadResourceVersion"
+        previewRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: 签发时的当前预览代次；不匹配当前策略的旧票据不得读取，App 不得复用旧缓存。
         package:
           type: object
           allOf:
@@ -5820,6 +5997,32 @@ components:
           allOf:
             - $ref: "#/components/schemas/DeliveryFile"
           nullable: true
+    PreviewGenerationStatus:
+      type: string
+      enum: [PENDING, PROCESSING, READY, FAILED]
+      description: 当前代次预览的生成状态；非 READY 时不得向未授权预览请求回退干净源。
+    PreviewRebuildPlan:
+      type: object
+      required: [wallpaperCount, resourceVersionCount, watermarkedWallpaperCount, cleanWallpaperCount]
+      properties:
+        wallpaperCount:
+          type: integer
+          format: int64
+          minimum: 0
+        resourceVersionCount:
+          type: integer
+          format: int64
+          minimum: 0
+        watermarkedWallpaperCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: accessType=REDEEM 且 previewWatermarkEnabled=true 的壁纸数。
+        cleanWallpaperCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 免费壁纸与管理员关闭水印的付费壁纸数。
     FreeGeneration:
       type: integer
       format: int32

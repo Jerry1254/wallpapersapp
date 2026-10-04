@@ -297,13 +297,16 @@ class _ParallaxLabScreenState extends State<ParallaxLabScreen> {
             fit: StackFit.expand,
             children: [
               DetailPreview(
+                key: ValueKey('lab-${item.id}-${item.previewRevision}'),
                 manager: widget.downloads,
                 wallpaperId: item.id,
                 deliveryPlatform: 'ANDROID',
                 resourceType: 'LAYER_PARALLAX',
+                previewRevision: item.previewRevision,
                 cover: CatalogImage(
                   repository: widget.repository,
                   path: item.cover,
+                  previewGenerationStatus: item.previewGenerationStatus,
                 ),
                 preferPreview: true,
                 fill: true,

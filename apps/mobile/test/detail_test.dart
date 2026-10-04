@@ -20,10 +20,14 @@ Wallpaper wallpaper(
   List<Map<String, dynamic>> capabilities, {
   String title = '静态测试',
   bool free = false,
+  int previewRevision = 0,
+  String previewGenerationStatus = 'READY',
 }) => Wallpaper.fromJson({
   'id': '1',
   'title': title,
   'accessType': free ? 'FREE' : 'PAID',
+  'previewRevision': previewRevision,
+  'previewGenerationStatus': previewGenerationStatus,
   'cover': {'contentUrl': '/image'},
   'availableCapabilities': capabilities,
 });
@@ -32,17 +36,24 @@ class DetailCatalog extends FakeCatalog {
   bool free = false;
   int attempts = 0;
   bool fail = false;
+  int previewRevision = 0;
+  String previewGenerationStatus = 'READY';
   @override
   Future<Wallpaper> detail(String id) async {
     attempts++;
     if (fail) throw const ApiFailure(404, 'WALLPAPER_NOT_FOUND');
-    return wallpaper([
-      {
-        'deliveryPlatform': 'UNIVERSAL',
-        'resourceType': 'STATIC_IMAGE',
-        'placements': ['HOME'],
-      },
-    ], free: free);
+    return wallpaper(
+      [
+        {
+          'deliveryPlatform': 'UNIVERSAL',
+          'resourceType': 'STATIC_IMAGE',
+          'placements': ['HOME'],
+        },
+      ],
+      free: free,
+      previewRevision: previewRevision,
+      previewGenerationStatus: previewGenerationStatus,
+    );
   }
 }
 
@@ -111,6 +122,27 @@ class _CurrentInstaller extends AndroidPackageInstaller {
 }
 
 void main() {
+  testWidgets('预览重生成期间不复用旧封面，重试获取新资源版本', (tester) async {
+    final repo = DetailCatalog()
+      ..previewRevision = 7
+      ..previewGenerationStatus = 'PROCESSING';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DetailScreen(repository: repo, id: '1'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('预览资源生成中，请稍后'), findsOneWidget);
+    expect(find.byType(CatalogImage), findsNothing);
+    repo.previewGenerationStatus = 'READY';
+    repo.previewRevision = 8;
+    await tester.tap(find.text('重新加载预览'));
+    await tester.pumpAndSettle();
+    expect(repo.attempts, 2);
+    expect(find.byType(CatalogImage), findsOneWidget);
+    expect(find.text('预览资源生成中，请稍后'), findsNothing);
+  });
+
   test('安卓安装包只展示安卓形式和通用静态，不用设备能力提前过滤', () {
     final item = wallpaper([
       {

@@ -8,10 +8,12 @@ class CatalogImage extends StatelessWidget {
     required this.repository,
     required this.path,
     this.fit = BoxFit.cover,
+    this.previewGenerationStatus = 'READY',
   });
   final CatalogRepository repository;
   final String path;
   final BoxFit fit;
+  final String previewGenerationStatus;
   @override
   Widget build(BuildContext context) {
     final fallback = Container(
@@ -22,6 +24,18 @@ class CatalogImage extends StatelessWidget {
         color: QingjingWallpaperTokens.colorMutedInk,
       ),
     );
+    if (previewGenerationStatus != 'READY') {
+      return Container(
+        color: QingjingWallpaperTokens.colorSurfaceStrong,
+        alignment: Alignment.center,
+        padding: const EdgeInsets.all(12),
+        child: Text(
+          previewGenerationStatus == 'FAILED' ? '预览资源生成失败' : '预览资源生成中，请稍后',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: QingjingWallpaperTokens.colorMutedInk),
+        ),
+      );
+    }
     try {
       return Image.network(
         repository.media(path).toString(),

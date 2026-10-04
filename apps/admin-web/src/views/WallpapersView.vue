@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import AdminLoadNotice from '@/components/AdminLoadNotice.vue';
-import { Delete, Edit, Plus, Search } from '@element-plus/icons-vue';
+import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import WallpaperEditorDrawer from '@/components/WallpaperEditorDrawer.vue';
 import { statusLabels, wallpaperCapabilityLabels, type Category, type ResourceFile, type Wallpaper, type WallpaperAccessType, type WallpaperCapability } from '@/domain/admin';
+import { hasPreviewWatermark, mergePreviewGeneration, previewGenerationInProgress, previewGenerationLabel } from '@/domain/previewWatermark';
 import { readableApiError } from '@/repositories/http/apiClient';
 import { adminRepository, WallpaperSaveError } from '@/repositories/http/adminRepository';
 
@@ -24,6 +25,38 @@ const drawerOpen = ref(false);
 const editing = ref<Wallpaper>();
 const saving = ref(false);
 const actionId = ref('');
+const rebuildingAllPreviews = ref(false);
+const previewStatusError = ref('');
+let loadSequence = 0;
+let stopped = false;
+let previewPoll: ReturnType<typeof setTimeout> | undefined;
+
+const stopPreviewPoll = () => { if (previewPoll !== undefined) clearTimeout(previewPoll); previewPoll = undefined; };
+const updatePreviewStates = (values: Array<Pick<Wallpaper, 'id' | 'previewGenerationStatus' | 'previewRevision' | 'previewGenerationError'>>) => {
+  const byId = new Map(values.map((value) => [value.id, value]));
+  for (const wallpaper of wallpapers.value) {
+    const latest = byId.get(wallpaper.id);
+    if (latest) mergePreviewGeneration(wallpaper, latest);
+  }
+  const latestEditing = editing.value && byId.get(editing.value.id);
+  if (editing.value && latestEditing) mergePreviewGeneration(editing.value, latestEditing);
+};
+const schedulePreviewPoll = () => {
+  stopPreviewPoll();
+  if (stopped || loading.value || !wallpapers.value.some((value) => value.status !== 'archived' && previewGenerationInProgress(value))) return;
+  previewPoll = setTimeout(async () => {
+    const sequence = loadSequence;
+    try {
+      const latest = await adminRepository.wallpaperPreviewStates({ accessType: accessType.value });
+      if (!stopped && sequence === loadSequence) {
+        updatePreviewStates(latest);
+        previewStatusError.value = '';
+      }
+    } catch (cause) {
+      if (!stopped && sequence === loadSequence) previewStatusError.value = readableApiError(cause, '预览状态刷新失败，请点击刷新重试');
+    } finally { if (sequence === loadSequence) schedulePreviewPoll(); }
+  }, 5000);
+};
 
 const categoryMap = computed(() => Object.fromEntries(categories.value.map((item) => [item.id, item.name])));
 const filtered = computed(() => wallpapers.value.filter((item) => {
@@ -34,18 +67,53 @@ const filtered = computed(() => wallpapers.value.filter((item) => {
 }));
 
 const load = async () => {
+  const sequence = ++loadSequence;
+  stopPreviewPoll();
   loading.value = true;
   loadError.value = '';
   try {
-    [categories.value, wallpapers.value] = await Promise.all([
+    const [nextCategories, nextWallpapers] = await Promise.all([
       adminRepository.categories(),
       adminRepository.wallpapers({ accessType: accessType.value })
     ]);
+    if (stopped || sequence !== loadSequence) return;
+    categories.value = nextCategories;
+    wallpapers.value = nextWallpapers;
+    updatePreviewStates(nextWallpapers);
+    previewStatusError.value = '';
   } catch (cause) {
-    loadError.value = readableApiError(cause, '壁纸加载失败');
+    if (sequence === loadSequence) loadError.value = readableApiError(cause, '壁纸加载失败');
   } finally {
-    loading.value = false;
+    if (sequence === loadSequence) { loading.value = false; schedulePreviewPoll(); }
   }
+};
+const rebuildAllPreviews = async () => {
+  rebuildingAllPreviews.value = true;
+  try {
+    const plan = await adminRepository.previewRebuildPlan();
+    if (plan.wallpaperCount === 0) { ElMessage.info('没有需要重新生成预览的壁纸'); return; }
+    await ElMessageBox.confirm(
+      `将重新生成 ${plan.wallpaperCount} 款壁纸、${plan.resourceVersionCount} 个资源版本的预览。其中 ${plan.watermarkedWallpaperCount} 款带水印、${plan.cleanWallpaperCount} 款无水印。仅重新生成预览，正式下载原文件保持不变。`,
+      '重新生成全部预览', { confirmButtonText: '确认重新生成', cancelButtonText: '取消', type: 'warning' }
+    );
+    const result = await adminRepository.rebuildAllPreviews();
+    ElMessage.success(`已将 ${result.wallpaperCount} 款壁纸加入预览生成队列`);
+    await load();
+  } catch (cause) {
+    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(readableApiError(cause, '全部预览重新生成失败'));
+  } finally { rebuildingAllPreviews.value = false; }
+};
+const previewRebuilt = (value: Wallpaper) => {
+  updatePreviewStates([value]);
+  schedulePreviewPoll();
+};
+const rebuildPreview = async (value: Wallpaper) => {
+  actionId.value = value.id;
+  try {
+    previewRebuilt(await adminRepository.rebuildWallpaperPreview(value.id));
+    ElMessage.success('预览已加入重新生成队列，正式下载原文件保持不变');
+  } catch (cause) { ElMessage.error(readableApiError(cause, '预览重新生成失败')); }
+  finally { actionId.value = ''; }
 };
 const create = () => { editing.value = undefined; drawerOpen.value = true; };
 const edit = (value: Wallpaper) => { editing.value = value; drawerOpen.value = true; };
@@ -129,13 +197,18 @@ watch(() => route.query.create, (value) => {
   }
 }, { immediate: true });
 onMounted(load);
+onBeforeUnmount(() => { stopped = true; ++loadSequence; stopPreviewPoll(); });
 </script>
 
 <template>
   <section class="page-shell">
     <header class="page-heading">
       <div><h1>壁纸管理</h1><p>一个商品可独立组合 Android 4D、Android 动态、iOS 实况、鸿蒙动态和全平台静态。</p></div>
-      <div class="page-actions"><ElButton type="primary" :icon="Plus" @click="create">上传壁纸</ElButton></div>
+      <div class="page-actions">
+        <ElButton :icon="Refresh" :loading="loading" @click="load">刷新</ElButton>
+        <ElButton :loading="rebuildingAllPreviews" :disabled="saving" @click="rebuildAllPreviews">重新生成全部预览</ElButton>
+        <ElButton type="primary" :icon="Plus" @click="create">上传壁纸</ElButton>
+      </div>
     </header>
     <AdminLoadNotice :error="loadError" :loading="loading" @retry="load" />
 
@@ -154,6 +227,7 @@ onMounted(load);
       </div>
       <span v-if="!loadError" class="toolbar__result">共 {{ filtered.length }} 条</span>
     </section>
+    <p v-if="previewStatusError" class="warning-text">{{ previewStatusError }}</p>
 
     <section v-if="!loadError" v-loading="loading" class="surface content-table">
       <ElTable :data="filtered" row-key="id">
@@ -167,6 +241,15 @@ onMounted(load);
         </ElTableColumn>
         <ElTableColumn label="分类" min-width="120"><template #default="{ row }"><strong>{{ categoryMap[row.categoryId] || '未分类' }}</strong><br><small style="color:#817d77">{{ categoryMap[row.subcategoryId] || '—' }}</small></template></ElTableColumn>
         <ElTableColumn label="获取方式" width="105"><template #default="{ row }"><ElTag :type="row.accessType === 'FREE' ? 'success' : 'info'" effect="plain">{{ row.accessType === 'FREE' ? '免费' : '需兑换' }}</ElTag></template></ElTableColumn>
+        <ElTableColumn label="预览资源" min-width="130">
+          <template #default="{ row }">
+            <div class="resource-status">
+              <strong>{{ hasPreviewWatermark(row) ? '带水印' : '无水印' }}</strong>
+              <small v-if="row.previewGenerationStatus" :class="row.previewGenerationStatus === 'FAILED' ? 'warning-text' : undefined" :title="row.previewGenerationError || ''">{{ previewGenerationLabel(row) }}</small>
+              <ElButton v-if="row.status !== 'archived' && !previewGenerationInProgress(row)" link size="small" :loading="actionId === row.id" @click="rebuildPreview(row)">{{ row.previewGenerationStatus === 'FAILED' ? '重试生成' : '重新生成' }}</ElButton>
+            </div>
+          </template>
+        </ElTableColumn>
         <ElTableColumn label="状态" width="95"><template #default="{ row }"><ElTag :type="statusType(row.status)">{{ statusLabel(row.status) }}</ElTag></template></ElTableColumn>
         <ElTableColumn label="资源" min-width="125">
           <template #default="{ row }">
@@ -190,6 +273,6 @@ onMounted(load);
       </ElTable>
     </section>
 
-    <WallpaperEditorDrawer v-model="drawerOpen" :categories="categories" :wallpaper="editing" :saving="saving" @saved="save" />
+    <WallpaperEditorDrawer v-model="drawerOpen" :categories="categories" :wallpaper="editing" :saving="saving" @saved="save" @preview-rebuilt="previewRebuilt" />
   </section>
 </template>

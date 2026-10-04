@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
 import '../device/device_session.dart';
 import '../downloads/download_manager.dart';
+import 'preview_availability.dart';
 
 final detailPreviewRouteObserver = RouteObserver<PageRoute<dynamic>>();
 
@@ -42,20 +43,24 @@ class DetailPreview extends StatefulWidget {
     this.active = true,
     this.preferPreview = false,
     this.fill = false,
+    this.previewRevision = 0,
     this.configuration,
     this.controller,
     this.onInstalled,
     this.onReady,
+    this.onReload,
   });
   final DownloadManager manager;
   final String wallpaperId, deliveryPlatform, resourceType;
   final Widget cover;
   final bool active;
   final bool preferPreview, fill;
+  final int previewRevision;
   final String? configuration;
   final DetailPreviewController? controller;
   final ValueChanged<String>? onInstalled;
   final ValueChanged<bool>? onReady;
+  final VoidCallback? onReload;
   @override
   State<DetailPreview> createState() => _DetailPreviewState();
 }
@@ -205,6 +210,10 @@ class _DetailPreviewState extends State<DetailPreview>
       );
       if (cancelled()) return;
       if (descriptor['deliveryMode'] != 'APP_PREVIEW' ||
+          !validPreviewRevision(
+            descriptor['previewRevision'],
+            expected: widget.previewRevision,
+          ) ||
           descriptor['purpose'] != 'APP_PREVIEW' ||
           descriptor['durationSeconds'] != 120 ||
           descriptor['wallpaperId'] != widget.wallpaperId ||
@@ -232,13 +241,7 @@ class _DetailPreviewState extends State<DetailPreview>
       }
     } catch (failure) {
       if (!cancelled()) {
-        setState(
-          () => error =
-              failure is DeviceApiError &&
-                  failure.code == 'PREVIEW_RESOURCE_NOT_READY'
-              ? '此作品的预览资源暂时不可用'
-              : '预览暂时不可用，请重试',
-        );
+        setState(() => error = previewFailureMessage(failure));
       }
     } finally {
       if (requestId == id) requestId = null;
@@ -407,7 +410,7 @@ class _DetailPreviewState extends State<DetailPreview>
               ),
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                child: Text('正在加载原图预览…', style: TextStyle(color: Colors.white)),
+                child: Text('资源加载中，请稍后', style: TextStyle(color: Colors.white)),
               ),
             ),
           ),
@@ -463,6 +466,10 @@ class _DetailPreviewState extends State<DetailPreview>
                       Text(error!),
                       TextButton(
                         onPressed: () {
+                          if (widget.onReload != null) {
+                            widget.onReload!();
+                            return;
+                          }
                           _cancel();
                           channel?.setMethodCallHandler(null);
                           channel = null;

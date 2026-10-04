@@ -70,6 +70,8 @@ export class JsonHttp {
   }
 
   private static errorMessage(status: number, code: string): string {
+    if (code === 'PREVIEW_PROCESSING') return '预览资源生成中，请稍后';
+    if (code === 'PREVIEW_GENERATION_FAILED') return '预览资源生成失败，请稍后重试';
     if (code === 'APP_UPDATE_REQUIRED') return '当前版本已不再支持，请更新至最新版本';
     const suffix: string = code.length > 0 ? '（' + code + '）' : '';
     if (status === 401 || status === 403) return '鸿蒙设备身份验证失败' + suffix;

@@ -266,6 +266,7 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
 .preview-phone__screen img,
 .preview-phone__screen video { width: 100%; height: 100%; object-fit: cover; }
 .preview-phone__screen video { display: block; }
+.preview-phone__watermark { position: absolute; z-index: 1; left: 50%; top: 50%; transform: translate(-50%,-50%); color: rgba(255,255,255,.28); font-size: 27px; font-weight: 600; white-space: nowrap; pointer-events: none; text-shadow: none; }
 .preview-phone__layer { position: absolute; inset: -4%; width: 108% !important; height: 108% !important; }
 .preview-phone__layer--background { animation: preview-depth-background 7s ease-in-out infinite alternate; }
 .preview-phone__layer--foreground { z-index: 1; animation: preview-depth-foreground 7s ease-in-out infinite alternate; }

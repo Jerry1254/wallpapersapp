@@ -15,6 +15,8 @@ export interface ApiWallpaperPayload {
   cover: ApiAssetPayload;
   availableCapabilities: ApiCapabilityPayload[];
   copyrightNote?: string;
+  previewRevision?: number;
+  previewGenerationStatus?: string;
 }
 
 export interface ApiCategoryPayload {
@@ -67,15 +69,29 @@ export class WallpaperSummary {
   free: boolean;
   capabilities: WallpaperCapability[];
   copyrightNote: string;
+  previewRevision: number;
+  previewGenerationStatus: string;
 
   constructor(id: string, title: string, coverUrl: string, free: boolean,
-    capabilities: WallpaperCapability[], copyrightNote: string = '') {
+    capabilities: WallpaperCapability[], copyrightNote: string = '',
+    previewRevision: number = 0, previewGenerationStatus: string = 'READY') {
     this.id = id;
     this.title = title;
     this.coverUrl = coverUrl;
     this.free = free;
     this.capabilities = capabilities;
     this.copyrightNote = copyrightNote;
+    this.previewRevision = previewRevision;
+    this.previewGenerationStatus = previewGenerationStatus;
+  }
+
+  previewReady(): boolean {
+    return this.previewGenerationStatus === 'READY';
+  }
+
+  previewUnavailableMessage(): string {
+    return this.previewGenerationStatus === 'FAILED' ?
+      '预览资源生成失败，请稍后重试' : '预览资源生成中，请稍后';
   }
 
   static fromApi(payload: ApiWallpaperPayload): WallpaperSummary {
@@ -84,7 +100,8 @@ export class WallpaperSummary {
       capabilities.push(WallpaperCapability.fromApi(item));
     });
     return new WallpaperSummary(payload.id, payload.title, payload.cover.contentUrl,
-      payload.accessType === 'FREE', capabilities, payload.copyrightNote ?? '');
+      payload.accessType === 'FREE', capabilities, payload.copyrightNote ?? '',
+      payload.previewRevision ?? 0, payload.previewGenerationStatus ?? 'READY');
   }
 }
 
@@ -155,7 +172,7 @@ export class HarmonyCatalogProjection {
     });
     if (supportedCapabilities.length === 0) return null;
     return new WallpaperSummary(item.id, item.title, item.coverUrl, item.free,
-      supportedCapabilities, item.copyrightNote);
+      supportedCapabilities, item.copyrightNote, item.previewRevision, item.previewGenerationStatus);
   }
 
   static projectCatalog(items: WallpaperSummary[]): WallpaperSummary[] {

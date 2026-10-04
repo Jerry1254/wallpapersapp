@@ -806,7 +806,11 @@ class QjCatalogCard extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  CatalogImage(repository: repository, path: wallpaper.cover),
+                  CatalogImage(
+                    repository: repository,
+                    path: wallpaper.cover,
+                    previewGenerationStatus: wallpaper.previewGenerationStatus,
+                  ),
                   Positioned(
                     left: 10,
                     top: 10,
@@ -870,6 +874,7 @@ class QjOwnedRow extends StatelessWidget {
               child: CatalogImage(
                 repository: repository,
                 path: wallpaper.cover,
+                previewGenerationStatus: wallpaper.previewGenerationStatus,
               ),
             ),
           ),

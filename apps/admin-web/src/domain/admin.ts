@@ -4,6 +4,13 @@ export type ApiPlatform = 'ANDROID' | 'IOS' | 'HARMONYOS' | 'UNIVERSAL';
 export type ResourceType = 'LAYER_PARALLAX' | 'VIDEO' | 'LIVE_PHOTO' | 'STATIC_IMAGE' | 'MOVING_PHOTO';
 export type WallpaperCapability = 'android_parallax' | 'android_video' | 'ios_live_photo' | 'harmony_moving_photo' | 'universal_static';
 export type ResourceVersionStatus = 'DRAFT' | 'VALIDATING' | 'READY' | 'PUBLISHED' | 'RETIRED' | 'REJECTED';
+export type PreviewGenerationStatus = 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED';
+export interface PreviewRebuildPlan {
+  wallpaperCount: number;
+  resourceVersionCount: number;
+  watermarkedWallpaperCount: number;
+  cleanWallpaperCount: number;
+}
 
 export interface ResourceFile {
   name: string;
@@ -118,6 +125,10 @@ export interface Wallpaper {
   categoryId: string;
   subcategoryId: string;
   accessType: WallpaperAccessType;
+  previewWatermarkEnabled?: boolean;
+  previewGenerationStatus?: PreviewGenerationStatus;
+  previewRevision?: number;
+  previewGenerationError?: string | null;
   capabilities: WallpaperCapability[];
   status: PublishStatus;
   sort: number;

@@ -314,3 +314,64 @@ for (const path of [
 assert.ok(!document.paths['/device/ios/acquisition/purchases'].post.responses['426'], 'paid transaction confirmation must remain available to old versions');
 assert.ok(!document.paths['/device/ios/acquisition/credit-restores'].post.responses['426'], 'transaction recovery must remain available to old versions');
 console.log('App release policy and forced-update recovery contract checks passed.');
+
+// Preview metadata must bind catalog, ticket, and cached media to one policy revision.
+const previewStatus = document.components.schemas.PreviewGenerationStatus;
+assert.deepEqual(previewStatus.enum, ['PENDING', 'PROCESSING', 'READY', 'FAILED']);
+for (const schemaName of ['PublicWallpaperSummary', 'AdminWallpaperSummary']) {
+  const schema = document.components.schemas[schemaName];
+  for (const field of ['previewRevision', 'previewGenerationStatus']) {
+    assert.ok(schema.required.includes(field), `${schemaName} must require ${field}`);
+  }
+  assert.equal(schema.properties.previewRevision.type, 'integer');
+  assert.equal(schema.properties.previewRevision.format, 'int64');
+  assert.equal(schema.properties.previewGenerationStatus.$ref, '#/components/schemas/PreviewGenerationStatus');
+}
+const adminWallpaper = document.components.schemas.AdminWallpaperSummary;
+for (const field of ['previewWatermarkEnabled', 'previewGenerationError']) {
+  assert.ok(adminWallpaper.required.includes(field), `admin wallpaper must require ${field}`);
+}
+assert.equal(adminWallpaper.properties.previewGenerationError.nullable, true);
+const watermarkWrite = document.components.schemas.WallpaperWriteRequest;
+assert.equal(watermarkWrite.properties.previewWatermarkEnabled.type, 'boolean');
+assert.equal(watermarkWrite.properties.previewWatermarkEnabled.default, true);
+assert.ok(!watermarkWrite.required.includes('previewWatermarkEnabled'), 'legacy PATCH must retain an omitted watermark setting');
+assert.match(watermarkWrite.properties.previewWatermarkEnabled.description, /PATCH.*保留原开关/);
+assert.ok(document.components.schemas.PreviewDescriptor.required.includes('previewRevision'));
+assert.equal(document.components.schemas.PreviewDescriptor.properties.previewRevision.format, 'int64');
+
+const previewCover = document.paths['/wallpapers/{wallpaperId}/cover'].get;
+assert.deepEqual(previewCover.security, [], 'preview covers must remain readable by image loaders without a device session');
+assert.equal(previewCover.parameters.find(parameter => parameter.name === 'revision').required, false);
+assert.deepEqual(previewCover.responses['200'].headers['Cache-Control'].schema.enum, ['no-store']);
+assert.equal(previewCover.responses['503'].$ref, '#/components/responses/PreviewUnavailable');
+assert.ok(previewCover.responses['200'].content['image/png']);
+assert.match(document.paths['/public/assets/{assetId}/content'].get.description, /禁止回源原图/);
+assert.match(document.paths['/public/assets/{assetId}/content'].get.description, /不同预览策略.*拒绝请求/);
+assert.equal(document.paths['/device/wallpapers/{wallpaperId}/preview-tickets'].post.responses['503'].$ref,
+  '#/components/responses/PreviewUnavailable');
+for (const code of ['PREVIEW_PROCESSING', 'PREVIEW_GENERATION_FAILED', 'PREVIEW_WATERMARK_FAILED']) {
+  assert.ok(knownErrors.has(code), `preview failure must document ${code}`);
+}
+
+for (const [path, method] of [
+  ['/admin/wallpaper-previews/rebuild-plan', 'get'],
+  ['/admin/wallpaper-previews/rebuild', 'post'],
+  ['/admin/wallpapers/{wallpaperId}/preview-rebuild', 'post']
+]) {
+  const operation = document.paths[path]?.[method];
+  assert.ok(operation, `missing preview rebuild operation ${method} ${path}`);
+  assert.ok(operation.security.some(requirement => requirement.adminCookie), 'preview administration must require an admin session');
+  if (method === 'post') {
+    assert.ok(operation.security.some(requirement => requirement.adminCsrf), 'rebuild mutations must require CSRF');
+    assert.ok(!operation.requestBody, 'preview rebuild operations must not require invented request bodies');
+  }
+}
+const rebuildPlan = document.components.schemas.PreviewRebuildPlan;
+assert.deepEqual(rebuildPlan.required,
+  ['wallpaperCount', 'resourceVersionCount', 'watermarkedWallpaperCount', 'cleanWallpaperCount']);
+for (const field of rebuildPlan.required) {
+  assert.equal(rebuildPlan.properties[field].type, 'integer');
+  assert.equal(rebuildPlan.properties[field].format, 'int64');
+}
+console.log('Preview watermark policy, cache revision, fail-closed cover and rebuild contract checks passed.');

@@ -61,6 +61,9 @@ class Wallpaper {
       title = json['title'] as String,
       accessType = json['accessType'] == 'FREE' ? 'FREE' : 'REDEEM',
       cover = (json['cover'] as Map<String, dynamic>)['contentUrl'] as String,
+      previewRevision = json['previewRevision'] as int? ?? 0,
+      previewGenerationStatus =
+          json['previewGenerationStatus'] as String? ?? 'READY',
       availableCapabilities = ((json['availableCapabilities'] as List?) ?? [])
           .map(
             (item) => AvailableCapability.fromJson(
@@ -71,6 +74,11 @@ class Wallpaper {
           .toList(growable: false),
       copyright = json['copyrightNote'] as String?;
   final String id, title, accessType, cover;
+  final int previewRevision;
+  final String previewGenerationStatus;
+  bool get previewReady => previewGenerationStatus == 'READY';
+  String get previewUnavailableMessage =>
+      previewGenerationStatus == 'FAILED' ? '预览资源生成失败，请稍后重试' : '预览资源生成中，请稍后';
   final List<AvailableCapability> availableCapabilities;
   final String? copyright;
   bool get isFree => accessType == 'FREE';

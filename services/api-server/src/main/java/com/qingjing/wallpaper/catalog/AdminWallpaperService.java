@@ -61,19 +61,20 @@ public class AdminWallpaperService {
     private final AdminCategoryService categories;
     private final AdminAssetService assets;
     private final ObjectMapper objectMapper;
+    private final com.qingjing.wallpaper.delivery.PreviewGenerationService previews;
 
     public AdminWallpaperService(
             JdbcTemplate jdbc,
             AdminContentViewReader views,
             AdminCategoryService categories,
             AdminAssetService assets,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper, com.qingjing.wallpaper.delivery.PreviewGenerationService previews) {
         this.jdbc = jdbc;
         this.namedJdbc = new NamedParameterJdbcTemplate(jdbc);
         this.views = views;
         this.categories = categories;
         this.assets = assets;
-        this.objectMapper = objectMapper;
+        this.objectMapper = objectMapper; this.previews=previews;
     }
 
     @Transactional(readOnly = true)
@@ -149,6 +150,7 @@ public class AdminWallpaperService {
         if (key == null) {
             throw new IllegalStateException("Wallpaper insert returned no identifier");
         }
+        previews.enqueue(key.longValue());
         return views.wallpaper(key.longValue());
     }
 
@@ -164,7 +166,7 @@ public class AdminWallpaperService {
                     """
                     UPDATE wallpaper
                     SET title = ?, slug = ?, access_type = ?, category_id = ?, cover_asset_id = ?,
-                        featured_rank = ?, sort_order = ?, copyright_note = ?, lock_version = lock_version + 1
+                        featured_rank = ?, sort_order = ?, copyright_note = ?, preview_watermark_enabled = ?, lock_version = lock_version + 1
                     WHERE id = ? AND lock_version = ?
                     """,
                     request.title().strip(),
@@ -175,6 +177,7 @@ public class AdminWallpaperService {
                     request.featuredRank(),
                     request.sortOrder(),
                     request.copyrightNote().strip(),
+                    request.previewWatermarkEnabled()==null?existing.previewWatermarkEnabled():request.previewWatermarkEnabled(),
                     wallpaperId,
                     expectedVersion);
             if (updated == 0) {
@@ -183,6 +186,9 @@ public class AdminWallpaperService {
         } catch (DataIntegrityViolationException exception) {
             throw wallpaperConflict(exception);
         }
+        boolean newFlag=request.previewWatermarkEnabled()==null?existing.previewWatermarkEnabled():request.previewWatermarkEnabled();
+        if(existing.coverAssetId()!=shape.coverAssetId() || !existing.accessType().equals(accessType(request).name())
+                || existing.previewWatermarkEnabled()!=newFlag) previews.enqueue(wallpaperId);
         return views.wallpaper(wallpaperId);
     }
 
@@ -295,6 +301,7 @@ public class AdminWallpaperService {
         } catch (DataIntegrityViolationException exception) {
             throw new ApiException(HttpStatus.CONFLICT, "DUPLICATE_VARIANT", "The wallpaper variant already exists");
         }
+        if(variant.enabled()!=request.enabled()) previews.enqueue(variant.wallpaperId());
         return views.variant(variantId);
     }
 
@@ -454,6 +461,7 @@ public class AdminWallpaperService {
         if (updated != 1) {
             throw versionConflict("The wallpaper version changed during publication");
         }
+        previews.enqueue(wallpaperId);
         return views.wallpaper(wallpaperId);
     }
 
@@ -665,8 +673,8 @@ public class AdminWallpaperService {
                 """
                 INSERT INTO wallpaper
                     (title, slug, access_type, category_id, cover_asset_id, featured_rank,
-                     sort_order, copyright_note, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT')
+                     sort_order, copyright_note, preview_watermark_enabled, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT')
                 """,
                 Statement.RETURN_GENERATED_KEYS);
         statement.setString(1, request.title().strip());
@@ -681,6 +689,7 @@ public class AdminWallpaperService {
         }
         statement.setInt(7, request.sortOrder());
         statement.setString(8, request.copyrightNote().strip());
+        statement.setBoolean(9,request.previewWatermarkEnabled()==null || request.previewWatermarkEnabled());
         return statement;
     }
 

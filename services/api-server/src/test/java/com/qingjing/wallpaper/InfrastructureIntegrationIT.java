@@ -81,6 +81,7 @@ class InfrastructureIntegrationIT {
 
     @DynamicPropertySource
     static void infrastructureProperties(DynamicPropertyRegistry registry) {
+        registry.add("qingjing.scheduling-enabled", () -> false);
         registry.add("qingjing.ios-pricing.enabled", () -> true);
         registry.add("qingjing.ios-pricing.issuer-id", () -> "test-issuer");
         registry.add("qingjing.ios-pricing.key-id", () -> "test-price-key");
@@ -295,7 +296,7 @@ class InfrastructureIntegrationIT {
                 """,
                 String.class);
 
-        assertThat(successfulMigrations).isEqualTo(13);
+        assertThat(successfulMigrations).isEqualTo(21);
         assertThat(tables).containsExactlyInAnyOrder(
                 "admin_account",
                 "anonymous_device",
@@ -321,7 +322,30 @@ class InfrastructureIntegrationIT {
                 "wallpaper",
                 "wallpaper_setting_tutorial",
                 "wallpaper_variant",
-                "device_capability_profile");
+                "device_capability_profile",
+                "live_photo_package",
+                "ios_product_mapping",
+                "ios_installation_acquisition",
+                "ios_app_attest_key",
+                "ios_attestation_challenge",
+                "ios_free_claim",
+                "ios_store_transaction",
+                "entitlement_grant",
+                "ios_free_reset",
+                "apple_notification_inbox",
+                "ios_purchase_installation",
+                "ios_acquisition_audit",
+                "ios_credit_pack",
+                "ios_wallpaper_credit_price",
+                "ios_credit_account",
+                "ios_credit_order",
+                "ios_credit_transaction",
+                "ios_credit_ledger",
+                "ios_credit_order_installation",
+                "app_release_platform",
+                "app_release",
+                "wallpaper_preview_state",
+                "preview_media");
         assertThat(jdbc.queryForList("""
                 SELECT column_name FROM information_schema.columns
                 WHERE table_schema=DATABASE() AND table_name='parallax_source_layer'
@@ -483,7 +507,7 @@ class InfrastructureIntegrationIT {
 
         ResponseEntity<JsonNode> info = http.getForEntity("/actuator/info", JsonNode.class);
         assertThat(info.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(info.getBody().path("app").path("contract-version").asText()).isEqualTo("2.13.0");
+        assertThat(info.getBody().path("app").path("contract-version").asText()).isEqualTo("2.19.0");
         assertThat(info.getBody().path("app").path("environment-id").asText()).isEqualTo("UNCONFIGURED");
         assertThat(info.getBody().path("app").path("source-sha256").asText()).isEqualTo("unknown");
         assertThat(info.getBody().path("app").path("artifact-sha256").asText()).isEqualTo("unknown");
@@ -671,6 +695,7 @@ class InfrastructureIntegrationIT {
         assertThat(publishedOne.getBody().path("childCategory").path("id").asText())
                 .isEqualTo(childCategory.getBody().path("id").asText());
 
+        long catalogPreviewRevision = generateFixturePreview(Long.parseLong(wallpaperId));
         String rootId = category.getBody().path("id").asText();
         String childId = childCategory.getBody().path("id").asText();
         JsonNode publicCategories = deviceGet("/api/v1/public/categories", catalogDevice).getBody();
@@ -719,13 +744,19 @@ class InfrastructureIntegrationIT {
         ResponseEntity<byte[]> publicCover = http.getForEntity(publicDetail.path("cover").path("contentUrl").asText(),
                 byte[].class);
         assertThat(publicCover.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(publicDetail.path("cover").path("mimeType").asText()).isEqualTo("image/webp");
-        assertThat(publicCover.getHeaders().getContentType()).isEqualTo(MediaType.parseMediaType("image/webp"));
-        assertThat(new String(publicCover.getBody(), 0, 4, StandardCharsets.US_ASCII)).isEqualTo("RIFF");
-        assertThat(new String(publicCover.getBody(), 8, 4, StandardCharsets.US_ASCII)).isEqualTo("WEBP");
-        assertThat(publicCover.getBody()).hasSizeLessThanOrEqualTo(512 * 1024);
-        assertThat(publicCover.getHeaders().getETag()).isEqualTo("\"" + cover.path("sha256").asText() + "\"");
-        assertThat(publicCover.getHeaders().getCacheControl()).contains("public", "max-age=3600");
+        assertThat(publicDetail.path("previewRevision").asLong()).isEqualTo(catalogPreviewRevision);
+        assertThat(publicDetail.path("previewGenerationStatus").asText()).isEqualTo("READY");
+        assertThat(publicDetail.path("cover").path("contentUrl").asText())
+                .isEqualTo("/api/v1/wallpapers/" + wallpaperId + "/cover?revision=" + catalogPreviewRevision);
+        assertThat(publicDetail.path("cover").path("mimeType").asText()).isEqualTo("image/png");
+        assertThat(publicCover.getHeaders().getContentType()).isEqualTo(MediaType.IMAGE_PNG);
+        BufferedImage previewCoverImage = ImageIO.read(new java.io.ByteArrayInputStream(publicCover.getBody()));
+        assertThat(previewCoverImage.getWidth()).isEqualTo(cover.path("widthPx").asInt());
+        assertThat(previewCoverImage.getHeight()).isEqualTo(cover.path("heightPx").asInt());
+        String previewCoverHash = jdbc.queryForObject("SELECT cover_sha256 FROM wallpaper_preview_state WHERE wallpaper_id=?", String.class, Long.parseLong(wallpaperId));
+        assertThat(publicCover.getHeaders().getETag()).isEqualTo("\"" + previewCoverHash + "\"");
+        assertThat(previewCoverHash).isNotEqualTo(cover.path("sha256").asText());
+        assertThat(publicCover.getHeaders().getCacheControl()).isEqualTo("no-store");
         assertThat(http.getForEntity("/api/v1/public/assets/" + staticAsset.path("id").asText() + "/content",
                 byte[].class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
 
@@ -1282,6 +1313,16 @@ class InfrastructureIntegrationIT {
                         Long.class,
                         wallpaperId))
                 .isEqualTo(3);
+        for (int index = 0; index < competitors.size(); index++) {
+            if (concurrentResults.get(index).getStatusCode() == HttpStatus.CREATED) {
+                ResponseEntity<JsonNode> ownedByCompetitor = deviceGet(
+                        "/api/v1/device/me/entitlements", competitors.get(index));
+                assertThat(ownedByCompetitor.getStatusCode()).isEqualTo(HttpStatus.OK);
+                assertThat(ownedByCompetitor.getBody().path("items")).hasSize(1);
+                assertThat(ownedByCompetitor.getBody().path("items").get(0).path("wallpaper").path("id").asText())
+                        .isEqualTo(Long.toString(wallpaperId));
+            }
+        }
 
         ResponseEntity<JsonNode> entitlements = http.exchange(
                 "/api/v1/device/me/entitlements",
@@ -1406,6 +1447,7 @@ class InfrastructureIntegrationIT {
     }
 
     @Autowired com.qingjing.wallpaper.delivery.SecurePackagePublisher packagePublisher;
+    @Autowired com.qingjing.wallpaper.delivery.PreviewGenerationService previewGeneration;
     @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
     com.qingjing.wallpaper.asset.application.FileStorage packageStorage;
     @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
@@ -1594,6 +1636,8 @@ class InfrastructureIntegrationIT {
         ensureAdmin(); var admin = login();
         for (String type : List.of("STATIC_IMAGE", "VIDEO", "LAYER_PARALLAX")) {
             long wallpaperId = createPublishedWallpaperFixture();
+            JsonNode previewCover = uploadAsset(admin,"STATIC_IMAGE","preview-cover.png",png(512,512));
+            jdbc.update("UPDATE wallpaper SET cover_asset_id=? WHERE id=?",previewCover.path("id").asLong(),wallpaperId);
             long variantId = jdbc.queryForObject("SELECT id FROM wallpaper_variant WHERE wallpaper_id=?", Long.class, wallpaperId);
             jdbc.update("UPDATE wallpaper_variant SET platform=?,resource_type=? WHERE id=?", type.equals("STATIC_IMAGE") ? "UNIVERSAL" : "ANDROID",type,variantId);
             List<Map<String,Object>> bindings = new ArrayList<>();
@@ -1614,6 +1658,11 @@ class InfrastructureIntegrationIT {
                 JsonNode asset=uploadAsset(admin,role,role.toLowerCase()+"."+extension,bytes);
                 bindings.add(Map.of("role",role,"ordinal",0,"assetId",asset.path("id").asText()));
             }
+            Map<String,byte[]> sourceObjects = new LinkedHashMap<>();
+            for(var binding:bindings) {
+                String sourceKey=jdbc.queryForObject("SELECT storage_key FROM asset WHERE id=?",String.class,Long.parseLong(binding.get("assetId").toString()));
+                sourceObjects.put(sourceKey,readStoredBytes(sourceKey));
+            }
             ResponseEntity<JsonNode> created=jsonExchange("/api/v1/admin/variants/"+variantId+"/resource-versions",HttpMethod.POST,
                     Map.of("versionNo",2,"bindings",bindings),admin,null);
             assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
@@ -1629,29 +1678,51 @@ class InfrastructureIntegrationIT {
             assertThat(formal.manifest().path("formatVersion").asInt()).isEqualTo(2);
             assertThat(jsonExchange(path,HttpMethod.POST,Map.of(),admin,null).getBody()).isEqualTo(built.getBody());
             assertThat(jdbc.queryForMap("SELECT * FROM secure_resource_package WHERE resource_version_id=?",versionId)).isEqualTo(stored);
+            // Building the immutable formal package does not publish or generate preview resources.
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM preview_resource_package WHERE resource_version_id=?",Integer.class,versionId)).isZero();
+            ResponseEntity<JsonNode> published=jsonExchange("/api/v1/admin/wallpapers/"+wallpaperId+"/publish",HttpMethod.POST,
+                    Map.of("resourceVersionIds",List.of(Long.toString(versionId))),admin,"\"0\"");
+            assertThat(published.getStatusCode()).isEqualTo(HttpStatus.OK);
+            long markedRevision=generateFixturePreview(wallpaperId);
             var previewStored=jdbc.queryForMap("SELECT * FROM preview_resource_package WHERE resource_version_id=?",versionId);
             assertThat(previewStored.get("format_version")).isEqualTo(3);
             assertThat(previewStored.get("purpose")).isEqualTo("APP_PREVIEW");
+            assertThat(((Number)previewStored.get("preview_revision")).longValue()).isEqualTo(markedRevision);
             assertThat(previewStored.get("encrypted_sha256")).isNotEqualTo(stored.get("encrypted_sha256"));
             var preview=decodeStoredPackage(previewStored,versionId,identity,true);
             assertThat(preview.manifest().path("formatVersion").asInt()).isEqualTo(3);
             assertThat(preview.manifest().path("purpose").asText()).isEqualTo("APP_PREVIEW");
-            assertSamePayloadBytes(formal,preview);
+            assertWatermarkedPayloadBytes(formal,preview,type);
             assertThat(jsonExchange(path,HttpMethod.POST,Map.of(),admin,null).getStatusCode()).isEqualTo(HttpStatus.OK);
             assertThat(jdbc.queryForMap("SELECT * FROM preview_resource_package WHERE resource_version_id=?",versionId)).isEqualTo(previewStored);
-            ResponseEntity<JsonNode> published=jsonExchange("/api/v1/admin/wallpapers/"+wallpaperId+"/publish",HttpMethod.POST,
-                    Map.of("resourceVersionIds",List.of(Long.toString(versionId))),admin,"\"0\"");
-            assertThat(published.getStatusCode()).isEqualTo(HttpStatus.OK);
             verifyTicketDelivery(admin,wallpaperId,versionId,type);
-            // A legacy/mismatched preview is replaced on the next existing package build while the formal package stays byte-identical.
+            // Existing formal builds leave preview policies alone; only explicit generation replaces a preview.
             jdbc.update("UPDATE preview_resource_package SET manifest_sha256=? WHERE resource_version_id=?","0".repeat(64),versionId);
             assertThat(jsonExchange(path,HttpMethod.POST,Map.of(),admin,null).getStatusCode()).isEqualTo(HttpStatus.OK);
             assertThat(jdbc.queryForMap("SELECT * FROM secure_resource_package WHERE resource_version_id=?",versionId)).isEqualTo(stored);
+            assertThat(jdbc.queryForObject("SELECT storage_key FROM preview_resource_package WHERE resource_version_id=?",String.class,versionId)).isEqualTo(previewStored.get("storage_key"));
+            previewGeneration.retry(wallpaperId);
+            long rebuiltRevision=generateFixturePreview(wallpaperId);
+            assertThat(rebuiltRevision).isGreaterThan(markedRevision);
             var rebuiltPreview=jdbc.queryForMap("SELECT * FROM preview_resource_package WHERE resource_version_id=?",versionId);
             assertThat(rebuiltPreview.get("storage_key")).isNotEqualTo(previewStored.get("storage_key"));
-            assertSamePayloadBytes(formal,decodeStoredPackage(rebuiltPreview,versionId,identity,true));
+            assertThat(rebuiltPreview.get("encrypted_sha256")).isNotEqualTo(previewStored.get("encrypted_sha256"));
+            assertWatermarkedPayloadBytes(formal,decodeStoredPackage(rebuiltPreview,versionId,identity,true),type);
             assertThatThrownBy(()->packageStorage.open(new com.qingjing.wallpaper.asset.application.StorageKey(previewStored.get("storage_key").toString())))
                     .isInstanceOf(com.qingjing.wallpaper.asset.application.FileStorageException.class);
+
+            // An explicit opt-out and a free policy both deliver untouched source payloads in the preview wrapper.
+            jdbc.update("UPDATE wallpaper SET preview_watermark_enabled=FALSE WHERE id=?",wallpaperId);
+            previewGeneration.retry(wallpaperId);
+            generateFixturePreview(wallpaperId);
+            var cleanPreview=jdbc.queryForMap("SELECT * FROM preview_resource_package WHERE resource_version_id=?",versionId);
+            assertSamePayloadBytes(formal,decodeStoredPackage(cleanPreview,versionId,identity,true));
+            jdbc.update("UPDATE wallpaper SET access_type='FREE',preview_watermark_enabled=TRUE WHERE id=?",wallpaperId);
+            previewGeneration.retry(wallpaperId);
+            long cleanRevision=generateFixturePreview(wallpaperId);
+            assertSamePayloadBytes(formal,decodeStoredPackage(jdbc.queryForMap("SELECT * FROM preview_resource_package WHERE resource_version_id=?",versionId),versionId,identity,true));
+            assertThat(jdbc.queryForMap("SELECT * FROM secure_resource_package WHERE resource_version_id=?",versionId)).isEqualTo(stored);
+            for(var sourceObject:sourceObjects.entrySet()) assertThat(readStoredBytes(sourceObject.getKey())).containsExactly(sourceObject.getValue());
             long rollbackVersion=jsonExchange("/api/v1/admin/variants/"+variantId+"/resource-versions",HttpMethod.POST,
                     Map.of("versionNo",3,"bindings",bindings),admin,null).getBody().path("id").asLong();
             var orphanKey=new java.util.concurrent.atomic.AtomicReference<String>();
@@ -1659,13 +1730,19 @@ class InfrastructureIntegrationIT {
             assertThatThrownBy(() -> new org.springframework.transaction.support.TransactionTemplate(transactionManager).execute(status -> {
                 packagePublisher.build(rollbackVersion);
                 orphanKey.set(jdbc.queryForObject("SELECT storage_key FROM secure_resource_package WHERE resource_version_id=?",String.class,rollbackVersion));
-                previewOrphanKey.set(jdbc.queryForObject("SELECT storage_key FROM preview_resource_package WHERE resource_version_id=?",String.class,rollbackVersion));
                 throw new IllegalStateException("rollback-fixture");
             })).isInstanceOf(IllegalStateException.class).hasMessage("rollback-fixture");
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM secure_resource_package WHERE resource_version_id=?",Integer.class,rollbackVersion)).isZero();
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM preview_resource_package WHERE resource_version_id=?",Integer.class,rollbackVersion)).isZero();
             assertThatThrownBy(() -> packageStorage.open(new com.qingjing.wallpaper.asset.application.StorageKey(orphanKey.get())))
                     .isInstanceOf(com.qingjing.wallpaper.asset.application.FileStorageException.class);
+            assertThatThrownBy(() -> new org.springframework.transaction.support.TransactionTemplate(transactionManager).execute(status -> {
+                packagePublisher.rebuildPreview(rollbackVersion,false,cleanRevision);
+                previewOrphanKey.set(jdbc.queryForObject("SELECT storage_key FROM preview_resource_package WHERE resource_version_id=?",String.class,rollbackVersion));
+                throw new IllegalStateException("preview-rollback-fixture");
+            })).isInstanceOf(IllegalStateException.class).hasMessage("preview-rollback-fixture");
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM preview_resource_package WHERE resource_version_id=?",Integer.class,rollbackVersion)).isZero();
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM secure_resource_package WHERE resource_version_id=?",Integer.class,rollbackVersion)).isZero();
             assertThatThrownBy(() -> packageStorage.open(new com.qingjing.wallpaper.asset.application.StorageKey(previewOrphanKey.get())))
                     .isInstanceOf(com.qingjing.wallpaper.asset.application.FileStorageException.class);
             if (!type.equals("STATIC_IMAGE")) {
@@ -1690,6 +1767,8 @@ class InfrastructureIntegrationIT {
         Assumptions.assumeTrue(livePhotoToolsAvailable(), "Live Photo native media tools are required");
         ensureAdmin(); var admin=login();
         long wallpaperId=createPublishedWallpaperFixture();
+        JsonNode previewCover=uploadAsset(admin,"STATIC_IMAGE","ios-preview-cover.png",png(128,256));
+        jdbc.update("UPDATE wallpaper SET cover_asset_id=? WHERE id=?",previewCover.path("id").asLong(),wallpaperId);
         long variantId=jdbc.queryForObject("SELECT id FROM wallpaper_variant WHERE wallpaper_id=?",Long.class,wallpaperId);
         jdbc.update("UPDATE wallpaper_variant SET platform='IOS',resource_type='LIVE_PHOTO' WHERE id=?",variantId);
         byte[] sourceBytes=testLivePhotoVideo();
@@ -1712,13 +1791,20 @@ class InfrastructureIntegrationIT {
         assertThat(stored.get("output_video_codec")).isEqualTo("hevc");
         assertThat(((Number) stored.get("frame_rate")).doubleValue()).isEqualTo(60d);
         assertThat(stored.get("processing_mode")).isEqualTo("TRANSCODE");
-        byte[] expectedVideo;
+        byte[] formalVideo;
         try(var content=packageStorage.open(new com.qingjing.wallpaper.asset.application.StorageKey(stored.get("video_storage_key").toString()))) {
-            expectedVideo=content.inputStream().readAllBytes();
+            formalVideo=content.inputStream().readAllBytes();
         }
-        assertThat(expectedVideo).hasSize(((Number)stored.get("video_size_bytes")).intValue());
-        assertThat(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.sha256(expectedVideo))
+        assertThat(formalVideo).hasSize(((Number)stored.get("video_size_bytes")).intValue());
+        assertThat(com.qingjing.wallpaper.delivery.packageformat.SecurePackageCodec.sha256(formalVideo))
                 .isEqualTo(stored.get("video_sha256"));
+        long previewRevision=generateFixturePreview(wallpaperId);
+        var previewStored=jdbc.queryForMap("SELECT * FROM preview_media WHERE resource_version_id=?",versionId);
+        byte[] expectedVideo=readStoredBytes(previewStored.get("storage_key").toString());
+        assertThat(java.util.Arrays.equals(expectedVideo,formalVideo)).isFalse();
+        assertThat(((Number)previewStored.get("preview_revision")).longValue()).isEqualTo(previewRevision);
+        assertThat(jdbc.queryForMap("SELECT * FROM live_photo_package WHERE resource_version_id=?",versionId)).isEqualTo(stored);
+        assertThat(readStoredBytes(stored.get("video_storage_key").toString())).containsExactly(formalVideo);
 
         var generator=java.security.KeyPairGenerator.getInstance("EC");
         generator.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
@@ -1750,12 +1836,13 @@ class InfrastructureIntegrationIT {
         assertThat(descriptor.path("video").path("url").asText()).isEqualTo("/api/v1/preview/live-photo/video");
         assertThat(descriptor.path("video").path("mimeType").asText()).isEqualTo("video/quicktime");
         assertThat(descriptor.path("video").path("sizeBytes").asLong()).isEqualTo(expectedVideo.length);
-        assertThat(descriptor.path("video").path("sha256").asText()).isEqualTo(stored.get("video_sha256"));
+        assertThat(descriptor.path("video").path("sha256").asText()).isEqualTo(previewStored.get("sha256"));
+        assertThat(descriptor.path("previewRevision").asLong()).isEqualTo(previewRevision);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM device_entitlement WHERE device_id=?",Integer.class,deviceId)).isEqualTo(entitlementCount).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM redemption_event WHERE device_id=?",Integer.class,deviceId)).isEqualTo(redemptionCount).isZero();
 
         String previewToken=descriptor.path("ticket").asText();
-        assertThat(redis.getExpire("preview-ticket-v2:"+securityCrypto.hmacHex("preview-ticket-v2",previewToken))).isBetween(1L,90L);
+        assertThat(redis.getExpire("preview-ticket-v3:"+securityCrypto.hmacHex("preview-ticket-v3",previewToken))).isBetween(1L,90L);
         HttpHeaders previewHeaders=new HttpHeaders();previewHeaders.setBearerAuth(previewToken);previewHeaders.setAccept(List.of(MediaType.valueOf("video/quicktime")));
         assertThat(http.exchange("/api/v1/delivery/live-photo/video",HttpMethod.GET,new HttpEntity<>(previewHeaders),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(http.exchange("/api/v1/delivery/live-photo/source",HttpMethod.GET,new HttpEntity<>(previewHeaders),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -1799,7 +1886,7 @@ class InfrastructureIntegrationIT {
                 .isInstanceOfSatisfying(com.qingjing.wallpaper.shared.web.ApiException.class,
                         failure->assertThat(failure.code()).isEqualTo("DOWNLOAD_TICKET_INVALID"));
 
-        jdbc.update("UPDATE live_photo_package SET video_sha256=? WHERE resource_version_id=?","f".repeat(64),versionId);
+        jdbc.update("UPDATE preview_media SET sha256=? WHERE resource_version_id=?","f".repeat(64),versionId);
         assertThat(http.exchange("/api/v1/preview/live-photo/video",HttpMethod.GET,new HttpEntity<>(previewHeaders),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
@@ -1856,6 +1943,44 @@ class InfrastructureIntegrationIT {
             return new DecodedPackage(manifest,payloads);
         } finally { java.util.Arrays.fill(key,(byte)0); }
     }
+    private long generateFixturePreview(long wallpaperId) {
+        if(jdbc.queryForObject("SELECT COUNT(*) FROM wallpaper_preview_state WHERE wallpaper_id=?",Integer.class,wallpaperId)==0)
+            previewGeneration.enqueue(wallpaperId);
+        String state=jdbc.queryForObject("SELECT status FROM wallpaper_preview_state WHERE wallpaper_id=?",String.class,wallpaperId);
+        if(state.equals("READY")) return previewGeneration.requireReady(wallpaperId);
+        assertThat(state).isEqualTo("PENDING");
+        // Other integration fixtures intentionally reference nonexistent storage. Select only this real fixture.
+        jdbc.update("UPDATE wallpaper_preview_state SET updated_at='1970-01-02 00:00:00' WHERE wallpaper_id=?",wallpaperId);
+        assertThat(previewGeneration.processNext()).isTrue();
+        String result=jdbc.queryForObject("SELECT status FROM wallpaper_preview_state WHERE wallpaper_id=?",String.class,wallpaperId);
+        assertThat(result).as("fixture preview generation: %s",jdbc.queryForMap("SELECT status,error_code FROM wallpaper_preview_state WHERE wallpaper_id=?",wallpaperId)).isEqualTo("READY");
+        return previewGeneration.requireReady(wallpaperId);
+    }
+
+    private byte[] readStoredBytes(String key) throws IOException {
+        try(var content=packageStorage.open(new com.qingjing.wallpaper.asset.application.StorageKey(key))) {
+            return content.inputStream().readAllBytes();
+        }
+    }
+
+    private static void assertWatermarkedPayloadBytes(DecodedPackage formal,DecodedPackage preview,String type) throws Exception {
+        assertThat(preview.payloads().keySet()).containsExactlyInAnyOrderElementsOf(formal.payloads().keySet());
+        String marked=type.equals("LAYER_PARALLAX")?"FOREGROUND:0":type+":0";
+        for(var entry:formal.payloads().entrySet()) {
+            byte[] derivative=preview.payloads().get(entry.getKey());
+            if(entry.getKey().equals(marked)) {
+                assertThat(java.util.Arrays.equals(derivative,entry.getValue())).isFalse();
+                if(!type.equals("VIDEO")) {
+                    BufferedImage before=ImageIO.read(new java.io.ByteArrayInputStream(entry.getValue()));
+                    BufferedImage after=ImageIO.read(new java.io.ByteArrayInputStream(derivative));
+                    assertThat(after.getWidth()).isEqualTo(before.getWidth());
+                    assertThat(after.getHeight()).isEqualTo(before.getHeight());
+                    if(type.equals("LAYER_PARALLAX")) assertThat(after.getColorModel().hasAlpha()).isTrue();
+                }
+            } else assertThat(derivative).containsExactly(entry.getValue());
+        }
+    }
+
     private static void assertSamePayloadBytes(DecodedPackage formal,DecodedPackage preview) {
         assertThat(preview.payloads().keySet()).containsExactlyInAnyOrderElementsOf(formal.payloads().keySet());
         for(var entry:formal.payloads().entrySet())assertThat(preview.payloads().get(entry.getKey())).containsExactly(entry.getValue());
@@ -1894,14 +2019,24 @@ class InfrastructureIntegrationIT {
             assertThat(newlyRestricted.getBody().path("error").path("code").asText()).isEqualTo("ENTITLEMENT_REQUIRED");
         }
         assertThat(http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,body),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        Long adminId=jdbc.queryForObject("SELECT id FROM admin_account WHERE singleton_key=1",Long.class);
+        redis.delete("rate:admin-code-batch:"+securityCrypto.sha256Hex(Long.toString(adminId)));
         HttpHeaders batchHeaders=headers(admin,true,null);batchHeaders.setContentType(MediaType.APPLICATION_JSON);batchHeaders.set("Idempotency-Key",UUID.randomUUID().toString());
-        var batch=http.exchange("/api/v1/admin/code-batches",HttpMethod.POST,new HttpEntity<>(Map.of("name","secure-delivery-fixture","generatedCount",1,"quotaPerCode",1),batchHeaders),JsonNode.class).getBody();
+        var batchResponse=http.exchange("/api/v1/admin/code-batches",HttpMethod.POST,new HttpEntity<>(Map.of("name","secure-delivery-fixture","generatedCount",1,"quotaPerCode",1),batchHeaders),JsonNode.class);
+        assertThat(batchResponse.getStatusCode()).as("Create delivery fixture: %s",batchResponse.getBody()).isEqualTo(HttpStatus.CREATED);
+        var batch=batchResponse.getBody();
+        assertThat(batch.path("deliveryTicket").asText()).isNotBlank();
         HttpHeaders delivery=headers(admin,false,null);delivery.set("X-Delivery-Ticket",batch.path("deliveryTicket").asText());
-        byte[] csv=http.exchange("/api/v1/admin/code-batches/"+batch.path("batch").path("id").asText()+"/delivery",HttpMethod.GET,new HttpEntity<>(delivery),byte[].class).getBody();
+        var delivered=http.exchange("/api/v1/admin/code-batches/"+batch.path("batch").path("id").asText()+"/delivery",HttpMethod.GET,new HttpEntity<>(delivery),byte[].class);
+        assertThat(delivered.getStatusCode()).isEqualTo(HttpStatus.OK);
+        byte[] csv=delivered.getBody();
+        assertThat(csv).isNotEmpty();
         String code=new String(csv,StandardCharsets.UTF_8).lines().skip(1).findFirst().orElseThrow().split(",")[1];
         assertThat(androidRedemption(signing,token,UUID.randomUUID().toString(),Map.of("wallpaperId",Long.toString(wallpaperId),"code",code)).getStatusCode()).isEqualTo(HttpStatus.CREATED);
         String wrongPlatform=body.replace(deliveryPlatform,"IOS");
-        assertThat(http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,wrongPlatform),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        var platformRejected=http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,wrongPlatform),JsonNode.class);
+        assertThat(platformRejected.getStatusCode()).as("Android requesting iOS delivery: %s",platformRejected.getBody()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(platformRejected.getBody().path("error").path("code").asText()).isEqualTo("RESOURCE_PLATFORM_MISMATCH");
         jdbc.update("UPDATE wallpaper_variant SET minimum_os_version='36' WHERE wallpaper_id=?",wallpaperId);
         assertThat(http.exchange(ticketPath,HttpMethod.POST,androidSignedEntity(signing,token,"POST",ticketPath,body),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.CREATED);
         jdbc.update("UPDATE wallpaper_variant SET minimum_os_version=NULL WHERE wallpaper_id=?",wallpaperId);
@@ -1964,7 +2099,7 @@ class InfrastructureIntegrationIT {
         redis.expire(redisKey,Duration.ZERO);
         assertThat(http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(download),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         String previewToken=previewHeaders.getFirst(HttpHeaders.AUTHORIZATION).substring(7);
-        redis.delete("preview-ticket-v2:"+securityCrypto.hmacHex("preview-ticket-v2",previewToken));
+        redis.delete("preview-ticket-v3:"+securityCrypto.hmacHex("preview-ticket-v3",previewToken));
         assertThat(http.exchange("/api/v1/preview/files",HttpMethod.GET,new HttpEntity<>(previewHeaders),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
@@ -1987,11 +2122,12 @@ class InfrastructureIntegrationIT {
         assertThat(descriptor.path("purpose").asText()).isEqualTo("APP_PREVIEW");
         assertThat(descriptor.path("deliveryMode").asText()).isEqualTo("APP_PREVIEW");
         assertThat(descriptor.path("durationSeconds").asInt()).isEqualTo(120);
+        assertThat(descriptor.path("previewRevision").asLong()).isEqualTo(previewGeneration.requireReady(wallpaperId));
         assertThat(metadata.path("formatVersion").asInt()).isEqualTo(3);
         assertThat(descriptor.path("resourceVersion").path("id").asLong()).isEqualTo(versionId);
         assertThat(descriptor.toString()).doesNotContain("storage_key","content_key_ciphertext",".runtime","objects/");
         String previewToken=descriptor.path("ticket").asText();
-        assertThat(redis.getExpire("preview-ticket-v2:"+securityCrypto.hmacHex("preview-ticket-v2",previewToken))).isBetween(1L,90L);
+        assertThat(redis.getExpire("preview-ticket-v3:"+securityCrypto.hmacHex("preview-ticket-v3",previewToken))).isBetween(1L,90L);
         HttpHeaders preview=new HttpHeaders();preview.setBearerAuth(previewToken);
         preview.setAccept(List.of(MediaType.APPLICATION_OCTET_STREAM));
         assertThat(http.exchange("/api/v1/delivery/files",HttpMethod.GET,new HttpEntity<>(preview),JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -2250,7 +2386,7 @@ class InfrastructureIntegrationIT {
                 HttpMethod.POST,
                 new HttpEntity<>(body, headers),
                 JsonNode.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getStatusCode()).as("Upload %s (%s): %s", filename, purpose, response.getBody()).isEqualTo(HttpStatus.CREATED);
         return response.getBody();
     }
 
@@ -2427,8 +2563,9 @@ class InfrastructureIntegrationIT {
         jdbc.update("UPDATE wallpaper_variant SET platform='IOS',resource_type='LIVE_PHOTO' WHERE wallpaper_id=?", unavailable);
         ResponseEntity<JsonNode> rejected = androidRedemption(key, token, UUID.randomUUID().toString(), orderedMap("wallpaperId", Long.toString(unavailable), "code", code));
         assertThat(rejected.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
-        assertThat(rejected.getBody().path("result").asText()).isEqualTo("CODE_EXHAUSTED");
+        assertThat(rejected.getBody().path("result").asText()).isEqualTo("WALLPAPER_UNAVAILABLE");
         assertThat(rejected.getBody().path("quotaDelta").asInt()).isZero();
+        assertThat(jdbc.queryForObject("SELECT used_quota FROM redemption_code WHERE batch_id = ?", Integer.class, Long.parseLong(batchId))).isEqualTo(1);
         jdbc.update("UPDATE device_credential SET status='REVOKED',revoked_at=UTC_TIMESTAMP(6) WHERE credential_key_id=?", keyId);
         assertThatThrownBy(() -> androidIdentity.requireSession(token)).isInstanceOf(com.qingjing.wallpaper.shared.web.ApiException.class);
         ResponseEntity<JsonNode> revoked = http.postForEntity("/api/v1/device/registrations", androidRegistration(key), JsonNode.class);

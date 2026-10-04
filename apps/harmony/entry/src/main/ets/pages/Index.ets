@@ -10,6 +10,7 @@ import {
   WallpaperTutorial
 } from '../model/CatalogModels';
 import { CatalogApi } from '../network/CatalogApi';
+import { ApiRequestError } from '../network/JsonHttp';
 import { HarmonyDeviceSession } from '../network/HarmonyDeviceSession';
 import { AppUpdateEvents, InstalledAppVersion } from '../update/AppUpdateEvents';
 import { AppRelease, AppUpdatePolicy, AppUpdateService } from '../update/AppUpdateService';
@@ -130,6 +131,12 @@ struct Index {
 
   private onApplicationForeground(): void {
     if (this.consentAccepted && this.updates !== null) this.checkForUpdates();
+    if (this.page === 'DETAIL' && this.selectedDetail !== null) {
+      this.openDetail(this.selectedDetail as WallpaperSummary);
+    } else if (this.api !== null &&
+      (this.page === 'HOME' || this.page === 'MINE' || this.page === 'SEARCH' || this.page === 'CATEGORY')) {
+      this.retryCurrentPage();
+    }
   }
 
   private async loadPrivacyConsent(): Promise<void> {
@@ -460,6 +467,10 @@ struct Index {
 
   private async prepareDetailPreview(item: WallpaperSummary): Promise<void> {
     this.clearDetailPreview();
+    if (!item.previewReady()) {
+      this.detailPreviewError = item.previewUnavailableMessage();
+      return;
+    }
     const capability: WallpaperCapability = this.selectedCapabilityFor(item);
     if (capability.deliveryPlatform !== 'HARMONYOS' || capability.resourceType !== 'MOVING_PHOTO' ||
       this.api === null || this.context === null) return;
@@ -468,6 +479,10 @@ struct Index {
     this.detailPreviewError = '';
     try {
       const descriptor = await (this.api as CatalogApi).previewTicket(item.id, capability);
+      if (generation !== this.detailPreviewGeneration || this.page !== 'DETAIL') return;
+      if (item.previewRevision > 0 && descriptor.previewRevision !== item.previewRevision) {
+        throw new Error('预览资源已更新，请重新加载');
+      }
       const path: string = await HarmonyDelivery.downloadMovingPhotoPreview(
         this.context as common.UIAbilityContext, descriptor, item.id);
       if (generation !== this.detailPreviewGeneration || this.page !== 'DETAIL') {
@@ -480,7 +495,7 @@ struct Index {
     } catch (error) {
       if (generation === this.detailPreviewGeneration) {
         this.detailPreviewLoading = false;
-        this.detailPreviewError = '动态效果暂时无法加载';
+        this.detailPreviewError = error instanceof ApiRequestError ? error.message : '动态效果暂时无法加载';
       }
     }
   }
@@ -858,14 +873,25 @@ struct Index {
   }
 
   @Builder
+  private WallpaperCover(item: WallpaperSummary, width: number | string, height: number | string) {
+    if (item.previewReady()) {
+      Image(this.mediaUrl(item.coverUrl)).width(width).height(height).objectFit(ImageFit.Cover)
+        .backgroundColor(T.surfaceMuted);
+    } else {
+      Column() {
+        Text(item.previewUnavailableMessage()).fontSize(13).fontColor(T.mutedInk)
+          .textAlign(TextAlign.Center);
+      }
+      .width(width).height(height).justifyContent(FlexAlign.Center).padding(12)
+      .backgroundColor(T.surfaceMuted);
+    }
+  }
+
+  @Builder
   private WallpaperCard(item: WallpaperSummary) {
     Column() {
       Stack({ alignContent: Alignment.TopStart }) {
-        Image(this.mediaUrl(item.coverUrl))
-          .width('100%')
-          .height(T.catalogMediaHeight)
-          .objectFit(ImageFit.Cover)
-          .backgroundColor(T.surfaceMuted);
+        this.WallpaperCover(item, '100%', T.catalogMediaHeight);
         Row({ space: 5 }) {
           ForEach(this.thumbnailCapabilities(item), (capability: WallpaperCapability) => {
             this.CapabilityBadge(this.thumbnailCapabilityLabel(capability));
@@ -938,7 +964,8 @@ struct Index {
       Grid() {
         ForEach(this.wallpapers, (item: WallpaperSummary) => {
           GridItem() { this.WallpaperCard(item); }
-        }, (item: WallpaperSummary) => item.id);
+        }, (item: WallpaperSummary) => item.id + ':' + item.previewRevision.toString() + ':' +
+          item.previewGenerationStatus + ':' + item.coverUrl);
       }
       .columnsTemplate('1fr 1fr')
       .columnsGap(12)
@@ -1087,7 +1114,9 @@ struct Index {
           Column({ space: 12 }) {
             ForEach(this.entitlements, (item: WallpaperSummary) => {
               Row() {
-                Image(this.mediaUrl(item.coverUrl)).width(76).height(96).objectFit(ImageFit.Cover).borderRadius(16);
+                Stack() {
+                  this.WallpaperCover(item, 76, 96);
+                }.width(76).height(96).borderRadius(16).clip(true);
                 Column({ space: 8 }) {
                   Row({ space: 5 }) {
                     ForEach(this.thumbnailCapabilities(item), (capability: WallpaperCapability) => {
@@ -1102,7 +1131,8 @@ struct Index {
               }
               .width('100%').padding(12).backgroundColor(T.surface).border({ width: 1, color: T.outline })
               .borderRadius(T.cardRadius).onClick(() => this.openDetail(item));
-            }, (item: WallpaperSummary) => item.id);
+            }, (item: WallpaperSummary) => item.id + ':' + item.previewRevision.toString() + ':' +
+              item.previewGenerationStatus + ':' + item.coverUrl);
           }
         }
       }
@@ -1156,8 +1186,7 @@ struct Index {
         }
       }
         Stack({ alignContent: Alignment.Bottom }) {
-          Image(this.mediaUrl(item.coverUrl)).width('100%').height('100%').objectFit(ImageFit.Cover)
-            .backgroundColor(T.surfaceMuted);
+          this.WallpaperCover(item, '100%', '100%');
           if (this.detailPreviewPath.length > 0) {
             Video({ src: 'file://' + this.detailPreviewPath, controller: this.detailVideoController })
               .width('100%').height('100%').objectFit(ImageFit.Cover).controls(false)
@@ -1220,6 +1249,8 @@ struct Index {
             if (this.detailPreviewError.length > 0) {
               Text(this.detailPreviewError).fontSize(13).fontColor(T.inverseInk).backgroundColor('#BB191817')
                 .padding({ left: 12, right: 12, top: 8, bottom: 8 }).borderRadius(14).margin({ bottom: 10 });
+              Button('重新加载预览').fontSize(13).fontColor(T.inverseInk).backgroundColor('#BB191817')
+                .height(36).margin({ bottom: 10 }).onClick(() => this.openDetail(item));
             }
             if (this.statusMessage.length > 0) {
               Text(this.statusMessage).fontSize(13).fontColor(T.inverseInk).backgroundColor('#BB191817')

@@ -55,7 +55,8 @@ public final class AdminContentDtos {
             @NotBlank @Pattern(regexp = "[1-9][0-9]*") String coverAssetId,
             @Min(0) @Max(999_999) Integer featuredRank,
             @NotNull @Min(0) @Max(999_999) Integer sortOrder,
-            @NotBlank @Size(max = 500) String copyrightNote) {
+            @NotBlank @Size(max = 500) String copyrightNote,
+            Boolean previewWatermarkEnabled) {
     }
 
     public record VariantWriteRequest(
@@ -114,7 +115,8 @@ public final class AdminContentDtos {
             Instant publishedAt,
             Instant createdAt,
             Instant updatedAt,
-            long version) {
+            long version,
+            boolean previewWatermarkEnabled, long previewRevision, String previewGenerationStatus, @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS) String previewGenerationError) {
     }
 
     public record AdminWallpaperDetail(
@@ -136,7 +138,8 @@ public final class AdminContentDtos {
             long version,
             String copyrightNote,
             List<AdminWallpaperVariant> variants,
-            com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.IosProductConfiguration iosAcquisition) {
+            com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.IosProductConfiguration iosAcquisition,
+            boolean previewWatermarkEnabled, long previewRevision, String previewGenerationStatus, @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS) String previewGenerationError) {
     }
 
     public record AdminWallpaperPage(List<AdminWallpaperSummary> items, PageMetadata page) {

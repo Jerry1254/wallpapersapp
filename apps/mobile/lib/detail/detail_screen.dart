@@ -80,8 +80,8 @@ class _DetailScreenState extends State<DetailScreen>
     future = widget.repository.detail(widget.id);
     widget.downloads?.addListener(_downloadChanged);
     widget.iosAcquisition?.addListener(_downloadChanged);
+    WidgetsBinding.instance.addObserver(this);
     if (widget.iosAcquisition != null) {
-      WidgetsBinding.instance.addObserver(this);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(widget.iosAcquisition!.refreshPrices());
       });
@@ -90,8 +90,20 @@ class _DetailScreenState extends State<DetailScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && widget.iosAcquisition != null) {
-      unawaited(widget.iosAcquisition!.refreshPrices());
+    if (state == AppLifecycleState.resumed) {
+      if (widget.iosAcquisition != null) {
+        unawaited(widget.iosAcquisition!.refreshPrices());
+      }
+      _reloadPreviewMetadata();
+    }
+  }
+
+  void _reloadPreviewMetadata() {
+    if (mounted) {
+      final next = widget.repository.detail(widget.id);
+      setState(() {
+        future = next;
+      });
     }
   }
 
@@ -310,11 +322,15 @@ class _DetailScreenState extends State<DetailScreen>
           true,
         ) ??
         DetailPreview(
-          key: ValueKey('${wallpaper.id}-${option.key}'),
+          key: ValueKey(
+            '${wallpaper.id}-${option.key}-${wallpaper.previewRevision}',
+          ),
           manager: manager,
           wallpaperId: wallpaper.id,
           deliveryPlatform: option.deliveryPlatform,
           resourceType: type,
+          previewRevision: wallpaper.previewRevision,
+          onReload: _reloadPreviewMetadata,
           active: true,
           fill: true,
           cover: cover,
@@ -326,11 +342,15 @@ class _DetailScreenState extends State<DetailScreen>
     WallpaperDeliveryOption option,
     Widget cover,
   ) => IosLivePhotoPreviewView(
-    key: ValueKey('ios-${wallpaper.id}-${option.key}'),
+    key: ValueKey(
+      'ios-${wallpaper.id}-${option.key}-${wallpaper.previewRevision}',
+    ),
     manager: widget.downloads!,
     wallpaperId: wallpaper.id,
     deliveryPlatform: option.deliveryPlatform,
     resourceType: option.resourceType,
+    previewRevision: wallpaper.previewRevision,
+    onReload: _reloadPreviewMetadata,
     cover: cover,
     fit: BoxFit.cover,
   );
@@ -538,6 +558,7 @@ class _DetailScreenState extends State<DetailScreen>
                     repository: widget.repository,
                     path: wallpaper.cover,
                     fit: BoxFit.cover,
+                    previewGenerationStatus: wallpaper.previewGenerationStatus,
                   );
                   final previewInsets = _fullScreen
                       ? MediaQuery.paddingOf(context)
@@ -622,7 +643,25 @@ class _DetailScreenState extends State<DetailScreen>
                                 key: const ValueKey('detail-preview'),
                                 fit: StackFit.expand,
                                 children: [
-                                  if (widget.downloads != null &&
+                                  if (!wallpaper.previewReady)
+                                    Center(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            wallpaper.previewUnavailableMessage,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                          TextButton(
+                                            onPressed: _reloadPreviewMetadata,
+                                            child: const Text('重新加载预览'),
+                                          ),
+                                        ],
+                                      ),
+                                    )
+                                  else if (widget.downloads != null &&
                                       previewOption != null &&
                                       previewOption.availableInClient &&
                                       Platform.isIOS &&

@@ -8,12 +8,14 @@ import 'package:wallpaper_ios/wallpaper_ios.dart';
 
 import '../device/device_session.dart';
 import '../downloads/download_manager.dart';
+import 'preview_availability.dart';
 
 bool validIosLivePhotoPreviewDescriptor(
   Map<String, dynamic> descriptor, {
   required String wallpaperId,
   required String deliveryPlatform,
   required String resourceType,
+  int previewRevision = 0,
 }) {
   final version = descriptor['resourceVersion'];
   final video = descriptor['video'];
@@ -21,6 +23,10 @@ bool validIosLivePhotoPreviewDescriptor(
       descriptor['purpose'] == 'APP_PREVIEW' &&
       descriptor['durationSeconds'] == 1 &&
       descriptor['wallpaperId'] == wallpaperId &&
+      validPreviewRevision(
+        descriptor['previewRevision'],
+        expected: previewRevision,
+      ) &&
       version is Map &&
       version['platform'] == deliveryPlatform &&
       version['resourceType'] == resourceType &&
@@ -43,6 +49,8 @@ class IosLivePhotoPreviewView extends StatefulWidget {
     required this.cover,
     this.nativePreview = const IosLivePhotoPreview(),
     this.fit = BoxFit.cover,
+    this.previewRevision = 0,
+    this.onReload,
   });
 
   final DownloadManager manager;
@@ -50,6 +58,8 @@ class IosLivePhotoPreviewView extends StatefulWidget {
   final Widget cover;
   final IosLivePhotoPreview nativePreview;
   final BoxFit fit;
+  final int previewRevision;
+  final VoidCallback? onReload;
 
   @override
   State<IosLivePhotoPreviewView> createState() =>
@@ -62,6 +72,7 @@ class _IosLivePhotoPreviewViewState extends State<IosLivePhotoPreviewView>
   VideoPlayerController? player;
   bool holding = false;
   bool failed = false;
+  String? failureMessage;
 
   bool get ready => player?.value.isInitialized == true;
 
@@ -91,6 +102,7 @@ class _IosLivePhotoPreviewViewState extends State<IosLivePhotoPreviewView>
         wallpaperId: widget.wallpaperId,
         deliveryPlatform: widget.deliveryPlatform,
         resourceType: widget.resourceType,
+        previewRevision: widget.previewRevision,
       )) {
         throw const FormatException('Invalid Live Photo preview descriptor');
       }
@@ -119,9 +131,32 @@ class _IosLivePhotoPreviewViewState extends State<IosLivePhotoPreviewView>
         return;
       }
       setState(() => player = next);
-    } catch (_) {
-      if (mounted && requestId == id) setState(() => failed = true);
+    } catch (failure) {
+      if (mounted && requestId == id) {
+        setState(() {
+          failed = true;
+          failureMessage = previewFailureMessage(failure);
+        });
+      }
     }
+  }
+
+  Future<void> _retry() async {
+    final id = requestId;
+    requestId = null;
+    final current = player;
+    player = null;
+    if (id != null) {
+      await widget.nativePreview.release(id).catchError((_) {});
+    }
+    await current?.dispose();
+    if (!mounted) return;
+    setState(() {
+      failed = false;
+      holding = false;
+      failureMessage = null;
+    });
+    await _prepare();
   }
 
   Future<void> _start() async {
@@ -138,6 +173,7 @@ class _IosLivePhotoPreviewViewState extends State<IosLivePhotoPreviewView>
         setState(() {
           holding = false;
           failed = true;
+          failureMessage = '动态预览暂不可用';
         });
       }
     }
@@ -244,21 +280,33 @@ class _IosLivePhotoPreviewViewState extends State<IosLivePhotoPreviewView>
             ),
           ),
         if (failed)
-          const Positioned(
+          Positioned(
             left: 12,
             right: 12,
             bottom: 12,
             child: Center(
               child: DecoratedBox(
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   color: Color(0xB3191817),
                   borderRadius: BorderRadius.all(Radius.circular(16)),
                 ),
                 child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                  child: Text(
-                    '动态预览暂不可用',
-                    style: TextStyle(color: Colors.white),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        failureMessage ?? '动态预览暂不可用',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      TextButton(
+                        onPressed: widget.onReload ?? () => unawaited(_retry()),
+                        child: const Text('重新加载预览'),
+                      ),
+                    ],
                   ),
                 ),
               ),

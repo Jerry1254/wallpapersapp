@@ -37,6 +37,24 @@ class FakeCatalog implements CatalogRepository {
 }
 
 void main() {
+  test('封面保留服务端版本 URL，预览状态不能回退为可用原图', () {
+    Map<String, dynamic> json(String status) => {
+      'id': '1',
+      'title': '带水印预览',
+      'cover': {'contentUrl': '/api/v1/wallpapers/1/cover?revision=8'},
+      'previewRevision': 8,
+      'previewGenerationStatus': status,
+      'availableCapabilities': [],
+    };
+    final ready = Wallpaper.fromJson(json('READY'));
+    expect(ready.previewRevision, 8);
+    expect(ready.cover, '/api/v1/wallpapers/1/cover?revision=8');
+    expect(ready.previewReady, isTrue);
+    for (final status in ['PENDING', 'PROCESSING', 'FAILED', 'UNKNOWN']) {
+      expect(Wallpaper.fromJson(json(status)).previewReady, isFalse);
+    }
+  });
+
   test('安装包平台只接收本平台动态资源和通用静态资源', () {
     expect(
       supportsClientCapability('IOS', 'LIVE_PHOTO', clientPlatform: 'IOS'),

@@ -46,4 +46,22 @@ void main() {
       );
     }
   });
+
+  test(
+    'iOS preview rejects an older revision after watermark policy changes',
+    () {
+      final value = descriptor()..['previewRevision'] = 7;
+      bool valid(int expected) => validIosLivePhotoPreviewDescriptor(
+        value,
+        wallpaperId: '7',
+        deliveryPlatform: 'IOS',
+        resourceType: 'LIVE_PHOTO',
+        previewRevision: expected,
+      );
+      expect(valid(7), isTrue);
+      expect(valid(8), isFalse);
+      value.remove('previewRevision');
+      expect(valid(8), isFalse);
+    },
+  );
 }

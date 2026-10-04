@@ -26,7 +26,7 @@ class AdminOpenApiCoverageTest {
 
     private static final Set<String> CONTENT_ROOTS = Set.of(
             "sessions", "dashboard", "assets", "categories", "wallpapers", "variants", "resource-versions",
-            "wallpaper-tutorials", "parallax-packages");
+            "wallpaper-tutorials", "parallax-packages", "wallpaper-previews");
 
     @Test
     void everyFrozenAdminIdentityAndContentOperationHasAControllerMapping() throws IOException {
@@ -37,6 +37,7 @@ class AdminOpenApiCoverageTest {
                 AdminAssetController.class,
                 AdminCategoryController.class,
                 AdminWallpaperController.class,
+                com.qingjing.wallpaper.delivery.PreviewRebuildController.class,
                 AdminIosProductController.class,
                 AdminWallpaperTutorialController.class,
                 com.qingjing.wallpaper.parallax.AdminParallaxPackageController.class));

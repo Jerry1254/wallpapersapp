@@ -34,6 +34,7 @@ import type {
   WallpaperTutorialKey,
   WallpaperVariant
 } from '@/domain/admin';
+import type { PreviewRebuildPlan } from '@/domain/admin';
 import { optimizeCoverFile } from '@/utils/coverImage';
 import { ApiError, apiDownload, apiRequest, apiResourceUrl } from '@/repositories/http/apiClient';
 
@@ -142,6 +143,10 @@ interface ApiWallpaperSummary {
   title: string;
   slug: string;
   accessType: WallpaperAccessType;
+  previewWatermarkEnabled?: boolean;
+  previewGenerationStatus?: Wallpaper['previewGenerationStatus'];
+  previewRevision?: number;
+  previewGenerationError?: string | null;
   rootCategory: ApiCategorySummary;
   childCategory: ApiCategorySummary | null;
   cover: ApiAsset;
@@ -293,6 +298,10 @@ const wallpaperFromApi = (value: ApiWallpaperDetail): Wallpaper => {
     categoryId: value.rootCategory.id,
     subcategoryId: value.childCategory?.id || '',
     accessType: value.accessType,
+    previewWatermarkEnabled: value.previewWatermarkEnabled ?? true,
+    previewGenerationStatus: value.previewGenerationStatus,
+    previewRevision: value.previewRevision ?? 0,
+    previewGenerationError: value.previewGenerationError ?? null,
     capabilities: value.variants.filter((item) => item.enabled).map(capabilityForVariant),
     status: statusFromApi[value.status],
     sort: value.sortOrder,
@@ -425,6 +434,29 @@ export class WallpaperSaveError extends Error {
 }
 
 export const adminRepository = {
+  async previewRebuildPlan() {
+    return (await apiRequest<PreviewRebuildPlan>('/admin/wallpaper-previews/rebuild-plan')).data;
+  },
+  async rebuildAllPreviews() {
+    return (await apiRequest<PreviewRebuildPlan>('/admin/wallpaper-previews/rebuild', {
+      method: 'POST', csrf: true
+    })).data;
+  },
+  async rebuildWallpaperPreview(wallpaperId: string) {
+    const { data } = await apiRequest<ApiWallpaperDetail>(`/admin/wallpapers/${wallpaperId}/preview-rebuild`, {
+      method: 'POST', csrf: true
+    });
+    return wallpaperFromApi(data);
+  },
+  async wallpaperPreviewStates(input: { accessType?: WallpaperAccessType | '' } = {}) {
+    const summaries = await listAllSummaries(input.accessType);
+    return summaries.map((value) => ({
+      id: value.id,
+      previewGenerationStatus: value.previewGenerationStatus,
+      previewRevision: value.previewRevision ?? 0,
+      previewGenerationError: value.previewGenerationError ?? null
+    }));
+  },
   async syncIosPrice(wallpaperId: string) {
     return (await apiRequest<IosAcquisitionConfiguration>(`/admin/wallpapers/${wallpaperId}/ios-acquisition/price-sync`, {
       method: 'POST', csrf: true, timeoutMs: 120_000
@@ -532,6 +564,7 @@ export const adminRepository = {
       title: input.title.trim(),
       slug,
       accessType: input.accessType,
+      previewWatermarkEnabled: input.previewWatermarkEnabled ?? true,
       rootCategoryId: input.categoryId,
       childCategoryId: input.subcategoryId || null,
       coverAssetId,

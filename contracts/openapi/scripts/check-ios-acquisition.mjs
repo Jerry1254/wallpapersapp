@@ -11,7 +11,8 @@ const standardScheme = await read('../../../apps/mobile/ios/Runner.xcodeproj/xcs
 const testScheme = await read('../../../apps/mobile/ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner-StoreKit.xcscheme');
 const testProducts = JSON.parse(await read('../../../apps/mobile/ios/StoreKit/QingjingPurchases.storekit'));
 
-assert.equal(contract.info.version, '2.17.0');
+const metadata = JSON.parse(await read('../package.json'));
+assert.equal(contract.info.version, metadata.version, 'iOS acquisition must use the current executable API contract');
 assert.match(config, /'IOS_ACQUISITION_ENABLED',\s*defaultValue: true/,
   'implemented iOS acquisition must be enabled in standard builds');
 // The new reset/admin/notification routes are proposed contracts, not implemented clients.
@@ -58,9 +59,14 @@ assert.deepEqual(notification.security, [], 'Apple notifications do not carry a 
 assert.deepEqual(notification.requestBody.content['application/json'].schema.required, ['signedPayload']);
 assert.match(notification.description, /验证 Apple JWS/, 'session-free callback still requires Apple authentication');
 for (const path of ['/device/ios/acquisition/status', '/device/ios/acquisition/free-claims', '/device/ios/acquisition/purchases']) {
-  assert.deepEqual(contract.paths[path].post.parameters.map(p => p.$ref), [
+  const parameters = contract.paths[path].post.parameters.map(p => p.$ref);
+  const attestationParameters = [
     '#/components/parameters/AppAttestKey', '#/components/parameters/AppAttestAssertion',
-  ]);
+  ];
+  assert.deepEqual(parameters, path.endsWith('/free-claims') ? [
+    '#/components/parameters/AppVersionName', '#/components/parameters/AppVersionCode',
+    '#/components/parameters/AppAbi', '#/components/parameters/AppAndroidSdk', ...attestationParameters,
+  ] : attestationParameters);
 }
 assert.deepEqual(contract.components.schemas.AcquisitionState.properties.freeAllowance.enum,
   ['AVAILABLE', 'USED', 'UNAVAILABLE', 'PENDING_RESET']);
