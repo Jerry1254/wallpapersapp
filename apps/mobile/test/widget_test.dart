@@ -6,7 +6,22 @@ import 'package:qingjing_wallpaper/config/app_config.dart';
 import 'package:qingjing_wallpaper/main.dart';
 import 'package:qingjing_wallpaper/privacy/policies.dart';
 import 'package:qingjing_wallpaper/privacy/privacy_gate.dart';
+import 'package:qingjing_wallpaper/updates/app_updates.dart';
 import 'package:wallpaper_platform_interface/wallpaper_platform_interface.dart';
+
+class NoUpdates extends AppUpdateController {
+  NoUpdates() : super(Uri.parse('https://example.com/api/v1')) {
+    ready = true;
+  }
+  @override
+  Future<void> start() async {}
+}
+
+AppUpdateController noUpdates() {
+  final controller = NoUpdates();
+  addTearDown(controller.dispose);
+  return controller;
+}
 
 void main() {
   testWidgets('首页和我的两项导航可切换且不虚构内容', (tester) async {
@@ -14,6 +29,7 @@ void main() {
     await tester.pumpWidget(
       QingjingApp(
         repository: repository,
+        updateController: noUpdates(),
         privacyConsentStore: MemoryPrivacyConsentStore(accepted: policyVersion),
         config: AppConfig(
           environment: 'local',
@@ -43,6 +59,7 @@ void main() {
     await tester.pumpWidget(
       QingjingApp(
         repository: repository,
+        updateController: noUpdates(),
         privacyConsentStore: MemoryPrivacyConsentStore(accepted: policyVersion),
         config: AppConfig(
           environment: 'local',
@@ -65,6 +82,7 @@ void main() {
     await tester.pumpWidget(
       QingjingApp(
         repository: repository,
+        updateController: noUpdates(),
         privacyConsentStore: MemoryPrivacyConsentStore(accepted: policyVersion),
         config: AppConfig(
           environment: 'local',

@@ -88,6 +88,10 @@ flutter {
     source = "../.."
 }
 
+dependencies {
+    implementation("androidx.core:core:1.13.1")
+}
+
 // Test signing applies only to local artifacts, never to production.
 android.productFlavors.getByName("local").signingConfig = android.signingConfigs.getByName("debug")
 

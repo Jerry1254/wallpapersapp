@@ -17,6 +17,8 @@ import 'package:wallpaper_ios/wallpaper_ios.dart';
 import 'downloads/download_manager.dart';
 import 'downloads/global_download_dialog.dart';
 import 'privacy/privacy_gate.dart';
+import 'updates/app_updates.dart';
+import 'updates/app_update_gate.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
 
 void main() {
@@ -33,18 +35,27 @@ class QingjingApp extends StatefulWidget {
     super.key,
     required this.config,
     this.repository,
+    this.updateController,
     this.privacyConsentStore = const PlatformPrivacyConsentStore(),
   });
   final AppConfig config;
   final CatalogRepository? repository;
+  final AppUpdateController? updateController;
   final PrivacyConsentStore privacyConsentStore;
   @override
   State<QingjingApp> createState() => _QingjingAppState();
 }
 
 class _QingjingAppState extends State<QingjingApp> {
+  final appNavigatorKey = GlobalKey<NavigatorState>();
+  late final updates =
+      widget.updateController ?? AppUpdateController(widget.config.apiBase);
   late final DeviceSessionManager sessions = DeviceSessionManager(
-    HttpDeviceTransport(widget.config.apiBase),
+    HttpDeviceTransport(
+      widget.config.apiBase,
+      versionHeaders: updates.versionHeaders,
+      onUpdateRequired: updates.requireFromServer,
+    ),
   );
   late final AndroidWallpaperPlayback playback =
       const AndroidWallpaperPlayback();
@@ -53,19 +64,34 @@ class _QingjingAppState extends State<QingjingApp> {
       HttpCatalogRepository(widget.config.apiBase, sessions: sessions);
 
   @override
+  void dispose() {
+    if (widget.updateController == null) updates.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => MaterialApp(
     title: '倾境动态壁纸',
     debugShowCheckedModeBanner: false,
     navigatorObservers: [detailPreviewRouteObserver],
+    navigatorKey: appNavigatorKey,
+    builder: (context, child) => AppUpdateOverlay(
+      controller: updates,
+      navigatorKey: appNavigatorKey,
+      child: child!,
+    ),
     theme: QjTheme.light,
     home: PrivacyGate(
       store: widget.privacyConsentStore,
-      builder: (_) => HomeShell(
-        repository: repository,
-        sessions: sessions,
-        apiBase: widget.config.apiBase,
-        playback: playback,
-        labMode: widget.config.environment == 'lab',
+      builder: (_) => AppUpdateBootstrap(
+        controller: updates,
+        builder: (_) => HomeShell(
+          repository: repository,
+          sessions: sessions,
+          apiBase: widget.config.apiBase,
+          playback: playback,
+          labMode: widget.config.environment == 'lab',
+        ),
       ),
     ),
   );

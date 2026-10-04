@@ -11,7 +11,7 @@ import {
 } from '../model/CatalogModels';
 import { CatalogApi } from '../network/CatalogApi';
 import { HarmonyDeviceSession } from '../network/HarmonyDeviceSession';
-import { AppUpdateEvents } from '../update/AppUpdateEvents';
+import { AppUpdateEvents, InstalledAppVersion } from '../update/AppUpdateEvents';
 import { AppRelease, AppUpdatePolicy, AppUpdateService } from '../update/AppUpdateService';
 import { CustomerSupport } from '../support/CustomerSupport';
 import { DownloadedMovingPhoto, DownloadedStaticImage, HarmonyDelivery } from '../media/HarmonyDelivery';
@@ -1570,6 +1570,8 @@ struct Index {
           .width('100%').fontSize(23).fontWeight(FontWeight.Bolder).fontColor(T.ink);
         Text(this.updateMandatory ? '当前版本已不再支持，请前往应用市场更新至最新版本。' :
           '新版本已可用，前往应用市场即可更新。')
+          .width('100%').fontSize(14).fontColor(T.mutedInk);
+        Text('当前版本 ' + InstalledAppVersion.info().versionName)
           .width('100%').fontSize(14).fontColor(T.mutedInk);
         if (this.updateLatest !== null) {
           Text('新版本 ' + (this.updateLatest as AppRelease).versionName)

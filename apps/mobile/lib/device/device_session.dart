@@ -36,6 +36,7 @@ class DeviceApiError implements Exception {
     'TIMESTAMP_INVALID' => '手机时间与服务端不一致，请校准后重试',
     'DEVICE_PROVIDER_NOT_ALLOWED' ||
     'DEVICE_PROVIDER_UNAVAILABLE' => '当前服务尚未启用此安装包身份',
+    'APP_UPDATE_REQUIRED' => '当前版本已不再支持，请更新后继续使用',
     _ => status == 0 ? '暂时无法连接服务，请重试' : '设备验证失败，请重试或联系客服',
   };
 }
@@ -149,8 +150,10 @@ abstract interface class DeviceTransport {
 }
 
 class HttpDeviceTransport implements DeviceTransport {
-  HttpDeviceTransport(this.base);
+  HttpDeviceTransport(this.base, {this.versionHeaders, this.onUpdateRequired});
   final Uri base;
+  final Future<Map<String, String>> Function()? versionHeaders;
+  final void Function()? onUpdateRequired;
   @override
   Future<Map<String, dynamic>> request(
     String path, {
@@ -167,6 +170,8 @@ class HttpDeviceTransport implements DeviceTransport {
         final request = await client.openUrl(method, uri);
         request.followRedirects = false;
         request.headers.set('Accept', 'application/json');
+        final appHeaders = await versionHeaders?.call() ?? <String, String>{};
+        appHeaders.forEach(request.headers.set);
         headers.forEach(request.headers.set);
         if (body != null) {
           request.headers.contentType = ContentType.json;
@@ -186,11 +191,11 @@ class HttpDeviceTransport implements DeviceTransport {
         }
         if ((response.statusCode < 200 || response.statusCode >= 300) &&
             !accepted.contains(response.statusCode)) {
-          throw DeviceApiError(
-            response.statusCode,
-            (data['error'] as Map<String, dynamic>?)?['code'] as String? ??
-                'REQUEST_FAILED',
-          );
+          final code =
+              (data['error'] as Map<String, dynamic>?)?['code'] as String? ??
+              'REQUEST_FAILED';
+          if (code == 'APP_UPDATE_REQUIRED') onUpdateRequired?.call();
+          throw DeviceApiError(response.statusCode, code);
         }
         return data;
       })().timeout(

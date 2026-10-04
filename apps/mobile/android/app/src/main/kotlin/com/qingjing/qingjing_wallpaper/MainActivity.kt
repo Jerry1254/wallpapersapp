@@ -5,8 +5,12 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private var appUpdates: AppUpdateBridge? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        appUpdates?.destroy()
+        appUpdates = AppUpdateBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         val preferences = getSharedPreferences("qingjing_privacy_state", MODE_PRIVATE)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "qingjing/privacy_consent")
             .setMethodCallHandler { call, result ->
@@ -32,5 +36,16 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        appUpdates?.onResume()
+    }
+
+    override fun onDestroy() {
+        appUpdates?.destroy()
+        appUpdates = null
+        super.onDestroy()
     }
 }
