@@ -36,7 +36,7 @@ function Landscape({frame, effect, uid}:{frame:number,effect:Tutorial['effect'],
     <g transform={`translate(${phase*(parallax ? 4:2)},0)`} opacity=".45"><path d="M-35 258 48 140 100 226 166 184 280 296V460H-35Z" fill="#A5B3A1"/></g>
     <g transform={`translate(${phase*(parallax ? 10:3)},0)`}><path d="M-30 331 41 209 108 309 153 252 279 369V461H-30Z" fill="#6B9080"/><path d="m41 209-4 39 20-14Z" fill="#DAE2D5"/></g>
     <g transform={`translate(${phase*(parallax ? -17:4)},0)`}><path d="M-30 455V358c65-20 87-74 148-42s78-20 164 8V465Z" fill={`url(#${uid}-mount)`}/><path d="M-30 390c98-31 139-7 228 41 30 16 40 20 90 14v30H-30Z" fill="#21483E"/></g>
-    <g opacity=".4" transform={`translate(${phase*3},0)`}><path d="M30 103h37m-18-4h27M87 58h32m-17-4h24" stroke="#FFF" strokeWidth="2" strokeLinecap="round"/></g>
+    {effect==='video'?[0,1].map(index=><g key={index} opacity=".55" transform={`translate(${((frame/1.5+index*200)%400)-150},0)`}><path d="M30 103h37m-18-4h27M87 58h32m-17-4h24" stroke="#FFF" strokeWidth="2" strokeLinecap="round"/></g>):<g opacity=".4" transform={`translate(${phase*3},0)`}><path d="M30 103h37m-18-4h27M87 58h32m-17-4h24" stroke="#FFF" strokeWidth="2" strokeLinecap="round"/></g>}
   </svg>;
 }
 
@@ -73,8 +73,8 @@ function HomeScreen({tutorial,frame}:{tutorial:Tutorial,frame:number}) {
       <div style={{display:'flex',gap:5,alignItems:'center',borderRadius:18,padding:'7px 9px',background:C.ink,outline:`2px solid ${C.gold}`,outlineOffset:3}}><Icon name="chat" size={15} color="white"/><Txt size={11} weight={650} color="white">客服</Txt></div>
     </div>
     <div style={{margin:'4px 12px 13px',border:`1px solid ${C.line}`,borderRadius:14,padding:'9px 12px'}}><Txt size={10} color={C.muted}>搜索喜欢的壁纸</Txt></div>
-    <div style={{margin:'0 12px 12px',display:'flex',gap:8}}>{['精选','4D壁纸','静态壁纸'].map(label=><Txt key={label} size={10} weight={label==='4D壁纸'?700:500} style={{padding:'6px 9px',borderRadius:14,background:label==='4D壁纸'?C.gold:'#F1EFEA'}}>{label}</Txt>)}</div>
-    <div style={{padding:'0 12px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:9}}>{[0,1].map(index=><div key={index}><div style={{height:185,borderRadius:13,overflow:'hidden',filter:index===1?'hue-rotate(30deg)':'none'}}><Landscape uid={`home-${index}`} frame={frame} effect={tutorial.effect}/></div><Txt size={10} weight={650} style={{marginTop:7}}>{index===0?'山间的温柔':'落日漫游'}</Txt><Txt size={8} color={C.muted}>4D 壁纸</Txt></div>)}</div>
+    <div style={{margin:'0 12px 12px',display:'flex',gap:8}}>{['精选',tutorial.format,'静态壁纸'].map(label=><Txt key={label} size={10} weight={label===tutorial.format?700:500} style={{padding:'6px 9px',borderRadius:14,background:label===tutorial.format?C.gold:'#F1EFEA'}}>{label}</Txt>)}</div>
+    <div style={{padding:'0 12px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:9}}>{[0,1].map(index=><div key={index}><div style={{height:185,borderRadius:13,overflow:'hidden',filter:index===1?'hue-rotate(30deg)':'none'}}><Landscape uid={`home-${index}`} frame={frame} effect={tutorial.effect}/></div><Txt size={10} weight={650} style={{marginTop:7}}>{index===0?'山间的温柔':'落日漫游'}</Txt><Txt size={8} color={C.muted}>{tutorial.effect==='parallax'?'4D 壁纸':tutorial.format}</Txt></div>)}</div>
     <div style={{position:'absolute',bottom:18,left:17,right:17,display:'flex',justifyContent:'space-around'}}><Txt size={11} weight={700}>首页</Txt><Txt size={11} color={C.muted}>分类</Txt><Txt size={11} color={C.muted}>我的</Txt></div>
     <Click frame={frame} x={181} y={28}/>
   </>;

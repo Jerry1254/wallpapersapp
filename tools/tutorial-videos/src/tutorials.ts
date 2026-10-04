@@ -38,10 +38,14 @@ export const tutorials: Tutorial[] = [
   {
     id: '02-android-video', title: '安卓动态壁纸', platform: 'ANDROID', effect: 'video', format: '动态壁纸',
     steps: [
-      { seconds: 5, title: '下载喜欢的动态壁纸', description: '在详情里选择「动态壁纸」并下载', screen: 'app', action: '下载壁纸', hint: '等待下载完成，即可开始设置。' },
+      { seconds: 7, title: '先选择喜欢的动态壁纸', description: '需要兑换的壁纸，使用客服发来的兑换码', screen: 'app', action: '兑换并下载', hint: '免费或已兑换的壁纸，可直接下载。\n已有兑换码，可直接看第 4 步。', tag: '需要兑换时' },
+      { seconds: 6, title: '没有码？点首页右上角客服', description: '回到首页，点击右上角「客服」', screen: 'home', action: '客服', hint: '没有兑换码时，先从这里联系获取。\n已有兑换码，可以跳过第 2、3 步。', tag: '仅没有兑换码时' },
+      { seconds: 7, title: '添加客服微信，获取兑换码', description: '复制微信号，在微信中搜索并添加客服', screen: 'support', action: '复制', hint: '添加客服微信，联系获取兑换码。\n收到后，返回这张壁纸继续兑换。', tag: '仅没有兑换码时' },
+      { seconds: 8, title: '返回详情，输入兑换码', description: '点击「兑换并下载」，再「验证并兑换」', screen: 'redeem', action: '验证并兑换', hint: '请输入客服发来的兑换码。\n验证成功后，即可下载这张壁纸。' },
+      { seconds: 4, title: '兑换成功，等待下载完成', description: '下载完成后，按钮变为「设置壁纸」', screen: 'app', action: '下载中', hint: '免费或已兑换的壁纸，点击「下载壁纸」即可。' },
       { seconds: 5, title: '点击「设置壁纸」', description: '按系统提示确认应用到桌面或锁屏', screen: 'preview', action: '设置壁纸', hint: '正常情况下，直接点击设置就可以。' },
       { seconds: 9, title: '提示权限？这样开启', description: '手机设置 → 应用管理 → 当前倾境 App', screen: 'permission', action: '动态壁纸服务', hint: '权限管理 → 其他权限 → 允许动态壁纸服务\n开启后回到 App，重新检测并设置。', tag: '仅出现权限提示时' },
-      { seconds: 4, title: '让壁纸动起来', description: '返回桌面，查看动态效果', screen: 'success', action: '设置完成', hint: '权限名称和设置位置可能因手机品牌而不同。' },
+      { seconds: 5, title: '回到桌面，让壁纸动起来', description: '返回手机桌面，查看动态壁纸自动播放', screen: 'success', action: '设置完成', hint: '壁纸会自动播放，实际效果以当前壁纸为准。' },
     ],
   },
   {
