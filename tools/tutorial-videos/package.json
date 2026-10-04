@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "remotion studio src/index.tsx",
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && node --check render.mjs && python3 -m py_compile narrate.py verify-video.py",
+    "voice:setup": "python3 -m venv out/tts-runtime && out/tts-runtime/bin/python -m pip install -r requirements-voice.txt",
     "render": "node render.mjs"
   },
   "dependencies": {
