@@ -4,6 +4,7 @@ import { http } from '@kit.NetworkKit';
 import { DownloadDescriptor, DeliveryFile, PreviewDescriptor } from '../network/CatalogApi';
 import { MovingPhotoStore } from './MovingPhotoStore';
 import { StaticImageStore } from './StaticImageStore';
+import { SavedGalleryAsset } from './SavedGalleryAsset';
 import { InstalledAppVersion } from '../update/AppUpdateEvents';
 
 export type DeliveryProgress = (received: number, total: number) => void;
@@ -115,9 +116,10 @@ export class HarmonyDelivery {
     if (path.length > 0) await HarmonyDelivery.removeIfPresent(path);
   }
 
-  static async saveDownloaded(context: common.UIAbilityContext, movingPhoto: DownloadedMovingPhoto): Promise<void> {
+  static async saveDownloaded(context: common.UIAbilityContext,
+    movingPhoto: DownloadedMovingPhoto): Promise<SavedGalleryAsset> {
     try {
-      await MovingPhotoStore.save(context, movingPhoto.posterPath, movingPhoto.videoPath, movingPhoto.title);
+      return await MovingPhotoStore.save(context, movingPhoto.posterPath, movingPhoto.videoPath, movingPhoto.title);
     } finally {
       await HarmonyDelivery.discard(movingPhoto);
     }
@@ -128,9 +130,10 @@ export class HarmonyDelivery {
     await HarmonyDelivery.removeIfPresent(movingPhoto.videoPath);
   }
 
-  static async saveStaticImage(context: common.UIAbilityContext, image: DownloadedStaticImage): Promise<void> {
+  static async saveStaticImage(context: common.UIAbilityContext,
+    image: DownloadedStaticImage): Promise<SavedGalleryAsset> {
     try {
-      await StaticImageStore.save(context, image.imagePath, image.title, image.extension);
+      return await StaticImageStore.save(context, image.imagePath, image.title, image.extension);
     } finally {
       await HarmonyDelivery.discardStaticImage(image);
     }

@@ -16,6 +16,7 @@ import { AppUpdateEvents, InstalledAppVersion } from '../update/AppUpdateEvents'
 import { AppRelease, AppUpdatePolicy, AppUpdateService } from '../update/AppUpdateService';
 import { CustomerSupport } from '../support/CustomerSupport';
 import { DownloadedMovingPhoto, DownloadedStaticImage, HarmonyDelivery } from '../media/HarmonyDelivery';
+import { SavedGalleryAsset } from '../media/SavedGalleryAsset';
 import {
   POLICY_EFFECTIVE_DATE,
   POLICY_VERSION,
@@ -96,6 +97,8 @@ struct Index {
   private pendingMovingPhoto: DownloadedMovingPhoto | null = null;
   private pendingDeliveryKey: string = '';
   private pendingStaticImage: DownloadedStaticImage | null = null;
+  private savedGalleryAsset: SavedGalleryAsset | null = null;
+  private openingSavedGalleryAsset: boolean = false;
   private initialLoadStarted: boolean = false;
   private pageVisible: boolean = false;
   private updates: AppUpdateService | null = null;
@@ -132,7 +135,7 @@ struct Index {
   private onApplicationForeground(): void {
     if (this.consentAccepted && this.updates !== null) this.checkForUpdates();
     if (this.page === 'DETAIL' && this.selectedDetail !== null) {
-      this.openDetail(this.selectedDetail as WallpaperSummary);
+      this.openDetail(this.selectedDetail as WallpaperSummary, this.selectedCapability);
     } else if (this.api !== null &&
       (this.page === 'HOME' || this.page === 'MINE' || this.page === 'SEARCH' || this.page === 'CATEGORY')) {
       this.retryCurrentPage();
@@ -358,12 +361,12 @@ struct Index {
     }
   }
 
-  private async openDetail(item: WallpaperSummary): Promise<void> {
+  private async openDetail(item: WallpaperSummary, capabilityLabel: string = ''): Promise<void> {
     this.clearDetailPreview();
     this.detailFullScreen = false;
-    this.detailSavedNowKey = '';
     this.selectedDetail = item;
-    this.selectedCapability = item.capabilities[0].label;
+    this.selectedCapability = item.capabilities.some((capability: WallpaperCapability): boolean =>
+      capability.label === capabilityLabel) ? capabilityLabel : item.capabilities[0].label;
     this.detailOwned = item.free;
     this.page = 'DETAIL';
     this.statusMessage = '';
@@ -461,7 +464,6 @@ struct Index {
   private selectDetailCapability(item: WallpaperSummary, capability: WallpaperCapability): void {
     this.selectedCapability = capability.label;
     this.statusMessage = '';
-    this.detailSavedNowKey = '';
     this.prepareDetailPreview(item);
   }
 
@@ -544,7 +546,7 @@ struct Index {
   private detailActionLabel(item: WallpaperSummary): string {
     const capability: WallpaperCapability = this.selectedCapabilityFor(item);
     const key: string = this.deliveryKey(item, capability);
-    if (this.detailSavedNowKey === key) return '已保存到相册，请设置';
+    if (this.detailSavedNowKey === key) return '已保存至相册，前往设置';
     if (this.savedDeliveryKeys.indexOf(key) >= 0) return '再次下载';
     return item.free || this.detailOwned ? '下载壁纸' : '兑换并下载';
   }
@@ -552,10 +554,27 @@ struct Index {
   private async primaryDetailAction(item: WallpaperSummary): Promise<void> {
     const key: string = this.deliveryKey(item, this.selectedCapabilityFor(item));
     if (this.detailSavedNowKey === key) {
-      await this.openDetailTutorial();
+      await this.openSavedGalleryAsset();
       return;
     }
     await this.detailAction(item);
+  }
+
+  private async openSavedGalleryAsset(): Promise<void> {
+    if (this.context === null || this.openingSavedGalleryAsset) return;
+    if (this.savedGalleryAsset === null) {
+      this.toast('暂时无法打开这张图片，请手动进入图库查看');
+      return;
+    }
+    this.openingSavedGalleryAsset = true;
+    try {
+      await (this.savedGalleryAsset as SavedGalleryAsset).open(this.context as common.UIAbilityContext);
+    } catch (error) {
+      hilog.warn(LOG_DOMAIN, 'Qingjing', 'Unable to open saved gallery asset: %{public}s', this.messageFor(error));
+      this.toast('暂时无法打开这张图片，请手动进入图库查看');
+    } finally {
+      this.openingSavedGalleryAsset = false;
+    }
   }
 
   private async loadSavedDeliveryKeys(): Promise<void> {
@@ -687,11 +706,11 @@ struct Index {
     this.deliveryMessage = this.pendingStaticImage === null ? '正在保存鸿蒙动态照片' : '正在保存静态原图';
     try {
       if (this.pendingStaticImage !== null) {
-        await HarmonyDelivery.saveStaticImage(this.context as common.UIAbilityContext,
+        this.savedGalleryAsset = await HarmonyDelivery.saveStaticImage(this.context as common.UIAbilityContext,
           this.pendingStaticImage as DownloadedStaticImage);
         this.pendingStaticImage = null;
       } else {
-        await HarmonyDelivery.saveDownloaded(this.context as common.UIAbilityContext,
+        this.savedGalleryAsset = await HarmonyDelivery.saveDownloaded(this.context as common.UIAbilityContext,
           this.pendingMovingPhoto as DownloadedMovingPhoto);
         this.pendingMovingPhoto = null;
       }
@@ -700,7 +719,7 @@ struct Index {
       this.detailSavedNowKey = savedKey;
       this.deliveryVisible = false;
       this.statusMessage = '';
-      this.toast('已保存到相册，请设置');
+      this.toast('已保存至相册，前往设置');
     } catch (error) {
       this.pendingMovingPhoto = null;
       this.pendingStaticImage = null;
