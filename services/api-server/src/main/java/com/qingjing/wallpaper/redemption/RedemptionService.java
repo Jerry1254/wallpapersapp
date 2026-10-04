@@ -177,7 +177,7 @@ public class RedemptionService {
                 deviceId,
                 wallpaperId,
                 SourceType.REDEMPTION,
-                Long.toString(code.id()),
+                "code:" + code.id() + ":device:" + deviceId + ":wallpaper:" + wallpaperId,
                 null,
                 code.id());
         complete(
