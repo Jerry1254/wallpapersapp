@@ -547,15 +547,15 @@ export const adminRepository = {
           })).data
         : (await apiRequest<ApiWallpaperDetail>('/admin/wallpapers', { method: 'POST', body: payload, csrf: true })).data;
 
-      if ((input.iosAcquisition && iosAcquisition.acquisitionMode === 'CREDITS' && (iosAcquisition.credits != null || iosAcquisition.enabled || iosAcquisition.firstFreeEligible || input.capabilities.includes('ios_live_photo'))) || iosAcquisition.productId.trim()) {
+      if ((iosAcquisition.acquisitionMode === 'CREDITS' && (iosAcquisition.credits != null || input.resources.iosVideo || input.capabilities.includes('ios_live_photo'))) || iosAcquisition.productId.trim()) {
         await apiRequest<IosAcquisitionConfiguration>(`/admin/wallpapers/${detail.id}/ios-acquisition`, {
           method: 'PUT',
           body: jsonBody({
             acquisitionMode: iosAcquisition.acquisitionMode || 'NON_CONSUMABLE',
             credits: iosAcquisition.credits ?? null,
             productId: iosAcquisition.acquisitionMode === 'CREDITS' ? null : iosAcquisition.productId.trim(),
-            firstFreeEligible: iosAcquisition.firstFreeEligible,
-            enabled: iosAcquisition.enabled
+            firstFreeEligible: true,
+            enabled: true
           }),
           csrf: true
         });

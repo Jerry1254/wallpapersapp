@@ -33,7 +33,7 @@ const blank = (): WallpaperForm => ({
   accessType: 'REDEEM', capabilities: [], status: 'draft', sort: 1,
   coverUrl: '', featuredRank: null, resources: {}, copyrightNote: '', updatedAt: '', version: 0,
   variants: [], iosAcquisition: {
-    acquisitionMode: 'CREDITS', credits: null, productId: '', chinaReferencePrice: null, firstFreeEligible: false, enabled: false, productIdLocked: false, verifiedTransactionAt: null
+    acquisitionMode: 'CREDITS', credits: null, productId: '', chinaReferencePrice: null, firstFreeEligible: true, enabled: true, productIdLocked: false, verifiedTransactionAt: null
   }
 });
 const creditSelection = computed(() => creditPack(form.iosAcquisition.credits));
@@ -99,6 +99,7 @@ const derivedCapabilities = computed<WallpaperCapability[]>(() => capabilityOpti
     if (value === 'harmony_moving_photo') return Boolean(form.resources.harmonyVideo);
     return Boolean(form.resources.staticImage);
   }));
+const hasIosAcquisition = computed(() => hasCapability('ios_live_photo') || Boolean(form.iosAcquisition.productId));
 
 const coverPreviewSrc = computed(() => form.resources.cover?.url
   || form.resources.staticImage?.url
@@ -109,7 +110,9 @@ const previewHasContent = computed(() => Boolean(dynamicPreviewSrc.value || cove
 const cloneIntoForm = (value?: Wallpaper) => {
   const next = value ? structuredClone(toRaw(value)) : blank();
   Object.assign(form, blank(), next, {
-    iosAcquisition: next.iosAcquisition || blank().iosAcquisition
+    iosAcquisition: {
+      ...blank().iosAcquisition, ...next.iosAcquisition, firstFreeEligible: true, enabled: true
+    }
   });
   errors.value = {};
 };
@@ -147,11 +150,11 @@ const validate = () => {
     next.staticImage = '请上传高清静态原图';
   }
   if (!form.resources.cover && !form.coverUrl) next.cover = '请单独上传列表封面';
-  if (form.iosAcquisition.acquisitionMode === 'CREDITS') {
-    if ((form.iosAcquisition.enabled || form.iosAcquisition.firstFreeEligible) && !creditPack(form.iosAcquisition.credits)) {
+  if (hasIosAcquisition.value && form.iosAcquisition.acquisitionMode === 'CREDITS') {
+    if (!creditPack(form.iosAcquisition.credits)) {
       next.iosCredits = '请选择支持的整数价格：1～10、12、14、15、16、18、20、21、24、27、30元';
     }
-  } else if ((form.iosAcquisition.enabled || form.iosAcquisition.firstFreeEligible) && !form.iosAcquisition.productId.trim()) {
+  } else if (hasIosAcquisition.value && !form.iosAcquisition.productId.trim()) {
     next.iosProductId = '请填写已有非消耗型 Product ID，或切换为下载积分';
   }
   errors.value = next;
@@ -238,7 +241,7 @@ const rebuildMovingPhoto = async () => {
           </ElForm>
         </section>
 
-        <section v-if="hasCapability('ios_live_photo') || form.iosAcquisition.productId" class="editor-section">
+        <section v-if="hasIosAcquisition" class="editor-section">
           <div class="editor-section__heading"><h3>iOS 首免与内购</h3><p>壁纸整数售价在此设置，自动转换为积分。1积分＝1元；共用三档 Apple 积分商品。</p></div>
           <ElForm label-position="top">
             <div class="form-grid">
@@ -263,8 +266,6 @@ const rebuildMovingPhoto = async () => {
                 <small v-if="form.iosAcquisition.priceSyncedAt">最近成功同步：{{ form.iosAcquisition.priceSyncedAt }}</small>
                 <small>核验积分包中国区价格：1、2、3元。修改壁纸价格后保存即可；积分包价格保持固定。</small>
               </ElFormItem>
-              <ElFormItem label="售卖状态"><ElSwitch v-model="form.iosAcquisition.enabled" active-text="允许购买" inactive-text="暂不售卖" /></ElFormItem>
-              <ElFormItem label="首次免费"><ElSwitch v-model="form.iosAcquisition.firstFreeEligible" active-text="可作为首免选择" inactive-text="不参与首免" /></ElFormItem>
             </div>
           </ElForm>
         </section>
