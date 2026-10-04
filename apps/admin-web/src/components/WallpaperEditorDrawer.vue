@@ -377,7 +377,7 @@ const rebuildMovingPhoto = async () => {
           <video v-if="dynamicPreviewSrc" :src="dynamicPreviewSrc" autoplay loop muted playsinline></video>
           <img v-else-if="coverPreviewSrc" :src="coverPreviewSrc" alt="壁纸预览" />
           <ElIcon v-if="!previewHasContent" :size="42" style="position:absolute;inset:42% auto auto 40%;color:rgba(255,255,255,.7)"><PictureFilled /></ElIcon>
-          <span v-if="showPreviewWatermark && previewHasContent" class="preview-phone__watermark" aria-hidden="true">预览专用</span>
+          <span v-if="showPreviewWatermark && previewHasContent" class="preview-phone__watermark" aria-hidden="true">预览</span>
           <div class="preview-phone__meta"><strong>{{ form.title || '未命名壁纸' }}</strong><small>{{ derivedCapabilities.map((item) => wallpaperCapabilityLabels[item]).join(' / ') || '尚未上传正式资源' }}</small></div>
         </div></div>
         <div class="preview-checklist"><div v-for="item in resourceRows" :key="item.label"><span>{{ item.label }}</span><span :class="item.ready ? 'success-text' : 'warning-text'"><ElIcon v-if="item.ready"><Check /></ElIcon>{{ item.ready ? '已选择' : '待上传' }}</span></div></div>
