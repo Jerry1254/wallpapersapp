@@ -5,6 +5,11 @@ import { window } from '@kit.ArkUI';
 const DOMAIN: number = 0x514A;
 
 export default class EntryAbility extends UIAbility {
+  onForeground(): void {
+    const revision: number = AppStorage.get<number>('qingjing_foreground_revision') ?? 0;
+    AppStorage.setOrCreate<number>('qingjing_foreground_revision', revision + 1);
+  }
+
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     try {
       this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT);

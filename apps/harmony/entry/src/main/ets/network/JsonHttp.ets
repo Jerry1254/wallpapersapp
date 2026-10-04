@@ -1,5 +1,6 @@
 import { http } from '@kit.NetworkKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { AppUpdateEvents, InstalledAppVersion } from '../update/AppUpdateEvents';
 
 const LOG_DOMAIN: number = 0x514A;
 
@@ -30,6 +31,8 @@ export class JsonHttp {
       'Accept': 'application/json',
       'Content-Type': 'application/json'
     };
+    const versionHeaders: Record<string, string> = InstalledAppVersion.headers();
+    Object.keys(versionHeaders).forEach((key: string) => headers[key] = versionHeaders[key]);
     Object.keys(extraHeaders).forEach((key: string) => headers[key] = extraHeaders[key]);
     if (bearer.length > 0) headers['Authorization'] = 'Bearer ' + bearer;
     try {
@@ -47,6 +50,7 @@ export class JsonHttp {
       const status: number = response.responseCode as number;
       if ((status < 200 || status >= 300) && acceptedStatuses.indexOf(status) < 0) {
         const code: string = JsonHttp.errorCode(text);
+        if (code === 'APP_UPDATE_REQUIRED') AppUpdateEvents.notifyRequired();
         hilog.error(LOG_DOMAIN, 'QingjingApi', 'HTTP %{public}d %{public}s %{public}s', status, code, text);
         throw new ApiRequestError(status, code, JsonHttp.errorMessage(status, code));
       }
@@ -66,6 +70,7 @@ export class JsonHttp {
   }
 
   private static errorMessage(status: number, code: string): string {
+    if (code === 'APP_UPDATE_REQUIRED') return '当前版本已不再支持，请更新至最新版本';
     const suffix: string = code.length > 0 ? '（' + code + '）' : '';
     if (status === 401 || status === 403) return '鸿蒙设备身份验证失败' + suffix;
     if (status === 404) return '内容不存在或已经下线';

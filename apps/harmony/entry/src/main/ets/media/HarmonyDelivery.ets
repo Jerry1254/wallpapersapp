@@ -4,6 +4,7 @@ import { http } from '@kit.NetworkKit';
 import { DownloadDescriptor, DeliveryFile, PreviewDescriptor } from '../network/CatalogApi';
 import { MovingPhotoStore } from './MovingPhotoStore';
 import { StaticImageStore } from './StaticImageStore';
+import { InstalledAppVersion } from '../update/AppUpdateEvents';
 
 export type DeliveryProgress = (received: number, total: number) => void;
 
@@ -156,12 +157,12 @@ export class HarmonyDelivery {
       }
     });
     try {
+      const headers: Record<string, string> = InstalledAppVersion.headers();
+      headers['Accept'] = file.mimeType;
+      headers['Authorization'] = 'Bearer ' + ticket;
       const status: number = await request.requestInStream(HarmonyDelivery.absoluteUrl(file.url), {
         method: http.RequestMethod.GET,
-        header: {
-          'Accept': file.mimeType,
-          'Authorization': 'Bearer ' + ticket
-        },
+        header: headers,
         connectTimeout: 15000,
         readTimeout: 120000,
         usingCache: false

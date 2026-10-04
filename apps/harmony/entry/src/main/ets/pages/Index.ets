@@ -11,6 +11,8 @@ import {
 } from '../model/CatalogModels';
 import { CatalogApi } from '../network/CatalogApi';
 import { HarmonyDeviceSession } from '../network/HarmonyDeviceSession';
+import { AppUpdateEvents } from '../update/AppUpdateEvents';
+import { AppRelease, AppUpdatePolicy, AppUpdateService } from '../update/AppUpdateService';
 import { CustomerSupport } from '../support/CustomerSupport';
 import { DownloadedMovingPhoto, DownloadedStaticImage, HarmonyDelivery } from '../media/HarmonyDelivery';
 import {
@@ -36,6 +38,7 @@ const ACCEPTED_POLICY_VERSION: string = 'accepted_policy_version';
 @Entry
 @Component
 struct Index {
+  @StorageLink('qingjing_foreground_revision') @Watch('onApplicationForeground') foregroundRevision: number = 0;
   @State activeTab: number = 0;
   @State page: string = 'HOME';
   @State returnPage: string = 'HOME';
@@ -78,6 +81,12 @@ struct Index {
   @State detailPreviewEnded: boolean = false;
   @State detailPreviewError: string = '';
   @State detailFullScreen: boolean = false;
+  @State updateStartupChecked: boolean = false;
+  @State updateVisible: boolean = false;
+  @State updateMandatory: boolean = false;
+  @State updateBusy: boolean = false;
+  @State updateMessage: string = '';
+  @State updateLatest: AppRelease | null = null;
   private context: common.UIAbilityContext | null = null;
   private api: CatalogApi | null = null;
   private videoController: VideoController = new VideoController();
@@ -88,6 +97,10 @@ struct Index {
   private pendingStaticImage: DownloadedStaticImage | null = null;
   private initialLoadStarted: boolean = false;
   private pageVisible: boolean = false;
+  private updates: AppUpdateService | null = null;
+  private updateCheckTask: Promise<void> | null = null;
+  private dismissedUpdateId: string = '';
+  private serverRestrictionPending: boolean = false;
 
   aboutToAppear(): void {
     const host = this.getUIContext().getHostContext();
@@ -101,7 +114,22 @@ struct Index {
 
   onPageShow(): void {
     this.pageVisible = true;
-    if (this.consentAccepted) this.startInitialLoad();
+    if (this.consentAccepted) {
+      this.initializeAfterConsent();
+      if (this.updateStartupChecked) this.checkForUpdates();
+    }
+  }
+
+  onPageHide(): void {
+    this.pageVisible = false;
+  }
+
+  aboutToDisappear(): void {
+    AppUpdateEvents.onRequired = null;
+  }
+
+  private onApplicationForeground(): void {
+    if (this.consentAccepted && this.updates !== null) this.checkForUpdates();
   }
 
   private async loadPrivacyConsent(): Promise<void> {
@@ -123,11 +151,104 @@ struct Index {
 
   private initializeAfterConsent(): void {
     if (this.context === null) return;
+    if (this.updates === null) {
+      this.updates = new AppUpdateService(this.context as common.UIAbilityContext,
+        (policy: AppUpdatePolicy) => this.applyUpdatePolicy(policy));
+      AppUpdateEvents.onRequired = () => this.requireUpdateFromServer();
+      this.checkForUpdates();
+      return;
+    }
+    this.initializeBusiness();
+  }
+
+  private initializeBusiness(): void {
+    if (this.context === null || !this.updateStartupChecked || this.updateMandatory) return;
     if (this.api === null) {
       const sessions: HarmonyDeviceSession = new HarmonyDeviceSession(this.context as common.UIAbilityContext);
       this.api = new CatalogApi(sessions);
     }
     this.startInitialLoad();
+  }
+
+  private async checkForUpdates(): Promise<void> {
+    if (this.updates === null || !this.consentAccepted) return;
+    if (this.updateCheckTask !== null) return await (this.updateCheckTask as Promise<void>);
+    const pending: Promise<void> = this.performUpdateCheck();
+    this.updateCheckTask = pending;
+    try {
+      await pending;
+    } finally {
+      this.updateCheckTask = null;
+    }
+  }
+
+  private async performUpdateCheck(): Promise<void> {
+    this.updateBusy = true;
+    this.updateMessage = '';
+    try {
+      await (this.updates as AppUpdateService).check();
+    } catch (error) {
+      if (this.updateMandatory) this.updateMessage = '暂时无法检查更新，请检查网络后重试';
+      hilog.warn(LOG_DOMAIN, 'QingjingUpdate', 'Update check failed');
+    } finally {
+      this.updateBusy = false;
+      this.updateStartupChecked = true;
+      this.initializeBusiness();
+    }
+  }
+
+  private applyUpdatePolicy(policy: AppUpdatePolicy): void {
+    // Do not let an older in-flight check dismiss a gate established by a newer business rejection.
+    if (this.serverRestrictionPending && !policy.mandatory) return;
+    this.updateMandatory = policy.mandatory;
+    this.updateLatest = policy.latestVersion;
+    const latestId: string = policy.latestVersion?.id ?? '';
+    this.updateVisible = policy.mandatory ||
+      (policy.updateAvailable && latestId.length > 0 && this.dismissedUpdateId !== latestId);
+    if (policy.mandatory) {
+      this.detailFullScreen = false;
+      try {
+        if (this.detailPreviewPath.length > 0) this.detailVideoController.pause();
+        if (this.page === 'TUTORIAL_PLAYER') this.videoController.pause();
+      } catch (error) {
+        hilog.warn(LOG_DOMAIN, 'QingjingUpdate', 'Unable to pause media during update gate');
+      }
+    }
+  }
+
+  private async requireUpdateFromServer(): Promise<void> {
+    if (this.updates === null || this.serverRestrictionPending) return;
+    this.serverRestrictionPending = true;
+    this.updateMandatory = true;
+    this.updateVisible = true;
+    this.updateMessage = '';
+    if (this.updateCheckTask !== null) await (this.updateCheckTask as Promise<void>);
+    try {
+      await (this.updates as AppUpdateService).confirmServerRestriction();
+    } catch (error) {
+      hilog.warn(LOG_DOMAIN, 'QingjingUpdate', 'Unable to save update restriction');
+    }
+    this.serverRestrictionPending = false;
+    await this.checkForUpdates();
+  }
+
+  private dismissOptionalUpdate(): void {
+    if (this.updateMandatory) return;
+    this.dismissedUpdateId = this.updateLatest?.id ?? '';
+    this.updateVisible = false;
+    this.updateMessage = '';
+  }
+
+  private openUpdateStore(): void {
+    if (this.updates === null || this.updateBusy) return;
+    this.updateMessage = '';
+    try {
+      (this.updates as AppUpdateService).openStore(
+        (message: string) => this.updateMessage = message,
+        () => this.checkForUpdates());
+    } catch (error) {
+      this.updateMessage = '暂时无法打开应用市场，请稍后重试';
+    }
   }
 
   private async acceptPrivacyPolicy(): Promise<void> {
@@ -158,7 +279,8 @@ struct Index {
   }
 
   private startInitialLoad(): void {
-    if (!this.pageVisible || this.initialLoadStarted || this.api === null) return;
+    if (!this.pageVisible || this.initialLoadStarted || this.api === null ||
+      !this.updateStartupChecked || this.updateMandatory) return;
     this.initialLoadStarted = true;
     this.loadSavedDeliveryKeys();
     this.loadHome();
@@ -287,6 +409,11 @@ struct Index {
   }
 
   onBackPress(): boolean {
+    if (this.updateMandatory || (this.consentAccepted && !this.updateStartupChecked)) return true;
+    if (this.updateVisible) {
+      this.dismissOptionalUpdate();
+      return true;
+    }
     if (this.page === 'DETAIL' && this.detailFullScreen) {
       this.detailFullScreen = false;
       return true;
@@ -1433,6 +1560,53 @@ struct Index {
   }
 
   @Builder
+  private UpdateOverlay() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%').height('100%').backgroundColor('#A6191817')
+        .onClick(() => this.dismissOptionalUpdate());
+      Column({ space: 16 }) {
+        Text(this.updateMandatory ? '需要更新应用' : '发现新版本')
+          .width('100%').fontSize(23).fontWeight(FontWeight.Bolder).fontColor(T.ink);
+        Text(this.updateMandatory ? '当前版本已不再支持，请前往应用市场更新至最新版本。' :
+          '新版本已可用，前往应用市场即可更新。')
+          .width('100%').fontSize(14).fontColor(T.mutedInk);
+        if (this.updateLatest !== null) {
+          Text('新版本 ' + (this.updateLatest as AppRelease).versionName)
+            .width('100%').fontSize(14).fontWeight(FontWeight.Bold).fontColor(T.ink);
+          if ((this.updateLatest as AppRelease).releaseNotes.length > 0) {
+            Scroll() {
+              Text((this.updateLatest as AppRelease).releaseNotes)
+                .width('100%').fontSize(14).fontColor(T.mutedInk);
+            }
+            .width('100%').constraintSize({ maxHeight: 180 }).scrollBar(BarState.Auto);
+          }
+        }
+        if (this.updateMessage.length > 0) {
+          Text(this.updateMessage).width('100%').fontSize(13).fontColor('#C33A32');
+        }
+        Button('立即更新')
+          .width('100%').height(48).fontSize(16).fontWeight(FontWeight.Bold)
+          .fontColor(T.ink).backgroundColor(T.accent).borderRadius(24)
+          .enabled(!this.updateBusy).onClick(() => this.openUpdateStore());
+        Button(this.updateBusy ? '正在检查' : '重新检查')
+          .width('100%').height(44).fontSize(14).fontWeight(FontWeight.Bold)
+          .fontColor(T.ink).backgroundColor(T.surfaceMuted).borderRadius(22)
+          .enabled(!this.updateBusy).onClick(() => this.checkForUpdates());
+        if (!this.updateMandatory) {
+          Button('暂不更新')
+            .width('100%').height(42).fontSize(14).fontColor(T.mutedInk)
+            .backgroundColor(Color.Transparent).onClick(() => this.dismissOptionalUpdate());
+        }
+      }
+      .width('86%').constraintSize({ maxHeight: '88%' }).padding(24)
+      .backgroundColor(T.surface).borderRadius(T.cardRadius)
+      .onClick(() => {});
+    }
+    .width('100%').height('100%').hitTestBehavior(HitTestMode.Default);
+  }
+
+  @Builder
   private BottomNavigation() {
     Row() {
       Button('首页').layoutWeight(1).height(52).fontWeight(FontWeight.Bold)
@@ -1471,6 +1645,13 @@ struct Index {
         }
         .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .backgroundColor(T.surfaceMuted);
+      } else if (!this.updateStartupChecked) {
+        Column({ space: 14 }) {
+          LoadingProgress().width(42).height(42).color(T.accentStrong);
+          Text('正在检查应用版本').fontSize(14).fontColor(T.mutedInk);
+        }
+        .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+        .backgroundColor(T.surface);
       } else {
         Column() {
           Stack({ alignContent: Alignment.TopStart }) {
@@ -1492,7 +1673,7 @@ struct Index {
               .width('100%').padding({ left: T.gutter, right: T.gutter, bottom: 12 });
           }
         }
-        .width('100%').height('100%');
+        .width('100%').height('100%').enabled(!this.updateVisible);
         if (this.redemptionVisible) this.RedemptionOverlay();
         if (this.customerDialogVisible) {
           Column() { this.CustomerDialogOverlay(); }
@@ -1521,6 +1702,7 @@ struct Index {
       if (this.policyDocumentKey === 'PRIVACY') {
         this.PolicyOverlay(PRIVACY_POLICY);
       }
+      if (this.consentAccepted && this.updateVisible) this.UpdateOverlay();
     }
     .width('100%').height('100%').backgroundColor(T.surface);
   }
