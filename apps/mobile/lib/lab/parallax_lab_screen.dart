@@ -308,7 +308,6 @@ class _ParallaxLabScreenState extends State<ParallaxLabScreen> {
                   path: item.cover,
                   previewGenerationStatus: item.previewGenerationStatus,
                 ),
-                preferPreview: true,
                 fill: true,
                 configuration: config?.encoded,
                 controller: previewController,

@@ -41,7 +41,6 @@ class DetailPreview extends StatefulWidget {
     required this.resourceType,
     required this.cover,
     this.active = true,
-    this.preferPreview = false,
     this.fill = false,
     this.previewRevision = 0,
     this.configuration,
@@ -54,7 +53,7 @@ class DetailPreview extends StatefulWidget {
   final String wallpaperId, deliveryPlatform, resourceType;
   final Widget cover;
   final bool active;
-  final bool preferPreview, fill;
+  final bool fill;
   final int previewRevision;
   final String? configuration;
   final DetailPreviewController? controller;
@@ -69,7 +68,7 @@ class _DetailPreviewState extends State<DetailPreview>
     with WidgetsBindingObserver, RouteAware {
   static const native = AndroidDetailPreview();
   String? installedId, requestId, error;
-  bool restricted = true, ready = false, routeVisible = true;
+  bool ready = false, routeVisible = true;
   bool playbackEnded = false;
   MethodChannel? channel;
   String? pendingConfiguration;
@@ -86,7 +85,6 @@ class _DetailPreviewState extends State<DetailPreview>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    widget.manager.addListener(_downloadChanged);
     widget.controller?._attach(controllerListener);
     unawaited(_prepare());
   }
@@ -145,28 +143,6 @@ class _DetailPreviewState extends State<DetailPreview>
     );
   }
 
-  void _downloadChanged() {
-    final state = widget.manager.value;
-    if (restricted &&
-        state.status == 'completed' &&
-        state.wallpaperId == widget.wallpaperId &&
-        state.resourceType == widget.resourceType &&
-        state.installedId != null) {
-      _cancel();
-      channel?.setMethodCallHandler(null);
-      channel = null;
-      appliedConfiguration = null;
-      setState(() {
-        installedId = state.installedId;
-        restricted = false;
-        ready = false;
-        playbackEnded = false;
-        error = null;
-      });
-      widget.onInstalled?.call(state.installedId!);
-    }
-  }
-
   void _cancel() {
     final id = requestId;
     requestId = null;
@@ -182,21 +158,7 @@ class _DetailPreviewState extends State<DetailPreview>
     requestId = id;
     bool cancelled() => !mounted || requestId != id;
     try {
-      final local = widget.preferPreview
-          ? null
-          : await widget.manager.current(
-              widget.wallpaperId,
-              widget.resourceType,
-            );
-      if (cancelled()) return;
-      if (local != null) {
-        setState(() {
-          installedId = local;
-          restricted = false;
-        });
-        widget.onInstalled?.call(local);
-        return;
-      }
+      // Previews remain separate from formal downloads, including after redemption.
       final binding = await widget.manager.sessions.ensureEncryptionKey();
       if (cancelled()) return;
       final descriptor = await widget.manager.sessions.authenticated(
@@ -349,7 +311,7 @@ class _DetailPreviewState extends State<DetailPreview>
   }
 
   Widget _surface() => PlatformViewLink(
-    key: ValueKey('$installedId-$restricted'),
+    key: ValueKey(installedId),
     viewType: 'qingjing/detail_preview',
     surfaceFactory: (context, controller) => AndroidViewSurface(
       controller: controller as AndroidViewController,
@@ -371,7 +333,7 @@ class _DetailPreviewState extends State<DetailPreview>
         creationParams: {
           'installedId': installedId,
           'resourceType': widget.resourceType,
-          'restricted': restricted,
+          'restricted': true,
           'visible': visible,
           'autoPlay': widget.resourceType != 'VIDEO' || !playbackEnded,
         },
@@ -388,7 +350,6 @@ class _DetailPreviewState extends State<DetailPreview>
     _cancel();
     channel?.setMethodCallHandler(null);
     widget.controller?._detach(controllerListener);
-    widget.manager.removeListener(_downloadChanged);
     detailPreviewRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
