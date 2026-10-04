@@ -1,4 +1,4 @@
-export type Screen = 'app' | 'home' | 'support' | 'redeem' | 'gallery' | 'photo' | 'permission' | 'preview' | 'success' | 'save' | 'android-set' | 'placement';
+export type Screen = 'app' | 'home' | 'support' | 'redeem' | 'gallery' | 'photo' | 'permission' | 'preview' | 'success' | 'save' | 'android-set' | 'placement' | 'purchase' | 'ios-about' | 'ios-battery' | 'ios-power-mode';
 export type Step = {
   seconds: number;
   title: string;
@@ -15,6 +15,7 @@ export type Tutorial = {
   platform: string;
   effect: 'static' | 'video' | 'parallax';
   format: string;
+  priceLabel?: string;
   steps: Step[];
 };
 
@@ -78,11 +79,16 @@ export const tutorials: Tutorial[] = [
   {
     id: '05-ios-video', title: 'iOS 动态壁纸', platform: 'iPhone · iOS 17 或更新版本', effect: 'video', format: '动态壁纸',
     steps: [
-      { seconds: 5, title: '下载并保存实况照片', description: '在 App 下载动态壁纸，保存到相册', screen: 'app', action: '下载壁纸', hint: '首次下载时，按提示允许保存到照片。' },
-      { seconds: 5, title: '打开「照片」', description: '找到刚保存的实况照片，点击打开', screen: 'gallery', action: '实况照片', hint: '请选择带有 LIVE 标识的照片。' },
-      { seconds: 6, title: '分享 → 用作墙纸', description: '点击分享，在菜单中选择「用作墙纸」', screen: 'photo', action: '用作墙纸', hint: '也可从 设置 → 墙纸 → 添加新墙纸 进入。' },
-      { seconds: 7, title: '打开实况播放，点击添加', description: '保持播放开启，再确认墙纸组合', screen: 'preview', action: '添加', hint: '选择「设为墙纸组合」完成设置。' },
-      { seconds: 5, title: '唤醒锁屏，欣赏动态', description: '实况照片会在唤醒锁屏时播放', screen: 'success', action: '设置完成', hint: '动态效果显示在锁屏；主屏幕显示静态画面。' },
+      { seconds: 8, title: '查看价格，购买喜欢的壁纸', description: '付费壁纸点击「购买并下载」', screen: 'app', action: '购买并下载', hint: '实际金额以购买页面显示为准。\n免费、首次免费获取和已购壁纸按页面提示下载。', tag: '付费壁纸', device: 'ios' },
+      { seconds: 9, title: '按苹果弹窗确认购买', description: '核对壁纸和金额，再按系统提示确认', screen: 'purchase', action: '购买并下载', hint: '使用面容 ID、触控 ID 或密码确认购买。', tag: '付费壁纸', device: 'ios' },
+      { seconds: 8, title: '下载并保存实况照片', description: '等待下载完成，确认已保存到手机照片', screen: 'save', action: '下载壁纸', hint: '首次保存时，按提示允许添加照片。\n看到「已保存到相册，请设置」后，再打开照片。', device: 'ios' },
+      { seconds: 6, title: '打开照片，找到实况壁纸', description: '在最近保存的照片里，点击打开这张壁纸', screen: 'gallery', action: '实况照片', hint: '选择带有 LIVE 实况标识的照片。', device: 'ios' },
+      { seconds: 7, title: '分享 → 用作墙纸', description: '点击方框向上箭头，在分享菜单选择墙纸', screen: 'photo', action: '用作墙纸', hint: '向上滑动分享菜单，找到「用作墙纸」。', device: 'ios' },
+      { seconds: 10, title: '开启实况，添加墙纸组合', description: '确认实况播放开启，点击右上角「添加」', screen: 'preview', action: '添加', hint: '再选择「设为墙纸组合」完成设置。\n动态效果在锁屏播放，主屏幕显示静态画面。', device: 'ios' },
+      { seconds: 12, title: '不播放？先查系统和机型', description: '手机设置 → 通用 → 关于本机', screen: 'ios-about', action: '查看版本和机型', hint: 'iOS 版本需为 17 及以上；型号名称显示手机型号。\n低于 17 时，在「通用 → 软件更新」检查可用更新。', tag: '仅设置不成功或不播放时', device: 'ios' },
+      { seconds: 9, title: '关闭系统低电量模式', description: '手机设置 → 电池 → 关闭低电量模式', screen: 'ios-battery', action: '关闭低电量模式', hint: '关闭后，低电量模式开关应为灰色。\n若电池页有「电量模式」，按下一步操作。', tag: '仅设置不成功或不播放时', device: 'ios' },
+      { seconds: 8, title: '有「电量模式」？先进入', description: '手机设置 → 电池 → 电量模式', screen: 'ios-power-mode', action: '关闭低电量模式', hint: '在「电量模式」页面，关闭「低电量模式」。', tag: '仅电池页有「电量模式」时', device: 'ios' },
+      { seconds: 8, title: '唤醒锁屏，欣赏动态', description: '排查后返回照片，按前面步骤重新设置', screen: 'success', action: '设置完成', hint: '排查后，可回到第 4～6 步重新设置。\n唤醒锁屏看动态；主屏幕显示静态图片。', device: 'ios' },
     ],
   },
 ];
