@@ -1580,6 +1580,53 @@ class InfrastructureIntegrationIT {
         assertThat(jdbc.queryForObject("SELECT published_at FROM wallpaper WHERE id=?",java.sql.Timestamp.class,wallpaper)).isNull();
     }
 
+    @Test
+    void wallpaperDeletionRetainsHistoryAndRejectsStaleOrDeletedMutations() throws Exception {
+        ensureAdmin();
+        var admin = login();
+        String identity = UUID.randomUUID().toString();
+        jdbc.update("INSERT INTO anonymous_device(public_id,platform,app_install_scope,evidence_hash,last_seen_at) VALUES(?,'ANDROID','com.qingjing.bizhi',?,UTC_TIMESTAMP(6))",
+                identity, securityCrypto.sha256Hex(identity));
+        long device = jdbc.queryForObject("SELECT id FROM anonymous_device WHERE public_id=?", Long.class, identity);
+        for (String originalStatus : List.of("PUBLISHED", "OFFLINE", "DRAFT")) {
+            long wallpaper = createPublishedWallpaperFixture();
+            jdbc.update("UPDATE wallpaper SET status=? WHERE id=?", originalStatus, wallpaper);
+            jdbc.update("INSERT INTO device_entitlement(device_id,wallpaper_id,status,granted_at) VALUES(?,?,'ACTIVE',UTC_TIMESTAMP(6))", device, wallpaper);
+            String path = "/api/v1/admin/wallpapers/" + wallpaper;
+            var before = getJson(path, admin);
+            String etag = before.getHeaders().getETag();
+            long version = before.getBody().path("version").asLong();
+            var stale = jsonExchange(path, HttpMethod.DELETE, null, admin, "\"" + (version + 1) + "\"");
+            assertThat(stale.getStatusCode()).isEqualTo(HttpStatus.PRECONDITION_FAILED);
+            assertThat(jdbc.queryForObject("SELECT status FROM wallpaper WHERE id=?", String.class, wallpaper)).isEqualTo(originalStatus);
+
+            var deleted = jsonExchange(path, HttpMethod.DELETE, null, admin, etag);
+            assertThat(deleted.getStatusCode()).as(deleted.getBody() == null ? "deleted" : deleted.getBody().toString()).isEqualTo(HttpStatus.NO_CONTENT);
+            var after = getJson(path, admin);
+            assertThat(after.getBody().path("status").asText()).isEqualTo("ARCHIVED");
+            assertThat(after.getBody().path("version").asLong()).isEqualTo(version + 1);
+            assertThat(jdbc.queryForObject("SELECT archived_at FROM wallpaper WHERE id=?", java.sql.Timestamp.class, wallpaper)).isNotNull();
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM resource_version rv JOIN wallpaper_variant v ON v.id=rv.variant_id WHERE v.wallpaper_id=?", Integer.class, wallpaper)).isEqualTo(1);
+            assertThat(jdbc.queryForObject("SELECT status FROM resource_version rv JOIN wallpaper_variant v ON v.id=rv.variant_id WHERE v.wallpaper_id=?", String.class, wallpaper)).isEqualTo("RETIRED");
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM resource_binding rb JOIN resource_version rv ON rv.id=rb.resource_version_id JOIN wallpaper_variant v ON v.id=rv.variant_id WHERE v.wallpaper_id=?", Integer.class, wallpaper)).isEqualTo(1);
+            assertThat(jdbc.queryForObject("SELECT status FROM device_entitlement WHERE device_id=? AND wallpaper_id=?", String.class, device, wallpaper)).isEqualTo("ACTIVE");
+
+            String currentEtag = after.getHeaders().getETag();
+            assertThat(jsonExchange(path, HttpMethod.DELETE, null, admin, currentEtag).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            String resourceVersion = after.getBody().path("variants").get(0).path("resourceVersions").get(0).path("id").asText();
+            assertThat(jsonExchange(path + "/publish", HttpMethod.POST, Map.of("resourceVersionIds", List.of(resourceVersion)), admin, currentEtag).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            var filtered = getJson("/api/v1/admin/wallpapers?status=ARCHIVED&pageSize=100", admin).getBody().path("items");
+            List<String> deletedIds = new ArrayList<>();
+            filtered.forEach(item -> {
+                assertThat(item.path("status").asText()).isEqualTo("ARCHIVED");
+                deletedIds.add(item.path("id").asText());
+            });
+            assertThat(deletedIds).contains(Long.toString(wallpaper));
+            var published = getJson("/api/v1/admin/wallpapers?status=PUBLISHED&pageSize=100", admin).getBody().path("items");
+            published.forEach(item -> assertThat(item.path("id").asText()).isNotEqualTo(Long.toString(wallpaper)));
+        }
+    }
+
     private byte[] formalParallaxConfig(long versionId,long wallpaperId,long variantId,int versionNo) throws Exception {
         var stored=jdbc.queryForMap("SELECT * FROM secure_resource_package WHERE resource_version_id=?",versionId);
         byte[] key=securityCrypto.decrypt("secure-package-key-v2:"+versionId,stored.get("content_key_ciphertext").toString());

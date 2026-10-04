@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.20.0
+  version: 2.20.1
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -1717,8 +1717,9 @@ paths:
           $ref: '#/components/responses/InternalError'
     delete:
       tags: [Admin Catalog]
-      operationId: deleteAdminWallpaperDraft
-      summary: 硬删除没有任何引用的壁纸草稿
+      operationId: deleteAdminWallpaper
+      summary: 删除壁纸（保留商品和历史记录）
+      description: 上架、下架和草稿均可删除；状态置为 ARCHIVED 并停用已发布资源。记录保留，可通过 status=ARCHIVED 查询，删除后不能编辑或再次上架。
       security:
         - adminCookie: []
           adminCsrf: []
@@ -1728,7 +1729,7 @@ paths:
         - $ref: '#/components/parameters/RequestId'
       responses:
         '204':
-          description: 草稿已删除
+          description: 壁纸已删除，商品和历史记录保留
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -1832,7 +1833,7 @@ paths:
     post:
       tags: [Admin Catalog]
       operationId: archiveAdminWallpaper
-      summary: 归档草稿或已下架壁纸
+      summary: 删除壁纸（兼容原归档入口）
       security:
         - adminCookie: []
           adminCsrf: []
@@ -1848,7 +1849,7 @@ paths:
               $ref: '#/components/schemas/StateChangeReasonRequest'
       responses:
         '200':
-          description: 壁纸已归档
+          description: 壁纸已删除，商品和历史记录保留
           headers:
             ETag:
               $ref: '#/components/headers/EntityTag'
@@ -3900,6 +3901,7 @@ components:
 
     WallpaperStatus:
       type: string
+      description: 管理后台展示三个状态：PUBLISHED 为上架，DRAFT 和 OFFLINE 归为下架，ARCHIVED 为删除。保留内部草稿状态以支持资源未齐全时保存。
       enum: [DRAFT, PUBLISHED, OFFLINE, ARCHIVED]
 
     DeliveryPlatform:

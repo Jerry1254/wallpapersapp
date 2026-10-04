@@ -195,29 +195,6 @@ public class AdminWallpaperService {
     }
 
     @Transactional
-    public void deleteDraft(long wallpaperId, long expectedVersion) {
-        WallpaperRow wallpaper = lockWallpaper(wallpaperId, expectedVersion);
-        if (!wallpaper.status().equals("DRAFT")) {
-            throw stateConflict("Only a draft wallpaper can be deleted");
-        }
-        Long versionCount = jdbc.queryForObject(
-                """
-                SELECT COUNT(*) FROM resource_version rv
-                JOIN wallpaper_variant v ON v.id = rv.variant_id
-                WHERE v.wallpaper_id = ?
-                """,
-                Long.class,
-                wallpaperId);
-        if (versionCount != null && versionCount > 0) {
-            throw new ApiException(
-                    HttpStatus.CONFLICT,
-                    "RESOURCE_IN_USE",
-                    "A draft with resource version history cannot be deleted");
-        }
-        jdbc.update("DELETE FROM wallpaper WHERE id = ? AND lock_version = ?", wallpaperId, expectedVersion);
-    }
-
-    @Transactional
     public AdminWallpaperVariant createVariant(
             long wallpaperId,
             long expectedWallpaperVersion,
@@ -490,8 +467,8 @@ public class AdminWallpaperService {
     @Transactional
     public AdminWallpaperDetail archive(long wallpaperId, long expectedVersion) {
         WallpaperRow wallpaper = lockWallpaper(wallpaperId, expectedVersion);
-        if (!wallpaper.status().equals("DRAFT") && !wallpaper.status().equals("OFFLINE")) {
-            throw stateConflict("Only a draft or offline wallpaper can be archived");
+        if (wallpaper.status().equals("ARCHIVED")) {
+            throw stateConflict("The wallpaper has already been deleted");
         }
         jdbc.update(
                 """

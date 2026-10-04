@@ -384,6 +384,6 @@ const rebuildMovingPhoto = async () => {
       </div></aside>
     </div>
 
-    <template #footer><div class="dialog-actions"><ElButton :disabled="saving" @click="visible = false">取消</ElButton><ElButton :loading="saving" @click="save('draft')">{{ isEditing ? '保存修改' : '保存草稿' }}</ElButton><ElButton type="primary" :loading="saving" @click="save('published')">保存并发布</ElButton></div></template>
+    <template #footer><div class="dialog-actions"><ElButton :disabled="saving" @click="visible = false">取消</ElButton><ElButton :loading="saving" @click="save('draft')">{{ isEditing ? '保存修改' : '保存为下架' }}</ElButton><ElButton type="primary" :loading="saving" @click="save('published')">保存并上架</ElButton></div></template>
   </ElDrawer>
 </template>

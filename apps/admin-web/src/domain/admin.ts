@@ -312,8 +312,12 @@ export const wallpaperCapabilityLabels: Record<WallpaperCapability, string> = {
 };
 
 export const statusLabels: Record<PublishStatus, string> = {
-  draft: '草稿',
-  published: '已发布',
-  offline: '已下架',
-  archived: '已归档'
+  draft: '下架',
+  published: '上架',
+  offline: '下架',
+  archived: '删除'
 };
+
+export type WallpaperListStatus = Exclude<PublishStatus, 'draft'>;
+
+export const wallpaperListStatus = (status: PublishStatus): WallpaperListStatus => status === 'draft' ? 'offline' : status;

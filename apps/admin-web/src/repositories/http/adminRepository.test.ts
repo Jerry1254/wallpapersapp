@@ -306,3 +306,29 @@ it('defaults an older wallpaper response to normal online visibility', async () 
 
   expect(wallpaper?.offlinePromotionOnly).toBe(false);
 });
+
+it.each(['draft', 'published', 'offline'] as const)('deletes %s wallpapers with optimistic locking and retains server-side history', async (status) => {
+  setCsrfToken('csrf-token');
+  const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+  vi.stubGlobal('fetch', fetchMock);
+  const wallpaper = { id: '71', version: 5, status, variants: [{ resourceVersions: [{ id: '90' }] }] } as unknown as Wallpaper;
+
+  await adminRepository.deleteWallpaper(wallpaper);
+
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  const [url, options] = fetchMock.mock.calls[0]!;
+  expect(url).toBe('/api/v1/admin/wallpapers/71');
+  expect(options.method).toBe('DELETE');
+  expect(new Headers(options.headers).get('If-Match')).toBe('"5"');
+  expect(new Headers(options.headers).get('X-CSRF-Token')).toBe('csrf-token');
+});
+
+it('surfaces stale deletion attempts without retrying against a newer version', async () => {
+  setCsrfToken('csrf-token');
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: 'VERSION_CONFLICT', message: '版本已变化' } }), {
+    status: 412, headers: { 'Content-Type': 'application/json' }
+  }));
+  vi.stubGlobal('fetch', fetchMock);
+  await expect(adminRepository.deleteWallpaper({ id: '71', version: 5, status: 'published' } as Wallpaper)).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});

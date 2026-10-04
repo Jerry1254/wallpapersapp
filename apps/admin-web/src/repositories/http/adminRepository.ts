@@ -747,16 +747,6 @@ export const adminRepository = {
   },
 
   async deleteWallpaper(value: Wallpaper) {
-    const hasHistory = value.variants.some((variant) => variant.resourceVersions.length > 0);
-    if (value.status === 'offline' || hasHistory) {
-      await apiRequest<ApiWallpaperDetail>(`/admin/wallpapers/${value.id}/archive`, {
-        method: 'POST',
-        headers: { 'If-Match': ifMatch(value.version) },
-        body: jsonBody({ reason: '管理员在管理后台执行归档' }),
-        csrf: true
-      });
-      return;
-    }
     await apiRequest<void>(`/admin/wallpapers/${value.id}`, {
       method: 'DELETE', headers: { 'If-Match': ifMatch(value.version) }, csrf: true
     });

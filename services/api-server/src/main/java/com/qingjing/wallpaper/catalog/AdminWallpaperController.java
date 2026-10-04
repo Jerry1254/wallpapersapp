@@ -87,10 +87,10 @@ public class AdminWallpaperController {
     }
 
     @DeleteMapping("/wallpapers/{wallpaperId}")
-    ResponseEntity<Void> deleteDraft(
+    ResponseEntity<Void> delete(
             @PathVariable String wallpaperId,
             @RequestHeader("If-Match") String ifMatch) {
-        wallpapers.deleteDraft(
+        wallpapers.archive(
                 Ids.parse(wallpaperId, "wallpaperId"),
                 EntityTags.parseRequired(ifMatch));
         return ResponseEntity.noContent().build();

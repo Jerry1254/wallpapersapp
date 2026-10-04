@@ -6,7 +6,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import WallpaperEditorDrawer from '@/components/WallpaperEditorDrawer.vue';
-import { statusLabels, wallpaperCapabilityLabels, type Category, type ResourceFile, type Wallpaper, type WallpaperAccessType, type WallpaperCapability } from '@/domain/admin';
+import { statusLabels, wallpaperListStatus, wallpaperCapabilityLabels, type WallpaperListStatus, type Category, type ResourceFile, type Wallpaper, type WallpaperAccessType, type WallpaperCapability } from '@/domain/admin';
 import { hasPreviewWatermark, mergePreviewGeneration, previewGenerationInProgress, previewGenerationLabel } from '@/domain/previewWatermark';
 import { readableApiError } from '@/repositories/http/apiClient';
 import { adminRepository, WallpaperSaveError } from '@/repositories/http/adminRepository';
@@ -17,7 +17,7 @@ const loading = ref(true);
 const loadError = ref('');
 const keywords = ref('');
 const capability = ref<WallpaperCapability | ''>('');
-const status = ref<Wallpaper['status'] | ''>('');
+const status = ref<WallpaperListStatus | ''>('published');
 const accessType = ref<WallpaperAccessType | ''>('');
 const categories = ref<Category[]>([]);
 const wallpapers = ref<Wallpaper[]>([]);
@@ -63,7 +63,7 @@ const filtered = computed(() => wallpapers.value.filter((item) => {
   const keyword = keywords.value.trim().toLowerCase();
   return (!keyword || item.title.toLowerCase().includes(keyword) || (categoryMap.value[item.subcategoryId] || '').toLowerCase().includes(keyword))
     && (!capability.value || item.capabilities.includes(capability.value))
-    && (!status.value || item.status === status.value);
+    && (!status.value || wallpaperListStatus(item.status) === status.value);
 }));
 
 const load = async () => {
@@ -121,7 +121,7 @@ const save = async (value: Wallpaper) => {
   saving.value = true;
   try {
     await adminRepository.saveWallpaper(value, value.status === 'published');
-    ElMessage.success(value.status === 'published' ? '壁纸与资源版本已发布' : (value.id ? '壁纸修改已保存' : '壁纸草稿已保存'));
+    ElMessage.success(value.status === 'published' ? '壁纸与资源版本已上架' : (value.id ? '壁纸修改已保存' : '壁纸已保存为下架状态'));
     drawerOpen.value = false;
     await load();
   } catch (cause) {
@@ -140,10 +140,10 @@ const changeStatus = async (value: Wallpaper, next: Wallpaper['status']) => {
   try {
     if (next === 'published') await adminRepository.publishWallpaper(value.id);
     else await adminRepository.offlineWallpaper(value.id);
-    ElMessage.success(next === 'published' ? '壁纸已发布' : '壁纸已下架，已有权益仍可交付');
+    ElMessage.success(next === 'published' ? '壁纸已上架' : '壁纸已下架，已有权益仍可交付');
     await load();
   } catch (cause) {
-    ElMessage.error(readableApiError(cause, next === 'published' ? '发布失败' : '下架失败'));
+    ElMessage.error(readableApiError(cause, next === 'published' ? '上架失败' : '下架失败'));
   } finally {
     actionId.value = '';
   }
@@ -151,15 +151,13 @@ const changeStatus = async (value: Wallpaper, next: Wallpaper['status']) => {
 const remove = async (value: Wallpaper) => {
   try {
     await ElMessageBox.confirm(
-      removeIsArchive(value)
-        ? `确定归档壁纸“${value.title}”吗？归档后不能重新发布。`
-        : `确定删除草稿“${value.title}”吗？删除后无法恢复。`,
-      removeIsArchive(value) ? '归档壁纸' : '删除草稿',
-      { confirmButtonText: removeIsArchive(value) ? '确认归档' : '确认删除', cancelButtonText: '取消', type: 'warning' }
+      `确定删除壁纸“${value.title}”吗？删除后不再展示或售卖，也不能重新上架。商品及历史记录保留，可通过“删除”状态筛选查看。`,
+      '删除壁纸',
+      { confirmButtonText: '确认删除', cancelButtonText: '取消', type: 'warning' }
     );
     actionId.value = value.id;
     await adminRepository.deleteWallpaper(value);
-    ElMessage.success(removeIsArchive(value) ? '壁纸已归档' : '壁纸草稿已删除');
+    ElMessage.success('壁纸已删除');
     await load();
   } catch (cause) {
     if (cause === 'cancel' || cause === 'close') return;
@@ -187,8 +185,6 @@ const resourceSummary = (value: Wallpaper) => {
 const statusLabel = (value: Wallpaper['status']) => statusLabels[value];
 const statusType = (value: Wallpaper['status']) => ({ draft: 'info', published: 'success', offline: 'warning', archived: 'info' }[value] as 'info' | 'success' | 'warning');
 const capabilityLabel = (value: WallpaperCapability) => wallpaperCapabilityLabels[value];
-const hasResourceHistory = (value: Wallpaper) => value.variants.some((variant) => variant.resourceVersions.length > 0);
-const removeIsArchive = (value: Wallpaper) => value.status === 'offline' || hasResourceHistory(value);
 
 watch(() => route.query.create, (value) => {
   if (value === '1') {
@@ -219,7 +215,7 @@ onBeforeUnmount(() => { stopped = true; ++loadSequence; stopPreviewPoll(); });
           <ElOption v-for="(label, value) in wallpaperCapabilityLabels" :key="value" :label="label" :value="value" />
         </ElSelect>
         <ElSelect v-model="status" clearable placeholder="全部状态" style="width: 130px">
-          <ElOption label="草稿" value="draft" /><ElOption label="已发布" value="published" /><ElOption label="已下架" value="offline" /><ElOption label="已归档" value="archived" />
+          <ElOption label="上架" value="published" /><ElOption label="下架" value="offline" /><ElOption label="删除" value="archived" />
         </ElSelect>
         <ElSelect v-model="accessType" clearable placeholder="全部获取方式" style="width: 150px" @change="load">
           <ElOption label="免费" value="FREE" /><ElOption label="需兑换" value="REDEEM" />
@@ -261,7 +257,7 @@ onBeforeUnmount(() => { stopped = true; ++loadSequence; stopPreviewPoll(); });
         <ElTableColumn label="状态" width="95"><template #default="{ row }"><ElTag :type="statusType(row.status)">{{ statusLabel(row.status) }}</ElTag></template></ElTableColumn>
         <ElTableColumn label="资源" min-width="125">
           <template #default="{ row }">
-            <div class="resource-status"><strong :class="resourceSummary(row).ready === resourceSummary(row).total ? 'success-text' : 'warning-text'">{{ resourceSummary(row).ready }}/{{ resourceSummary(row).total }} 已就绪</strong><small>{{ resourceSummary(row).ready === resourceSummary(row).total ? '可发布' : '需要补充资源' }}</small></div>
+            <div class="resource-status"><strong :class="resourceSummary(row).ready === resourceSummary(row).total ? 'success-text' : 'warning-text'">{{ resourceSummary(row).ready }}/{{ resourceSummary(row).total }} 已就绪</strong><small>{{ resourceSummary(row).ready === resourceSummary(row).total ? '可上架' : '需要补充资源' }}</small></div>
           </template>
         </ElTableColumn>
         <ElTableColumn label="设置能力" min-width="250">
@@ -271,10 +267,9 @@ onBeforeUnmount(() => { stopped = true; ++loadSequence; stopPreviewPoll(); });
         <ElTableColumn label="操作" width="205" fixed="right">
           <template #default="{ row }">
             <ElButton v-if="row.status !== 'archived'" link type="primary" :icon="Edit" @click="edit(row)">编辑</ElButton>
-            <ElButton v-if="row.status === 'draft' || row.status === 'offline'" link type="success" :loading="actionId === row.id" @click="changeStatus(row, 'published')">发布</ElButton>
+            <ElButton v-if="row.status === 'draft' || row.status === 'offline'" link type="success" :loading="actionId === row.id" @click="changeStatus(row, 'published')">上架</ElButton>
             <ElButton v-else-if="row.status === 'published'" link type="warning" :loading="actionId === row.id" @click="changeStatus(row, 'offline')">下架</ElButton>
-            <ElButton v-if="row.status === 'draft'" link type="danger" :icon="Delete" :loading="actionId === row.id" @click="remove(row)">{{ hasResourceHistory(row) ? '归档' : '删除' }}</ElButton>
-            <ElButton v-else-if="row.status === 'offline'" link type="danger" :icon="Delete" :loading="actionId === row.id" @click="remove(row)">归档</ElButton>
+            <ElButton v-if="row.status !== 'archived'" link type="danger" :icon="Delete" :loading="actionId === row.id" @click="remove(row)">删除</ElButton>
           </template>
         </ElTableColumn>
         <template #empty><ElEmpty class="table-empty" description="没有符合条件的壁纸" /></template>
