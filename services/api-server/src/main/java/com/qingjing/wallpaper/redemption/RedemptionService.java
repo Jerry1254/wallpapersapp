@@ -55,6 +55,7 @@ public class RedemptionService {
     @Transactional
     public RedemptionAttempt redeem(long deviceId, String idempotencyKey, long wallpaperId, String suppliedCode) {
         requireUuid(idempotencyKey);
+        new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).requireVisible(wallpaperId,deviceId);
         String normalizedCode = normalizeCode(suppliedCode);
         String codeHash = crypto.hmacHex("redemption-code-v1", normalizedCode);
         String requestHash = crypto.sha256Hex(wallpaperId + "\n" + codeHash);
@@ -103,7 +104,7 @@ public class RedemptionService {
         if (wallpapers.isEmpty()) {
             throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_FOUND", "The wallpaper was not found");
         }
-        boolean hasPublishedResource = publishedResources.resolve(device.platform()).contains(wallpaperId);
+        boolean hasPublishedResource = publishedResources.resolve(device.platform(),deviceId).contains(wallpaperId);
         WallpaperRow wallpaper=wallpapers.get(0);
         if (!wallpaper.status().equals("PUBLISHED") || !hasPublishedResource) {
             complete(
@@ -197,6 +198,8 @@ public class RedemptionService {
         if (request.status().equals("PROCESSING")) {
             return new ProcessingResult("PROCESSING", idempotencyKey);
         }
+        List<Long> wallpapers=jdbc.queryForList("SELECT wallpaper_id FROM redemption_event WHERE request_id=?",Long.class,request.id());
+        if(!wallpapers.isEmpty())new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).requireVisible(wallpapers.get(0),deviceId);
         return result(request.id(), idempotencyKey);
     }
 

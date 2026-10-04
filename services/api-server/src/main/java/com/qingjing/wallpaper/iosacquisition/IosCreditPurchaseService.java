@@ -30,6 +30,7 @@ public class IosCreditPurchaseService {
         this.jdbc=jdbc;this.properties=properties;this.products=products;this.apple=apple;this.grants=grants;this.transactions=transactions;
     }
     public Order create(long device,long wallpaper,String appJws,String verificationId) {
+        new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).requireVisible(wallpaper,device);
         var identity=apple.verifyAppTransaction(appJws,verificationId);requireIdentity(identity);
         long knownAccount=transactions.execute(tx->account(identity));
         for(Row owned:orders("o.account_id=? AND o.wallpaper_id=? AND o.status='FULFILLED'",knownAccount,wallpaper))
@@ -65,7 +66,9 @@ public class IosCreditPurchaseService {
     public void purchase(long device,VerifiedTransaction value) {
         requireCredit(value);
         transactions.executeWithoutResult(tx->{
-            Row order=orderForTransaction(value);lockAccount(order.account());
+            Row order=orderForTransaction(value);
+            new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).requireVisible(order.wallpaper(),device);
+            lockAccount(order.account());
             order=orders("o.id=?",order.id()).get(0);verifyOrder(order,value,true);bindTransaction(order,value);apply(order,value);
             Row saved=orders("o.id=?",order.id()).get(0);
             if("FULFILLED".equals(saved.status()))attach(saved,device);
@@ -86,7 +89,8 @@ public class IosCreditPurchaseService {
         for(Row order:orders("o.account_id=? AND o.status='FULFILLED'",account))
             notification(apple.latestTransaction(order.environment(),order.transactionId()));
         transactions.executeWithoutResult(tx->{lockAccount(account);
-            for(Row order:orders("o.account_id=? AND o.status='FULFILLED'",account))attach(order,device);
+            for(Row order:orders("o.account_id=? AND o.status='FULFILLED'",account))
+                if(new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).visible(order.wallpaper(),device))attach(order,device);
         });
     }
     private void apply(Row order,VerifiedTransaction value) {
@@ -149,6 +153,7 @@ public class IosCreditPurchaseService {
     private void lockAccount(long account){jdbc.queryForObject("SELECT id FROM ios_credit_account WHERE id=? FOR UPDATE",Long.class,account);}
     private void ledger(Row order,String type,int delta){jdbc.update("INSERT INTO ios_credit_ledger (account_id,order_id,entry_type,credits_delta) VALUES (?,?,?,?)",order.account(),order.id(),type,delta);}
     private void attach(Row order,long device) {
+        new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).requireVisible(order.wallpaper(),device);
         String source;
         try{source=java.util.HexFormat.of().formatHex(AppleCrypto.sha256(("credit\n"+order.id()+"\n"+device).getBytes(StandardCharsets.UTF_8)));}
         catch(Exception failure){throw new IllegalStateException("Cannot create credit entitlement source");}

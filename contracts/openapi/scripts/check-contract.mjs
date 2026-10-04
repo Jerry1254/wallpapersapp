@@ -94,6 +94,16 @@ assert.deepEqual(
   'redemption result enum drifted from DM-001'
 );
 assert.deepEqual(document.components.schemas.WallpaperAccessType.enum, ['REDEEM', 'FREE']);
+assert.equal(document.components.schemas.WallpaperWriteRequest.properties.offlinePromotionOnly.default, false);
+assert.ok(document.components.schemas.AdminWallpaperSummary.required.includes('offlinePromotionOnly'));
+assert.equal(document.components.schemas.AdminWallpaperSummary.properties.offlinePromotionOnly.type, 'boolean');
+assert.ok(applicationConfiguration.includes('offline-android-enabled: ${QJ_DEVICE_OFFLINE_ANDROID_ENABLED:false}'));
+assert.ok(document.paths['/wallpapers/{wallpaperId}/cover'].get.security.some(requirement => 'deviceBearer' in requirement));
+assert.ok(document.paths['/public/assets/{assetId}/content'].get.security.some(requirement => 'deviceBearer' in requirement));
+const releaseAppSelector = document.paths['/admin/app-releases'].get.parameters.find(parameter => parameter.name === 'packageName');
+assert.deepEqual(releaseAppSelector.schema.enum, ['com.qingjing.bizhi', 'com.jiyi.wallpaper']);
+assert.deepEqual(document.paths['/admin/app-releases/android'].post.requestBody.content['multipart/form-data'].schema.properties.packageName.enum,
+  ['com.qingjing.bizhi', 'com.jiyi.wallpaper']);
 for (const [path, schema] of [
   ['/public/wallpapers', 'PublicWallpaperSummary'],
   ['/admin/wallpapers', 'AdminWallpaperSummary']
@@ -341,7 +351,8 @@ assert.ok(document.components.schemas.PreviewDescriptor.required.includes('previ
 assert.equal(document.components.schemas.PreviewDescriptor.properties.previewRevision.format, 'int64');
 
 const previewCover = document.paths['/wallpapers/{wallpaperId}/cover'].get;
-assert.deepEqual(previewCover.security, [], 'preview covers must remain readable by image loaders without a device session');
+assert.ok(previewCover.security.some(requirement => Object.keys(requirement).length === 0),
+  'ONLINE preview covers must remain readable by image loaders without a device session');
 assert.equal(previewCover.parameters.find(parameter => parameter.name === 'revision').required, false);
 assert.deepEqual(previewCover.responses['200'].headers['Cache-Control'].schema.enum, ['no-store']);
 assert.equal(previewCover.responses['503'].$ref, '#/components/responses/PreviewUnavailable');

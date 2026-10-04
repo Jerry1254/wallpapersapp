@@ -54,7 +54,7 @@ public class IosProductService {
                 """
                 SELECT m.*
                 FROM ios_product_mapping m JOIN wallpaper w ON w.id=m.wallpaper_id
-                WHERE m.bundle_id=? AND m.enabled=TRUE AND w.status='PUBLISHED'
+                WHERE m.bundle_id=? AND m.enabled=TRUE AND w.status='PUBLISHED' AND w.offline_promotion_only=FALSE
                   AND NOT EXISTS (SELECT 1 FROM ios_wallpaper_credit_price c WHERE c.bundle_id=m.bundle_id AND c.wallpaper_id=m.wallpaper_id)
                   AND EXISTS (SELECT 1 FROM wallpaper_variant v JOIN resource_version rv ON rv.variant_id=v.id
                     WHERE v.wallpaper_id=w.id AND v.enabled=TRUE AND v.platform IN ('IOS','UNIVERSAL') AND rv.status='PUBLISHED')

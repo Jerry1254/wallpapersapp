@@ -70,7 +70,7 @@ public class AdminContentViewReader {
                 row.copyrightNote(),
                 variants(wallpaperId),
                 iosProducts.get(wallpaperId),summary.previewWatermarkEnabled(),summary.previewRevision(),
-                summary.previewGenerationStatus(),summary.previewGenerationError());
+                summary.previewGenerationStatus(),summary.previewGenerationError(),summary.offlinePromotionOnly());
     }
 
     public AdminWallpaperSummary summary(WallpaperRow row) {
@@ -96,7 +96,7 @@ public class AdminContentViewReader {
                 instant(row.publishedAt()),
                 row.createdAt().toInstant(),
                 row.updatedAt().toInstant(),
-                row.lockVersion(),row.previewWatermarkEnabled(),row.previewRevision(),row.previewGenerationStatus(),row.previewGenerationError());
+                row.lockVersion(),row.previewWatermarkEnabled(),row.previewRevision(),row.previewGenerationStatus(),row.previewGenerationError(),row.offlinePromotionOnly());
     }
 
     public WallpaperRow wallpaperRow(long wallpaperId) {
@@ -105,7 +105,7 @@ public class AdminContentViewReader {
                 SELECT w.id, w.title, w.slug, w.access_type, w.category_id, w.cover_asset_id,
                        w.featured_rank, w.sort_order, w.copyright_note, w.status,
                        w.published_at, w.archived_at, w.created_at, w.updated_at, w.lock_version,
-                       w.preview_watermark_enabled,COALESCE(ps.requested_revision,1) AS preview_revision,
+                       w.offline_promotion_only,w.preview_watermark_enabled,COALESCE(ps.requested_revision,1) AS preview_revision,
                        COALESCE(ps.status,'PENDING') AS preview_status,ps.error_code AS preview_error,
                        CASE WHEN selected.level = 1 THEN selected.id ELSE root.id END AS root_id,
                        CASE WHEN selected.level = 1 THEN selected.name ELSE root.name END AS root_name,
@@ -339,7 +339,7 @@ public class AdminContentViewReader {
                 (Long) resultSet.getObject("child_id"),
                 resultSet.getString("child_name"),
                 resultSet.getString("child_slug"),resultSet.getBoolean("preview_watermark_enabled"),resultSet.getLong("preview_revision"),
-                resultSet.getString("preview_status"),resultSet.getString("preview_error"));
+                resultSet.getString("preview_status"),resultSet.getString("preview_error"),resultSet.getBoolean("offline_promotion_only"));
     }
 
     private VariantRow mapVariant(ResultSet resultSet, int rowNumber) throws SQLException {
@@ -400,7 +400,8 @@ public class AdminContentViewReader {
             String rootCategorySlug,
             Long childCategoryId,
             String childCategoryName,
-            String childCategorySlug,boolean previewWatermarkEnabled,long previewRevision,String previewGenerationStatus,String previewGenerationError) {
+            String childCategorySlug,boolean previewWatermarkEnabled,long previewRevision,String previewGenerationStatus,String previewGenerationError,
+            boolean offlinePromotionOnly) {
     }
 
     public record VariantRow(

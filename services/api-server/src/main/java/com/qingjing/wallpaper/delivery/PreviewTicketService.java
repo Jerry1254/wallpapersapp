@@ -39,6 +39,7 @@ public class PreviewTicketService {
             throw new ApiException(HttpStatus.BAD_REQUEST,"RESOURCE_PLATFORM_MISMATCH",
                     "The requested resource does not belong to the authenticated App platform");
         }
+        new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).requireVisible(wallpaperId,principal.deviceId());
         wallpapers.summary(wallpaperId);
         long revision=previews.requireReady(wallpaperId);
         if(principal.platform()==DeviceDtos.DevicePlatform.HARMONYOS
@@ -229,6 +230,7 @@ public class PreviewTicketService {
         return selected;
     }
     private void requireRevision(Ticket ticket) {
+        new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).requireVisible(ticket.wallpaper(),ticket.device());
         if(ticket.previewRevision()!=previews.requireReady(ticket.wallpaper())) throw invalid();
     }
     private String ticketKey(String token) { return "preview-ticket-v3:"+crypto.hmacHex("preview-ticket-v3",token); }

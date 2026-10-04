@@ -132,6 +132,45 @@ class AppReleaseIntegrationIT {
         releases.deprecate(one.id());
         assertThatThrownBy(() -> releases.openPackage(one.id())).isInstanceOf(ApiException.class);
     }
+    @Test void twoAndroidBrandsHaveIndependentSignedInstallersVersionsAndMandatoryThresholds() throws Exception {
+        var online = upload("unsigned-release.apk.fixture",ApkTestFixtures.signer());
+        releases.publish(online.id());
+        var signer = ApkTestFixtures.signer();
+        var offlineOne = uploadOffline("unsigned-release.apk.fixture",signer);
+        releases.publish(offlineOne.id());
+        var offlineTwo = uploadOffline("unsigned-release-v2.apk.fixture",signer);
+        releases.publish(offlineTwo.id());
+        releases.update(offlineTwo.id(),new UpdateReleaseRequest("线下重要修复",true,null));
+        assertThat(online.versionCode()).isEqualTo(offlineOne.versionCode());
+        assertThat(releases.list("android")).extracting(ReleaseView::id).containsExactly(online.id());
+        assertThat(releases.list("android","com.jiyi.wallpaper")).hasSize(2);
+        var offlineCheck = releases.check("android","1.0.0",100,"arm64-v8a",36,"com.jiyi.wallpaper");
+        assertThat(offlineCheck.mandatory()).isTrue();
+        assertThat(offlineCheck.latestVersion().packageName()).isEqualTo("com.jiyi.wallpaper");
+        assertThat(releases.check("android","1.0.0",100,"arm64-v8a",36,"com.qingjing.bizhi").mandatory()).isFalse();
+        assertThat(releases.check("ios","1.0.0",1,null,null,"com.jiyi.wallpaper").updateAvailable()).isFalse();
+        for (long id : new long[]{80001,80002}) {
+            jdbc.update("INSERT INTO anonymous_device(id,public_id,platform,app_install_scope,evidence_hash,last_seen_at) VALUES(?,?,'ANDROID',?,?,UTC_TIMESTAMP(6))",
+                    id,UUID.randomUUID().toString(),id==80001?"com.qingjing.bizhi":"com.jiyi.wallpaper","b".repeat(64));
+        }
+        assertThatCode(() -> releases.requireForDevice(new DevicePrincipal(80001,"online",DevicePlatform.ANDROID,CredentialType.PLATFORM_PUBLIC_KEY),"1.0.0","100","arm64-v8a","36")).doesNotThrowAnyException();
+        assertThatThrownBy(() -> releases.requireForDevice(new DevicePrincipal(80002,"offline",DevicePlatform.ANDROID,CredentialType.PLATFORM_PUBLIC_KEY),"1.0.0","100","arm64-v8a","36"))
+                .isInstanceOf(ApiException.class).satisfies(error -> assertThat(((ApiException)error).code()).isEqualTo("APP_UPDATE_REQUIRED"));
+        releases.deprecate(offlineTwo.id());
+        assertThat(releases.check("android","1.0.0",100,null,null,"com.jiyi.wallpaper").mandatory()).isFalse();
+    }
+    @Test void uploadRejectsAnApkForTheOtherSelectedBrand() throws Exception {
+        var signed = ApkTestFixtures.signed(temp,"unsigned-release.apk.fixture",ApkTestFixtures.signer(),"com.jiyi.wallpaper");
+        var file = new MockMultipartFile("file","jiyi.apk","application/vnd.android.package-archive",Files.readAllBytes(signed));
+        assertThatThrownBy(() -> releases.uploadAndroid(file,"更新",1,"com.qingjing.bizhi"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("selected App");
+        assertThat(releases.list("android")).isEmpty();
+        assertThat(releases.list("android","com.jiyi.wallpaper")).isEmpty();
+    }
+    private ReleaseView uploadOffline(String fixture,ApkTestFixtures.Signer signer) throws Exception {
+        Path signed = ApkTestFixtures.signed(temp,fixture,signer,"com.jiyi.wallpaper");
+        return releases.uploadAndroid(new MockMultipartFile("file","jiyi.apk","application/vnd.android.package-archive",Files.readAllBytes(signed)),"线下更新",1,"com.jiyi.wallpaper");
+    }
     private ReleaseView store(String platform,String name,long code) {
         return releases.createStore(new StoreReleaseRequest(platform,name,code,"版本更新",platform.equals("ios") ? "https://apps.apple.com/app/id123" : "https://appgallery.huawei.com/app/C123"),1);
     }

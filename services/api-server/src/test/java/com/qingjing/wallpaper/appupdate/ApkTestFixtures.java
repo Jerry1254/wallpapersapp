@@ -29,10 +29,42 @@ final class ApkTestFixtures {
         return new Signer(key, certificate);
     }
     static Path signed(Path directory, String fixture, Signer signer) throws Exception {
+        return signed(directory, fixture, signer, "com.qingjing.bizhi");
+    }
+    static Path signed(Path directory, String fixture, Signer signer, String packageName) throws Exception {
         Path input = directory.resolve(java.util.UUID.randomUUID() + ".unsigned.apk");
         try (var resource = ApkTestFixtures.class.getResourceAsStream("/appupdate/" + fixture)) {
             if (resource == null) throw new IllegalStateException("APK fixture missing");
             Files.copy(resource, input);
+        }
+        if (!packageName.equals("com.qingjing.bizhi")) {
+            // Both fixed App IDs have the same UTF-16 length, preserving compiled string-pool offsets.
+            byte[] from = "com.qingjing.bizhi".getBytes(java.nio.charset.StandardCharsets.UTF_16LE);
+            byte[] to = packageName.getBytes(java.nio.charset.StandardCharsets.UTF_16LE);
+            if (from.length != to.length) throw new IllegalArgumentException("Fixture package must preserve string length");
+            Path rewritten = directory.resolve(java.util.UUID.randomUUID() + ".unsigned.apk");
+            try (var zip = new java.util.zip.ZipFile(input.toFile());
+                    var output = new java.util.zip.ZipOutputStream(Files.newOutputStream(rewritten))) {
+                var entries = zip.entries();
+                while (entries.hasMoreElements()) {
+                    var entry = entries.nextElement();
+                    byte[] bytes;
+                    try (var stream = zip.getInputStream(entry)) { bytes = stream.readAllBytes(); }
+                    if (entry.getName().equals("AndroidManifest.xml") || entry.getName().equals("resources.arsc")) {
+                        for (int index = 0; index <= bytes.length - from.length; index++) {
+                            if (java.util.Arrays.equals(bytes, index, index + from.length, from, 0, from.length)) {
+                                System.arraycopy(to, 0, bytes, index, to.length);
+                                index += from.length - 1;
+                            }
+                        }
+                    }
+                    output.putNextEntry(new java.util.zip.ZipEntry(entry.getName()));
+                    output.write(bytes);
+                    output.closeEntry();
+                }
+            }
+            Files.delete(input);
+            input = rewritten;
         }
         Path output = directory.resolve(java.util.UUID.randomUUID() + ".apk");
         new ApkSigner.Builder(List.of(new ApkSigner.SignerConfig.Builder("test", signer.key().getPrivate(), List.of(signer.certificate())).build()))

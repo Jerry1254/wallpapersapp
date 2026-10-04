@@ -5,21 +5,24 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { computed, onMounted, reactive, ref } from 'vue';
 
 import AdminLoadNotice from '@/components/AdminLoadNotice.vue';
-import type { AppRelease, AppReleasePlatform } from '@/domain/appReleases';
-import { appReleasePlatformLabels, appReleaseStatusLabels, compareAppReleaseVersions, effectiveAppReleasePolicy, validStoreRelease } from '@/domain/appReleases';
+import type { AndroidAppPackageName, AppRelease, AppReleasePlatform } from '@/domain/appReleases';
+import { androidAppLabels, appReleaseMatchesApplication, appReleasePlatformLabels, appReleaseStatusLabels, compareAppReleaseVersions, defaultAndroidAppPackage, effectiveAppReleasePolicy, validStoreRelease } from '@/domain/appReleases';
 import { apiResourceUrl, readableApiError } from '@/repositories/http/apiClient';
 import { appReleaseRepository } from '@/repositories/http/appReleaseRepository';
 
 const platform = ref<AppReleasePlatform>('android');
+const androidPackage = ref<AndroidAppPackageName>(defaultAndroidAppPackage);
 const releases = ref<AppRelease[]>([]);
 const loading = ref(true);
 const loadError = ref('');
 const busy = ref(false);
 let loadSequence = 0;
-const policy = computed(() => effectiveAppReleasePolicy(releases.value, platform.value));
-const rows = computed(() => [...releases.value].sort((a, b) => compareAppReleaseVersions(b, a)));
+const policy = computed(() => effectiveAppReleasePolicy(releases.value, platform.value, androidPackage.value));
+const rows = computed(() => releases.value.filter((release) => appReleaseMatchesApplication(release, platform.value, androidPackage.value))
+  .sort((a, b) => compareAppReleaseVersions(b, a)));
 const createOpen = ref(false);
 const createPlatform = ref<AppReleasePlatform>('android');
+const createAndroidPackage = ref<AndroidAppPackageName>(defaultAndroidAppPackage);
 const fileInput = ref<HTMLInputElement>();
 const apk = ref<File>();
 const createForm = reactive({ versionName: '', versionCode: 1, releaseNotes: '', storeUrl: '' });
@@ -33,14 +36,18 @@ const date = (value: string | null) => value ? dayjs(value).format('YYYY-MM-DD H
 const size = (value: number | null) => value === null ? '—' : `${(value / 1024 / 1024).toFixed(1)} MB`;
 const tagType = (status: AppRelease['status']) => status === 'PUBLISHED' ? 'success' : status === 'DEPRECATED' ? 'info' : 'warning';
 const downloadHref = (value: string | null) => value ? (/^https:\/\//i.test(value) ? value : value.startsWith('/') ? apiResourceUrl(value) : '') : '';
+const releaseApplicationLabel = (release: AppRelease) => release.platform === 'android'
+  ? androidAppLabels[release.packageName as AndroidAppPackageName] ?? release.packageName ?? 'Android'
+  : appReleasePlatformLabels[release.platform];
 
 const load = async () => {
   const sequence = ++loadSequence;
   const selected = platform.value;
+  const selectedPackage = androidPackage.value;
   loading.value = true;
   loadError.value = '';
   try {
-    const result = await appReleaseRepository.list(selected);
+    const result = await appReleaseRepository.list(selected, selectedPackage);
     if (sequence === loadSequence) releases.value = result;
   } catch (cause) {
     if (sequence === loadSequence) { releases.value = []; loadError.value = readableApiError(cause, '版本列表加载失败'); }
@@ -48,15 +55,23 @@ const load = async () => {
     if (sequence === loadSequence) loading.value = false;
   }
 };
-const changePlatform = () => { releases.value = []; void load(); };
+const changeApplication = () => {
+  releases.value = [];
+  createOpen.value = false;
+  editing.value = undefined;
+  reviewing.value = undefined;
+  publishing.value = undefined;
+  void load();
+};
 const replace = (value: AppRelease) => {
-  if (value.platform !== platform.value) return;
+  if (!appReleaseMatchesApplication(value, platform.value, androidPackage.value)) return;
   const index = releases.value.findIndex((release) => release.id === value.id);
   if (index === -1) releases.value.push(value);
   else releases.value[index] = value;
 };
 const openCreate = () => {
   createPlatform.value = platform.value;
+  createAndroidPackage.value = androidPackage.value;
   Object.assign(createForm, { versionName: '', versionCode: 1, releaseNotes: '', storeUrl: policy.value.latest?.storeUrl ?? '' });
   apk.value = undefined;
   if (fileInput.value) fileInput.value.value = '';
@@ -77,7 +92,7 @@ const create = async () => {
   busy.value = true;
   try {
     const value = createPlatform.value === 'android'
-      ? await appReleaseRepository.uploadAndroid(apk.value!, createForm.releaseNotes)
+      ? await appReleaseRepository.uploadAndroid(apk.value!, createForm.releaseNotes, createAndroidPackage.value)
       : await appReleaseRepository.createStore({ ...createForm, platform: createPlatform.value });
     replace(value);
     createOpen.value = false;
@@ -165,7 +180,14 @@ onMounted(load);
       <div class="page-actions"><ElButton :icon="Refresh" :disabled="busy" :loading="loading" @click="load">刷新</ElButton><ElButton type="primary" :icon="Plus" :disabled="busy" @click="openCreate">{{ platform === 'android' ? '上传正式 APK' : '登记商店版本' }}</ElButton></div>
     </header>
 
-    <section class="surface release-platforms"><ElTabs v-model="platform" @tab-change="changePlatform"><ElTabPane v-for="(label, key) in appReleasePlatformLabels" :key="key" :name="key" :label="label" :disabled="busy" /></ElTabs></section>
+    <section class="surface release-platforms"><ElTabs v-model="platform" @tab-change="changeApplication"><ElTabPane v-for="(label, key) in appReleasePlatformLabels" :key="key" :name="key" :label="label" :disabled="busy" /></ElTabs></section>
+    <section v-if="platform === 'android'" class="surface release-app-selector">
+      <strong>Android 应用</strong>
+      <ElSelect v-model="androidPackage" :disabled="busy" style="width:240px" @change="changeApplication">
+        <ElOption v-for="(label, packageName) in androidAppLabels" :key="packageName" :label="label" :value="packageName" />
+      </ElSelect>
+      <small>两个应用的版本和强制更新门槛分别管理。</small>
+    </section>
     <AdminLoadNotice :error="loadError" :loading="loading" @retry="load" />
     <template v-if="!loadError">
       <section v-loading="loading" class="release-policy">
@@ -186,11 +208,12 @@ onMounted(load);
       </section>
     </template>
 
-    <ElDialog v-model="createOpen" :title="createPlatform === 'android' ? '上传正式 APK' : `登记 ${appReleasePlatformLabels[createPlatform]} 商店版本`" width="min(600px, 94vw)" :close-on-click-modal="!busy" :close-on-press-escape="!busy" :show-close="!busy">
+    <ElDialog v-model="createOpen" :title="createPlatform === 'android' ? `上传 ${androidAppLabels[createAndroidPackage]} 正式 APK` : `登记 ${appReleasePlatformLabels[createPlatform]} 商店版本`" width="min(600px, 94vw)" :close-on-click-modal="!busy" :close-on-press-escape="!busy" :show-close="!busy">
       <ElForm label-position="top" :disabled="busy">
         <ElFormItem v-if="createPlatform === 'android'" label="正式安装包" required>
           <input ref="fileInput" hidden type="file" accept=".apk,application/vnd.android.package-archive" @change="selectApk(($event.target as HTMLInputElement).files?.[0])" />
           <button class="release-upload" type="button" :disabled="busy" @click="fileInput?.click()" @dragover.prevent @drop.prevent="!busy && selectApk($event.dataTransfer?.files[0])"><ElIcon :size="34"><UploadFilled /></ElIcon><strong>{{ apk?.name ?? '拖拽 APK 到此处或点击选择' }}</strong><small>{{ apk ? size(apk.size) : '后台解析真实版本、包名、架构、签名及 SHA-256；不接受 Debug 包' }}</small></button>
+          <small class="release-table-small">安装包必须属于 {{ androidAppLabels[createAndroidPackage] }}，后台会校验应用是否一致。</small>
         </ElFormItem>
         <template v-else>
           <ElAlert title="请填写已经在应用商店发布、用户能够实际下载的版本。登记草稿不会立即拦截用户。" type="info" :closable="false" class="release-form-alert" />
@@ -205,6 +228,7 @@ onMounted(load);
 
     <ElDialog :model-value="Boolean(editing)" title="编辑版本配置" width="min(560px, 94vw)" :close-on-click-modal="!busy" :close-on-press-escape="!busy" :show-close="!busy" @update:model-value="!busy && (editing = undefined)">
       <ElForm v-if="editing" label-position="top" :disabled="busy">
+        <ElFormItem label="应用"><strong>{{ releaseApplicationLabel(editing) }}</strong></ElFormItem>
         <ElFormItem label="版本"><strong>{{ editing.versionName }} · {{ editing.versionCode }}</strong></ElFormItem>
         <ElFormItem label="更新说明" required><ElInput v-model="editForm.releaseNotes" type="textarea" :rows="4" maxlength="1000" show-word-limit /></ElFormItem>
         <ElFormItem v-if="editing.deliveryType === 'store'" label="HTTPS 应用商店链接" required><ElInput v-model="editForm.storeUrl" maxlength="1000" /></ElFormItem>
@@ -215,6 +239,7 @@ onMounted(load);
 
     <ElDialog :model-value="Boolean(reviewing)" title="版本信息" width="min(680px, 94vw)" @update:model-value="reviewing = undefined">
       <ElDescriptions v-if="reviewing" :column="1" border>
+        <ElDescriptionsItem label="应用">{{ releaseApplicationLabel(reviewing) }}</ElDescriptionsItem>
         <ElDescriptionsItem label="平台 / 版本">{{ appReleasePlatformLabels[reviewing.platform] }} · {{ reviewing.versionName }} · {{ reviewing.versionCode }}</ElDescriptionsItem>
         <ElDescriptionsItem label="状态 / 策略">{{ appReleaseStatusLabels[reviewing.status] }} · {{ reviewing.forceUpdate ? '强制更新' : '普通更新' }}</ElDescriptionsItem>
         <ElDescriptionsItem v-if="reviewing.deliveryType === 'apk'" label="包名">{{ reviewing.packageName }}</ElDescriptionsItem>
@@ -232,6 +257,7 @@ onMounted(load);
     <ElDialog :model-value="Boolean(publishing)" title="确认发布版本" width="min(650px, 94vw)" :close-on-click-modal="!busy" :close-on-press-escape="!busy" :show-close="!busy" @update:model-value="!busy && (publishing = undefined)">
       <template v-if="publishing">
         <ElDescriptions :column="1" border>
+          <ElDescriptionsItem label="应用">{{ releaseApplicationLabel(publishing) }}</ElDescriptionsItem>
           <ElDescriptionsItem label="平台 / 版本">{{ appReleasePlatformLabels[publishing.platform] }} · {{ publishing.versionName }} · {{ publishing.versionCode }}</ElDescriptionsItem>
           <ElDescriptionsItem label="更新策略">{{ publishing.forceUpdate ? '强制更新：低于此版本的用户将不可继续使用' : '普通更新：用户可以关闭提醒并继续使用' }}</ElDescriptionsItem>
           <ElDescriptionsItem v-if="publishing.deliveryType === 'apk'" label="包名 / 架构">{{ publishing.packageName }} · {{ publishing.abi }}</ElDescriptionsItem>
@@ -250,6 +276,8 @@ onMounted(load);
 .release-platforms { padding: 4px 20px 0; }
 .release-platforms :deep(.el-tabs__header) { margin-bottom: 0; }
 .release-platforms :deep(.el-tabs__nav-wrap::after) { height: 0; }
+.release-app-selector { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 16px 20px; }
+.release-app-selector small { color: var(--admin-muted); }
 .release-policy { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .release-policy article { display: grid; gap: 8px; padding: 20px; }
 .release-policy span { font-size: 13px; color: var(--admin-muted); }

@@ -4,14 +4,27 @@ import { setCsrfToken } from './apiClient';
 import { appReleaseRepository } from './appReleaseRepository';
 
 afterEach(() => vi.unstubAllGlobals());
-const release = { id: '3', platform: 'android', versionName: '1.0.3', versionCode: 10023, status: 'DRAFT', forceUpdate: false, releaseNotes: '修复问题', storeUrl: null } as AppRelease;
+const release = { id: '3', platform: 'android', packageName: 'com.qingjing.bizhi', versionName: '1.0.3', versionCode: 10023, status: 'DRAFT', forceUpdate: false, releaseNotes: '修复问题', storeUrl: null } as AppRelease;
 const response = (value: unknown) => new Response(JSON.stringify({ data: value }), { headers: { 'Content-Type': 'application/json' } });
 
 it('reads the platform list from the new API envelope', async () => {
   const fetchMock = vi.fn().mockResolvedValue(response({ items: [release] }));
   vi.stubGlobal('fetch', fetchMock);
   expect(await appReleaseRepository.list('android')).toEqual([release]);
-  expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/v1/admin/app-releases?platform=android');
+  expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/v1/admin/app-releases?platform=android&packageName=com.qingjing.bizhi');
+});
+
+it('selects the offline Android application while leaving store platform queries unchanged', async () => {
+  const fetchMock = vi.fn().mockImplementation(async () => response({ items: [] }));
+  vi.stubGlobal('fetch', fetchMock);
+  await appReleaseRepository.list('android', 'com.jiyi.wallpaper');
+  await appReleaseRepository.list('ios', 'com.jiyi.wallpaper');
+  await appReleaseRepository.list('harmony', 'com.jiyi.wallpaper');
+  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+    '/api/v1/admin/app-releases?platform=android&packageName=com.jiyi.wallpaper',
+    '/api/v1/admin/app-releases?platform=ios',
+    '/api/v1/admin/app-releases?platform=harmony'
+  ]);
 });
 
 it('uploads the original APK for server metadata validation without client supplied version claims', async () => {
@@ -25,8 +38,23 @@ it('uploads the original APK for server metadata validation without client suppl
   expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/v1/admin/app-releases/android');
   expect(options.method).toBe('POST');
   expect(form.get('releaseNotes')).toBe('修复问题');
+  expect(form.get('packageName')).toBe('com.qingjing.bizhi');
   expect((form.get('file') as File).name).toBe('app-release.apk');
   expect(form.has('versionCode')).toBe(false);
+  expect(new Headers(options.headers).get('X-CSRF-Token')).toBe('test-csrf');
+});
+
+it('sends the selected offline application with the APK so the server can reject a wrong upload', async () => {
+  setCsrfToken('test-csrf');
+  const offlineRelease = { ...release, packageName: 'com.jiyi.wallpaper' };
+  const fetchMock = vi.fn().mockResolvedValue(response(offlineRelease));
+  vi.stubGlobal('fetch', fetchMock);
+
+  expect(await appReleaseRepository.uploadAndroid(new File(['apk'], 'jiyi-release.apk'), '吉意修复', 'com.jiyi.wallpaper'))
+    .toEqual(offlineRelease);
+
+  const options = fetchMock.mock.calls[0]?.[1] as RequestInit;
+  expect((options.body as FormData).get('packageName')).toBe('com.jiyi.wallpaper');
   expect(new Headers(options.headers).get('X-CSRF-Token')).toBe('test-csrf');
 });
 

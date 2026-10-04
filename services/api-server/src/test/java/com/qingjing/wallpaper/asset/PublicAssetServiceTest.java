@@ -142,7 +142,7 @@ class PublicAssetServiceTest {
                 when(row.getString("cover_sha256")).thenReturn(PREVIEW_HASH);
             } else if (sql.contains("FROM asset")) {
                 originalQueries++;
-                assertThat(parameters).containsExactly(ASSET_ID);
+                assertThat(parameters).containsExactly(ASSET_ID,false,false);
                 when(row.getString("storage_key")).thenReturn("original/21.webp");
                 when(row.getString("mime_type")).thenReturn("image/webp");
                 when(row.getLong("size_bytes")).thenReturn(91L);

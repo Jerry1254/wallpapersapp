@@ -98,7 +98,7 @@ class RedemptionServiceTest {
             PublishedResourceCatalog catalog = mock(PublishedResourceCatalog.class);
             when(crypto.hmacHex(eq("redemption-code-v1"), anyString())).thenReturn("code-hash");
             when(crypto.sha256Hex(anyString())).thenAnswer(call -> call.getArgument(0));
-            when(catalog.resolve(DevicePlatform.ANDROID)).thenReturn(new PublishedResourceCatalog.PublishedCatalog(
+            when(catalog.resolve(eq(DevicePlatform.ANDROID),anyLong())).thenReturn(new PublishedResourceCatalog.PublishedCatalog(
                     Map.of(21L, List.of(), 22L, List.of())));
             when(entitlements.summary(anyLong(), anyLong(), anyLong(), any(Instant.class))).thenAnswer(call ->
                     new EntitlementSummary(Long.toString(call.getArgument(1)), null, GRANTED_AT));

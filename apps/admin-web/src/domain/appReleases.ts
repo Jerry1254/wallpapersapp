@@ -1,5 +1,11 @@
 export type AppReleasePlatform = 'android' | 'ios' | 'harmony';
 export type AppReleaseStatus = 'DRAFT' | 'PUBLISHED' | 'DEPRECATED';
+export type AndroidAppPackageName = 'com.qingjing.bizhi' | 'com.jiyi.wallpaper';
+export const defaultAndroidAppPackage: AndroidAppPackageName = 'com.qingjing.bizhi';
+export const androidAppLabels: Record<AndroidAppPackageName, string> = {
+  'com.qingjing.bizhi': '倾境动态壁纸',
+  'com.jiyi.wallpaper': '吉意壁纸（线下）'
+};
 
 export interface AppRelease {
   id: string;
@@ -54,8 +60,11 @@ export const compareAppReleaseVersions = (a: AppRelease, b: AppRelease) => {
   return 0;
 };
 
-export const effectiveAppReleasePolicy = (releases: AppRelease[], platform: AppReleasePlatform) => {
-  const active = releases.filter((release) => release.platform === platform && release.status === 'PUBLISHED')
+export const appReleaseMatchesApplication = (release: AppRelease, platform: AppReleasePlatform, packageName: AndroidAppPackageName = defaultAndroidAppPackage) =>
+  release.platform === platform && (platform !== 'android' || release.packageName === packageName);
+
+export const effectiveAppReleasePolicy = (releases: AppRelease[], platform: AppReleasePlatform, packageName: AndroidAppPackageName = defaultAndroidAppPackage) => {
+  const active = releases.filter((release) => appReleaseMatchesApplication(release, platform, packageName) && release.status === 'PUBLISHED')
     .sort((a, b) => compareAppReleaseVersions(b, a));
   return {
     latest: active[0] ?? null,

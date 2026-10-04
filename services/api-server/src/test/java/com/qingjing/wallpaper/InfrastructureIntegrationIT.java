@@ -296,7 +296,7 @@ class InfrastructureIntegrationIT {
                 """,
                 String.class);
 
-        assertThat(successfulMigrations).isEqualTo(21);
+        assertThat(successfulMigrations).isEqualTo(22);
         assertThat(tables).containsExactlyInAnyOrder(
                 "admin_account",
                 "anonymous_device",
@@ -507,7 +507,7 @@ class InfrastructureIntegrationIT {
 
         ResponseEntity<JsonNode> info = http.getForEntity("/actuator/info", JsonNode.class);
         assertThat(info.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(info.getBody().path("app").path("contract-version").asText()).isEqualTo("2.19.0");
+        assertThat(info.getBody().path("app").path("contract-version").asText()).isEqualTo("2.20.0");
         assertThat(info.getBody().path("app").path("environment-id").asText()).isEqualTo("UNCONFIGURED");
         assertThat(info.getBody().path("app").path("source-sha256").asText()).isEqualTo("unknown");
         assertThat(info.getBody().path("app").path("artifact-sha256").asText()).isEqualTo("unknown");
@@ -642,6 +642,22 @@ class InfrastructureIntegrationIT {
                 null);
         assertThat(wallpaper.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         String wallpaperId = wallpaper.getBody().path("id").asText();
+        assertThat(wallpaper.getBody().path("offlinePromotionOnly").asBoolean()).isFalse();
+        Map<String, Object> promotionRequest = new LinkedHashMap<>(wallpaperRequest);
+        promotionRequest.put("offlinePromotionOnly", true);
+        wallpaper = jsonExchange("/api/v1/admin/wallpapers/" + wallpaperId, HttpMethod.PATCH,
+                promotionRequest, session, wallpaper.getHeaders().getETag());
+        assertThat(wallpaper.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(wallpaper.getBody().path("offlinePromotionOnly").asBoolean()).isTrue();
+        wallpaper = jsonExchange("/api/v1/admin/wallpapers/" + wallpaperId, HttpMethod.PATCH,
+                wallpaperRequest, session, wallpaper.getHeaders().getETag());
+        assertThat(wallpaper.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(wallpaper.getBody().path("offlinePromotionOnly").asBoolean()).isTrue();
+        promotionRequest.put("offlinePromotionOnly", false);
+        wallpaper = jsonExchange("/api/v1/admin/wallpapers/" + wallpaperId, HttpMethod.PATCH,
+                promotionRequest, session, wallpaper.getHeaders().getETag());
+        assertThat(wallpaper.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(wallpaper.getBody().path("offlinePromotionOnly").asBoolean()).isFalse();
         String initialEtag = wallpaper.getHeaders().getETag();
         DeviceTestSession catalogDevice = registerAndCreateSession("catalog-" + UUID.randomUUID());
         assertThat(deviceGet("/api/v1/public/wallpapers/" + wallpaperId, catalogDevice)

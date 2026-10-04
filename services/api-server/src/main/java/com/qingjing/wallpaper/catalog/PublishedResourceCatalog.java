@@ -5,6 +5,7 @@ import com.qingjing.wallpaper.catalog.PublicCatalogDtos.DeliveryPlatform;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.ResourceType;
 import com.qingjing.wallpaper.catalog.PublicCatalogDtos.Placement;
 import com.qingjing.wallpaper.device.DeviceDtos.DevicePlatform;
+import com.qingjing.wallpaper.device.DevicePrincipal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -27,12 +28,25 @@ public class PublishedResourceCatalog {
     }
 
     public PublishedCatalog resolve(DevicePlatform appPlatform) {
+        return resolve(appPlatform, false);
+    }
+
+    public PublishedCatalog resolve(DevicePrincipal principal) {
+        return resolve(principal.platform(), new WallpaperChannelAccess(jdbc).isOffline(principal));
+    }
+
+    public PublishedCatalog resolve(DevicePlatform appPlatform, long deviceId) {
+        return resolve(appPlatform, appPlatform==DevicePlatform.ANDROID
+                && new WallpaperChannelAccess(jdbc).isOfflineDevice(deviceId));
+    }
+
+    private PublishedCatalog resolve(DevicePlatform appPlatform, boolean offline) {
         List<VariantRow> variants = jdbc.query("""
                 SELECT DISTINCT v.wallpaper_id, v.platform, v.resource_type
                 FROM wallpaper_variant v
                 JOIN resource_version rv ON rv.variant_id = v.id AND rv.status = 'PUBLISHED'
                 JOIN wallpaper w ON w.id = v.wallpaper_id AND w.status = 'PUBLISHED'
-                WHERE v.enabled = TRUE
+                WHERE v.enabled = TRUE AND (w.offline_promotion_only=FALSE OR ?=TRUE)
                   AND (
                     (v.platform='ANDROID'
                       AND EXISTS (SELECT 1 FROM secure_resource_package sp WHERE sp.resource_version_id=rv.id))
@@ -56,7 +70,7 @@ public class PublishedResourceCatalog {
                 ORDER BY v.wallpaper_id, v.platform, v.resource_type
                 """, (rs, rowNumber) -> new VariantRow(
                 rs.getLong("wallpaper_id"), DeliveryPlatform.valueOf(rs.getString("platform")),
-                ResourceType.valueOf(rs.getString("resource_type"))), appPlatform.name());
+                ResourceType.valueOf(rs.getString("resource_type"))), offline, appPlatform.name());
 
         Map<Long, List<DeliveryCapability>> available = new LinkedHashMap<>();
         for (VariantRow variant : variants) {

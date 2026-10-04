@@ -166,7 +166,8 @@ public class AdminWallpaperService {
                     """
                     UPDATE wallpaper
                     SET title = ?, slug = ?, access_type = ?, category_id = ?, cover_asset_id = ?,
-                        featured_rank = ?, sort_order = ?, copyright_note = ?, preview_watermark_enabled = ?, lock_version = lock_version + 1
+                        featured_rank = ?, sort_order = ?, copyright_note = ?, preview_watermark_enabled = ?,
+                        offline_promotion_only = ?, lock_version = lock_version + 1
                     WHERE id = ? AND lock_version = ?
                     """,
                     request.title().strip(),
@@ -178,6 +179,7 @@ public class AdminWallpaperService {
                     request.sortOrder(),
                     request.copyrightNote().strip(),
                     request.previewWatermarkEnabled()==null?existing.previewWatermarkEnabled():request.previewWatermarkEnabled(),
+                    request.offlinePromotionOnly()==null?existing.offlinePromotionOnly():request.offlinePromotionOnly(),
                     wallpaperId,
                     expectedVersion);
             if (updated == 0) {
@@ -673,8 +675,8 @@ public class AdminWallpaperService {
                 """
                 INSERT INTO wallpaper
                     (title, slug, access_type, category_id, cover_asset_id, featured_rank,
-                     sort_order, copyright_note, preview_watermark_enabled, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT')
+                     sort_order, copyright_note, preview_watermark_enabled, offline_promotion_only, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT')
                 """,
                 Statement.RETURN_GENERATED_KEYS);
         statement.setString(1, request.title().strip());
@@ -690,6 +692,7 @@ public class AdminWallpaperService {
         statement.setInt(7, request.sortOrder());
         statement.setString(8, request.copyrightNote().strip());
         statement.setBoolean(9,request.previewWatermarkEnabled()==null || request.previewWatermarkEnabled());
+        statement.setBoolean(10,Boolean.TRUE.equals(request.offlinePromotionOnly()));
         return statement;
     }
 

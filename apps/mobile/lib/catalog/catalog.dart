@@ -220,9 +220,23 @@ abstract interface class CatalogRepository {
 }
 
 class HttpCatalogRepository implements CatalogRepository {
-  HttpCatalogRepository(this.base, {this.sessions});
+  HttpCatalogRepository(
+    this.base, {
+    this.sessions,
+    this.authenticatedMedia = false,
+  });
   final Uri base;
   final DeviceSessionManager? sessions;
+  final bool authenticatedMedia;
+
+  Future<Map<String, String>> mediaHeaders(Uri uri) async {
+    // Session credentials are only sent to this API, never third-party images.
+    if (!authenticatedMedia || uri.origin != base.origin) return const {};
+    final manager = sessions;
+    if (manager == null) throw StateError('Media session is required');
+    return {'Authorization': 'Bearer ${(await manager.session()).token}'};
+  }
+
   Future<Map<String, dynamic>> _get(
     String path, [
     Map<String, String>? query,

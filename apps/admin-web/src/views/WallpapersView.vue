@@ -241,6 +241,14 @@ onBeforeUnmount(() => { stopped = true; ++loadSequence; stopPreviewPoll(); });
         </ElTableColumn>
         <ElTableColumn label="分类" min-width="120"><template #default="{ row }"><strong>{{ categoryMap[row.categoryId] || '未分类' }}</strong><br><small style="color:#817d77">{{ categoryMap[row.subcategoryId] || '—' }}</small></template></ElTableColumn>
         <ElTableColumn label="获取方式" width="105"><template #default="{ row }"><ElTag :type="row.accessType === 'FREE' ? 'success' : 'info'" effect="plain">{{ row.accessType === 'FREE' ? '免费' : '需兑换' }}</ElTag></template></ElTableColumn>
+        <ElTableColumn label="展示范围" min-width="150">
+          <template #default="{ row }">
+            <div class="resource-status">
+              <ElTag :type="row.offlinePromotionOnly ? 'warning' : 'info'" effect="plain">{{ row.offlinePromotionOnly ? '仅线下推广' : '线上可展示' }}</ElTag>
+              <small v-if="row.offlinePromotionOnly">吉意壁纸 Android 线下版</small>
+            </div>
+          </template>
+        </ElTableColumn>
         <ElTableColumn label="预览资源" min-width="130">
           <template #default="{ row }">
             <div class="resource-status">

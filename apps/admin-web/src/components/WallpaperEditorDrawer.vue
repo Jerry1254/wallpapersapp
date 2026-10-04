@@ -33,6 +33,7 @@ type WallpaperForm = Wallpaper & { iosAcquisition: NonNullable<Wallpaper['iosAcq
 const blank = (): WallpaperForm => ({
   id: '', title: '', slug: '', categoryId: '', subcategoryId: '',
   accessType: 'REDEEM', capabilities: [], status: 'draft', sort: 1,
+  offlinePromotionOnly: false,
   previewWatermarkEnabled: true, previewGenerationStatus: undefined, previewRevision: 0, previewGenerationError: null,
   coverUrl: '', featuredRank: null, resources: {}, copyrightNote: '', updatedAt: '', version: 0,
   variants: [], iosAcquisition: {
@@ -258,6 +259,10 @@ const rebuildMovingPhoto = async () => {
               <ElFormItem label="排序值"><ElInputNumber v-model="form.sort" :min="0" :max="999999" controls-position="right" style="width:100%" /></ElFormItem>
               <ElFormItem label="精选推荐"><div class="featured-controls"><ElCheckbox :model-value="form.featuredRank !== null" @change="form.featuredRank = $event ? 1 : null">加入首页精选</ElCheckbox><ElInputNumber v-if="form.featuredRank !== null" v-model="form.featuredRank" :min="0" :max="999999" /></div></ElFormItem>
               <ElFormItem label="获取方式" :error="errors.accessType"><ElRadioGroup v-model="form.accessType"><ElRadio value="REDEEM">需要兑换</ElRadio><ElRadio value="FREE">免费</ElRadio></ElRadioGroup></ElFormItem>
+              <ElFormItem label="仅线下推广使用">
+                <ElSwitch v-model="form.offlinePromotionOnly" active-text="开启" inactive-text="关闭" />
+                <small>开启后仅在吉意壁纸 Android 线下版展示；线上 Android、iOS 和鸿蒙均不展示。</small>
+              </ElFormItem>
               <ElFormItem v-if="form.accessType === 'REDEEM'" label="预览加水印">
                 <ElSwitch v-model="form.previewWatermarkEnabled" active-text="开启" inactive-text="关闭" />
                 <small>付费默认开启。保存后自动重新生成预览；4D 仅最前一层加水印，正式下载不受影响。</small>

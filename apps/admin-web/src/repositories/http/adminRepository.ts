@@ -143,6 +143,7 @@ interface ApiWallpaperSummary {
   title: string;
   slug: string;
   accessType: WallpaperAccessType;
+  offlinePromotionOnly?: boolean;
   previewWatermarkEnabled?: boolean;
   previewGenerationStatus?: Wallpaper['previewGenerationStatus'];
   previewRevision?: number;
@@ -298,6 +299,7 @@ const wallpaperFromApi = (value: ApiWallpaperDetail): Wallpaper => {
     categoryId: value.rootCategory.id,
     subcategoryId: value.childCategory?.id || '',
     accessType: value.accessType,
+    offlinePromotionOnly: value.offlinePromotionOnly ?? false,
     previewWatermarkEnabled: value.previewWatermarkEnabled ?? true,
     previewGenerationStatus: value.previewGenerationStatus,
     previewRevision: value.previewRevision ?? 0,
@@ -564,6 +566,7 @@ export const adminRepository = {
       title: input.title.trim(),
       slug,
       accessType: input.accessType,
+      offlinePromotionOnly: input.offlinePromotionOnly ?? false,
       previewWatermarkEnabled: input.previewWatermarkEnabled ?? true,
       rootCategoryId: input.categoryId,
       childCategoryId: input.subcategoryId || null,

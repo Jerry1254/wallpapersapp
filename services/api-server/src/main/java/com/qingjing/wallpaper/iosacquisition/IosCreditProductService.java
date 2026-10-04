@@ -66,7 +66,7 @@ public class IosCreditProductService {
     public List<Product> catalogue() {
         var ids=jdbc.queryForList("""
                 SELECT c.wallpaper_id FROM ios_wallpaper_credit_price c JOIN wallpaper w ON w.id=c.wallpaper_id
-                WHERE c.bundle_id=? AND c.enabled=TRUE AND w.status='PUBLISHED' AND w.access_type='REDEEM'
+                WHERE c.bundle_id=? AND c.enabled=TRUE AND w.status='PUBLISHED' AND w.access_type='REDEEM' AND w.offline_promotion_only=FALSE
                 AND EXISTS (SELECT 1 FROM wallpaper_variant v JOIN resource_version rv ON rv.variant_id=v.id
                     WHERE v.wallpaper_id=w.id AND v.enabled=TRUE AND v.platform IN ('IOS','UNIVERSAL') AND rv.status='PUBLISHED')
                 ORDER BY c.wallpaper_id

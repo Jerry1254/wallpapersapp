@@ -18,9 +18,9 @@ public class AdminAppReleaseController {
     private final AppReleaseService releases;
     public AdminAppReleaseController(AppReleaseService releases) { this.releases = releases; }
     @GetMapping
-    public Envelope<ReleaseList> list(@RequestParam String platform, HttpServletResponse response) {
+    public Envelope<ReleaseList> list(@RequestParam String platform, @RequestParam(required = false) String packageName, HttpServletResponse response) {
         response.setHeader("Cache-Control", "no-store");
-        return new Envelope<>(new ReleaseList(releases.list(platform)));
+        return new Envelope<>(new ReleaseList(releases.list(platform, packageName)));
     }
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Envelope<ReleaseView>> create(@Valid @RequestBody StoreReleaseRequest body, HttpServletRequest request) {
@@ -28,8 +28,8 @@ public class AdminAppReleaseController {
     }
     @PostMapping(value = "/android", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<Envelope<ReleaseView>> upload(@RequestPart MultipartFile file,
-            @RequestParam String releaseNotes, HttpServletRequest request) {
-        return ResponseEntity.status(201).body(new Envelope<>(audited(releases.uploadAndroid(file, releaseNotes, admin(request).id()), request)));
+            @RequestParam String releaseNotes, @RequestParam(required = false) String packageName, HttpServletRequest request) {
+        return ResponseEntity.status(201).body(new Envelope<>(audited(releases.uploadAndroid(file, releaseNotes, admin(request).id(), packageName), request)));
     }
     @PutMapping("/{id}")
     public Envelope<ReleaseView> update(@PathVariable String id, @Valid @RequestBody UpdateReleaseRequest body, HttpServletRequest request) {

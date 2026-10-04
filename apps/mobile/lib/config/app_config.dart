@@ -1,13 +1,21 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'app_branding.dart';
 
 class AppConfig {
   AppConfig({
-    required this.environment,
+    required String environment,
     required this.apiBase,
     required bool debug,
-  }) {
-    if (!{'local', 'internal', 'lab', 'prod'}.contains(environment) ||
+  }) : environment = environment == 'offline' ? 'prod' : environment,
+       branding = AppBranding.forFlavor(environment) {
+    if (!{
+          'local',
+          'internal',
+          'lab',
+          'prod',
+          'offline',
+        }.contains(environment) ||
         apiBase.host.isEmpty ||
         apiBase.userInfo.isNotEmpty ||
         apiBase.hasQuery ||
@@ -20,6 +28,8 @@ class AppConfig {
     }
   }
   final String environment;
+  final AppBranding branding;
+  bool get isOffline => branding == AppBranding.jiyi;
   final Uri apiBase;
   // iOS production uses Apple-backed acquisition. Default to enabled so an
   // Xcode archive cannot accidentally expose the redemption-only fallback.

@@ -22,7 +22,17 @@ public class PublicAssetService {
     }
 
     @Transactional(readOnly = true)
-    public PublicAssetContent content(long assetId) {
+    public PublicAssetContent content(long assetId) { return content(assetId,0); }
+
+    @Transactional(readOnly = true)
+    public PublicAssetContent content(long assetId,long deviceId) {
+        boolean offline=new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).isOfflineDevice(deviceId);
+        if(!offline && Long.valueOf(1).equals(jdbc.queryForObject("""
+            SELECT COUNT(*)>0 FROM wallpaper w WHERE w.status='PUBLISHED' AND w.offline_promotion_only=TRUE
+              AND (w.cover_asset_id=? OR EXISTS(SELECT 1 FROM wallpaper_variant v JOIN resource_version rv ON rv.variant_id=v.id
+                    JOIN resource_binding rb ON rb.resource_version_id=rv.id WHERE v.wallpaper_id=w.id AND rb.asset_id=?))
+            """,Long.class,assetId,assetId)))
+            throw new ApiException(HttpStatus.NOT_FOUND,"ASSET_NOT_FOUND","The asset content is unavailable");
         // Legacy asset URLs must not bypass paid-wallpaper preview policy.
         var protectedWallpapers=jdbc.query("""
             SELECT marked.id,
@@ -46,7 +56,7 @@ public class PublicAssetService {
         if(!protectedWallpapers.isEmpty()) {
             if(protectedWallpapers.stream().anyMatch(alias->alias.clean() || alias.icon()))
                 throw new ApiException(HttpStatus.NOT_FOUND,"ASSET_NOT_FOUND","The asset content is unavailable");
-            return previewCover(protectedWallpapers.get(0).wallpaper());
+            return previewCover(protectedWallpapers.get(0).wallpaper(),deviceId);
         }
         List<PublicAssetContent> rows = jdbc.query(
                 """
@@ -60,7 +70,7 @@ public class PublicAssetService {
                       SELECT 1
                       FROM wallpaper
                       WHERE wallpaper.cover_asset_id = asset.id
-                        AND wallpaper.status = 'PUBLISHED'
+                        AND wallpaper.status = 'PUBLISHED' AND (wallpaper.offline_promotion_only=FALSE OR ?=TRUE)
                     )
                     OR EXISTS (
                       SELECT 1
@@ -70,7 +80,7 @@ public class PublicAssetService {
                        AND selected.deleted_at IS NULL
                       JOIN wallpaper
                         ON wallpaper.category_id = selected.id
-                       AND wallpaper.status = 'PUBLISHED'
+                       AND wallpaper.status = 'PUBLISHED' AND (wallpaper.offline_promotion_only=FALSE OR ?=TRUE)
                       WHERE root.icon_asset_id = asset.id
                         AND root.level = 1
                         AND root.deleted_at IS NULL
@@ -82,7 +92,7 @@ public class PublicAssetService {
                         resultSet.getString("mime_type"),
                         resultSet.getLong("size_bytes"),
                         resultSet.getString("sha256")),
-                assetId);
+                assetId,offline,offline);
         if (rows.isEmpty()) {
             throw new ApiException(HttpStatus.NOT_FOUND, "ASSET_NOT_FOUND", "The asset content is unavailable");
         }
@@ -90,7 +100,11 @@ public class PublicAssetService {
     }
 
     @Transactional(readOnly=true)
-    public PublicAssetContent previewCover(long wallpaperId) {
+    public PublicAssetContent previewCover(long wallpaperId) { return previewCover(wallpaperId,0); }
+
+    @Transactional(readOnly=true)
+    public PublicAssetContent previewCover(long wallpaperId,long deviceId) {
+        new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).requireVisible(wallpaperId,deviceId);
         var rows=jdbc.query("""
             SELECT ps.status,ps.requested_revision,ps.generated_revision,ps.cover_storage_key,
                    ps.cover_size_bytes,ps.cover_sha256,ps.cover_mime_type

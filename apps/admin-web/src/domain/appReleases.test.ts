@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { AppRelease } from './appReleases';
-import { compareAppReleaseVersions, effectiveAppReleasePolicy, validStoreRelease } from './appReleases';
+import { appReleaseMatchesApplication, compareAppReleaseVersions, defaultAndroidAppPackage, effectiveAppReleasePolicy, validStoreRelease } from './appReleases';
 
 const release = (versionCode: number, forceUpdate = false, platform: AppRelease['platform'] = 'android', status: AppRelease['status'] = 'PUBLISHED') => ({
-  id: String(versionCode), versionName: `${versionCode}.0`, versionCode, platform, status, forceUpdate
+  id: String(versionCode), versionName: `${versionCode}.0`, versionCode, platform, status, forceUpdate,
+  packageName: platform === 'android' ? defaultAndroidAppPackage : null
 } as AppRelease);
 
 describe('effective platform release policy', () => {
@@ -49,6 +50,27 @@ describe('effective platform release policy', () => {
     const result = effectiveAppReleasePolicy([smaller, larger], 'ios');
     expect(result.latest?.versionName).toBe(larger.versionName);
     expect(result.minimum?.versionName).toBe(smaller.versionName);
+  });
+  it('keeps the two Android applications latest versions and forced floors independent', () => {
+    const releases = [
+      release(10, true), release(20),
+      { ...release(100, true), packageName: 'com.jiyi.wallpaper' },
+      { ...release(200), packageName: 'com.jiyi.wallpaper' },
+      { ...release(999, true), packageName: 'com.unknown.app' }
+    ];
+    const online = effectiveAppReleasePolicy(releases, 'android', defaultAndroidAppPackage);
+    const offline = effectiveAppReleasePolicy(releases, 'android', 'com.jiyi.wallpaper');
+    expect(online.minimum?.versionCode).toBe(10);
+    expect(online.latest?.versionCode).toBe(20);
+    expect(offline.minimum?.versionCode).toBe(100);
+    expect(offline.latest?.versionCode).toBe(200);
+    expect(appReleaseMatchesApplication(releases[0]!, 'android', 'com.jiyi.wallpaper')).toBe(false);
+    expect(appReleaseMatchesApplication(releases[2]!, 'android', 'com.jiyi.wallpaper')).toBe(true);
+  });
+  it('leaves iOS and Harmony policies independent of the Android application selection', () => {
+    const releases = [release(8, true, 'ios'), release(9, true, 'harmony')];
+    expect(effectiveAppReleasePolicy(releases, 'ios', 'com.jiyi.wallpaper').minimum?.versionCode).toBe(8);
+    expect(effectiveAppReleasePolicy(releases, 'harmony', 'com.jiyi.wallpaper').minimum?.versionCode).toBe(9);
   });
 });
 

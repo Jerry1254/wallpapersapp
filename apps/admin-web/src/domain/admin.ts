@@ -125,6 +125,7 @@ export interface Wallpaper {
   categoryId: string;
   subcategoryId: string;
   accessType: WallpaperAccessType;
+  offlinePromotionOnly?: boolean;
   previewWatermarkEnabled?: boolean;
   previewGenerationStatus?: PreviewGenerationStatus;
   previewRevision?: number;

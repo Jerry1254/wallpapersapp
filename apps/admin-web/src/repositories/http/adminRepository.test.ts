@@ -251,3 +251,58 @@ it('refreshes preview statuses using summary pages without fetching every wallpa
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/admin/wallpapers?page=1&pageSize=100&accessType=REDEEM');
 });
+
+it.each([
+  { creating: true, offlineOnly: undefined, expected: false, accessType: 'FREE' as const },
+  { creating: true, offlineOnly: true, expected: true, accessType: 'REDEEM' as const },
+  { creating: false, offlineOnly: false, expected: false, accessType: 'REDEEM' as const },
+  { creating: false, offlineOnly: true, expected: true, accessType: 'FREE' as const }
+])('saves and reads the offline promotion restriction independently of access type ($creating, $offlineOnly, $accessType)', async ({ creating, offlineOnly, expected, accessType }) => {
+  setCsrfToken('csrf-token');
+  const detail = {
+    id: '1', title: '壁纸', slug: 'wallpaper-test', accessType, offlinePromotionOnly: expected,
+    rootCategory: { id: '1', name: '风景', slug: 'scenery' }, childCategory: null,
+    cover: { id: '2', originalFilename: 'cover.png', mimeType: 'image/png', sizeBytes: 128, validationStatus: 'READY' },
+    copyrightNote: '平台内容', variants: [], status: 'DRAFT', sortOrder: 1,
+    version: 2, updatedAt: '2026-10-04T00:00:00Z', previewWatermarkEnabled: false
+  };
+  const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify(detail), {
+    headers: { 'Content-Type': 'application/json' }
+  }));
+  vi.stubGlobal('fetch', fetchMock);
+  const wallpaper = {
+    id: creating ? '' : '1', title: '壁纸', slug: 'wallpaper-test', accessType, categoryId: '1', subcategoryId: '',
+    sort: 1, copyrightNote: '平台内容', version: 1, capabilities: [], variants: [],
+    offlinePromotionOnly: offlineOnly, previewWatermarkEnabled: false,
+    resources: { cover: { assetId: '2', name: 'cover.png', size: 128, mime: 'image/png' } }
+  } as unknown as Wallpaper;
+
+  const saved = await adminRepository.saveWallpaper(wallpaper, false);
+
+  const [, request] = fetchMock.mock.calls[0]!;
+  expect(request.method).toBe(creating ? 'POST' : 'PATCH');
+  expect(JSON.parse(String(request.body))).toMatchObject({
+    accessType, offlinePromotionOnly: expected, previewWatermarkEnabled: false
+  });
+  expect(new Headers(request.headers).get('X-CSRF-Token')).toBe('csrf-token');
+  if (!creating) expect(new Headers(request.headers).get('If-Match')).toBe('"1"');
+  expect(saved.offlinePromotionOnly).toBe(expected);
+});
+
+it('defaults an older wallpaper response to normal online visibility', async () => {
+  const detail = {
+    id: '1', title: '壁纸', slug: 'wallpaper-test', accessType: 'FREE',
+    rootCategory: { id: '1', name: '风景', slug: 'scenery' }, childCategory: null,
+    cover: { id: '2', originalFilename: 'cover.png', mimeType: 'image/png', sizeBytes: 128, validationStatus: 'READY' },
+    copyrightNote: '平台内容', variants: [], status: 'PUBLISHED', sortOrder: 1,
+    version: 2, updatedAt: '2026-10-04T00:00:00Z'
+  };
+  const fetchMock = vi.fn().mockImplementation(async (url: string) => new Response(JSON.stringify(
+    url.endsWith('/1') ? detail : { items: [detail], page: { page: 1, pageSize: 100, totalItems: 1, totalPages: 1 } }
+  ), { headers: { 'Content-Type': 'application/json' } }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  const [wallpaper] = await adminRepository.wallpapers();
+
+  expect(wallpaper?.offlinePromotionOnly).toBe(false);
+});

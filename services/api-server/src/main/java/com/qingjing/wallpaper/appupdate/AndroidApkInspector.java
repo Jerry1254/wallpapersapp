@@ -45,7 +45,9 @@ public class AndroidApkInspector {
                     .digest(verified.getSignerCertificates().get(0).getEncoded()));
             try (var apk = new ApkFile(temporary.toFile())) {
                 var meta = apk.getApkMeta();
-                if (!expectedPackage.equals(meta.getPackageName())) throw rejected("APK package name does not match this App");
+                if (!expectedPackage.equals(meta.getPackageName()) && !AppReleaseService.OFFLINE_PACKAGE.equals(meta.getPackageName())) {
+                    throw rejected("APK package name does not match a supported App");
+                }
                 long code = meta.getVersionCode();
                 AppVersionOrder.code(code);
                 if (meta.getVersionName() == null || meta.getVersionName().isBlank() || meta.getVersionName().length() > 64) {

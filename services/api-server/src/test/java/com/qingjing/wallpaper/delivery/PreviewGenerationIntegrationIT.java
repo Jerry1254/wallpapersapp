@@ -102,7 +102,7 @@ class PreviewGenerationIntegrationIT {
     }
 
     @Test void migrationAndBulkPlanQueueAllNonArchivedWallpapers() {
-        assertThat(migratedVersion).isEqualTo("21");
+        assertThat(migratedVersion).isEqualTo("22");
         assertThat(migratedWallpaperIds).containsExactly(10L, 11L);
         createWallpaper(101, "PUBLISHED", "REDEEM", null);
         createWallpaper(102, "DRAFT", "FREE", null);

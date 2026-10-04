@@ -27,6 +27,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class AppReleaseService {
+    static final String ONLINE_PACKAGE = "com.qingjing.bizhi";
+    static final String OFFLINE_PACKAGE = "com.jiyi.wallpaper";
     private static final long MAX_APK_BYTES = 260L * 1024 * 1024;
     private final JdbcTemplate jdbc;
     private final FileStorage storage;
@@ -40,8 +42,12 @@ public class AppReleaseService {
         this.transactions = new TransactionTemplate(transactionManager);
     }
     public List<ReleaseView> list(String platform) {
+        return list(platform, null);
+    }
+    public List<ReleaseView> list(String platform, String packageName) {
         AppVersionOrder.platform(platform);
-        return rows(platform).stream().map(ReleaseRow::view).sorted((a, b) ->
+        String selected = selectedPackage(platform, packageName);
+        return rows(platform, selected).stream().map(ReleaseRow::view).sorted((a, b) ->
                 AppVersionOrder.compare(platform, b.versionName(), b.versionCode(), a.versionName(), a.versionCode())).toList();
     }
     public CheckResult check(String platform, String name, long code, String abi, Integer sdk) {
@@ -54,24 +60,29 @@ public class AppReleaseService {
         if (name == null || name.isBlank() || name.length() > 64) throw AppVersionOrder.invalid("versionName is required");
         if (abi != null && !java.util.Set.of("arm64-v8a", "armeabi-v7a", "x86", "x86_64").contains(abi)) throw AppVersionOrder.invalid("abi is invalid");
         if (sdk != null && (sdk < 1 || sdk > 1000)) throw AppVersionOrder.invalid("androidSdk is invalid");
-        if (packageName != null && !"com.qingjing.bizhi".equals(packageName)) {
+        if (packageName != null && !ONLINE_PACKAGE.equals(packageName)
+                && !(platform.equals("android") && OFFLINE_PACKAGE.equals(packageName))) {
             return new CheckResult(platform, false, false, null, null, Instant.now());
         }
-        return AppUpdatePolicy.evaluate(platform, name, code, list(platform), abi, sdk);
+        return AppUpdatePolicy.evaluate(platform, name, code, list(platform, packageName), abi, sdk);
     }
     public void requireForDevice(DevicePrincipal principal, String name, String code, String abi, String sdk) {
         String scope = jdbc.queryForObject("SELECT app_install_scope FROM anonymous_device WHERE id=?", String.class, principal.deviceId());
-        if (!"com.qingjing.bizhi".equals(scope)) return;
+        if (!ONLINE_PACKAGE.equals(scope) && !(principal.platform() == com.qingjing.wallpaper.device.DeviceDtos.DevicePlatform.ANDROID
+                && OFFLINE_PACKAGE.equals(scope))) return;
         String platform = switch (principal.platform()) {
             case ANDROID -> "android";
             case IOS -> "ios";
             case HARMONYOS -> "harmony";
             case H5_TEST -> null;
         };
-        if (platform != null) requireSupported(platform, name, code, abi, sdk);
+        if (platform != null) requireSupported(platform, name, code, abi, sdk, scope);
     }
     public void requireSupported(String platform, String name, String code, String abi, String sdk) {
-        List<ReleaseView> releases = list(platform);
+        requireSupported(platform, name, code, abi, sdk, null);
+    }
+    public void requireSupported(String platform, String name, String code, String abi, String sdk, String packageName) {
+        List<ReleaseView> releases = list(platform, packageName);
         if (releases.stream().noneMatch(r -> r.status().equals("PUBLISHED") && r.forceUpdate())) return;
         boolean mandatory;
         try {
@@ -104,6 +115,10 @@ public class AppReleaseService {
         return requireRow(id).view();
     }
     public ReleaseView uploadAndroid(MultipartFile file, String releaseNotes, long adminId) {
+        return uploadAndroid(file, releaseNotes, adminId, ONLINE_PACKAGE);
+    }
+    public ReleaseView uploadAndroid(MultipartFile file, String releaseNotes, long adminId, String packageName) {
+        String selected = selectedPackage("android", packageName);
         String notes = notes(releaseNotes);
         String filename = file.getOriginalFilename();
         if (file.isEmpty() || filename == null || !filename.toLowerCase(java.util.Locale.ROOT).endsWith(".apk")) {
@@ -115,11 +130,15 @@ public class AppReleaseService {
         StoredObject stored = null;
         try {
             var metadata = inspector.inspect(staged);
+            if (!selected.equals(metadata.packageName())) {
+                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "APP_APK_INVALID", "APK package name does not match the selected App");
+            }
             stored = storage.commit(staged, "apk");
             StoredObject committed = stored;
             return transactions.execute(status -> {
                 lockPlatform("android");
-                long id = insert("android", metadata.versionName(), metadata.versionCode(), Long.toString(metadata.versionCode()),
+                String identity = OFFLINE_PACKAGE.equals(metadata.packageName()) ? "jiyi:" + metadata.versionCode() : Long.toString(metadata.versionCode());
+                long id = insert("android", metadata.versionName(), metadata.versionCode(), identity,
                         notes, null, committed, metadata, adminId);
                 return requireRow(id).view();
             });
@@ -148,7 +167,7 @@ public class AppReleaseService {
         ReleaseRow row = lockRelease(id);
         if (!row.status().equals("DRAFT")) throw conflict("Only draft releases can be published");
         if (!row.platform().equals("android")) validateStoreUrl(row.platform(), row.storeUrl());
-        List<ReleaseRow> history = rows(row.platform()).stream().filter(r -> r.publishedAt() != null).toList();
+        List<ReleaseRow> history = rows(row.platform(), row.packageName()).stream().filter(r -> r.publishedAt() != null).toList();
         for (ReleaseRow prior : history) {
             if (AppVersionOrder.compare(row.platform(), row.versionName(), row.versionCode(), prior.versionName(), prior.versionCode()) <= 0) {
                 throw conflict("New releases must increase the published version");
@@ -208,8 +227,16 @@ public class AppReleaseService {
         if (key.getKey() == null) throw new IllegalStateException("App release ID was not allocated");
         return key.getKey().longValue();
     }
-    private List<ReleaseRow> rows(String platform) {
+    private List<ReleaseRow> rows(String platform, String packageName) {
+        if (platform.equals("android")) {
+            return jdbc.query("SELECT * FROM app_release WHERE platform=? AND package_name=?", this::map, platform, packageName);
+        }
         return jdbc.query("SELECT * FROM app_release WHERE platform=?", this::map, platform);
+    }
+    private String selectedPackage(String platform, String packageName) {
+        if (packageName == null || ONLINE_PACKAGE.equals(packageName)) return ONLINE_PACKAGE;
+        if (platform.equals("android") && OFFLINE_PACKAGE.equals(packageName)) return OFFLINE_PACKAGE;
+        throw AppVersionOrder.invalid("Unsupported App package name");
     }
     private ReleaseRow requireRow(long id) {
         List<ReleaseRow> found = jdbc.query("SELECT * FROM app_release WHERE id=?", this::map, id);

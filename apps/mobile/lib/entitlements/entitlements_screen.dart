@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/app_branding.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
 import '../catalog/catalog.dart';
 import '../design_system/qj_components.dart';
@@ -225,7 +226,9 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
             ),
             leading: const QjIcon('shield-check'),
             title: const Text('用户协议与隐私政策'),
-            subtitle: const Text('查看倾境壁纸的服务规则与信息处理说明'),
+            subtitle: Text(
+              '查看${AppBrandingScope.of(context).serviceName}的服务规则与信息处理说明',
+            ),
             trailing: const QjIcon('chevron-right'),
             onTap: () => Navigator.push(
               context,

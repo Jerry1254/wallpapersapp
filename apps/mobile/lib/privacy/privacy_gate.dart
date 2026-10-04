@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/app_branding.dart';
 import 'package:flutter/services.dart';
 import '../design_system/qj_components.dart';
 import '../design_system/qj_theme.dart';
@@ -160,12 +161,12 @@ class _ConsentScreen extends StatelessWidget {
     body: SafeArea(
       child: Stack(
         children: [
-          const Positioned(
+          Positioned(
             left: T.space5,
             top: T.space6,
             child: Text(
-              '倾境',
-              style: TextStyle(
+              AppBrandingScope.of(context).shortName,
+              style: const TextStyle(
                 fontSize: 31,
                 fontWeight: FontWeight.w900,
                 color: T.colorInk,
@@ -194,7 +195,7 @@ class _ConsentScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: T.space3),
                         Text(
-                          '欢迎使用倾境壁纸。请您在使用前阅读并同意以下协议。',
+                          '欢迎使用${AppBrandingScope.of(context).serviceName}。请您在使用前阅读并同意以下协议。',
                           style: Theme.of(context).textTheme.bodyMedium,
                         ),
                         const SizedBox(height: T.space3),
@@ -331,7 +332,7 @@ class PolicyDocumentScreen extends StatelessWidget {
               ),
               const SizedBox(height: T.space3),
               Text(
-                document.introduction,
+                AppBrandingScope.of(context).productText(document.introduction),
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
               for (final section in document.sections) ...[
@@ -342,7 +343,7 @@ class PolicyDocumentScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: T.space2),
                 Text(
-                  section.body,
+                  AppBrandingScope.of(context).productText(section.body),
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ],

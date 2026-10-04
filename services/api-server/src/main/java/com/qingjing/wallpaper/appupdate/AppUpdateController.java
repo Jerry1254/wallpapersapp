@@ -39,7 +39,7 @@ public class AppUpdateController {
                 .contentType(MediaType.valueOf("application/vnd.android.package-archive"))
                 .contentLength(selected.length()).header("Cache-Control", "no-store")
                 .header("Accept-Ranges", "bytes").header("ETag", etag)
-                .header("Content-Disposition", "attachment; filename=qingjing-" + release.versionCode() + ".apk")
+                .header("Content-Disposition", "attachment; filename=" + (AppReleaseService.OFFLINE_PACKAGE.equals(release.packageName()) ? "jiyi-" : "qingjing-") + release.versionCode() + ".apk")
                 .header("X-Content-Type-Options", "nosniff");
         if (selected.partial()) builder.header("Content-Range", "bytes " + selected.start() + "-" + selected.end() + "/" + release.fileSize());
         return builder.body(output -> {

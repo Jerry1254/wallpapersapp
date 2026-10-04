@@ -19,14 +19,22 @@ import org.springframework.web.bind.annotation.RestController;
 public class PublicAssetController {
 
     private final PublicAssetService assets;
+    private final PublicResourceIdentity identity;
 
     public PublicAssetController(PublicAssetService assets) {
+        this(assets,new PublicResourceIdentity(null));
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PublicAssetController(PublicAssetService assets,PublicResourceIdentity identity) {
         this.assets = assets;
+        this.identity=identity;
     }
 
     @GetMapping("/{assetId}/content")
-    ResponseEntity<InputStreamResource> content(@PathVariable String assetId) {
-        PublicAssetContent descriptor = assets.content(Ids.parse(assetId, "assetId"));
+    ResponseEntity<InputStreamResource> content(@PathVariable String assetId,
+            @org.springframework.web.bind.annotation.RequestHeader(value="Authorization",required=false) String authorization) {
+        PublicAssetContent descriptor = assets.content(Ids.parse(assetId, "assetId"),identity.deviceId(authorization));
         StoredContent content = assets.open(descriptor);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(descriptor.mimeType()))

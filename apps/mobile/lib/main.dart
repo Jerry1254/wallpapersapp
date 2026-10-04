@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'design_system/qj_theme.dart';
 import 'design_system/qj_components.dart';
 import 'config/app_config.dart';
+import 'config/app_branding.dart';
 import 'config/internal_tls.dart';
 import 'catalog/catalog.dart';
 import 'catalog/catalog_screen.dart';
@@ -61,7 +62,11 @@ class _QingjingAppState extends State<QingjingApp> {
       const AndroidWallpaperPlayback();
   late final CatalogRepository repository =
       widget.repository ??
-      HttpCatalogRepository(widget.config.apiBase, sessions: sessions);
+      HttpCatalogRepository(
+        widget.config.apiBase,
+        sessions: sessions,
+        authenticatedMedia: widget.config.isOffline,
+      );
 
   @override
   void dispose() {
@@ -70,27 +75,30 @@ class _QingjingAppState extends State<QingjingApp> {
   }
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: '倾境动态壁纸',
-    debugShowCheckedModeBanner: false,
-    navigatorObservers: [detailPreviewRouteObserver],
-    navigatorKey: appNavigatorKey,
-    builder: (context, child) => AppUpdateOverlay(
-      controller: updates,
+  Widget build(BuildContext context) => AppBrandingScope(
+    branding: widget.config.branding,
+    child: MaterialApp(
+      title: widget.config.branding.appName,
+      debugShowCheckedModeBanner: false,
+      navigatorObservers: [detailPreviewRouteObserver],
       navigatorKey: appNavigatorKey,
-      child: child!,
-    ),
-    theme: QjTheme.light,
-    home: PrivacyGate(
-      store: widget.privacyConsentStore,
-      builder: (_) => AppUpdateBootstrap(
+      builder: (context, child) => AppUpdateOverlay(
         controller: updates,
-        builder: (_) => HomeShell(
-          repository: repository,
-          sessions: sessions,
-          apiBase: widget.config.apiBase,
-          playback: playback,
-          labMode: widget.config.environment == 'lab',
+        navigatorKey: appNavigatorKey,
+        child: child!,
+      ),
+      theme: QjTheme.light,
+      home: PrivacyGate(
+        store: widget.privacyConsentStore,
+        builder: (_) => AppUpdateBootstrap(
+          controller: updates,
+          builder: (_) => HomeShell(
+            repository: repository,
+            sessions: sessions,
+            apiBase: widget.config.apiBase,
+            playback: playback,
+            labMode: widget.config.environment == 'lab',
+          ),
         ),
       ),
     ),

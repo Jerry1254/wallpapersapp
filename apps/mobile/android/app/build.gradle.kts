@@ -61,6 +61,17 @@ android {
             resValue("string", "qj_package_signing_key_id", System.getenv("QJ_PROD_PACKAGE_SIGNING_KEY_ID") ?: "")
             resValue("string", "qj_package_signing_public_key", System.getenv("QJ_PROD_PACKAGE_PUBLIC_KEY_DER") ?: "")
         }
+        create("offline") {
+            dimension = "environment"
+            applicationId = "com.jiyi.wallpaper"
+            versionName = providers.gradleProperty("offlineVersionName").orElse("1.0.0").get()
+            versionCode = providers.gradleProperty("offlineVersionCode").orElse("1").get().toInt()
+            require(versionName!!.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+"))) { "Invalid offline version name" }
+            require(versionCode!! > 0) { "Invalid offline version code" }
+            resValue("string", "app_name", "吉意壁纸")
+            resValue("string", "qj_package_signing_key_id", System.getenv("QJ_PROD_PACKAGE_SIGNING_KEY_ID") ?: "")
+            resValue("string", "qj_package_signing_public_key", System.getenv("QJ_PROD_PACKAGE_PUBLIC_KEY_DER") ?: "")
+        }
         create("internal") {
             dimension = "environment"
             applicationIdSuffix = ".internal"
@@ -105,6 +116,7 @@ if (!prodStore.isNullOrBlank()) {
         keyPassword = System.getenv("QJ_PROD_KEY_PASSWORD")
     }
     android.productFlavors.getByName("prod").signingConfig = prodSigning
+    android.productFlavors.getByName("offline").signingConfig = prodSigning
 }
 
 // Independent signer for the separate 4D adjustment app and legacy internal flavor.

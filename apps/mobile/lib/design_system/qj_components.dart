@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/app_branding.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'qj_theme.dart';
@@ -544,8 +545,8 @@ class QjSheet extends StatelessWidget {
 }
 
 class QjBrandHeader extends StatelessWidget {
-  const QjBrandHeader({super.key, this.title = '倾境', required this.onService});
-  final String title;
+  const QjBrandHeader({super.key, this.title, required this.onService});
+  final String? title;
   final VoidCallback onService;
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -581,7 +582,7 @@ class QjBrandHeader extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  title,
+                  title ?? AppBrandingScope.of(context).shortName,
                   style: Theme.of(context).textTheme.headlineMedium,
                 ),
               ),

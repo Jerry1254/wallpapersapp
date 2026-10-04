@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.19.0
+  version: 2.20.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -10,6 +10,9 @@ info:
 
     所有 Long ID 在 JSON 中使用字符串；所有时间均为带时区的 ISO 8601 字符串。
     公开目录仅返回封面和能力描述，不返回存储键、绝对路径、内容密钥或正式资源永久地址。
+    wallpaper.offlinePromotionOnly=true 的作品仅对已登记 Android com.jiyi.wallpaper（吉意壁纸）渠道可见。
+    正式三端、其他安装范围及匿名资源请求按 ONLINE 过滤；渠道来自服务器设备记录，不接受客户端 channel 切换。
+    列表、分类计数、详情、权益、兑换、预览和下载均执行当前策略，先前已签发的票据不绕过新策略。
 servers:
   - url: /api/v1
     description: 当前来源下的 V1 API；本地联调默认由开发代理转发到 API Server
@@ -167,9 +170,10 @@ paths:
       operationId: readWallpaperPreviewCover
       summary: 按作品当前预览策略读取封面
       description: |
-        无需设备会话；仅返回已发布壁纸的当前预览封面。免费壁纸无水印；付费壁纸默认有水印，管理员可关闭。
+        普通作品无需设备会话；仅返回已发布且当前渠道可见的预览封面。免费壁纸无水印；付费壁纸默认有水印，管理员可关闭。
+        仅线下作品需要吉意壁纸有效 deviceBearer；匿名或正式三端请求返回404，提供无效会话返回401。
         revision 仅用于客户端缓存分代，不允许读取旧策略或正式原图。预览尚在生成或失败时拒绝返回，不回退原图。
-      security: []
+      security: [{}, {deviceBearer: []}]
       parameters:
         - $ref: '#/components/parameters/WallpaperId'
         - name: revision
@@ -198,6 +202,8 @@ paths:
               schema: {type: string, format: binary}
             image/svg+xml:
               schema: {type: string, format: binary}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
         '503':
@@ -215,6 +221,8 @@ paths:
         关联付费且开启水印的壁纸时禁止回源原图；作品策略无歧义时可返回当前水印衍生封面。
         同一封面被多个不同预览策略的壁纸或分类复用时拒绝请求，客户端改用按作品隔离的 /wallpapers/{wallpaperId}/cover。
         生成未完成或失败时拒绝返回，不回退干净源；付费水印预览使用 Cache-Control: no-store。
+        可选 deviceBearer 决定可见渠道；匿名或正式三端不得读取仅线下作品封面（即使复用为分类图标）。
+      security: [{}, {deviceBearer: []}]
       parameters:
         - $ref: '#/components/parameters/AssetId'
       responses:
@@ -245,6 +253,8 @@ paths:
               schema:
                 type: string
                 format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
         '503':
@@ -3187,7 +3197,7 @@ paths:
       parameters:
         - name: packageName
           in: query
-          description: 实际package/bundleId；提供且非com.qingjing.bizhi时无更新。此公开参数只决定显示；业务拦截使用已认证设备库中的app_install_scope。
+          description: 实际package/bundleId；Android com.qingjing.bizhi与com.jiyi.wallpaper各自独立版本与强制门槛。未提供默认倾境；其他包无更新。此公开参数只决定显示，业务拦截使用已认证设备库中的app_install_scope。
           schema: {type: string, maxLength: 255}
         - name: platform
           in: query
@@ -3262,6 +3272,10 @@ paths:
           in: query
           required: true
           schema: {$ref: '#/components/schemas/AppReleasePlatform'}
+        - name: packageName
+          in: query
+          description: Android 应用选择，默认倾境；两款 App 版本及强制门槛独立。iOS/Harmony 省略。
+          schema: {type: string, enum: [com.qingjing.bizhi, com.jiyi.wallpaper], default: com.qingjing.bizhi}
       responses:
         '200':
           description: 数字版本降序，包含草稿与弃用记录，多个发布版本可同时生效
@@ -3304,7 +3318,7 @@ paths:
       tags: [Admin App Releases]
       operationId: uploadAndroidAppRelease
       summary: 上传正式APK，解析实际版本并验签后生成草稿
-      description: 包名必须匹配正式App；拒绝debuggable/testOnly/split、损坏或验签失败APK。默认forceUpdate=false，不自动启用。
+      description: 实际包名必须匹配所选 App（倾境或吉意）；拒绝debuggable/testOnly/split、损坏或验签失败APK。每个应用独立递增版本并校验历史签名；默认forceUpdate=false，不自动启用。
       security: [{adminCookie: [], adminCsrf: []}]
       requestBody:
         required: true
@@ -3316,6 +3330,7 @@ paths:
               properties:
                 file: {type: string, format: binary, description: 260MiB以内的完整正式APK}
                 releaseNotes: {type: string, minLength: 1, maxLength: 1000}
+                packageName: {type: string, enum: [com.qingjing.bizhi, com.jiyi.wallpaper], default: com.qingjing.bizhi, description: 所选目标应用；必须与APK实际解析包名一致}
       responses:
         '201': {$ref: '#/components/responses/AppReleaseResult'}
         '400': {$ref: '#/components/responses/BadRequest'}
@@ -4880,6 +4895,10 @@ components:
           pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
         accessType:
           $ref: '#/components/schemas/WallpaperAccessType'
+        offlinePromotionOnly:
+          type: boolean
+          default: false
+          description: 仅吉意壁纸 Android 线下推广使用；默认 false，PATCH省略保留现值。true时正式Android/iOS/Harmony及匿名入口均不可见，服务端按当前策略检查；不改变收费、水印和资源生成。
         previewWatermarkEnabled:
           type: boolean
           default: true
@@ -4920,6 +4939,7 @@ components:
           previewGenerationStatus,
           previewWatermarkEnabled,
           previewGenerationError,
+          offlinePromotionOnly,
           rootCategory,
           cover,
           featured,
@@ -4948,6 +4968,9 @@ components:
           description: 当前预览策略代次；策略变化或手动重建后递增，App 按此隔离并清理旧预览缓存。
         previewGenerationStatus:
           $ref: '#/components/schemas/PreviewGenerationStatus'
+        offlinePromotionOnly:
+          type: boolean
+          description: 是否仅吉意壁纸 Android 线下渠道可见。
         previewWatermarkEnabled:
           type: boolean
           description: 管理员保存的付费预览水印开关；免费壁纸始终不加水印。默认 true。

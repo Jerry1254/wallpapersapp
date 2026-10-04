@@ -56,7 +56,8 @@ public final class AdminContentDtos {
             @Min(0) @Max(999_999) Integer featuredRank,
             @NotNull @Min(0) @Max(999_999) Integer sortOrder,
             @NotBlank @Size(max = 500) String copyrightNote,
-            Boolean previewWatermarkEnabled) {
+            Boolean previewWatermarkEnabled,
+            Boolean offlinePromotionOnly) {
     }
 
     public record VariantWriteRequest(
@@ -116,7 +117,8 @@ public final class AdminContentDtos {
             Instant createdAt,
             Instant updatedAt,
             long version,
-            boolean previewWatermarkEnabled, long previewRevision, String previewGenerationStatus, @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS) String previewGenerationError) {
+            boolean previewWatermarkEnabled, long previewRevision, String previewGenerationStatus, @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS) String previewGenerationError,
+            boolean offlinePromotionOnly) {
     }
 
     public record AdminWallpaperDetail(
@@ -139,7 +141,8 @@ public final class AdminContentDtos {
             String copyrightNote,
             List<AdminWallpaperVariant> variants,
             com.qingjing.wallpaper.iosacquisition.IosAcquisitionDtos.IosProductConfiguration iosAcquisition,
-            boolean previewWatermarkEnabled, long previewRevision, String previewGenerationStatus, @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS) String previewGenerationError) {
+            boolean previewWatermarkEnabled, long previewRevision, String previewGenerationStatus, @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS) String previewGenerationError,
+            boolean offlinePromotionOnly) {
     }
 
     public record AdminWallpaperPage(List<AdminWallpaperSummary> items, PageMetadata page) {
