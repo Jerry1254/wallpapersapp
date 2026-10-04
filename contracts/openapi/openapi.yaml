@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.17.0
+  version: 2.18.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -15,6 +15,10 @@ servers:
     description: 当前来源下的 V1 API；本地联调默认由开发代理转发到 API Server
 security: []
 tags:
+  - name: App Updates
+    description: 三端独立版本、强制门槛与Android APK更新
+  - name: Admin App Releases
+    description: 上传或登记草稿、发布、关闭强制和弃用版本
   - name: Public Catalog
     description: 按已认证安装包平台返回已发布资源能力与封面
   - name: Public Tutorial
@@ -501,6 +505,10 @@ paths:
       security:
         - deviceBearer: []
       parameters:
+        - $ref: '#/components/parameters/AppVersionName'
+        - $ref: '#/components/parameters/AppVersionCode'
+        - $ref: '#/components/parameters/AppAbi'
+        - $ref: '#/components/parameters/AppAndroidSdk'
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/RequestId'
         - $ref: '#/components/parameters/RequestTimestamp'
@@ -513,6 +521,7 @@ paths:
             schema:
               $ref: '#/components/schemas/RedeemWallpaperRequest'
       responses:
+        '426': {$ref: '#/components/responses/AppUpdateRequired'}
         '200':
           description: 已存在的幂等结果，或设备原本已拥有壁纸
           content:
@@ -623,6 +632,10 @@ paths:
       security:
         - deviceBearer: []
       parameters:
+        - $ref: '#/components/parameters/AppVersionName'
+        - $ref: '#/components/parameters/AppVersionCode'
+        - $ref: '#/components/parameters/AppAbi'
+        - $ref: '#/components/parameters/AppAndroidSdk'
         - $ref: '#/components/parameters/WallpaperId'
         - $ref: '#/components/parameters/RequestId'
         - $ref: '#/components/parameters/RequestTimestamp'
@@ -635,6 +648,7 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateDownloadTicketRequest'
       responses:
+        '426': {$ref: '#/components/responses/AppUpdateRequired'}
         '201':
           description: 下载描述已签发
           content:
@@ -2618,6 +2632,10 @@ paths:
         存在未完成重置时拒绝新领取；challenge 绑定的免费代次必须仍有效。
         已被重置撤销的旧 requestId 返回 IOS_FREE_CLAIM_RESET，不重新发放免费来源。
       parameters:
+        - $ref: '#/components/parameters/AppVersionName'
+        - $ref: '#/components/parameters/AppVersionCode'
+        - $ref: '#/components/parameters/AppAbi'
+        - $ref: '#/components/parameters/AppAndroidSdk'
         - {$ref: '#/components/parameters/AppAttestKey'}
         - {$ref: '#/components/parameters/AppAttestAssertion'}
       requestBody:
@@ -2633,6 +2651,7 @@ paths:
                     wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
                     requestId: {type: string, format: uuid}
       responses:
+        '426': {$ref: '#/components/responses/AppUpdateRequired'}
         '200':
           description: 已持久化当前安装免费权益；重复请求返回同一结果
           content:
@@ -2685,6 +2704,10 @@ paths:
       summary: 创建固定壁纸的积分购买订单
       description: 需要设备会话、设备签名和App Attest。验证Apple签名AppTransaction及deviceVerification。订单固定金额、积分包、数量、壁纸和专属token；客户端不能传价格。相同未完成订单幂等返回，保留价格快照。
       parameters:
+        - $ref: '#/components/parameters/AppVersionName'
+        - $ref: '#/components/parameters/AppVersionCode'
+        - $ref: '#/components/parameters/AppAbi'
+        - $ref: '#/components/parameters/AppAndroidSdk'
         - {$ref: '#/components/parameters/AppAttestKey'}
         - {$ref: '#/components/parameters/AppAttestAssertion'}
       requestBody:
@@ -2702,6 +2725,7 @@ paths:
                 deviceVerificationId: {type: string, minLength: 1, maxLength: 256}
                 wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
       responses:
+        '426': {$ref: '#/components/responses/AppUpdateRequired'}
         '200':
           description: 服务端验证完成并持久化结果
           content:
@@ -3021,6 +3045,233 @@ paths:
         '503': {$ref: '#/components/responses/Error'}
         default: {$ref: '#/components/responses/Error'}
 
+  /app-updates/check:
+    get:
+      tags: [App Updates]
+      operationId: checkAppUpdate
+      summary: 无需会话检查当前安装版本
+      description: |
+        仅 PUBLISHED 版本生效。最新目标和强制门槛分别计算；DRAFT/DEPRECATED 均不参与。
+        android/harmony 使用 versionCode，iOS 使用数字营销 versionName（忽略同营销版不同build）。
+        Android 传 ABI/SDK 时以最高兼容版本为目标，无法到达强制门槛不拦截。
+        Cache-Control 为 no-store；首次请求失败不能自行判定必须更新。
+      security: []
+      parameters:
+        - name: packageName
+          in: query
+          description: 实际package/bundleId；提供且非com.qingjing.bizhi时无更新。此公开参数只决定显示；业务拦截使用已认证设备库中的app_install_scope。
+          schema: {type: string, maxLength: 255}
+        - name: platform
+          in: query
+          required: true
+          schema: {$ref: '#/components/schemas/AppReleasePlatform'}
+        - name: versionName
+          in: query
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 64}
+        - name: versionCode
+          in: query
+          required: true
+          schema: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        - name: abi
+          in: query
+          schema: {type: string, enum: [arm64-v8a, armeabi-v7a, x86, x86_64]}
+        - name: androidSdk
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 1000}
+      responses:
+        '200':
+          description: 当前规则判断，nullable版本字段在无生效版本时为null
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AppUpdateCheckEnvelope'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '500': {$ref: '#/components/responses/InternalError'}
+
+  /app-updates/packages/{releaseId}:
+    get:
+      tags: [App Updates]
+      operationId: downloadPublishedAppApk
+      summary: 下载已发布Android APK（支持单Range断点）
+      description: 只能按版本ID读取PUBLISHED Android APK，不接收存储路径；草稿和弃用包返回404，不暴露其他资源。支持If-Range SHA-256 ETag。
+      security: []
+      parameters:
+        - name: releaseId
+          in: path
+          required: true
+          schema: {$ref: '#/components/schemas/LongId'}
+        - name: Range
+          in: header
+          schema: {type: string, example: 'bytes=1048576-'}
+        - name: If-Range
+          in: header
+          schema: {type: string}
+      responses:
+        '200':
+          description: 完整APK；Accept-Ranges为bytes，Cache-Control为no-store
+          content:
+            application/vnd.android.package-archive:
+              schema: {type: string, format: binary}
+        '206':
+          description: APK单字节范围；包含Content-Range、Content-Length与ETag
+          content:
+            application/vnd.android.package-archive:
+              schema: {type: string, format: binary}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '416':
+          description: 无效、多段或不可满足Range；Content-Range为bytes */文件长度
+        '500': {$ref: '#/components/responses/InternalError'}
+
+  /admin/app-releases:
+    get:
+      tags: [Admin App Releases]
+      operationId: listAdminAppReleases
+      summary: 查询指定平台全部版本记录
+      security: [{adminCookie: []}]
+      parameters:
+        - name: platform
+          in: query
+          required: true
+          schema: {$ref: '#/components/schemas/AppReleasePlatform'}
+      responses:
+        '200':
+          description: 数字版本降序，包含草稿与弃用记录，多个发布版本可同时生效
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: {$ref: '#/components/schemas/AppReleaseView'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      tags: [Admin App Releases]
+      operationId: createStoreAppRelease
+      summary: 登记iOS或鸿蒙商店版本草稿
+      security: [{adminCookie: [], adminCsrf: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StoreAppReleaseRequest'}
+      responses:
+        '201': {$ref: '#/components/responses/AppReleaseResult'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+
+  /admin/app-releases/android:
+    post:
+      tags: [Admin App Releases]
+      operationId: uploadAndroidAppRelease
+      summary: 上传正式APK，解析实际版本并验签后生成草稿
+      description: 包名必须匹配正式App；拒绝debuggable/testOnly/split、损坏或验签失败APK。默认forceUpdate=false，不自动启用。
+      security: [{adminCookie: [], adminCsrf: []}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, releaseNotes]
+              properties:
+                file: {type: string, format: binary, description: 260MiB以内的完整正式APK}
+                releaseNotes: {type: string, minLength: 1, maxLength: 1000}
+      responses:
+        '201': {$ref: '#/components/responses/AppReleaseResult'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413':
+          description: APK超出上传大小限制
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+        '500': {$ref: '#/components/responses/InternalError'}
+
+  /admin/app-releases/{releaseId}:
+    put:
+      tags: [Admin App Releases]
+      operationId: updateAppReleasePolicy
+      summary: 修改说明、商店地址和强制开关
+      description: 关闭forceUpdate后该版本转为普通更新，其他发布版本的强制门槛继续生效。版本身份和APK不可变；弃用版本不可编辑。
+      security: [{adminCookie: [], adminCsrf: []}]
+      parameters:
+        - name: releaseId
+          in: path
+          required: true
+          schema: {$ref: '#/components/schemas/LongId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AppReleaseUpdateRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/AppReleaseResult'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+
+  /admin/app-releases/{releaseId}/publish:
+    post:
+      tags: [Admin App Releases]
+      operationId: publishAppRelease
+      summary: 发布版本并使其参与更新判断
+      description: |
+        发布序列必须递增；不能以低版本修复，应新增更高版本。Android正式包必须与此前已发布包同包名、同签名。
+        商店平台此操作表示管理员已确认商店可下载此版本；未上架版本不得发布/强更。
+        多个发布版本保留，最高普通/强制目标分别计算。
+      security: [{adminCookie: [], adminCsrf: []}]
+      parameters:
+        - name: releaseId
+          in: path
+          required: true
+          schema: {$ref: '#/components/schemas/LongId'}
+      responses:
+        '200': {$ref: '#/components/responses/AppReleaseResult'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+
+  /admin/app-releases/{releaseId}/deprecate:
+    post:
+      tags: [Admin App Releases]
+      operationId: deprecateAppRelease
+      summary: 弃用版本，退出普通提醒和强制门槛计算
+      description: 保留审计和包文件，不允许再次发布；弃用版本的APK不再公开下载。全部弃用时旧客户端不提示更新。
+      security: [{adminCookie: [], adminCsrf: []}]
+      parameters:
+        - name: releaseId
+          in: path
+          required: true
+          schema: {$ref: '#/components/schemas/LongId'}
+      responses:
+        '200': {$ref: '#/components/responses/AppReleaseResult'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+
 components:
   securitySchemes:
     deviceBearer:
@@ -3062,6 +3313,24 @@ components:
         pattern: '^"[0-9]+"$'
 
   parameters:
+    AppVersionName:
+      name: X-App-Version-Name
+      in: header
+      description: 实际安装包营销版本；有生效强制规则时缺失/无效按旧客户端处理。兼容门禁不等于防伪硬件证明。
+      schema: {type: string, maxLength: 64}
+    AppVersionCode:
+      name: X-App-Version-Code
+      in: header
+      description: 实际安装包build/versionCode；平台从已认证会话读取，不能由header切换。
+      schema: {type: string, pattern: '^[1-9][0-9]*$'}
+    AppAbi:
+      name: X-App-ABI
+      in: header
+      schema: {type: string, enum: [arm64-v8a, armeabi-v7a, x86, x86_64]}
+    AppAndroidSdk:
+      name: X-App-Android-Sdk
+      in: header
+      schema: {type: string, pattern: '^[1-9][0-9]*$'}
     Page:
       name: page
       in: query
@@ -3198,6 +3467,16 @@ components:
       schema: {type: string, maxLength: 32768}
 
   responses:
+    AppReleaseResult:
+      description: 新增或更新后的版本记录（data外层）
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/AppReleaseEnvelope'}
+    AppUpdateRequired:
+      description: 当前会话平台版本低于有效强制门槛；客户端重新检查并展示不可关闭弹窗。支付验签/恢复不被该门槛阻断。
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
     BadRequest:
       description: 请求格式、参数或字段校验失败
       content:
@@ -3342,6 +3621,11 @@ components:
       type: string
       description: V1 稳定错误码；message 可本地化，客户端分支只依赖 code。
       enum:
+        - APP_RELEASE_INVALID
+        - APP_APK_INVALID
+        - APP_RELEASE_CONFLICT
+        - APP_RELEASE_NOT_FOUND
+        - APP_UPDATE_REQUIRED
         - VALIDATION_FAILED
         - MALFORMED_REQUEST
         - UNAUTHORIZED
@@ -5681,3 +5965,70 @@ components:
             WALLPAPER_UNAVAILABLE, UNAUTHORIZED, FORBIDDEN, VALIDATION_FAILED,
             APPLE_NOTIFICATION_INVALID, RATE_LIMITED, INTERNAL_ERROR]
         message: {type: string}
+
+    AppReleasePlatform:
+      type: string
+      enum: [android, ios, harmony]
+    AppReleaseView:
+      type: object
+      required: [id, platform, versionName, versionCode, releaseNotes, forceUpdate, status, deliveryType, createdAt]
+      properties:
+        id: {$ref: '#/components/schemas/LongId'}
+        platform: {$ref: '#/components/schemas/AppReleasePlatform'}
+        versionName: {type: string, maxLength: 64}
+        versionCode: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        releaseNotes: {type: string, maxLength: 1000}
+        forceUpdate: {type: boolean, description: 此版本仅在PUBLISHED时形成最低使用门槛}
+        status: {type: string, enum: [DRAFT, PUBLISHED, DEPRECATED]}
+        deliveryType: {type: string, enum: [apk, store]}
+        storeUrl: {type: string, format: uri, nullable: true, description: 商店详情https链接；Android为null}
+        packageName: {type: string, nullable: true}
+        sha256: {type: string, pattern: '^[a-f0-9]{64}$', nullable: true}
+        fileSize: {type: integer, format: int64, nullable: true}
+        abi: {type: string, nullable: true, description: 逗号分隔ABI，或universal}
+        signerSha256: {type: string, pattern: '^[a-f0-9]{64}$', nullable: true}
+        minSdkVersion: {type: integer, nullable: true, description: APK解析的Android最低系统SDK}
+        downloadUrl: {type: string, nullable: true, description: '仅PUBLISHED Android返回同源相对/api/v1/app-updates/packages/{id}，从API源解析'}
+        createdAt: {$ref: '#/components/schemas/Timestamp'}
+        publishedAt: {type: string, format: date-time, nullable: true}
+    AppReleaseEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/AppReleaseView'}
+    AppUpdateCheckEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [platform, updateAvailable, mandatory, minimumVersion, latestVersion, checkedAt]
+          properties:
+            platform: {$ref: '#/components/schemas/AppReleasePlatform'}
+            updateAvailable: {type: boolean}
+            mandatory: {type: boolean, description: 当前版本低于强制门槛且存在可达更新目标}
+            minimumVersion:
+              type: object
+              allOf: [{$ref: '#/components/schemas/AppReleaseView'}]
+              nullable: true
+            latestVersion:
+              type: object
+              allOf: [{$ref: '#/components/schemas/AppReleaseView'}]
+              nullable: true
+            checkedAt: {$ref: '#/components/schemas/Timestamp'}
+    StoreAppReleaseRequest:
+      type: object
+      required: [platform, versionName, versionCode, releaseNotes, storeUrl]
+      properties:
+        platform: {type: string, enum: [ios, harmony]}
+        versionName: {type: string, maxLength: 64, pattern: '^[0-9]+(?:\.[0-9]+){1,2}$'}
+        versionCode: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        releaseNotes: {type: string, minLength: 1, maxLength: 1000}
+        storeUrl: {type: string, format: uri, maxLength: 1000}
+    AppReleaseUpdateRequest:
+      type: object
+      required: [releaseNotes, forceUpdate]
+      properties:
+        releaseNotes: {type: string, minLength: 1, maxLength: 1000}
+        forceUpdate: {type: boolean}
+        storeUrl: {type: string, format: uri, nullable: true, maxLength: 1000}

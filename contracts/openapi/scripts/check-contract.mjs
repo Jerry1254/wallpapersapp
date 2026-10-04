@@ -288,3 +288,29 @@ assert.ok(document.paths['/device/wallpapers/{wallpaperId}/download-tickets'].po
 
 console.log(`Contract coverage checks passed for ${operations.length} operations and ${Object.keys(document.components.schemas).length} schemas.`);
 console.log(`ErrorCode coverage passed for ${checkedErrorLiterals} direct Java ApiException literals.`);
+
+for (const [path, method] of [
+  ['/app-updates/check', 'get'],
+  ['/app-updates/packages/{releaseId}', 'get'],
+  ['/admin/app-releases', 'get'],
+  ['/admin/app-releases', 'post'],
+  ['/admin/app-releases/android', 'post'],
+  ['/admin/app-releases/{releaseId}', 'put'],
+  ['/admin/app-releases/{releaseId}/publish', 'post'],
+  ['/admin/app-releases/{releaseId}/deprecate', 'post']
+]) assert.ok(document.paths[path]?.[method], `missing App release operation ${method} ${path}`);
+assert.deepEqual(document.paths['/app-updates/check'].get.security, []);
+assert.deepEqual(document.paths['/app-updates/packages/{releaseId}'].get.security, []);
+assert.deepEqual(document.components.schemas.AppReleasePlatform.enum, ['android', 'ios', 'harmony']);
+assert.deepEqual(document.components.schemas.AppReleaseView.properties.status.enum, ['DRAFT', 'PUBLISHED', 'DEPRECATED']);
+for (const path of [
+  '/device/redemptions', '/device/wallpapers/{wallpaperId}/download-tickets',
+  '/device/ios/acquisition/free-claims', '/device/ios/acquisition/credit-orders'
+]) {
+  assert.equal(document.paths[path].post.responses['426'].$ref, '#/components/responses/AppUpdateRequired');
+  const headerNames = document.paths[path].post.parameters.map(parameterName);
+  assert.ok(headerNames.includes('AppVersionName') && headerNames.includes('AppVersionCode'));
+}
+assert.ok(!document.paths['/device/ios/acquisition/purchases'].post.responses['426'], 'paid transaction confirmation must remain available to old versions');
+assert.ok(!document.paths['/device/ios/acquisition/credit-restores'].post.responses['426'], 'transaction recovery must remain available to old versions');
+console.log('App release policy and forced-update recovery contract checks passed.');
