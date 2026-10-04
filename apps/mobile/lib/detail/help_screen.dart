@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import '../catalog/catalog.dart';
+import '../config/app_branding.dart';
 import '../design_system/qj_components.dart';
 import '../design_system/qj_theme.dart';
 import '../support/customer_service.dart';
@@ -100,7 +101,8 @@ class _TutorialCatalogState extends State<_TutorialCatalog> {
               padding: const EdgeInsets.only(bottom: T.space3),
               child: Semantics(
                 button: true,
-                label: '播放${tutorial.title}',
+                label:
+                    '播放${AppBrandingScope.of(context).productText(tutorial.title)}',
                 child: InkWell(
                   onTap: () => showSettingTutorial(
                     context,
@@ -136,7 +138,9 @@ class _TutorialCatalogState extends State<_TutorialCatalog> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                tutorial.title,
+                                AppBrandingScope.of(
+                                  context,
+                                ).productText(tutorial.title),
                                 style: Theme.of(context).textTheme.titleMedium,
                               ),
                               const SizedBox(height: 5),
@@ -186,8 +190,10 @@ Future<void> showSettingTutorial(
     context: context,
     barrierDismissible: false,
     transitionDuration: const Duration(milliseconds: 180),
-    pageBuilder: (_, _, _) =>
-        SettingTutorialScreen(title: tutorial.title, source: source),
+    pageBuilder: (_, _, _) => SettingTutorialScreen(
+      title: AppBrandingScope.of(context).productText(tutorial.title),
+      source: source,
+    ),
   );
 }
 

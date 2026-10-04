@@ -1,10 +1,17 @@
 export type AppReleasePlatform = 'android' | 'ios' | 'harmony';
+export type AppReleaseApplication = AppReleasePlatform | 'jiyi';
 export type AppReleaseStatus = 'DRAFT' | 'PUBLISHED' | 'DEPRECATED';
 export type AndroidAppPackageName = 'com.qingjing.bizhi' | 'com.jiyi.wallpaper';
 export const defaultAndroidAppPackage: AndroidAppPackageName = 'com.qingjing.bizhi';
 export const androidAppLabels: Record<AndroidAppPackageName, string> = {
   'com.qingjing.bizhi': '倾境动态壁纸',
-  'com.jiyi.wallpaper': '吉意壁纸（线下）'
+  'com.jiyi.wallpaper': '吉意壁纸（线下推广）'
+};
+export const appReleaseApplications: Record<AppReleaseApplication, { label: string; platform: AppReleasePlatform; packageName: AndroidAppPackageName }> = {
+  android: { label: 'Android（倾境）', platform: 'android', packageName: defaultAndroidAppPackage },
+  ios: { label: 'iOS', platform: 'ios', packageName: defaultAndroidAppPackage },
+  harmony: { label: 'HarmonyOS', platform: 'harmony', packageName: defaultAndroidAppPackage },
+  jiyi: { label: androidAppLabels['com.jiyi.wallpaper'], platform: 'android', packageName: 'com.jiyi.wallpaper' }
 };
 
 export interface AppRelease {

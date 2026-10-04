@@ -17,7 +17,8 @@ class AppBranding {
       ? text
       : text
             .replaceAll(qingjing.appName, appName)
-            .replaceAll(qingjing.serviceName, serviceName);
+            .replaceAll(qingjing.serviceName, serviceName)
+            .replaceAll(qingjing.shortName, shortName);
 }
 
 class AppBrandingScope extends InheritedWidget {

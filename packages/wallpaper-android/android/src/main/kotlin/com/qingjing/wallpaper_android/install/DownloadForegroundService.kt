@@ -66,7 +66,7 @@ internal class DownloadForegroundService : Service() {
         }
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("倾境壁纸")
+            .setContentTitle(applicationInfo.loadLabel(packageManager))
             .setContentText(label)
             .setContentIntent(contentIntent)
             .setOngoing(true)

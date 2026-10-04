@@ -5,13 +5,14 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { computed, onMounted, reactive, ref } from 'vue';
 
 import AdminLoadNotice from '@/components/AdminLoadNotice.vue';
-import type { AndroidAppPackageName, AppRelease, AppReleasePlatform } from '@/domain/appReleases';
-import { androidAppLabels, appReleaseMatchesApplication, appReleasePlatformLabels, appReleaseStatusLabels, compareAppReleaseVersions, defaultAndroidAppPackage, effectiveAppReleasePolicy, validStoreRelease } from '@/domain/appReleases';
+import type { AndroidAppPackageName, AppRelease, AppReleaseApplication, AppReleasePlatform } from '@/domain/appReleases';
+import { androidAppLabels, appReleaseApplications, appReleaseMatchesApplication, appReleasePlatformLabels, appReleaseStatusLabels, compareAppReleaseVersions, defaultAndroidAppPackage, effectiveAppReleasePolicy, validStoreRelease } from '@/domain/appReleases';
 import { apiResourceUrl, readableApiError } from '@/repositories/http/apiClient';
 import { appReleaseRepository } from '@/repositories/http/appReleaseRepository';
 
-const platform = ref<AppReleasePlatform>('android');
-const androidPackage = ref<AndroidAppPackageName>(defaultAndroidAppPackage);
+const application = ref<AppReleaseApplication>('android');
+const platform = computed(() => appReleaseApplications[application.value].platform);
+const androidPackage = computed(() => appReleaseApplications[application.value].packageName);
 const releases = ref<AppRelease[]>([]);
 const loading = ref(true);
 const loadError = ref('');
@@ -176,18 +177,11 @@ onMounted(load);
 <template>
   <section class="page-shell">
     <header class="page-heading">
-      <div><h1>App 版本管理</h1><p>三端分别控制更新。上传或登记只生成草稿，发布后才生效。</p></div>
+      <div><h1>App 版本管理</h1><p>倾境三端与吉意线下推广版分别控制更新。上传或登记只生成草稿，发布后才生效。</p></div>
       <div class="page-actions"><ElButton :icon="Refresh" :disabled="busy" :loading="loading" @click="load">刷新</ElButton><ElButton type="primary" :icon="Plus" :disabled="busy" @click="openCreate">{{ platform === 'android' ? '上传正式 APK' : '登记商店版本' }}</ElButton></div>
     </header>
 
-    <section class="surface release-platforms"><ElTabs v-model="platform" @tab-change="changeApplication"><ElTabPane v-for="(label, key) in appReleasePlatformLabels" :key="key" :name="key" :label="label" :disabled="busy" /></ElTabs></section>
-    <section v-if="platform === 'android'" class="surface release-app-selector">
-      <strong>Android 应用</strong>
-      <ElSelect v-model="androidPackage" :disabled="busy" style="width:240px" @change="changeApplication">
-        <ElOption v-for="(label, packageName) in androidAppLabels" :key="packageName" :label="label" :value="packageName" />
-      </ElSelect>
-      <small>两个应用的版本和强制更新门槛分别管理。</small>
-    </section>
+    <section class="surface release-platforms"><ElTabs v-model="application" @tab-change="changeApplication"><ElTabPane v-for="(app, key) in appReleaseApplications" :key="key" :name="key" :label="app.label" :disabled="busy" /></ElTabs></section>
     <AdminLoadNotice :error="loadError" :loading="loading" @retry="load" />
     <template v-if="!loadError">
       <section v-loading="loading" class="release-policy">
@@ -196,7 +190,7 @@ onMounted(load);
       </section>
       <ElAlert title="只有已发布且未弃用的版本参与判断；最新普通版本不会提高强制门槛。关闭一个强制规则后，其他版本的强制规则仍独立生效。" type="info" :closable="false" show-icon />
       <section v-loading="loading" class="surface content-table">
-        <ElTable :data="rows" row-key="id" empty-text="尚未登记此平台的版本">
+        <ElTable :data="rows" row-key="id" empty-text="尚未登记此应用的版本">
           <ElTableColumn label="版本" width="150"><template #default="{ row }"><strong>{{ row.versionName }}</strong><small class="release-table-small">{{ platform === 'ios' ? '构建号' : 'versionCode' }} {{ row.versionCode }}</small><small v-if="row.id === policy.latest?.id" class="release-table-small release-current">最新可用</small></template></ElTableColumn>
           <ElTableColumn label="更新策略" width="165"><template #default="{ row }"><ElTag :type="row.forceUpdate && row.status !== 'DEPRECATED' ? 'danger' : 'info'" effect="plain">{{ row.forceUpdate ? '强制更新' : '普通更新' }}</ElTag><small v-if="row.id === policy.minimum?.id" class="release-table-small">当前有效门槛</small><small v-else-if="row.status !== 'PUBLISHED'" class="release-table-small">不生效</small></template></ElTableColumn>
           <ElTableColumn label="状态" width="110"><template #default="{ row }"><ElTag :type="tagType(row.status)">{{ appReleaseStatusLabels[row.status as AppRelease['status']] }}</ElTag></template></ElTableColumn>
@@ -276,8 +270,6 @@ onMounted(load);
 .release-platforms { padding: 4px 20px 0; }
 .release-platforms :deep(.el-tabs__header) { margin-bottom: 0; }
 .release-platforms :deep(.el-tabs__nav-wrap::after) { height: 0; }
-.release-app-selector { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 16px 20px; }
-.release-app-selector small { color: var(--admin-muted); }
 .release-policy { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .release-policy article { display: grid; gap: 8px; padding: 20px; }
 .release-policy span { font-size: 13px; color: var(--admin-muted); }
