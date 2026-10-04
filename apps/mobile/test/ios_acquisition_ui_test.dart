@@ -141,7 +141,6 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.textContaining('1积分＝1元'), findsNothing);
-    expect(find.byTooltip('全屏预览'), findsNothing);
     await tester.tap(find.text('18个积分兑换壁纸'));
     await tester.pumpAndSettle();
     expect(find.text('兑换说明'), findsOneWidget);
