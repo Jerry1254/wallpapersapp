@@ -34,7 +34,7 @@ import org.springframework.stereotype.Component;
 @Component
 public final class PreviewWatermarkRenderer {
     private static final Logger log = LoggerFactory.getLogger(PreviewWatermarkRenderer.class);
-    private static final String TEXT = "预览";
+    private static final String TEXT = "预览专用";
     private static final float OPACITY = 0.15f;
     private static final long MAX_BYTES = 256L * 1024 * 1024;
     private static final long MAX_PIXELS = 32L * 1024 * 1024;
