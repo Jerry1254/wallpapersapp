@@ -231,6 +231,7 @@
     const root=$('wallpaper-workspace');root.classList.toggle('static-workspace',state.product==='static');root.classList.toggle('package-workspace',state.product==='4d');root.classList.toggle('dynamic-workspace',state.product==='dynamic');
     document.querySelector('.project-info strong').textContent=state.name||'未命名项目';renderAssets();renderWallpaperMedia();renderSequence();syncInspector();syncPlatformButtons();syncTimeline();
     $('motion-settings').hidden=state.product!=='dynamic';$('static-settings').hidden=state.product!=='static';$('package-settings').hidden=state.product!=='4d';$('crop-settings').hidden=state.product==='4d';
+    if(state.product==='static')$('crop-settings').open=true;
     $('timeline').hidden=state.product!=='dynamic';$('timeline-empty').hidden=state.product==='dynamic';$('static-layout').hidden=state.product!=='static';$('package-preview').hidden=state.product!=='4d';$('four-d-card').hidden=true;
     ['.device-toolbar','.device-meta','.view-options','.player-bar'].forEach(selector=>document.querySelector(selector).hidden=false);
     $('output-size-field').hidden=state.product!=='dynamic';if(state.product!=='dynamic')$('custom-size').hidden=true;
