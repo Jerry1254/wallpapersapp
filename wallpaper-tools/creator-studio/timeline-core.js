@@ -8,7 +8,7 @@
   const clip = (start, end, speed = 1) => ({ id: id(), start, end, speed });
   const clipDuration = c => (c.end - c.start) / c.speed;
   function create(sourceDuration, frames = 24, assetId = 'demo-video') {
-    const first = {...clip(0, sourceDuration),assetId};
+    const first = {...clip(0, sourceDuration),assetId,kind:'video'};
     return {width:1080,height:1920,scale:1,x:0,y:0,frames,clips:[first],selectedClipId:first.id,cursor:0,zoom:100,coverTime:null};
   }
   function normalize(project, sourceDuration, frames = 24, resolveDuration = () => sourceDuration) {
@@ -19,7 +19,7 @@
       const c = clip(start, end, Number.isFinite(project?.speed) && project.speed > 0 ? project.speed : 1);
       p.clips = [c]; p.selectedClipId = c.id; p.cursor = 0;
     } else {
-      p.clips = project.clips.filter(c => Number.isFinite(c.start) && Number.isFinite(c.end) && Number.isFinite(c.speed) && c.speed >= .01 && c.speed <= 64 && c.end - c.start >= MIN - EPS && c.start >= 0 && c.end <= resolveDuration(c.assetId) + EPS).map(c => ({...c,id:c.id||id(),assetId:c.assetId||'demo-video'}));
+      p.clips = project.clips.filter(c => Number.isFinite(c.start) && Number.isFinite(c.end) && Number.isFinite(c.speed) && c.speed >= .01 && c.speed <= 64 && c.end - c.start >= MIN - EPS && c.start >= 0 && (c.kind==='image'||c.end <= resolveDuration(c.assetId) + EPS)).map(c => ({...c,id:c.id||id(),assetId:c.assetId||'demo-video'}));
     }
     if (!p.clips.some(c => c.id === p.selectedClipId)) p.selectedClipId = p.clips[0]?.id || null;
     p.cursor = clamp(Number.isFinite(p.cursor) ? p.cursor : 0, 0, total(p));
@@ -39,7 +39,7 @@
     const rows = segments(p); if (!rows.length) return null;
     const t = clamp(time, 0, total(p));
     const s = rows.find(s => t < s.end - EPS) || rows.at(-1);
-    return {...s, sourceTime:clamp(s.clip.start + (t-s.start)*s.clip.speed, s.clip.start, s.clip.end)};
+    return {...s, sourceTime:s.clip.kind==='image'?0:clamp(s.clip.start + (t-s.start)*s.clip.speed, s.clip.start, s.clip.end)};
   }
   const selected = p => p.clips.find(c => c.id === p.selectedClipId) || null;
   function select(p, clipId) {
@@ -48,7 +48,7 @@
   }
   function split(p, time) {
     const s = at(p, time); if (!s) return false;
-    const cut = Math.round(s.sourceTime * FPS) / FPS;
+    const cut = Math.round((s.clip.start+(clamp(time,s.start,s.end)-s.start)*s.clip.speed) * FPS) / FPS;
     if (cut-s.clip.start < MIN-EPS || s.clip.end-cut < MIN-EPS) return false;
     const right = {...s.clip, ...clip(cut, s.clip.end, s.clip.speed)};
     s.clip.end = cut; p.clips.splice(s.index+1, 0, right);
@@ -71,10 +71,17 @@
     const target = clamp(newIndex,0,p.clips.length-1); if(target===index)return false;
     p.clips.splice(target,0,p.clips.splice(index,1)[0]);select(p,clipId);return true;
   }
-  function insert(p, assetId, sourceDuration, index = p.clips.length) {
+  function insert(p, assetId, sourceDuration, index = p.clips.length, kind = 'video') {
+    if(kind==='image')sourceDuration=10/FPS;
     if(!assetId || !Number.isFinite(sourceDuration) || sourceDuration < MIN)return false;
-    const c={...clip(0,sourceDuration),assetId};
+    const c={...clip(0,sourceDuration),assetId,kind};
     p.clips.splice(clamp(index,0,p.clips.length),0,c);select(p,c.id);return true;
+  }
+  function stillFrames(p, clipId, frames) {
+    const c=p.clips.find(c=>c.id===clipId);
+    if(!c||c.kind!=='image'||!Number.isInteger(frames)||frames<1||frames>30000)return false;
+    if(Math.abs(clipDuration(c)*FPS-frames)<EPS)return false;
+    c.end=c.start+frames/FPS;c.speed=1;select(p,clipId);return true;
   }
   function trim(p, clipId, start, end, sourceDuration) {
     const c = p.clips.find(c => c.id===clipId); if(!c||!Number.isFinite(start)||!Number.isFinite(end))return false;
@@ -98,7 +105,7 @@
   function snapshot(p) {
     const {undo,redo,...values}=p;return JSON.parse(JSON.stringify(values));
   }
-  const api={FPS,MIN,create,normalize,clipDuration,segments,total,at,selected,select,split,remove,duplicate,move,insert,trim,speed,fit,snapshot};
+  const api={FPS,MIN,create,normalize,clipDuration,segments,total,at,selected,select,split,remove,duplicate,move,insert,stillFrames,trim,speed,fit,snapshot};
   root.TimelineCore=api;
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);

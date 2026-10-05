@@ -83,3 +83,28 @@ test('草稿恢复验证各素材时长，快照排除历史且不与当前片�
   const legacy = C.normalize({start:1, end:3, speed:2}, 5);
   near(C.total(legacy), 1);
 });
+
+test('图片默认十帧，映射固定画面，修改和分割均保持准确帧数', () => {
+  const p=C.normalize({clips:[]},5);
+  C.insert(p,'still',undefined,0,'image');
+  near(C.total(p)*C.FPS,10);
+  near(C.at(p,.2).sourceTime,0);
+  C.stillFrames(p,p.clips[0].id,24);
+  assert.equal(C.split(p,.4),true);
+  near(C.total(p)*C.FPS,24);
+  assert.deepEqual(p.clips.map(c=>Math.round(C.clipDuration(c)*C.FPS)),[12,12]);
+  assert.ok(p.clips.every(c=>c.kind==='image'));
+  C.remove(p,p.clips[1].id);
+  near(C.total(p)*C.FPS,12);
+  assert.equal(C.stillFrames(p,p.clips[0].id,0),false);
+});
+
+test('图片与视频交替时分别使用静态画面与视频原始时间', () => {
+  const p=C.create(5,60,'video');
+  C.insert(p,'still',undefined,0,'image');
+  near(C.at(p,.1).sourceTime,0);
+  assert.equal(C.at(p,10/C.FPS).clip.assetId,'video');
+  near(C.at(p,10/C.FPS+.5).sourceTime,.5);
+  const restored=C.normalize(C.snapshot(p),5,60,id=>id==='still'?0:5);
+  assert.equal(restored.clips.length,2);
+});
