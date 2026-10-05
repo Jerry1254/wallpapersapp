@@ -1,4 +1,4 @@
-/* Interactive prototype. Processing and publishing adapters are intentionally deferred. */
+/* Interactive prototype with local timeline encoding; publishing adapters remain deferred. */
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
@@ -6,7 +6,7 @@
   const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
   const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const icon = name => `<svg aria-hidden="true"><use href="#i-${name}"/></svg>`;
-  const Core = window.TimelineCore, FPS = Core.FPS, Devices=window.WallpaperDevices, PackagePreview=window.WallpaperPreview, Pricing=window.IosPricing, ResourceExport=window.ResourceExport;
+  const Core = window.TimelineCore, FPS = Core.FPS, Devices=window.WallpaperDevices, PackagePreview=window.WallpaperPreview, Pricing=window.IosPricing, ResourceExport=window.ResourceExport, TimelineExport=window.TimelineExport;
   const demoLayers = ['background.jpg', 'buildings.png', 'character.png', 'light.png', 'debris.png'];
   const platformNames = { android:'安卓', harmony: '鸿蒙', ios: 'iOS' };
   const socialNames = { xhs: '小红书', douyin: '抖音' };
@@ -34,7 +34,7 @@
   };
   const newPost = social => ({...copyPresets.simple,title:social==='douyin'?'这一秒，让屏幕动起来':copyPresets.simple.title,type:social==='douyin'?'video':'image',assetIds:[social==='douyin'?'post-video':'post-image'],coverTitle:false,style:'simple'});
   const state = {workspace:'wallpaper',assets:demoAssets(),selectedId:'demo-video',filter:'all',product:'dynamic',platform:'harmony',projects:null,sourcePreview:false,time:0,playing:false,loop:true,name:'城市飞行',social:'xhs',postAssets:[{...demoAssets()[1],id:'post-image'},{...demoAssets()[0],id:'post-video'}],posts:{xhs:newPost('xhs'),douyin:newPost('douyin')},accounts,selectedAccounts:new Set(['x1','d1']),timing:'now',scheduledAt:'',published:[]};
-  let toastTimer, lastTimestamp=0, animationFrame, objectUrls=[],devicePickerOpen=false;
+  let toastTimer, lastTimestamp=0, animationFrame, objectUrls=[],devicePickerOpen=false,resourceExportController=null;
   state.staticEditor=Devices.fresh();state.packageView=Devices.fresh();state.resources={static:[],fourDId:null};state.thumbnail=null;state.productRecord=null;
   let packageFrame,packageScene=null,packageSceneAssetId=null,packageEpoch=0,packageTarget={x:0,y:0},packageMotion={x:0,y:0};
   const selectedAsset = () => state.assets.find(x=>x.id===state.selectedId) || state.assets[0];
@@ -441,10 +441,11 @@
     commitAction(`导入 ${incoming.length} 个${workspace==='publish'?'推广':'壁纸'}素材`);await flushSave();toast(`已导入 ${incoming.length} 个素材并自动保存`);
   }
   function modal(title,body,actions=[]) {
+    resourceExportController?.abort();
     pause();$('dialog').classList.remove('project-browser','project-fullscreen','wallpaper-create-dialog','resource-export-dialog');$('project-fullscreen-btn').hidden=true;$('dialog-close').hidden=false;$('dialog-title').textContent=title;$('dialog-body').innerHTML=body;$('dialog-actions').replaceChildren();
     for(const action of actions){const b=document.createElement('button');b.textContent=action.label;if(action.primary)b.className='primary';b.onclick=action.run;$('dialog-actions').append(b);}if(!$('dialog').open)$('dialog').showModal();
   }
-  function closeModal(){if(activeProject)$('dialog').close();else showProjectList();}
+  function closeModal(){resourceExportController?.abort();if(activeProject)$('dialog').close();else showProjectList();}
   function download(name,data,type='application/json') {const url=URL.createObjectURL(data instanceof Blob?data:new Blob([data],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);}
   function safeName(){return (state.name||'倾境壁纸').replace(/[\\/:*?"<>|]/g,'_').slice(0,60);}
   function openExport(){if(state.workspace==='publish')openContentExport();else openCreateWallpaper();}
@@ -703,8 +704,13 @@
   function projectExportFiles(){
     const rows=[],seen=new Set(),kindLabels={image:'图片',video:'视频','4d':'4D ZIP'};
     const add=(asset,group,label)=>{if(!asset?.file||!(asset.file instanceof Blob)||seen.has(asset.id))return;seen.add(asset.id);rows.push({id:asset.id,group,label:label||asset.name,kind:kindLabels[asset.type]||'文件',file:asset.file});};
+    for(const key of ['android','harmony','ios']){
+      const p=profiles()[key];if(!p.clips.length)continue;
+      const plan=Core.snapshot(p),duration=Core.total(p),assets=new Map(p.clips.map(c=>[c.assetId,mediaRegistry.get(c.assetId)]));
+      rows.push({id:`timeline-${key}`,group:'壁纸资源',kind:'视频',name:`${safeName()}-${platformNames[key]}动态-${p.width}x${p.height}.mp4`,label:`${platformNames[key]}动态成片 · ${p.width} × ${p.height} · ${duration.toFixed(2)} s · ${Math.max(1,Math.round(duration*FPS))} 帧`,plan,assets});
+    }
     for(const resource of state.resources.static)add(mediaRegistry.get(resource.id),'壁纸资源',`静态壁纸 · ${resource.width} × ${resource.height}`);
-    for(const asset of state.assets)add(asset,asset.id===state.resources.fourDId?'壁纸资源':'原始素材');
+    for(const asset of state.assets)add(asset,asset.type==='4d'?'壁纸资源':'原始素材',asset.type==='4d'?'4D 壁纸 · 已导入资源包':null);
     for(const asset of state.postAssets)add(asset,'发布素材');
     const cover=state.productRecord?.cover;
     if(typeof cover==='string'&&/^data:image\/(jpeg|png|webp);base64,/.test(cover)){
@@ -715,21 +721,30 @@
   function openResourceExport(){
     if(!projectReady||loadingProject||!activeProject){toast('请先打开项目');return;}
     finishPendingAction();pause();const rows=projectExportFiles(),projectId=activeProject.id,projectName=safeName();
-    modal('导出资源',`<div class="resource-export-body"><p class="dialog-intro">选择项目里已有的资源。单个文件直接下载，多个文件打包为 ZIP。</p><div class="resource-export-toolbar"><label><input type="checkbox" id="export-select-all" ${rows.length?'checked':'disabled'}>全选</label><span id="export-selection-summary"></span></div><div class="resource-export-list">${rows.map(row=>`<label class="export-file-row"><input type="checkbox" data-export-resource="${esc(row.id)}" checked><span class="export-file-icon">${icon(row.kind==='4D ZIP'?'layers':row.kind==='视频'?'video':'image')}</span><span class="export-file-copy"><strong title="${esc(row.file.name)}">${esc(row.file.name)}</strong><small>${esc(row.label)} · ${row.group}</small></span><span class="export-file-meta">${row.kind}<small>${formatFileSize(row.file.size)}</small></span></label>`).join('')||'<div class="export-empty">暂无可导出的文件<span>导入素材，或保存静态 / 4D 资源后即可选择。</span></div>'}</div><p class="resource-export-note">保留资源原始文件。尚未生成的动态成片不在导出列表中。</p></div>`,[{label:'取消',run:closeModal},{label:'导出所选',primary:true,run:()=>exportProjectFiles(rows,projectId,projectName)}]);
+    modal('导出资源',`<div class="resource-export-body"><p class="dialog-intro">时间轴里有片段即可导出动态成片，4D 包导入后即可导出。支持多选。</p><div class="resource-export-toolbar"><label><input type="checkbox" id="export-select-all" ${rows.length?'checked':'disabled'}>全选</label><span id="export-selection-summary"></span></div><div class="resource-export-list">${rows.map(row=>`<label class="export-file-row"><input type="checkbox" data-export-resource="${esc(row.id)}" checked><span class="export-file-icon">${icon(row.kind==='4D ZIP'?'layers':row.kind==='视频'?'video':'image')}</span><span class="export-file-copy"><strong title="${esc(row.file?.name||row.name)}">${esc(row.file?.name||row.name)}</strong><small>${esc(row.label)} · ${row.group}</small></span><span class="export-file-meta">${row.kind}<small>${row.plan?'导出时生成':formatFileSize(row.file.size)}</small></span></label>`).join('')||'<div class="export-empty">暂无可导出的资源<span>将图片或视频加入时间轴，或导入 4D 包。</span></div>'}</div><p class="resource-export-note" id="resource-export-status" role="status">动态按当前剪辑生成 MP4；4D 保留原始 ZIP。单个直接下载，多个打包导出。</p></div>`,[{label:'取消',run:closeModal},{label:'导出所选',primary:true,run:()=>exportProjectFiles(rows,projectId,projectName)}]);
     $('dialog').classList.add('resource-export-dialog');
-    const sync=()=>{const selected=$$('[data-export-resource]:checked'),ids=new Set(selected.map(el=>el.dataset.exportResource)),bytes=rows.filter(r=>ids.has(r.id)).reduce((n,r)=>n+r.file.size,0);$('export-selection-summary').textContent=`已选 ${ids.size} / ${rows.length} 个${ids.size?` · ${formatFileSize(bytes)}`:''}`;$('export-select-all').checked=!!rows.length&&ids.size===rows.length;$('export-select-all').indeterminate=ids.size>0&&ids.size<rows.length;const button=$('dialog-actions').querySelector('.primary');button.disabled=!ids.size;button.textContent=`导出所选${ids.size?`（${ids.size}）`:''}`;};
+    const sync=()=>{const selected=$$('[data-export-resource]:checked'),ids=new Set(selected.map(el=>el.dataset.exportResource)),picked=rows.filter(r=>ids.has(r.id)),bytes=picked.reduce((n,r)=>n+(r.file?.size||0),0);$('export-selection-summary').textContent=`已选 ${ids.size} / ${rows.length} 个${picked.some(r=>r.plan)?' · 含动态成片':bytes?` · ${formatFileSize(bytes)}`:''}`;$('export-select-all').checked=!!rows.length&&ids.size===rows.length;$('export-select-all').indeterminate=ids.size>0&&ids.size<rows.length;const button=$('dialog-actions').querySelector('.primary');button.disabled=!ids.size;button.textContent=`导出所选${ids.size?`（${ids.size}）`:''}`;};
     $$('[data-export-resource]').forEach(el=>el.onchange=sync);$('export-select-all').onchange=()=>{$$('[data-export-resource]').forEach(el=>el.checked=$('export-select-all').checked);sync();};sync();
   }
   async function exportProjectFiles(rows,projectId,projectName){
     const button=$('dialog-actions').querySelector('.primary');if(button.disabled||projectId!==activeProject?.id)return;
     const ids=new Set($$('[data-export-resource]:checked').map(el=>el.dataset.exportResource)),selected=rows.filter(r=>ids.has(r.id));if(!selected.length)return;
-    $$('#dialog-actions button,.resource-export-body input').forEach(el=>el.disabled=true);button.textContent='正在导出…';
+    const controller=new AbortController();resourceExportController=controller;
+    $$('.resource-export-body input').forEach(el=>el.disabled=true);button.disabled=true;button.textContent='正在导出…';
     try{
-      const file=selected.length===1?selected[0].file:await ResourceExport.pack(selected,window.JSZip);
-      if(!button.isConnected||!$('dialog').open||!$('dialog').classList.contains('resource-export-dialog')||projectId!==activeProject?.id)return;
+      const ready=[];
+      for(const [index,row] of selected.entries()){
+        if(controller.signal.aborted)return;
+        if(row.plan){$('resource-export-status').textContent=`正在生成 ${index+1} / ${selected.length}：${row.label}`;const blob=await TimelineExport.render(TimelineExport.prepare(row.plan,id=>row.assets.get(id)),window.JSZip,controller.signal);ready.push({...row,file:new File([blob],row.name,{type:'video/mp4'})});}
+        else ready.push(row);
+      }
+      if(controller.signal.aborted)return;
+      $('resource-export-status').textContent='正在整理导出文件…';
+      const file=ready.length===1?ready[0].file:await ResourceExport.pack(ready,window.JSZip);
+      if(controller.signal.aborted||!button.isConnected||!$('dialog').open||!$('dialog').classList.contains('resource-export-dialog')||projectId!==activeProject?.id)return;
       download(selected.length===1?ResourceExport.filename(file.name):`${projectName}-资源.zip`,file);closeModal();toast(`已导出 ${selected.length} 个资源`);
-    }catch(error){toast(`导出未完成：${error.message}`);}
-    finally{if(button.isConnected&&$('dialog').classList.contains('resource-export-dialog')){$$('#dialog-actions button,.resource-export-body input').forEach(el=>el.disabled=false);button.textContent=`导出所选（${selected.length}）`;}}
+    }catch(error){if(!controller.signal.aborted&&button.isConnected){$('resource-export-status').textContent=`导出未完成：${error.message}`;toast(`导出未完成：${error.message}`);}}
+    finally{if(resourceExportController===controller)resourceExportController=null;if(button.isConnected&&$('dialog').classList.contains('resource-export-dialog')){$$('.resource-export-body input').forEach(el=>el.disabled=false);button.disabled=false;button.textContent=`导出所选（${selected.length}）`;}}
   }
   function syncFullscreen(){
     const active=!!document.fullscreenElement,button=$('fullscreen-btn');button.setAttribute('aria-pressed',String(active));button.setAttribute('aria-label',active?'退出全屏':'全屏显示');button.title=active?'退出全屏（Esc）':'全屏显示';button.querySelector('use').setAttribute('href',active?'#i-minimize':'#i-maximize');button.querySelector('span').textContent=active?'退出全屏':'全屏';
@@ -741,6 +756,7 @@
   }
   function bindWorkbench(){
     $('export-resources-btn').onclick=openResourceExport;
+    $('dialog').addEventListener('close',()=>{if(!$('dialog').open)resourceExportController?.abort();});
     $('fullscreen-btn').onclick=toggleFullscreen;document.addEventListener('fullscreenchange',syncFullscreen);syncFullscreen();
     document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.fullscreenElement&&!$('dialog').open){e.preventDefault();document.exitFullscreen().catch(()=>{});}});
     $('device-picker-toggle').onclick=()=>{devicePickerOpen=!devicePickerOpen;syncDevicePicker();};

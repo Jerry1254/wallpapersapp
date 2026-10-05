@@ -1,0 +1,284 @@
+"""Local prototype server: static workbench and FFmpeg timeline exports.
+
+Start with: python3 wallpaper-tools/creator-studio/render-server.py
+Media is staged in a temporary directory and removed after the response.
+"""
+import argparse
+import io
+import json
+import math
+import os
+from pathlib import Path
+import select
+import shutil
+import socket
+import subprocess
+import tempfile
+import threading
+import time
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
+import zipfile
+
+
+ROOT = Path(__file__).resolve().parent
+FPS = 30
+MAX_UPLOAD = 512 * 1024 * 1024
+MAX_EXPANDED = 1024 * 1024 * 1024
+RENDER_LOCK = threading.Lock()
+DEMO_FILES = ['background.jpg', 'buildings.png', 'character.png', 'light.png', 'debris.png']
+
+
+def executable(name):
+    configured = os.environ.get('CREATOR_' + name.upper())
+    found = configured or shutil.which(name) or str(Path.home() / '.homebrew/bin' / name)
+    if not Path(found).is_file():
+        raise ValueError('本地视频导出需要安装 FFmpeg')
+    return found
+
+
+class ExportCancelled(Exception):
+    pass
+
+
+def run(args, timeout=180, cancelled=None):
+    deadline = time.monotonic() + timeout
+    with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
+        try:
+            while True:
+                if cancelled and cancelled():
+                    raise ExportCancelled()
+                if time.monotonic() >= deadline:
+                    raise ValueError('视频导出超时，请缩短片段后重试')
+                try:
+                    stdout, _ = process.communicate(timeout=.25)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+        except BaseException:
+            process.kill()
+            process.communicate()
+            raise
+        if process.returncode:
+            raise ValueError('视频无法编码，请确认素材能够正常播放')
+        return stdout
+
+
+def number(value, low, high, label):
+    if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value) or not low <= value <= high:
+        raise ValueError(label + '无效')
+    return value
+
+
+def read_job(payload, folder):
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(payload))
+        if len(archive.infolist()) > 205 or sum(info.file_size for info in archive.infolist()) > MAX_EXPANDED:
+            raise ValueError('素材包过大，请分批导出')
+        manifest_info = archive.getinfo('timeline.json')
+        if manifest_info.file_size > 1024 * 1024:
+            raise ValueError('时间轴数据过大')
+        job = json.loads(archive.read(manifest_info))
+        if job.get('version') != 1 or job.get('fps') != FPS:
+            raise ValueError('时间轴版本不兼容，请刷新页面')
+        profile = job['profile']
+        for key in ['width', 'height']:
+            value = number(profile.get(key), 64, 8192, '成片尺寸')
+            if int(value) != value or value % 2:
+                raise ValueError('MP4 的宽高需为偶数')
+        if profile['width'] * profile['height'] > 33554432:
+            raise ValueError('成片总像素不能超过 3200 万')
+        number(profile.get('scale'), 1, 4, '画面缩放')
+        for key in ['x', 'y']:
+            number(profile.get(key), -50, 50, '画面位置')
+        sources = job['sources']
+        clips = job['clips']
+        if not isinstance(sources, list) or not 1 <= len(sources) <= 200 or not isinstance(clips, list) or not 1 <= len(clips) <= 200:
+            raise ValueError('时间轴需包含 1–200 个片段')
+        paths = []
+        for index, source in enumerate(sources):
+            if source.get('demo') is True:
+                paths.append(None)
+                continue
+            name = source['path']
+            if name not in {f'media/{index}{ext}' for ext in ['.mp4', '.mov', '.webm', '.png', '.jpg', '.jpeg', '.webp']}:
+                raise ValueError('素材文件路径无效')
+            info = archive.getinfo(name)
+            if not 0 < info.file_size <= MAX_UPLOAD:
+                raise ValueError('素材文件大小无效')
+            target = folder / f'source-{index}{Path(name).suffix}'
+            with archive.open(info) as incoming, target.open('wb') as outgoing:
+                shutil.copyfileobj(incoming, outgoing)
+            paths.append(target)
+        elapsed = 0
+        for clip in clips:
+            source = clip.get('source')
+            if isinstance(source, bool) or not isinstance(source, int) or not 0 <= source < len(paths):
+                raise ValueError('找不到时间轴素材')
+            if clip.get('kind') not in ['video', 'image']:
+                raise ValueError('时间轴只支持图片和视频')
+            start = number(clip.get('start'), 0, 86400, '片段入点')
+            end = number(clip.get('end'), start + 1 / FPS - 1e-8, 86400, '片段出点')
+            speed = number(clip.get('speed'), .01, 64, '片段速度')
+            elapsed += (end - start) / speed
+        if elapsed > 600:
+            raise ValueError('当前本地导出支持 10 分钟以内的成片')
+        return job, paths
+    except (KeyError, TypeError, AttributeError, json.JSONDecodeError, zipfile.BadZipFile, NotImplementedError) as error:
+        raise ValueError('导出素材包不完整，请重新打开导出窗口') from error
+    finally:
+        if 'archive' in locals():
+            archive.close()
+
+
+def inspect_media(path, cancelled=None):
+    data = json.loads(run([executable('ffprobe'), '-v', 'error', '-protocol_whitelist', 'file,pipe', '-select_streams', 'v:0',
+                           '-show_entries', 'stream=width,height,duration:format=duration', '-of', 'json', str(path)], 20, cancelled))
+    if not data.get('streams'):
+        raise ValueError('素材中没有可用画面')
+    return data
+
+
+def encode_clip(clip, source, path, profile, frames, output, cancelled=None):
+    w, h = profile['width'], profile['height']
+    duration = frames / FPS
+    scale = profile['scale']
+    pan_x, pan_y = profile['x'] * w / 100, profile['y'] * h / 100
+    args = [executable('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-y', '-filter_complex_threads', '1']
+    filters = [f'color=c=0x17191d:s={w}x{h}:r={FPS}:d={duration:.10f}[base]']
+    if source.get('demo'):
+        # Match the layered sample used by the canvas preview, including its source-time motion.
+        t = '0' if clip['kind'] == 'image' else f"({clip['start']:.10f}+t*{clip['speed']:.10f})"
+        fit = max(w / 2048, h / 2048) * scale
+        size = math.ceil(2048 * fit * 1.18 / 2) * 2
+        previous = 'base'
+        for index, name in enumerate(DEMO_FILES):
+            args += ['-framerate', str(FPS), '-threads', '1', '-i', str(ROOT / 'assets' / name)]
+            x_motion = [ -2, 1, 4, 1, 7 ][index] / 100 * 2048 * fit
+            y_motion = (2 if index == 2 else 1) / 100 * 2048 * fit
+            x = f'({w}-{size})/2+{pan_x:.8f}+sin({t}*2*PI/5)*{x_motion:.8f}'
+            y = f'({h}-{size})/2+{pan_y:.8f}+cos({t}*2*PI/5)*{y_motion:.8f}'
+            filters.append(f'[{index}:v]scale={size}:{size},setsar=1,format=rgba,loop=loop=-1:size=1:start=0,setpts=N/({FPS}*TB)[layer{index}]')
+            if index == 3:
+                filters += [f'color=c=black:s={w}x{h}:r={FPS}:d={duration:.10f}[lightbase]',
+                            f'[lightbase][layer3]overlay=x=\'{x}\':y=\'{y}\':shortest=1:format=auto[light]',
+                            f'[{previous}][light]blend=all_mode=screen:all_opacity=0.25[scene{index}]']
+            else:
+                filters.append(f'[{previous}][layer{index}]overlay=x=\'{x}\':y=\'{y}\':shortest=1:format=auto[scene{index}]')
+            previous = f'scene{index}'
+        filters.append(f'[{previous}]format=yuv420p[out]')
+    else:
+        metadata = inspect_media(path, cancelled)
+        if clip['kind'] == 'image':
+            args += ['-framerate', str(FPS), '-threads', '1', '-protocol_whitelist', 'file,pipe', '-i', str(path)]
+            timing = 'setpts=PTS-STARTPTS'
+        else:
+            source_duration = float(metadata['streams'][0].get('duration') or metadata.get('format', {}).get('duration') or 0)
+            if source_duration and clip['end'] > source_duration + 1 / FPS:
+                raise ValueError('片段超出了原视频长度，请重新调整时间轴')
+            args += ['-threads', '2', '-protocol_whitelist', 'file,pipe', '-i', str(path)]
+            timing = f"trim=start={clip['start']:.10f}:end={clip['end']:.10f},setpts=(PTS-STARTPTS)/{clip['speed']:.10f}"
+        fit = f'max({w}/iw,{h}/ih)*{scale:.10f}'
+        tail = f'loop=loop=-1:size=1:start=0,setpts=N/({FPS}*TB)' if clip['kind'] == 'image' else f'tpad=stop_mode=clone:stop_duration={duration:.10f}'
+        filters += [f"[0:v]{timing},fps={FPS},scale=w='ceil(iw*{fit}/2)*2':h='ceil(ih*{fit}/2)*2',setsar=1,{tail}[media]",
+                    f"[base][media]overlay=x='(W-w)/2+{pan_x:.8f}':y='(H-h)/2+{pan_y:.8f}':shortest=1:format=auto,format=yuv420p[out]"]
+    args += ['-filter_complex', ';'.join(filters), '-map', '[out]', '-an', '-map_metadata', '-1',
+             '-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-threads', '2', '-r', str(FPS),
+             '-frames:v', str(frames), '-fps_mode', 'cfr', '-video_track_timescale', '15360',
+             '-movflags', '+faststart', str(output)]
+    run(args, cancelled=cancelled)
+
+
+def render(payload, folder, cancelled=None):
+    job, paths = read_job(payload, folder)
+    elapsed, emitted = 0, 0
+    parts = []
+    for index, clip in enumerate(job['clips']):
+        if cancelled and cancelled():
+            raise ExportCancelled()
+        elapsed += (clip['end'] - clip['start']) / clip['speed']
+        boundary = math.floor(elapsed * FPS + .5)
+        if index == len(job['clips']) - 1:
+            boundary = max(1, boundary)
+        frames = boundary - emitted
+        if frames <= 0:
+            continue
+        part = folder / f'clip-{index}.mp4'
+        encode_clip(clip, job['sources'][clip['source']], paths[clip['source']], job['profile'], frames, part, cancelled)
+        parts.append(part)
+        emitted = boundary
+    output = folder / 'timeline.mp4'
+    if len(parts) == 1:
+        parts[0].rename(output)
+    else:
+        listing = folder / 'concat.txt'
+        listing.write_text(''.join(f"file '{part.name}'\n" for part in parts), encoding='utf-8')
+        run([executable('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '1',
+             '-i', str(listing), '-map', '0:v:0', '-an', '-c', 'copy', '-movflags', '+faststart', str(output)], cancelled=cancelled)
+    return output
+
+
+class Handler(SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(ROOT.parent), **kwargs)
+
+    def end_headers(self):
+        self.send_header('Cache-Control', 'no-cache')
+        super().end_headers()
+
+    def error(self, message, status=400):
+        data = json.dumps({'error': message}, ensure_ascii=False).encode('utf-8')
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_POST(self):
+        if urlsplit(self.path).path != '/creator-studio/api/render':
+            return self.error('接口不存在', 404)
+        authority = f'127.0.0.1:{self.server.server_port}'
+        if self.headers.get('Host') != authority or self.headers.get('Origin') != 'http://' + authority or self.headers.get('X-Creator-Export') != '1':
+            return self.error('请从本地创作台导出', 403)
+        try:
+            size = int(self.headers.get('Content-Length', '0'))
+        except ValueError:
+            return self.error('素材包大小无效')
+        if not 0 < size <= MAX_UPLOAD:
+            return self.error('素材包超过 512 MB，请分批导出', 413)
+        if not RENDER_LOCK.acquire(blocking=False):
+            return self.error('另一项视频正在导出，请稍后再试', 429)
+        try:
+            self.connection.settimeout(60)
+            payload = self.rfile.read(size)
+            if len(payload) != size:
+                return self.error('素材上传未完成，请重试')
+            with tempfile.TemporaryDirectory(prefix='qingjing-export-') as temporary:
+                def disconnected():
+                    readable, _, _ = select.select([self.connection], [], [], 0)
+                    return bool(readable) and not self.connection.recv(1, socket.MSG_PEEK)
+                output = render(payload, Path(temporary), disconnected)
+                self.send_response(200)
+                self.send_header('Content-Type', 'video/mp4')
+                self.send_header('Content-Length', str(output.stat().st_size))
+                self.end_headers()
+                with output.open('rb') as source:
+                    shutil.copyfileobj(source, self.wfile)
+        except ValueError as error:
+            self.error(str(error), 422)
+        except (ExportCancelled, BrokenPipeError, ConnectionResetError, TimeoutError):
+            pass
+        except Exception:
+            self.error('本地视频导出失败，请重试', 500)
+        finally:
+            RENDER_LOCK.release()
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--port', type=int, default=8176)
+    arguments = parser.parse_args()
+    executable('ffmpeg')
+    executable('ffprobe')
+    print(f'倾境创作台：http://127.0.0.1:{arguments.port}/creator-studio/', flush=True)
+    ThreadingHTTPServer(('127.0.0.1', arguments.port), Handler).serve_forever()
