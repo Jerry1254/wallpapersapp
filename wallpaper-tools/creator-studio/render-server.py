@@ -4,6 +4,9 @@ Start with: python3 wallpaper-tools/creator-studio/render-server.py
 Media is staged in a temporary directory and removed after the response.
 """
 import argparse
+import ctypes
+import functools
+import sys
 import io
 import json
 import math
@@ -306,6 +309,37 @@ def render_content(payload, folder, cancelled=None):
         raise ValueError('内容素材包不完整，请重新生成') from error
 
 
+@functools.lru_cache(maxsize=1)
+def system_fonts():
+    """Read installed family names without exporting font files."""
+    fallback = ['Arial', 'Helvetica Neue', 'Times New Roman', 'Menlo', 'PingFang SC', 'Songti SC', 'Hiragino Sans GB']
+    if sys.platform != 'darwin':
+        return fallback
+    cf = ctypes.CDLL('/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
+    ct = ctypes.CDLL('/System/Library/Frameworks/CoreText.framework/CoreText')
+    ct.CTFontManagerCopyAvailableFontFamilyNames.restype = ctypes.c_void_p
+    cf.CFArrayGetCount.argtypes = [ctypes.c_void_p]
+    cf.CFArrayGetCount.restype = ctypes.c_long
+    cf.CFArrayGetValueAtIndex.argtypes = [ctypes.c_void_p, ctypes.c_long]
+    cf.CFArrayGetValueAtIndex.restype = ctypes.c_void_p
+    cf.CFStringGetCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_long, ctypes.c_uint32]
+    cf.CFStringGetCString.restype = ctypes.c_bool
+    cf.CFRelease.argtypes = [ctypes.c_void_p]
+    families = ct.CTFontManagerCopyAvailableFontFamilyNames()
+    names = set()
+    try:
+        for i in range(cf.CFArrayGetCount(families)):
+            value = cf.CFArrayGetValueAtIndex(families, i)
+            buffer = ctypes.create_string_buffer(4096)
+            if cf.CFStringGetCString(value, buffer, len(buffer), 0x08000100):
+                name = buffer.value.decode('utf-8')
+                if not name.startswith('.'):
+                    names.add(name)
+    finally:
+        cf.CFRelease(families)
+    return sorted(names, key=str.casefold) or fallback
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT.parent), **kwargs)
@@ -321,6 +355,21 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header('Content-Length', str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def do_GET(self):
+        if urlsplit(self.path).path != '/creator-studio/api/fonts':
+            return super().do_GET()
+        if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}':
+            return self.error('请从本地创作台读取字体', 403)
+        try:
+            data = json.dumps({'families': system_fonts()}, ensure_ascii=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception:
+            self.error('系统字体暂时无法读取', 503)
 
     def do_POST(self):
         endpoint = urlsplit(self.path).path
