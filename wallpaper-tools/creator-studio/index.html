@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="倾境创作台交互原型：壁纸加工与内容发布。">
+  <title>倾境 · 创作台原型</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233a527c'/%3E%3Cpath d='m6 11 10-5 10 5-10 5Zm0 6 10 5 10-5M6 23l10 5 10-5' fill='none' stroke='%23a8caff' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="studio.css">
+  <script defer src="studio.js"></script>
+</head>
+<body>
+<svg class="svg-defs" aria-hidden="true"><defs>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m3 7 9-5 9 5-9 5Zm0 5 9 5 9-5M3 17l9 5 9-5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 15v6h16v-6"/></symbol>
+  <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 3v13m-5-5 5 5 5-5M4 16v5h16v-5"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M4 3h13l4 4v14H3V3Zm3 0v7h10V3M7 21v-7h10v7"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 4 12 8-12 8Z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14" stroke-width="3"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M6 4v16m12-16-9 8 9 8Z"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M18 4v16M6 4l9 8-9 8Z"/></symbol>
+  <symbol id="i-tune" viewBox="0 0 24 24"><path d="M3 6h6m4 0h8M3 12h12m4 0h2M3 18h2m4 0h12"/><circle cx="11" cy="6" r="2"/><circle cx="17" cy="12" r="2"/><circle cx="7" cy="18" r="2"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 6-6 5 5 3-3 4 4"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 8 6 4-6 4ZM3 8h3m12 0h3M3 16h3m12 0h3"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 5h4m-4 14h4"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+  <symbol id="i-crop" viewBox="0 0 24 24"><path d="M6 2v16h16M2 6h16v16M9 6h9v9"/></symbol>
+  <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 11a8 8 0 1 1 2 7M4 4v7h7"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L20 5"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9a3 3 0 0 1 6 0c0 2-3 2-3 4m0 3h.01"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="m3 3 19 9-19 9 4-9Zm4 9h15"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21v-3a7 7 0 0 1 14 0v3m1-17a4 4 0 0 1 0 8m2 3a5 5 0 0 1 3 4v2"/></symbol>
+  <symbol id="i-text" viewBox="0 0 24 24"><path d="M4 5h16M12 5v15M8 20h8M4 5v4m16-4v4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V3H3v13h5"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7V4h7l3 3h8v14H3ZM3 10h18"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 4v3"/></symbol>
+</defs></svg>
+
+<header class="appbar">
+  <div class="brand"><span class="brand-mark"><svg><use href="#i-layers"/></svg></span><strong>倾境</strong><span>创作台</span><span class="version">交互原型</span></div>
+  <nav class="workspace-tabs" aria-label="工作区"><button class="active" data-workspace="wallpaper"><svg><use href="#i-image"/></svg>壁纸加工</button><button data-workspace="publish"><svg><use href="#i-send"/></svg>内容发布</button></nav>
+  <div class="project-actions"><button id="help-btn" class="icon-button" aria-label="原型说明"><svg><use href="#i-help"/></svg></button><button id="save-btn"><svg><use href="#i-save"/></svg><span>保存草稿</span></button><button id="export-btn" class="primary"><svg><use href="#i-export"/></svg><span>导出产品</span></button></div>
+</header>
+
+<main id="wallpaper-workspace" class="workspace-view">
+  <div class="editor-columns">
+    <aside class="sidebar asset-panel" aria-label="壁纸素材">
+      <div class="panel-heading"><div><svg><use href="#i-folder"/></svg><strong>素材</strong><span class="count" id="asset-count">3</span></div><button class="icon-button" data-import="wallpaper" aria-label="添加壁纸素材"><svg><use href="#i-plus"/></svg></button></div>
+      <div class="project-info"><strong>城市飞行</strong><span>独立制作 · 本地素材</span></div>
+      <div class="filter-bar" id="asset-filters"><button class="active" data-filter="all">全部</button><button data-filter="image">图片</button><button data-filter="video">视频</button><button data-filter="4d">4D</button></div>
+      <div id="asset-list" class="asset-list"></div>
+      <div class="sidebar-bottom"><button class="import-zone" data-import="wallpaper"><svg><use href="#i-plus"/></svg><strong>导入素材</strong><span>图片 / 视频 / 4D 资源包</span></button><div class="sample-row"><span>内置示例</span><button id="restore-demo">城市飞行 ↗</button></div><p class="local-label"><svg><use href="#i-lock"/></svg>素材在当前浏览器中预览</p></div>
+    </aside>
+
+    <section class="preview-panel" aria-label="壁纸预览">
+      <div class="preview-toolbar"><div class="segmented" id="product-tabs"><button data-product="static"><svg><use href="#i-image"/></svg>静态壁纸</button><button class="active" data-product="dynamic"><svg><use href="#i-video"/></svg>动态壁纸</button><button data-product="4d"><svg><use href="#i-layers"/></svg>4D 资源</button></div><span id="source-badge" class="soft-label">5.00 s · 示例动画</span></div>
+      <div class="device-toolbar"><svg><use href="#i-phone"/></svg><div class="segmented platform-tabs"><button data-platform="harmony" class="active">鸿蒙</button><button data-platform="ios">iOS</button></div><span class="subtle" id="target-caption">Moving Photo · 2 秒</span></div>
+      <div class="device-meta"><span id="resolution-label">1080 × 1920 px</span><span id="preview-dimension">9 : 16</span><span id="preview-version">鸿蒙版本独立编辑</span></div>
+      <div class="stage" id="preview-stage">
+        <div class="device-unit" id="device-unit"><div class="phone-body"><div class="phone-screen" id="phone-screen"><div id="wallpaper-media" class="media-content"></div><div class="camera-cutout"></div><div id="lock-overlay" class="lock-overlay" hidden><div>10月5日 星期一</div><strong>09:41</strong></div><div id="safe-overlay" class="safe-overlay" hidden><span>构图参考区域</span></div><div class="home-indicator"></div></div></div></div>
+        <div class="four-d-card" id="four-d-card" hidden><svg><use href="#i-layers"/></svg><h2>4D 素材单独制作</h2><p id="four-d-name">城市飞行 · 五层示例</p><p class="hint">在这里整理已完成的资源包，保留原始分层。</p><a class="button" href="../parallax-studio/" target="_blank" rel="noopener">打开 4D 壁纸工作台 ↗</a><button data-import="wallpaper">导入已制作的 ZIP</button></div>
+        <div class="stage-note" id="stage-note"><kbd>拖动</kbd>调整画面位置 <span>·</span><kbd>空格</kbd>播放选段</div>
+      </div>
+      <div class="view-options"><label><input type="checkbox" id="phone-toggle" checked>手机样机</label><label><input type="checkbox" id="lock-toggle">锁屏参考</label><label><input type="checkbox" id="safe-toggle">安全区域</label><button id="reset-crop" class="text-button"><svg><use href="#i-reset"/></svg>画面回正</button></div>
+      <div class="player-bar"><span id="current-time" class="number">00:00:01:08</span><div class="play-controls"><button id="previous-frame" class="icon-button" aria-label="上一帧"><svg><use href="#i-prev"/></svg></button><button id="play-btn" class="icon-button play-button" aria-label="播放选中片段"><svg><use href="#i-play"/></svg></button><button id="next-frame" class="icon-button" aria-label="下一帧"><svg><use href="#i-next"/></svg></button></div><span class="hint" id="preview-time-hint">选段循环预览</span></div>
+    </section>
+
+    <aside class="sidebar inspector" aria-label="导出与剪辑参数">
+      <div class="panel-heading"><div><svg><use href="#i-tune"/></svg><strong>参数</strong></div><span class="count" id="inspector-platform">鸿蒙版本</span></div>
+      <div class="inspector-scroll">
+        <section class="inspector-section"><div class="field"><label for="project-name">产品名称</label><input id="project-name" value="城市飞行" maxlength="60"></div><div class="field"><label for="size-preset">固定尺寸 <span>px</span></label><select id="size-preset"><option value="1080x1920">1080 × 1920 · 9:16</option><option value="1242x2688">1242 × 2688 · 全面屏</option><option value="1440x2560">1440 × 2560 · 9:16</option><option value="custom">自定义尺寸</option></select></div><div class="two-fields" id="custom-size" hidden><label>宽<input id="custom-width" type="number" min="64" max="8192" value="1080"></label><label>高<input id="custom-height" type="number" min="64" max="8192" value="1920"></label></div></section>
+        <section class="inspector-section" id="motion-settings"><div class="section-title"><strong>精华片段</strong><span>原视频时间</span></div><div class="two-fields"><label>入点 · 秒<input id="in-point" type="number" min="0" step="0.01" value="1.25"></label><label>出点 · 秒<input id="out-point" type="number" min="0.04" step="0.01" value="3.75"></label></div><div class="field speed-field"><label for="speed">播放速度 <output id="speed-label">1.25×</output></label><input id="speed" type="range" min="0.1" max="4" step="0.05" value="1.25"><div class="speed-presets"><button data-speed="0.5">0.5×</button><button data-speed="1">1×</button><button data-speed="1.5">1.5×</button><button data-speed="2">2×</button><button data-speed="2.5">2.5×</button></div></div><div id="ios-frames-field" class="field" hidden><label for="ios-frames">目标动画帧数 <output id="ios-frames-value">24 帧</output></label><input id="ios-frames" type="range" min="16" max="30" step="1" value="24"><div class="range-labels"><span>16 帧</span><span>30 帧</span></div></div><div class="output-readout"><div><span>输出时长</span><strong id="output-duration">2.00 <small>s</small></strong></div><div><span>输出帧数</span><strong id="output-frames">60 <small>帧</small></strong></div></div><button id="fit-target" class="full-width"><svg><use href="#i-tune"/></svg><span>变速适配到 2 秒</span></button><p id="target-validation" class="validation-text valid"><svg><use href="#i-check"/></svg><span>符合当前鸿蒙 2 秒预设</span></p></section>
+        <details class="inspector-section" id="crop-settings"><summary><svg><use href="#i-crop"/></svg>画面裁剪<span>Crop</span></summary><div class="field"><label for="crop-scale">画面缩放 <output id="crop-scale-label">100%</output></label><input id="crop-scale" type="range" min="100" max="200" step="1" value="100"></div><div class="two-fields"><label>水平位置<input id="crop-x" type="number" min="-50" max="50" step="1" value="0"></label><label>垂直位置<input id="crop-y" type="number" min="-50" max="50" step="1" value="0"></label></div><p class="hint">也可以在预览画面中拖动主体。</p></details>
+        <section class="inspector-section" id="static-settings" hidden><div class="section-title"><strong>静态图片</strong><span>PNG</span></div><p class="hint">按选定尺寸裁剪。视频素材可用当前播放位置作为静态封面。</p><button id="capture-cover" class="full-width"><svg><use href="#i-image"/></svg>选当前帧作为封面</button><div id="cover-time" class="hint"></div></section>
+        <section class="inspector-section" id="package-settings" hidden><div class="section-title"><strong>资源归档</strong><span>4D</span></div><p class="hint">保留你制作好的 ZIP 文件。原型仅演示资源管理，不修改包内图层。</p></section>
+      </div>
+      <div class="inspector-foot"><span class="dot"></span><span id="version-note">苹果与鸿蒙分别保存剪辑参数</span></div>
+    </aside>
+  </div>
+
+  <section class="timeline" id="timeline" aria-label="视频时间轴">
+    <div class="timeline-toolbar"><div class="toolbar-group"><strong>时间轴</strong><span class="divider"></span><button id="set-in" title="将播放位置设为入点（I）">[<span>设为入点</span></button><button id="set-out" title="将播放位置设为出点（O）"><span>设为出点</span>]</button><button id="reset-trim" class="icon-button" aria-label="重置当前版本剪辑"><svg><use href="#i-reset"/></svg></button><span class="soft-label" id="timeline-version">正在编辑：鸿蒙</span></div><div class="toolbar-group"><label class="loop-label"><input id="loop-toggle" type="checkbox" checked>循环选段</label><span class="divider"></span><label for="timeline-zoom" class="zoom-label">−</label><input id="timeline-zoom" aria-label="时间轴缩放" type="range" min="100" max="300" step="25" value="100"><span>＋</span><output id="timeline-zoom-value">100%</output></div></div>
+    <div class="timeline-body"><div class="track-labels"><span class="ruler-label">预览 30 帧 / 秒</span><div><svg><use href="#i-video"/></svg><span>原始素材</span></div><button data-platform="harmony" class="active">鸿蒙 <small>2 s</small></button><button data-platform="ios">iOS <small>16–30 帧</small></button></div><div id="timeline-scroll" class="timeline-scroll"><div id="timeline-content" class="timeline-content"><div id="ruler" class="ruler"></div><div class="source-track" id="source-track"><div class="filmstrip" id="filmstrip"></div><div class="clip-name" id="clip-name">城市飞行 · 原始视频 <span>5.00 s</span></div><div class="trim-selection" id="trim-selection"><button id="trim-start-handle" class="trim-handle left" aria-label="拖动入点" title="拖动入点"></button><span id="selection-duration">选中 2.50 s</span><button id="trim-end-handle" class="trim-handle right" aria-label="拖动出点" title="拖动出点"></button></div></div><div class="version-track"><button id="harmony-range" class="version-range harmony" data-platform="harmony">鸿蒙 · 2.00 s</button></div><div class="version-track"><button id="ios-range" class="version-range ios" data-platform="ios">iOS · 24 帧</button></div><div id="playhead" class="playhead" role="slider" tabindex="0" aria-label="播放头" aria-valuemin="0" aria-valuemax="5" aria-valuenow="1.25"><span></span></div></div></div></div>
+    <div class="timeline-bottom"><span>拖动蓝色边缘截取片段 · 点击刻度定位 · ← / → 逐帧</span><span id="trim-summary">源片段 2.50 s ÷ 1.25× = 输出 2.00 s</span></div>
+    <div id="timeline-empty" class="timeline-empty" hidden><svg><use href="#i-image"/></svg><span>选择视频素材，即可截取片段与调整速度</span></div>
+  </section>
+</main>
+
+<main id="publish-workspace" class="workspace-view" hidden>
+  <div class="publish-columns">
+    <aside class="sidebar" aria-label="推广素材"><div class="panel-heading"><div><svg><use href="#i-folder"/></svg><strong>推广素材</strong></div><button class="icon-button" data-import="publish" aria-label="添加推广素材"><svg><use href="#i-plus"/></svg></button></div><p class="panel-intro">独立导入图片和视频，制作本次内容。</p><div id="publish-assets" class="asset-list"></div><div class="sidebar-bottom"><button class="import-zone" data-import="publish"><svg><use href="#i-plus"/></svg><strong>添加推广素材</strong><span>支持单图、多图和视频</span></button><div class="draft-entry"><svg><use href="#i-save"/></svg><div><strong>当前草稿</strong><span id="draft-status">尚未保存</span></div><button id="load-draft" class="text-button">恢复</button></div></div></aside>
+    <section class="publish-center"><div class="preview-toolbar"><div class="segmented" id="social-tabs"><button data-social="xhs" class="active">小红书</button><button data-social="douyin">抖音</button></div><span class="soft-label">发布效果示意</span></div><div class="post-editor-layout"><div class="social-preview-column"><div class="social-phone" id="social-phone"><div class="social-top"><span>‹</span><div class="avatar">倾</div><span id="preview-account">倾境 · 每日壁纸</span><span class="follow-button">关注</span></div><div id="social-media" class="social-media"><div class="media-content" id="publish-media"></div><div id="cover-title-overlay" class="cover-title-overlay" hidden></div><span class="page-indicator" id="post-page-indicator">1 / 1</span></div><div class="social-caption"><strong id="preview-title">把城市的风，留在你的屏幕里</strong><p id="preview-body"></p><span class="social-date">刚刚 · 发布预览</span></div><div class="social-bottom"><span>说点什么…</span><span>♡</span><span>☆</span><span>◯</span></div></div><p class="hint centered">两平台文案分别编辑，分别保存</p></div><div class="post-form"><div class="section-title"><strong>内容编辑</strong><span id="editing-platform">小红书</span></div><div class="field"><label>内容形式</label><div class="segmented full-width" id="post-type-tabs"><button data-post-type="image" class="active">图文</button><button data-post-type="video">视频</button></div></div><div class="field"><label for="post-title">标题 <span id="title-count">0 字</span></label><input id="post-title" maxlength="80"></div><div class="field"><label for="post-body">正文</label><textarea id="post-body" rows="8" maxlength="2000"></textarea></div><div class="field"><label for="post-tags">话题标签</label><input id="post-tags" placeholder="#壁纸 #动态壁纸"></div><div class="field"><label for="copy-style">文案风格</label><div class="inline-field"><select id="copy-style"><option value="simple">简洁分享</option><option value="zen">禅意治愈</option><option value="ancient">古风诗意</option><option value="cartoon">卡通活力</option></select><button id="suggest-copy"><svg><use href="#i-text"/></svg>试用示例文案</button></div></div><label class="checkbox-row"><input id="cover-title-toggle" type="checkbox">将标题叠加到封面预览</label><button id="download-copy" class="full-width"><svg><use href="#i-export"/></svg>导出当前平台文案</button></div></div></section>
+    <aside class="sidebar account-panel" aria-label="发布账号"><div class="panel-heading"><div><svg><use href="#i-users"/></svg><strong>发布到账号</strong><span class="count" id="account-count">8</span></div><button class="text-button" id="manage-accounts">管理</button></div><div class="panel-intro account-intro"><span>勾选本次要发布的账号</span><span class="count">示例</span></div><div class="account-list" id="account-list"></div><div class="publish-options"><div class="field"><label for="publish-timing">发布时间</label><select id="publish-timing"><option value="now">立即发布</option><option value="scheduled">定时发布</option></select><input id="publish-date" type="datetime-local" aria-label="定时发布时间" hidden></div><div class="selected-summary"><strong id="selected-count">已选 2 个账号</strong><span id="platform-summary">小红书 1 · 抖音 1</span></div><button id="publish-preview-btn" class="primary full-width"><svg><use href="#i-send"/></svg>预览发布清单</button><p class="hint centered">原型演示 · 尚未连接社交平台</p></div></aside>
+  </div>
+</main>
+
+<footer class="statusbar"><span><span class="dot"></span><span id="status-text">城市飞行 · 示例素材</span></span><span id="status-middle">素材导入 → 剪辑调整 → 导出产品</span><span class="status-right">倾境创作台 · 原型 v0.1</span></footer>
+<input type="file" id="wallpaper-input" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,.zip" multiple hidden>
+<input type="file" id="publish-input" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm" multiple hidden>
+<div id="drop-overlay" class="drop-overlay" hidden><svg><use href="#i-upload"/></svg><strong>松开以导入素材</strong><span>将添加到当前工作区</span></div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<dialog id="dialog"><div class="dialog-heading"><h2 id="dialog-title"></h2><button id="dialog-close" class="icon-button" aria-label="关闭弹窗"><svg><use href="#i-close"/></svg></button></div><div id="dialog-body"></div><div class="dialog-actions" id="dialog-actions"></div></dialog>
+</body>
+</html>
