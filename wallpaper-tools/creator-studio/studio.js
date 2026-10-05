@@ -604,24 +604,97 @@
     for(const key of ['android','harmony','ios']){const p=profiles()[key],duration=Core.total(p),frames=Math.round(duration*FPS);if(!p.clips.length)continue;const fits=key==='android'||(key==='harmony'?Math.abs(duration-2)<.015:frames>=16&&frames<=30);rows.push({key,title:`${platformNames[key]}动态壁纸`,detail:`${p.width} × ${p.height} · ${duration.toFixed(2)} s · ${frames} 帧`,status:fits?'剪辑已保存 · 待编码':'待调整成片长度',plan:Core.snapshot(p)});}
     const a=assetById(state.resources.fourDId);if(a?.file)rows.push({key:'4d',title:'4D 壁纸',detail:`${a.name} · ${a.layerCount} 个图层`,status:'原始 ZIP 已保存',assetId:a.id});return rows;
   }
+  // Category fixtures are local only; the connected version will use the admin category list.
+  const creationCategories=[
+    {id:'simple',name:'简约',children:[{id:'simple-minimal',name:'极简'},{id:'simple-abstract',name:'抽象'}]},
+    {id:'zen',name:'禅意',children:[{id:'zen-buddha',name:'佛像'},{id:'zen-landscape',name:'山水'}]},
+    {id:'ancient',name:'古风',children:[{id:'ancient-landscape',name:'山水'},{id:'ancient-character',name:'人物'}]},
+    {id:'cartoon',name:'卡通',children:[{id:'cartoon-character',name:'人物'},{id:'cartoon-pet',name:'萌宠'}]}
+  ];
+  const creationCapabilities=[
+    {key:'4d',value:'android_parallax',title:'Android 4D',text:'分层视差资源包',label:'Android 4D 固定资源包'},
+    {key:'android',value:'android_video',title:'Android 动态',text:'MP4 动态壁纸',label:'Android 动态视频'},
+    {key:'ios',value:'ios_live_photo',title:'iOS 实况',text:'原始 MP4 / MOV 生成 Live Photo',label:'iOS 实况原始视频'},
+    {key:'harmony',value:'harmony_moving_photo',title:'鸿蒙动态',text:'Moving Photo 视频 + 首帧',label:'HarmonyOS 动态原始视频'},
+    {key:'static',value:'universal_static',title:'全平台静态',text:'高清静态原图',label:'全平台高清静态原图'}
+  ];
+  function creationDefaults(previous){
+    const accessType=previous?.accessType||(previous?.access==='free'?'FREE':'REDEEM');
+    return {title:(previous?.title||state.name).slice(0,40),categoryId:previous?.categoryId||previous?.category||'',subcategoryId:previous?.subcategoryId||'',sort:previous?.sort??1,featuredRank:previous?.featuredRank??null,accessType,offlinePromotionOnly:previous?.offlinePromotionOnly??false,previewWatermarkEnabled:previous?.previewWatermarkEnabled??accessType==='REDEEM',iosAcquisition:{productId:'',enabled:false,firstFreeEligible:false,...previous?.iosAcquisition}};
+  }
   async function openCreateWallpaper(){
     finishPendingAction();pause();const projectId=activeProject?.id;let cover=null;
     try{cover=await coverPreview();}catch{toast('缩略图无法读取，请在静态页重新选择');}
     if(projectId!==activeProject?.id)return;
-    const rows=productChoices(),previous=state.productRecord;
-    modal(previous?'更新壁纸 · 创建流程预览':'创建壁纸',`<div class="wallpaper-create-body"><span class="prototype-badge">原型演示 · 后台接口待接入</span><p class="dialog-intro">本次选择的资源统一属于一个壁纸商品。</p><div class="field"><label for="wallpaper-title">壁纸名称</label><input id="wallpaper-title" maxlength="60" value="${esc(previous?.title||state.name)}" required></div><div class="create-settings"><div class="field"><label for="wallpaper-category">商品分类 · 演示</label><select id="wallpaper-category"><option value="simple">简约</option><option value="zen">禅意</option><option value="ancient">古风</option><option value="cartoon">卡通</option></select></div><div class="field"><label for="wallpaper-access">获取方式 · 演示</label><select id="wallpaper-access"><option value="free">免费</option><option value="paid">付费</option></select></div></div><div class="create-cover">${cover?`<img src="${cover}" alt="商品缩略图"><div>商品缩略图<small>使用静态页选定的裁剪结果</small></div>`:'<div>尚未选择商品缩略图<small>在静态裁剪中勾选「应用为壁纸缩略图」</small></div><button id="choose-product-cover">去选择</button>'}</div><div class="section-title"><strong>包含资源</strong><span>${rows.length} 种类型</span></div>${rows.map(row=>`<label class="create-resource"><input type="checkbox" data-create-resource="${row.key}" ${!previous||previous.resources.some(r=>r.key===row.key)?'checked':''}><div><strong>${row.title}</strong><small>${esc(row.detail)}</small></div><em>${row.status}</em></label>`).join('')||'<p class="dialog-note">先保存静态或 4D 资源，或在动态时间轴加入素材。</p>'}<div id="create-summary" class="create-summary"></div><p class="dialog-note">正式接入后由后台上传、关联资源并返回商品编号。当前只保存本地演示商品；视频编码与平台打包尚未接入。</p></div>`,[{label:'返回编辑',run:closeModal},{label:'下载资源清单',run:()=>download(`${safeName()}-壁纸资源清单.json`,JSON.stringify({prototype:true,projectId,name:$('wallpaper-title').value,thumbnail:state.thumbnail,resources:rows.filter(r=>document.querySelector(`[data-create-resource="${r.key}"]`)?.checked),note:'资源与剪辑计划清单，尚未提交后台。'},null,2))},{label:previous?'更新演示商品':'创建演示商品',primary:true,run:()=>createDemoProduct(rows,cover)}]);
-    $('dialog').classList.add('wallpaper-create-dialog');$('wallpaper-category').value=previous?.category||'simple';$('wallpaper-access').value=previous?.access||'free';
+    const rows=productChoices(),previous=state.productRecord,form=creationDefaults(previous),hasIOS=rows.some(r=>r.key==='ios'),hasCover=!!cover;
+    const capabilityText=creationCapabilities.filter(c=>rows.some(r=>r.key===c.key)).map(c=>c.title).join(' / ');
+    modal(previous?'编辑壁纸':'创建壁纸',`<div class="wallpaper-create-body">
+      <div class="wallpaper-create-form">
+        <p class="create-local-notice">原型预览 · 分类为示例，保存结果仅留在本地，尚未提交后台上架。</p>
+        <p id="creation-validation" class="creation-validation" role="alert" hidden></p>
+        <section class="create-form-section"><div class="create-section-heading"><h3>基础信息</h3><p>用于 App 列表、分类和排序。</p></div>
+          <div class="create-form-grid">
+            <div class="field"><label for="wallpaper-title">壁纸名称 <span id="wallpaper-title-count"></span></label><input id="wallpaper-title" maxlength="40" value="${esc(form.title)}" required></div>
+            <div class="field"><label for="wallpaper-category">一级分类</label><select id="wallpaper-category" required><option value="">请选择</option>${creationCategories.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}</select></div>
+            <div class="field"><label for="wallpaper-subcategory">二级分类（可选）</label><select id="wallpaper-subcategory"><option value="">请选择</option></select></div>
+            <div class="field"><label for="wallpaper-sort">排序值</label><input id="wallpaper-sort" type="number" min="0" max="999999" step="1" value="${form.sort}"></div>
+            <div class="field"><label for="wallpaper-featured">精选推荐</label><div class="create-inline-control"><label><input id="wallpaper-featured" type="checkbox" ${form.featuredRank!==null?'checked':''}>加入首页精选</label><input id="wallpaper-featured-rank" type="number" min="0" max="999999" step="1" value="${form.featuredRank??1}" aria-label="精选排序值" ${form.featuredRank===null?'hidden':''}></div></div>
+            <div class="field"><label>获取方式</label><div class="create-inline-control" role="radiogroup" aria-label="获取方式"><label><input type="radio" name="wallpaper-access" value="REDEEM" ${form.accessType==='REDEEM'?'checked':''}>需要兑换</label><label><input type="radio" name="wallpaper-access" value="FREE" ${form.accessType==='FREE'?'checked':''}>免费</label></div></div>
+            <div class="field"><label for="wallpaper-offline">仅线下推广使用</label><label class="create-switch"><span>关闭</span><input id="wallpaper-offline" type="checkbox" role="switch" ${form.offlinePromotionOnly?'checked':''}><span>开启</span></label><p class="hint">开启后仅在吉意壁纸 Android 线下版展示；线上 Android、iOS 和鸿蒙均不展示。</p></div>
+            <div class="field create-watermark-field"><label for="wallpaper-watermark">预览加水印</label><label class="create-switch"><span>关闭</span><input id="wallpaper-watermark" type="checkbox" role="switch" ${form.previewWatermarkEnabled?'checked':''}><span>开启</span></label><p class="hint">需要兑换时默认开启。保存后重新生成预览；4D 仅最前一层加水印，正式下载不受影响。</p></div>
+          </div>
+        </section>
+        <section class="create-form-section" id="create-ios-section" ${!hasIOS&&!form.iosAcquisition.productId?'hidden':''}><div class="create-section-heading"><h3>iOS 首免与内购</h3><p>Product ID 在 App Store Connect 创建；价格由 Apple 返回，后台不填价格。</p></div><div class="create-form-grid"><div class="field"><label for="wallpaper-ios-product">非消耗型 Product ID</label><input id="wallpaper-ios-product" value="${esc(form.iosAcquisition.productId)}" placeholder="例如 com.qingjing.bizhi.wallpaper.123" ${form.iosAcquisition.productIdLocked?'disabled':''}></div><div class="field"><label for="wallpaper-ios-enabled">售卖状态</label><label class="create-inline-control"><input id="wallpaper-ios-enabled" type="checkbox" role="switch" ${form.iosAcquisition.enabled?'checked':''}>允许购买</label></div><div class="field"><label for="wallpaper-ios-first-free">首次免费</label><label class="create-inline-control"><input id="wallpaper-ios-first-free" type="checkbox" role="switch" ${form.iosAcquisition.firstFreeEligible?'checked':''}>可作为首免选择</label></div></div></section>
+        <section class="create-form-section"><div class="create-section-heading"><h3>发布平台</h3><p>根据创作台带入的资源自动识别，无需人工选择。</p></div><div class="create-capability-grid">${creationCapabilities.map(c=>{const row=rows.find(r=>r.key===c.key);return `<div class="create-capability ${row?'included':''}" data-capability="${c.value}"><strong>${c.title}</strong><small>${row?row.key==='static'||row.key==='4d'?'已带入资源':'已带入剪辑':c.text}</small></div>`;}).join('')}</div></section>
+        <section class="create-form-section"><div class="create-section-heading"><h3>列表封面</h3><p>必填，用于 App 列表和详情入口；4D ZIP 不提供封面。</p></div><div class="create-cover">${hasCover?`<img src="${cover}" alt="列表封面"><div>列表封面（必填）<small>使用静态页选定的壁纸缩略图</small></div>`:'<div>尚未选择列表封面<small>在静态页勾选「应用为壁纸缩略图」后带入。</small></div><button id="choose-product-cover">去选择封面</button>'}</div></section>
+        <section class="create-form-section"><div class="create-section-heading"><h3>正式资源</h3><p>使用当前项目中保存的资源与剪辑。</p></div>${creationCapabilities.filter(c=>rows.some(r=>r.key===c.key)).map(c=>{const row=rows.find(r=>r.key===c.key);return `<div class="create-resource">${icon(c.key==='4d'?'layers':c.key==='static'?'image':'video')}<div><strong>${c.label}</strong><small>${esc(row.detail)}</small></div><em>${row.status}</em></div>`;}).join('')||'<p class="hint">请先在项目中保存静态、4D 资源或添加动态素材。</p>'}<div class="create-summary">${rows.length} 种资源，归属于同一个壁纸商品</div></section>
+      </div>
+      <aside class="wallpaper-create-preview"><h3>详情页效果预览</h3><div class="create-preview-phone">${hasCover?`<img src="${cover}" alt="壁纸效果预览">`:`<div class="create-preview-placeholder">${icon('image')}</div>`}<div class="create-preview-watermark" id="create-preview-watermark" ${form.previewWatermarkEnabled?'':'hidden'}>倾境壁纸</div><div class="create-preview-meta"><strong id="create-preview-title">${esc(form.title)||'未命名壁纸'}</strong><small>${capabilityText||'尚未带入正式资源'}</small></div></div><div class="create-preview-checklist">${creationCapabilities.filter(c=>rows.some(r=>r.key===c.key)).map(c=>`<div><span>${c.title}</span><span>已带入</span></div>`).join('')}</div></aside>
+    </div>`,[{label:'取消',run:closeModal},{label:'保存并上架',primary:true,run:()=>createDemoProduct(rows,cover,projectId)}]);
+    $('dialog').classList.add('wallpaper-create-dialog');$('wallpaper-category').value=form.categoryId;
+    const syncSecondary=selected=>{const children=creationCategories.find(c=>c.id===$('wallpaper-category').value)?.children||[];$('wallpaper-subcategory').innerHTML='<option value="">请选择</option>'+children.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');$('wallpaper-subcategory').value=children.some(c=>c.id===selected)?selected:'';$('wallpaper-subcategory').disabled=!children.length;};
+    syncSecondary(form.subcategoryId);
+    $('wallpaper-category').onchange=()=>syncSecondary('');
+    $('wallpaper-featured').onchange=()=>{$('wallpaper-featured-rank').hidden=!$('wallpaper-featured').checked;};
+    $('wallpaper-watermark').onchange=()=>{$('create-preview-watermark').hidden=!$('wallpaper-watermark').checked;};
+    $$('[name="wallpaper-access"]').forEach(el=>el.onchange=()=>{$('wallpaper-watermark').checked=el.value==='REDEEM';$('wallpaper-watermark').onchange();});
+    $('wallpaper-title').oninput=()=>{$('wallpaper-title-count').textContent=`${$('wallpaper-title').value.length} / 40`;$('create-preview-title').textContent=$('wallpaper-title').value.trim()||'未命名壁纸';};$('wallpaper-title').oninput();
     $('choose-product-cover')?.addEventListener('click',()=>{closeModal();state.staticEditor.assetId=state.staticEditor.assetId||state.assets.find(a=>a.type==='image')?.id;state.product='static';state.sourcePreview=true;renderWallpaper();toast('勾选「应用为壁纸缩略图」后再创建');});
-    const sync=()=>{const n=$$('[data-create-resource]:checked').length;$('create-summary').innerHTML=`${n} 种资源 → 1 个壁纸商品<small>${previous?`更新同一演示商品：${esc(previous.id)}`:'创建一次只生成一条商品记录'}</small>`;$('dialog-actions').querySelector('.primary').disabled=!n||!cover||!$('wallpaper-title').value.trim();};
-    $$('[data-create-resource]').forEach(input=>input.onchange=sync);$('wallpaper-title').oninput=sync;sync();
+    $$('.wallpaper-create-form input,.wallpaper-create-form select').forEach(el=>el.addEventListener('input',()=>{$('creation-validation').hidden=true;el.removeAttribute('aria-invalid');}));
   }
-  async function createDemoProduct(rows,cover){
-    const selected=new Set($$('[data-create-resource]:checked').map(input=>input.dataset.createResource)),title=$('wallpaper-title').value.trim();if(!selected.size||!cover||!title)return;
-    const existing=state.productRecord,now=new Date().toISOString();state.productRecord={id:existing?.id||`demo-${crypto.randomUUID()}`,prototype:true,title,category:$('wallpaper-category').value,access:$('wallpaper-access').value,thumbnail:clone(state.thumbnail),cover,resources:rows.filter(r=>selected.has(r.key)),createdAt:existing?.createdAt||now,updatedAt:now};
-    commitAction(existing?'更新演示壁纸商品':'创建演示壁纸商品');const result=clone(state.productRecord);if(!await flushSave()){toast('演示记录未保存成功，请重试自动保存');return;}
-    modal(existing?'演示商品已更新':'演示商品已创建',`<span class="prototype-badge">仅保存在本地 · 未提交后台</span><div class="create-cover"><img src="${cover}" alt="商品缩略图"><div><strong>${esc(title)}</strong><small>${result.resources.length} 种资源归属于同一个商品</small></div></div><p class="hint">${esc(result.id)}</p>${result.resources.map(r=>`<div class="export-row">${icon(r.key==='4d'?'layers':r.key==='static'?'image':'video')}<div><strong>${r.title}</strong><small>${esc(r.detail)}</small></div></div>`).join('')}<p class="dialog-note">再次点击「创建壁纸」可更新这条演示商品。实际后台创建和文件处理在接口接入阶段完成。</p>`,[{label:'查看创建清单',run:openCreateWallpaper},{label:'返回编辑',primary:true,run:closeModal}]);
+  async function createDemoProduct(rows,cover,projectId){
+    if(projectId!==activeProject?.id)return;
+    const button=$('dialog-actions').querySelector('.primary');if(button.disabled)return;
+    const form={title:$('wallpaper-title').value.trim(),categoryId:$('wallpaper-category').value,subcategoryId:$('wallpaper-subcategory').value,sort:$('wallpaper-sort').valueAsNumber,featuredRank:$('wallpaper-featured').checked?$('wallpaper-featured-rank').valueAsNumber:null,accessType:document.querySelector('[name="wallpaper-access"]:checked')?.value,offlinePromotionOnly:$('wallpaper-offline').checked,previewWatermarkEnabled:$('wallpaper-watermark').checked,iosAcquisition:{...state.productRecord?.iosAcquisition,productId:$('wallpaper-ios-product').value.trim(),enabled:$('wallpaper-ios-enabled').checked,firstFreeEligible:$('wallpaper-ios-first-free').checked}};
+    const invalid=(id,message)=>{$('creation-validation').textContent=message;$('creation-validation').hidden=false;if(id){$(id).setAttribute('aria-invalid','true');$(id).focus();}else $('creation-validation').scrollIntoView({block:'nearest'});};
+    if(!form.title||form.title.length>40)return invalid('wallpaper-title','请填写 1–40 字的壁纸名称');
+    if(!creationCategories.some(c=>c.id===form.categoryId))return invalid('wallpaper-category','请选择一级分类');
+    if(!Number.isInteger(form.sort)||form.sort<0||form.sort>999999)return invalid('wallpaper-sort','排序值需为 0–999999 的整数');
+    if(form.featuredRank!==null&&(!Number.isInteger(form.featuredRank)||form.featuredRank<0||form.featuredRank>999999))return invalid('wallpaper-featured-rank','精选排序值需为 0–999999 的整数');
+    if(!['REDEEM','FREE'].includes(form.accessType))return invalid(null,'请选择获取方式');
+    if((form.iosAcquisition.enabled||form.iosAcquisition.firstFreeEligible)&&!form.iosAcquisition.productId)return invalid('wallpaper-ios-product','请先填写非消耗型 Product ID');
+    if(form.iosAcquisition.productId&&!/^[A-Za-z0-9._-]+$/.test(form.iosAcquisition.productId))return invalid('wallpaper-ios-product','Product ID 只能包含字母、数字、点、下划线和连字符');
+    if(!rows.length)return invalid(null,'请至少带入一种壁纸资源');
+    if(!cover)return invalid(null,'请先在静态页选择列表封面');
+    $('dialog-actions').querySelectorAll('button').forEach(b=>b.disabled=true);
+    try{
+      const existing=state.productRecord,now=new Date().toISOString();state.productRecord={id:existing?.id||`demo-${crypto.randomUUID()}`,prototype:true,...form,status:'published',capabilities:creationCapabilities.filter(c=>rows.some(r=>r.key===c.key)).map(c=>c.value),thumbnail:clone(state.thumbnail),cover,resources:clone(rows),createdAt:existing?.createdAt||now,updatedAt:now};
+      commitAction(existing?'更新本地壁纸创建记录':'保存本地壁纸创建记录');
+      if(!await flushSave()){invalid(null,'本地保存未完成，请重试');return;}
+      closeModal();toast('已保存本地创建记录，尚未提交后台上架');
+    }finally{if(button.isConnected)$('dialog-actions').querySelectorAll('button').forEach(b=>b.disabled=false);}
+  }
+  function syncFullscreen(){
+    const active=!!document.fullscreenElement,button=$('fullscreen-btn');button.setAttribute('aria-pressed',String(active));button.setAttribute('aria-label',active?'退出全屏':'全屏显示');button.title=active?'退出全屏（Esc）':'全屏显示';button.querySelector('use').setAttribute('href',active?'#i-minimize':'#i-maximize');button.querySelector('span').textContent=active?'退出全屏':'全屏';
+  }
+  async function toggleFullscreen(){
+    try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}
+    catch{toast('当前浏览器未开放全屏，请在独立浏览器中使用');}
+    syncFullscreen();
   }
   function bindWorkbench(){
+    $('fullscreen-btn').onclick=toggleFullscreen;document.addEventListener('fullscreenchange',syncFullscreen);syncFullscreen();
+    document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.fullscreenElement&&!$('dialog').open){e.preventDefault();document.exitFullscreen().catch(()=>{});}});
     $('device-picker-toggle').onclick=()=>{devicePickerOpen=!devicePickerOpen;syncDevicePicker();};
     document.addEventListener('click',e=>{if(devicePickerOpen&&!e.target.closest('.preview-controls')){devicePickerOpen=false;syncDevicePicker();}});
     document.addEventListener('keydown',e=>{if(devicePickerOpen&&e.key==='Escape'){e.preventDefault();devicePickerOpen=false;syncDevicePicker();$('device-picker-toggle').focus();}});
