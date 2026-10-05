@@ -36,13 +36,13 @@
     }catch(error){image.close();throw error;}
   }
   async function parse(asset){
-    const layers=[];
+    const layers=[],images=[];
     try{
       let config,migrated=false;
       if(asset.demo){
         const params=demoFiles.map((name,i)=>({index:i+1,offsetXPercent:[14,6,8,3,2][i],offsetYPercent:[8,4,5,2,2][i],initialOffsetXPercent:0,initialOffsetYPercent:0,direction:i===4?'reverse':'follow',scale:1.18,opacity:i===1?.25:1,blendMode:i===1?'screen':'normal'}));
         config={formatVersion:2,canvas:{width:2048,height:2048},motion:{maxAngleX:75,maxAngleY:75},layers:params};
-        for(let i=0;i<demoFiles.length;i++){const response=await fetch(`assets/${demoFiles[i]}`);if(!response.ok)throw new Error('示例图层未加载');layers.push(await layer(new Uint8Array(await response.arrayBuffer()),demoFiles[i],params[i]));}
+        for(let i=0;i<demoFiles.length;i++){const response=await fetch(`assets/${demoFiles[i]}`);if(!response.ok)throw new Error('示例图层未加载');const bytes=new Uint8Array(await response.arrayBuffer());layers.push(await layer(bytes,demoFiles[i],params[i]));images.push({bytes,ext:demoFiles[i].split('.').pop()});}
       }else{
         const parsed=await window.ParallaxArchive.read(new Uint8Array(await asset.file.arrayBuffer()),window.JSZip);
         if(parsed.type!=='wallpaper')throw new Error('请导入已制作完成的壁纸 ZIP，不是可编辑工程文件');
@@ -51,12 +51,18 @@
       }
       const scene={canvas:config.canvas,motion:config.motion,layers};
       const errors=C.validateScene(scene).errors;if(errors.length)throw new Error(errors.join('；'));
-      return {scene,config,migrated};
+      return {scene,config,migrated,images};
     }catch(error){layers.forEach(l=>l.image.close());throw error;}
   }
   function load(asset){
-    if(!cache.has(asset.id))cache.set(asset.id,parse(asset));return cache.get(asset.id);
+    if(!cache.has(asset.id)){const promise=parse(asset).catch(error=>{if(cache.get(asset.id)===promise)cache.delete(asset.id);throw error;});cache.set(asset.id,promise);}return cache.get(asset.id);
+  }
+  async function resource(asset){
+    if(asset?.file instanceof Blob)return asset.file;
+    if(asset?.type!=='4d'||!asset.demo)throw new Error('4D 资源文件已丢失，请重新导入');
+    const loaded=await load(asset),blob=await window.ParallaxArchive.wallpaper(loaded.config,loaded.images,window.JSZip);
+    return new File([blob],window.ResourceExport.filename(`${asset.name}.zip`),{type:'application/zip'});
   }
   function clear(){for(const promise of cache.values())promise.then(value=>value.scene.layers.forEach(l=>l.image.close())).catch(()=>{});cache.clear();}
-  window.WallpaperPreview={load,clear};
+  window.WallpaperPreview={load,clear,resource};
 })();
