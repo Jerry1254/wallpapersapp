@@ -50,6 +50,15 @@
   }
   function template(w,name){const snapshot=copy(w);delete snapshot.id;delete snapshot.selectedClipId;delete snapshot.generated;snapshot.cursor=0;snapshot.pageIndex=0;snapshot.slots=Object.fromEntries(Object.keys(w.slots).map(key=>[key,null]));return {id:id(),name,type:w.type,snapshot,updatedAt:new Date().toISOString()};}
   function instantiate(template,slots){const w=copy(template.snapshot);delete w.generated;w.id=id();w.name=template.name;w.templateId=template.id;w.templateVersion=template.updatedAt;w.slots={...w.slots,...slots};w.selectedClipId=all(w)[0]?.id||null;return w;}
-  function normalize(data){if(!data||!Array.isArray(data.works))return {works:[],activeId:null};const value=copy(data);value.works=value.works.filter(w=>['gallery','video'].includes(w.type)&&Array.isArray(w.pages)&&Array.isArray(w.tracks));if(!value.works.some(w=>w.id===value.activeId))value.activeId=value.works[0]?.id||null;return value;}
+  function normalize(data){
+    if(!data)return {drafts:[],items:[],activeId:null};
+    const value=copy(data),legacy=!Array.isArray(value.drafts);
+    value.drafts=(value.drafts||value.works||[]).filter(w=>['gallery','video'].includes(w.type)&&Array.isArray(w.pages)&&Array.isArray(w.tracks));
+    value.items=Array.isArray(value.items)?value.items:[];
+    if(legacy)for(const w of value.drafts)if(w.generated?.assetIds?.length)value.items.push({id:'migrated-'+w.id,name:w.name,type:w.type,createdAt:w.generated.at,assetIds:copy(w.generated.assetIds),templateId:w.templateId||null});
+    delete value.works;for(const w of value.drafts)delete w.generated;
+    if(!value.drafts.some(w=>w.id===value.activeId))value.activeId=value.drafts[0]?.id||null;
+    return value;
+  }
   const api={id,copy,clamp,clip,create,all,selected,active,resolve,sourceTime,replace,split,trim,template,instantiate,normalize};root.ContentCore=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);

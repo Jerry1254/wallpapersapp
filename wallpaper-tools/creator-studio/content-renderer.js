@@ -64,5 +64,5 @@
   }
   function clear(){for(const finish of [...waits])finish(new DOMException('已取消','AbortError'));for(const p of cache.values())p.then(data=>{if(data.video){data.video.pause();data.video.removeAttribute('src');data.video.load();}}).catch(()=>{});cache.clear();}
   const blob=(canvas,type='image/png',quality=.9)=>new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('画面导出失败')),type,quality));
-  window.ContentRenderer={paint,clear,blob};
+  window.ContentRenderer={paint,clear,blob,load};
 })();
