@@ -17,8 +17,11 @@
   async function paintNodes(ctx,nodes,w,resolve,options,stack=new Set()){
     for(const n of nodes){
       if(options.signal?.aborted)throw new DOMException('已取消','AbortError');
-      if(!n.visible||n.id===options.hiddenId)continue;ctx.save();const m=G.transform(n);ctx.transform(...m);ctx.globalAlpha*=n.opacity??1;
-      if(n.type==='group'&&!n.mask){await paintNodes(ctx,n.children||[],w,resolve,options,stack);}
+      if(n.visible===false||n.id===options.hiddenId)continue;ctx.save();const m=G.transform(n);ctx.transform(...m);ctx.globalAlpha*=n.opacity??1;ctx.globalCompositeOperation=n.blendMode&&n.blendMode!=='pass-through'?n.blendMode:'source-over';
+      if(['group','instance'].includes(n.type)&&!n._isolated&&((n.blendMode&&n.blendMode!=='pass-through')||(n.opacity??1)<1)){
+        const local={...n,x:0,y:0,rotation:0,opacity:1,blendMode:'pass-through',_isolated:true},area=extent({width:n.width,height:n.height,nodes:[local]},true,w.gallery),buffer=document.createElement('canvas');buffer.width=Math.max(1,Math.ceil(area.width));buffer.height=Math.max(1,Math.ceil(area.height));const layer=buffer.getContext('2d');layer.translate(-area.x,-area.y);await paintNodes(layer,[local],w,resolve,options,stack);ctx.drawImage(buffer,area.x,area.y);
+      }
+      else if(n.type==='group'&&!n.mask){if(n.clip||n.radius){round(ctx,n.width,n.height,n.radius);ctx.clip();}await paintNodes(ctx,n.children||[],w,resolve,options,stack);}
       else if(n.type==='text')text(ctx,n);
       else if(n.type==='rect'){round(ctx,n.width,n.height,n.radius);ctx.fillStyle=E.fill(ctx,n.color,n.width,n.height);ctx.fill();}
       else if(n.type==='instance'||(n.type==='group'&&n.mask)){
@@ -30,11 +33,11 @@
             width=Math.min(n.width,n.height*.46);height=width/.46;ctx.translate((n.width-width)/2,(n.height-height)/2);
             ctx.shadowColor='#0008';ctx.shadowBlur=width*.1;ctx.shadowOffsetY=width*.035;round(ctx,width,height,width*.125);ctx.fillStyle='#737984';ctx.fill();ctx.shadowBlur=0;ctx.shadowOffsetY=0;
             const border=width*.024;ctx.translate(border,border);width-=border*2;height-=border*2;round(ctx,width,height,width*.1);ctx.clip();
-          }else if(n.mask==='round'){round(ctx,width,height,n.radius||40);ctx.clip();}
-          // Each image refits to its instance bounds, rather than stretching its source pixels.
-          const sx=width/def.width,sy=height/def.height;
-          const adapt=nodes=>nodes.map(child=>{const out={...child,x:child.x*sx,y:child.y*sy,width:child.width*sx,height:child.height*sy};if(child.fontSize)out.fontSize=child.fontSize*Math.min(sx,sy);if(child.letterSpacing)out.letterSpacing=child.letterSpacing*Math.min(sx,sy);if(child.children)out.children=adapt(child.children);if(child.type==='image'){out.scale=(child.scale||1)*(n.scale||1);out.panX=(child.panX||0)+(n.panX||0);out.panY=(child.panY||0)+(n.panY||0);}return out;});
-          await paintNodes(ctx,adapt(def.nodes),w,resolve,options,new Set([...stack,def.id]));
+          }else if(n.mask==='round'||n.radius||(n.clip??def.clip)!==false){round(ctx,width,height,n.radius||(n.mask==='round'?40:0));ctx.clip();}
+          if(n.type==='instance'&&def.background){ctx.fillStyle=E.fill(ctx,def.background,width,height);ctx.fillRect(0,0,width,height);}
+          let children=n.type==='instance'?G.instanceNodes(w.gallery,n,width,height):G.instanceNodes({components:{[def.id]:def}},{...n,componentId:def.id},width,height,false);
+          if(options.instancePreview?.[n.id]){const v=G.instanceViewport(n);children=options.instancePreview[n.id].map(c=>({...c,x:c.x-v.x,y:c.y-v.y}));}
+          await paintNodes(ctx,children,w,resolve,options,new Set([...stack,def.id]));
           if(n.mask==='phone'){ctx.fillStyle='#080b0e';ctx.beginPath();ctx.roundRect(width*.36,height*.018,width*.28,height*.025,width*.035);ctx.fill();ctx.fillStyle='#ffffffdf';ctx.beginPath();ctx.roundRect(width*.36,height*.975,width*.28,height*.006,width*.015);ctx.fill();if(n.lock){ctx.font='300 '+width*.18+'px system-ui';ctx.textAlign='center';ctx.fillText('09:41',width/2,height*.19);}}
           ctx.restore();
         }
@@ -48,17 +51,17 @@
       ctx.restore();
     }
   }
-  function extent(frame,overflow=false){
+  function extent(frame,overflow=false,g=null){
     const rectangles=[{x:0,y:0,width:frame.width,height:frame.height}];
-    function visit(nodes,m=G.identity){for(const n of nodes){if(!n.visible)continue;const matrix=G.multiply(m,G.transform(n));rectangles.push(G.bounds(n,matrix));if(n.children)visit(n.children,matrix);}}
+    function visit(nodes,m=G.identity,stack=new Set()){for(const n of nodes){if(n.visible===false)continue;const matrix=G.multiply(m,G.transform(n));rectangles.push(G.bounds(n,matrix));if(n.type==='instance'&&g&&!stack.has(n.componentId)&&(n.clip??g.components[n.componentId]?.clip)===false&&n.mask!=='phone'){visit(G.instanceNodes(g,n),matrix,new Set([...stack,n.componentId]));}else if(n.children&&!n.clip)visit(n.children,matrix,stack);}}
     if(overflow)visit(frame.nodes);return G.union(rectangles);
   }
   async function paint(canvas,w,frame,resolve,options={}){
-    const rect=extent(frame,options.preview&&!frame.clip),ratio=options.preview?Math.min(1,1800/Math.max(rect.width,rect.height)):1;
+    const rect=extent(frame,options.preview&&frame.clip===false,w.gallery),ratio=options.preview?Math.min(1,1800/Math.max(rect.width,rect.height)):1;
     canvas.width=Math.max(1,Math.ceil(rect.width*ratio));canvas.height=Math.max(1,Math.ceil(rect.height*ratio));const ctx=canvas.getContext('2d');ctx.scale(ratio,ratio);ctx.translate(-rect.x,-rect.y);
     if(frame.background){ctx.fillStyle=E.fill(ctx,frame.background,frame.width,frame.height);ctx.fillRect(0,0,frame.width,frame.height);}
     if(frame.clip||!options.preview){ctx.beginPath();ctx.rect(0,0,frame.width,frame.height);ctx.clip();}
-    await paintNodes(ctx,frame.nodes,w,resolve,options);return rect;
+    await paintNodes(ctx,frame.nodes,w,resolve,options);if(!options.preview&&(frame.opacity??1)<1){ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=frame.opacity;ctx.globalCompositeOperation='destination-in';ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.restore();}return rect;
   }
   window.GalleryRenderer={paint,extent};
 })();

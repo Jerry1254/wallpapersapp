@@ -8,7 +8,7 @@
   async function load(){const store=(await db()).transaction('templates').objectStore('templates');records=await new Promise((resolve,reject)=>{const q=store.getAll();q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error);});}
   async function put(record){const database=await db();await new Promise((resolve,reject)=>{const tx=database.transaction('templates','readwrite');tx.objectStore('templates').put(record);tx.oncomplete=resolve;tx.onerror=tx.onabort=()=>reject(tx.error);});records=records.filter(t=>t.id!==record.id);records.push(record);}
   function mount(bridge){H=bridge;load().catch(()=>H.toast('模板库暂时无法读取'));$('dialog').addEventListener('close',()=>{if(!$('dialog').open)clearPreview();});}
-  function snapshot(w){const t=C.template(w,w.name);t.id=w.templateId;t.snapshot.slots=C.copy(w.slots);delete t.snapshot.templateId;delete t.snapshot.templateVersion;delete t.snapshot.canvasHistory;if(t.snapshot.gallery){t.snapshot.gallery.view=null;t.snapshot.gallery.selection=[];t.snapshot.gallery.selectedSurface=t.snapshot.gallery.frames[0]?.id;}return t;}
+  function snapshot(w){const t=C.template(w,w.name);t.id=w.templateId;t.snapshot.slots=C.copy(w.slots);delete t.snapshot.templateId;delete t.snapshot.templateVersion;delete t.snapshot.canvasHistory;if(t.snapshot.gallery){t.snapshot.gallery.view=null;t.snapshot.gallery.selection=[];t.snapshot.gallery.surfaceSelection=[];t.snapshot.gallery.selectedSurface=t.snapshot.gallery.frames[0]?.id;}return t;}
   function save(w){
     if(!w)return queue;if(!w.templateId)w.templateId=C.id();const t=snapshot(w),fingerprint=JSON.stringify(t.snapshot);
     if(fingerprints.get(t.id)===fingerprint)return queue;fingerprints.set(t.id,fingerprint);

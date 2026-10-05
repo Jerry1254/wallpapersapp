@@ -340,6 +340,37 @@ def system_fonts():
     return sorted(names, key=str.casefold) or fallback
 
 
+@functools.lru_cache(maxsize=1)
+def chinese_fonts():
+    """Group families that have native Chinese glyphs at the top of the picker."""
+    if sys.platform != 'darwin':
+        return ['PingFang SC', 'Songti SC', 'Hiragino Sans GB']
+    cf = ctypes.CDLL('/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
+    ct = ctypes.CDLL('/System/Library/Frameworks/CoreText.framework/CoreText')
+    cf.CFStringCreateWithCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32]
+    cf.CFStringCreateWithCString.restype = ctypes.c_void_p
+    ct.CTFontCreateWithName.argtypes = [ctypes.c_void_p, ctypes.c_double, ctypes.c_void_p]
+    ct.CTFontCreateWithName.restype = ctypes.c_void_p
+    ct.CTFontCopyCharacterSet.argtypes = [ctypes.c_void_p]
+    ct.CTFontCopyCharacterSet.restype = ctypes.c_void_p
+    cf.CFCharacterSetIsLongCharacterMember.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    cf.CFCharacterSetIsLongCharacterMember.restype = ctypes.c_bool
+    cf.CFRelease.argtypes = [ctypes.c_void_p]
+    result = []
+    for name in system_fonts():
+        value = cf.CFStringCreateWithCString(None, name.encode('utf-8'), 0x08000100)
+        font = ct.CTFontCreateWithName(value, 12, None)
+        charset = ct.CTFontCopyCharacterSet(font)
+        try:
+            if all(cf.CFCharacterSetIsLongCharacterMember(charset, char) for char in [0x4e2d, 0x6587]):
+                result.append(name)
+        finally:
+            for handle in [charset, font, value]:
+                if handle:
+                    cf.CFRelease(handle)
+    return result
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT.parent), **kwargs)
@@ -362,7 +393,7 @@ class Handler(SimpleHTTPRequestHandler):
         if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}':
             return self.error('请从本地创作台读取字体', 403)
         try:
-            data = json.dumps({'families': system_fonts()}, ensure_ascii=False).encode('utf-8')
+            data = json.dumps({'families': system_fonts(), 'chineseFamilies': chinese_fonts()}, ensure_ascii=False).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
             self.send_header('Content-Length', str(len(data)))
