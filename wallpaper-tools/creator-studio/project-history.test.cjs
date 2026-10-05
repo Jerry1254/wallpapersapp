@@ -49,3 +49,14 @@ test('普通与折叠预览切换不占历史，实际裁剪修改可以还原',
   assert.equal(H.restore(h,0).staticEditor.crops.image.x,0);
   assert.equal(H.restore(h,1).staticEditor.crops.image.x,12);
 });
+
+test('内容作品切页和定位不占历史，替换素材与排版可以还原',()=>{
+  const original=data('内容项目',{content:{activeId:'gallery',works:[{id:'gallery',pageIndex:0,cursor:0,selectedClipId:'phone',slots:{wallpaper:'image-a'},pages:[{clips:[{id:'phone',x:50}]}]}]}});
+  const h=H.create(original),view=structuredClone(original);
+  view.content.activeId='video';view.content.works[0].pageIndex=2;view.content.works[0].cursor=3;view.content.works[0].selectedClipId='text';
+  assert.equal(H.commit(h,view,'切换内容预览'),false);
+  view.content.works[0].slots.wallpaper='image-b';view.content.works[0].pages[0].clips[0].x=60;
+  assert.equal(H.commit(h,view,'替换素材并调整排版'),true);
+  assert.equal(H.restore(h,0).content.works[0].slots.wallpaper,'image-a');
+  assert.equal(H.restore(h,1).content.works[0].pages[0].clips[0].x,60);
+});

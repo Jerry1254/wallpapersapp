@@ -218,6 +218,94 @@ def render(payload, folder, cancelled=None):
     return output
 
 
+def render_content(payload, folder, cancelled=None):
+    """Encode the same canvas frames used by the content preview, with one audio track."""
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(payload))
+        entries = archive.infolist()
+        if len(entries) > 940 or sum(info.file_size for info in entries) > MAX_EXPANDED:
+            raise ValueError('内容数据过大，请缩短视频')
+        if archive.getinfo('content.json').file_size > 1024 * 1024:
+            raise ValueError('内容配置过大')
+        job = json.loads(archive.read('content.json'))
+        if job.get('version') != 1 or job.get('fps') != FPS:
+            raise ValueError('内容版本不兼容，请刷新页面')
+        width = number(job.get('width'), 64, 1920, '内容宽度')
+        height = number(job.get('height'), 64, 1920, '内容高度')
+        frames = number(job.get('frames'), 1, 900, '内容帧数')
+        if any(int(v) != v for v in [width, height, frames]) or width % 2 or height % 2:
+            raise ValueError('内容尺寸和帧数无效')
+        for index in range(int(frames)):
+            if cancelled and cancelled():
+                raise ExportCancelled()
+            name = f'frames/{index:05d}.jpg'
+            info = archive.getinfo(name)
+            if not 0 < info.file_size < 16 * 1024 * 1024:
+                raise ValueError('视频画面文件无效')
+            (folder / f'{index:05d}.jpg').write_bytes(archive.read(info))
+        audio = job.get('audio', [])
+        if not isinstance(audio, list) or len(audio) > 20:
+            raise ValueError('音乐片段数量无效')
+        args = [executable('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-y',
+                '-framerate', str(FPS), '-i', str(folder / '%05d.jpg')]
+        filters = []
+        total = frames / FPS
+        for index, clip in enumerate(audio):
+            path = clip['path']
+            if path not in {f'audio/{index}.{ext}' for ext in ['mp3', 'm4a', 'wav']}:
+                raise ValueError('音乐路径无效')
+            start = number(clip.get('start'), 0, total, '音乐开始时间')
+            duration = number(clip.get('duration'), 1 / FPS, total, '音乐持续时间')
+            source_in = number(clip.get('sourceIn'), 0, 36000, '音乐源起点')
+            loop_in = number(clip.get('loopIn', source_in), 0, source_in, '音乐循环起点')
+            speed = number(clip.get('speed'), .25, 4, '音乐速度')
+            volume = number(clip.get('volume'), 0, 1, '音乐音量')
+            fade_in = number(clip.get('fadeIn'), 0, 5, '音乐淡入')
+            fade_out = number(clip.get('fadeOut'), 0, 5, '音乐淡出')
+            info = archive.getinfo(path)
+            if not 0 < info.file_size <= MAX_UPLOAD:
+                raise ValueError('音乐文件大小无效')
+            target = folder / f'audio-{index}{Path(path).suffix}'
+            target.write_bytes(archive.read(info))
+            metadata = json.loads(run([executable('ffprobe'), '-v', 'error', '-select_streams', 'a:0',
+                                       '-show_entries', 'stream=sample_rate:format=duration', '-of', 'json', str(target)]))
+            sample_rate = int(metadata['streams'][0]['sample_rate'])
+            source_duration = float(metadata['format']['duration'])
+            if loop_in >= source_duration:
+                raise ValueError('音乐起点超过素材时长')
+            args += ['-i', str(target)]
+            head = f'atrim=start={loop_in},asetpts=PTS-STARTPTS'
+            if clip.get('fill') == 'loop':
+                head += f',aloop=loop=-1:size={max(1, round((source_duration-loop_in)*sample_rate))}'
+            head += f',atrim=start={source_in-loop_in},asetpts=PTS-STARTPTS'
+            tempo = []
+            while speed > 2:
+                tempo.append('atempo=2')
+                speed /= 2
+            while speed < .5:
+                tempo.append('atempo=0.5')
+                speed *= 2
+            tempo.append(f'atempo={speed}')
+            filters.append(f'[{index + 1}:a]{head},{",".join(tempo)},apad,atrim=duration={duration},'
+                           f'asetpts=PTS-STARTPTS,volume={volume},afade=t=in:d={min(fade_in, duration)},'
+                           f'afade=t=out:st={max(0, duration - fade_out)}:d={min(fade_out, duration)},'
+                           f'adelay={round(start * 1000)}:all=1[a{index}]')
+        if audio:
+            filters.append(''.join(f'[a{i}]' for i in range(len(audio))) +
+                           f'amix=inputs={len(audio)}:normalize=0,apad,atrim=duration={total}[music]')
+            args += ['-filter_complex', ';'.join(filters), '-map', '0:v:0', '-map', '[music]', '-c:a', 'aac']
+        else:
+            args += ['-an']
+        output = folder / 'content.mp4'
+        args += ['-vf', f'scale={int(width)}:{int(height)},setsar=1', '-frames:v', str(int(frames)),
+                 '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
+                 '-movflags', '+faststart', '-t', str(total), str(output)]
+        run(args, cancelled=cancelled)
+        return output
+    except (KeyError, TypeError, zipfile.BadZipFile, json.JSONDecodeError) as error:
+        raise ValueError('内容素材包不完整，请重新生成') from error
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT.parent), **kwargs)
@@ -235,7 +323,8 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_POST(self):
-        if urlsplit(self.path).path != '/creator-studio/api/render':
+        endpoint = urlsplit(self.path).path
+        if endpoint not in ['/creator-studio/api/render', '/creator-studio/api/render-content']:
             return self.error('接口不存在', 404)
         authority = f'127.0.0.1:{self.server.server_port}'
         if self.headers.get('Host') != authority or self.headers.get('Origin') != 'http://' + authority or self.headers.get('X-Creator-Export') != '1':
@@ -257,7 +346,8 @@ class Handler(SimpleHTTPRequestHandler):
                 def disconnected():
                     readable, _, _ = select.select([self.connection], [], [], 0)
                     return bool(readable) and not self.connection.recv(1, socket.MSG_PEEK)
-                output = render(payload, Path(temporary), disconnected)
+                renderer = render_content if endpoint.endswith('render-content') else render
+                output = renderer(payload, Path(temporary), disconnected)
                 self.send_response(200)
                 self.send_header('Content-Type', 'video/mp4')
                 self.send_header('Content-Length', str(output.stat().st_size))
