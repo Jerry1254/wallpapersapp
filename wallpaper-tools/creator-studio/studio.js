@@ -34,7 +34,7 @@
   };
   const newPost = social => ({...copyPresets.simple,title:social==='douyin'?'这一秒，让屏幕动起来':copyPresets.simple.title,type:social==='douyin'?'video':'image',assetIds:[social==='douyin'?'post-video':'post-image'],coverTitle:false,style:'simple'});
   const state = {workspace:'wallpaper',assets:demoAssets(),selectedId:'demo-video',filter:'all',product:'dynamic',platform:'harmony',projects:null,sourcePreview:false,time:0,playing:false,loop:true,name:'城市飞行',social:'xhs',postAssets:[{...demoAssets()[1],id:'post-image'},{...demoAssets()[0],id:'post-video'}],posts:{xhs:newPost('xhs'),douyin:newPost('douyin')},accounts,selectedAccounts:new Set(['x1','d1']),timing:'now',scheduledAt:'',published:[]};
-  let toastTimer, lastTimestamp=0, animationFrame, objectUrls=[];
+  let toastTimer, lastTimestamp=0, animationFrame, objectUrls=[],devicePickerOpen=false;
   state.staticEditor=Devices.fresh();state.packageView=Devices.fresh();state.resources={static:[],fourDId:null};state.thumbnail=null;state.productRecord=null;
   let packageFrame,packageScene=null,packageSceneAssetId=null,packageEpoch=0,packageTarget={x:0,y:0},packageMotion={x:0,y:0};
   const selectedAsset = () => state.assets.find(x=>x.id===state.selectedId) || state.assets[0];
@@ -221,11 +221,11 @@
     pause();state.selectedId=id;const asset=selectedAsset();state.product=asset.type==='image'?'static':asset.type==='4d'?'4d':'dynamic';if(asset.type==='image')state.staticEditor.assetId=asset.id;state.sourcePreview=true;renderWallpaper();setStatus(`${asset.name} · 素材预览${asset.type==='video'?' · 拖入时间轴开始剪辑':''}`);
   }
   function renderWallpaperMedia() {
-    const asset=previewAsset();loadedMediaId=asset?.id||null;playbackClipId=null;$('device-unit').hidden=state.product!=='dynamic';$('stage-note').hidden=state.product!=='dynamic';if(state.product!=='dynamic'){$('wallpaper-media').replaceChildren();return;}
+    const asset=previewAsset();loadedMediaId=asset?.id||null;playbackClipId=null;$('device-unit').hidden=state.product!=='dynamic';if(state.product!=='dynamic'){$('wallpaper-media').replaceChildren();return;}
     $('wallpaper-media').innerHTML=asset?sceneHTML(asset,{preview:true}):'<div class="empty-preview">时间轴暂无片段<br><span>拖入图片或视频，或点击「添加素材」</span></div>';
     const video=$('wallpaper-media').querySelector('video');
     if(video){video.onloadedmetadata=()=>{if(video.isConnected)syncPosition();};video.onseeked=()=>{if(video.isConnected&&!state.playing)syncPosition();};video.onerror=()=>{if(video.isConnected){pause();toast('浏览器无法预览这个视频，请换用 H.264 编码的 MP4 试试');}};}
-    $('device-unit').hidden=state.product!=='dynamic';$('stage-note').hidden=state.product!=='dynamic';syncCrop();
+    $('device-unit').hidden=state.product!=='dynamic';syncCrop();
   }
   function renderWallpaper() {
     const root=$('wallpaper-workspace');root.classList.toggle('static-workspace',state.product==='static');root.classList.toggle('package-workspace',state.product==='4d');root.classList.toggle('dynamic-workspace',state.product==='dynamic');
@@ -467,16 +467,23 @@
   function editingCrop(){return state.product==='static'?Devices.crop(state.staticEditor):profile();}
   function currentView(){return state.product==='static'?state.staticEditor:state.packageView;}
   function cropKey(){const e=state.staticEditor;return Devices.key(e.assetId,e.deviceId,e.screenId);}
-  function deviceOptions(){let html='',group='';for(const d of Devices.devices){if(group!==d.group){if(group)html+='</optgroup>';group=d.group;html+=`<optgroup label="${esc(group)}">`;}html+=`<option value="${d.id}">${esc(d.name)}</option>`;}return html+'</optgroup>';}
+  function deviceOptions(selectedId,selectedScreen){let html='',group='';for(const d of Devices.devices){if(group!==d.group){if(group)html+='</optgroup>';group=d.group;html+=`<optgroup label="${esc(group)}">`;}const spec=Devices.screen(d.id,d.id===selectedId?selectedScreen:d.kind==='fold'?'inner':null),label=state.product==='dynamic'?`${d.name} · ${spec.width} × ${spec.height} px`:d.name;html+=`<option value="${d.id}">${esc(label)}</option>`;}return html+'</optgroup>';}
+  function syncDevicePicker(){
+    const dynamic=state.product==='dynamic';if(!dynamic)devicePickerOpen=false;
+    $('screen-toolbar').hidden=dynamic&&!devicePickerOpen;
+    $('device-picker-toggle').setAttribute('aria-expanded',String(dynamic&&devicePickerOpen));
+    $('device-picker-toggle').classList.toggle('active',dynamic&&devicePickerOpen);
+  }
   function syncDeviceControls(){
     let id,screenId;
     if(state.product==='dynamic'){
       const p=profile(),match=Devices.devices.flatMap(d=>d.screens.map(s=>({d,s}))).find(v=>v.s.width===p.width&&v.s.height===p.height);
       id=match?.d.id||'custom';screenId=match?.s.id;
     }else{id=currentView().deviceId;screenId=currentView().screenId;}
-    $('preview-device').innerHTML=deviceOptions()+(id==='custom'?'<option value="custom">自定义尺寸</option>':'');$('preview-device').value=id;
+    $('preview-device').innerHTML=deviceOptions(id,screenId)+(id==='custom'?`<option value="custom">自定义尺寸 · ${profile().width} × ${profile().height} px</option>`:'');$('preview-device').value=id;
     const screens=id==='custom'?[]:Devices.device(id).screens;
-    $('preview-screen').innerHTML=screens.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('');$('preview-screen').value=screenId||screens[0]?.id;$('preview-screen').hidden=screens.length<2;
+    $('preview-screen').innerHTML=screens.map(s=>`<option value="${s.id}">${esc(state.product==='dynamic'?`${s.name} · ${s.width} × ${s.height} px`:s.name)}</option>`).join('');$('preview-screen').value=screenId||screens[0]?.id;$('preview-screen').hidden=screens.length<2;
+    syncDevicePicker();
     $('view-modes').hidden=state.product==='dynamic';$$('[data-view-mode]').forEach(b=>{b.classList.toggle('active',b.dataset.viewMode===currentView().mode);b.setAttribute('aria-pressed',String(b.dataset.viewMode===currentView().mode));});
     if(state.product==='4d'){const spec=Devices.screen(id,screenId);$('resolution-label').textContent=`${spec.width} × ${spec.height} px`;$('preview-dimension').textContent='机型只改变预览';$('preview-version').textContent='资源包原始配置 · 只读';}
     else if(state.product==='static')$('preview-version').textContent='实际像素尺寸 · 独立构图';
@@ -615,6 +622,9 @@
     modal(existing?'演示商品已更新':'演示商品已创建',`<span class="prototype-badge">仅保存在本地 · 未提交后台</span><div class="create-cover"><img src="${cover}" alt="商品缩略图"><div><strong>${esc(title)}</strong><small>${result.resources.length} 种资源归属于同一个商品</small></div></div><p class="hint">${esc(result.id)}</p>${result.resources.map(r=>`<div class="export-row">${icon(r.key==='4d'?'layers':r.key==='static'?'image':'video')}<div><strong>${r.title}</strong><small>${esc(r.detail)}</small></div></div>`).join('')}<p class="dialog-note">再次点击「创建壁纸」可更新这条演示商品。实际后台创建和文件处理在接口接入阶段完成。</p>`,[{label:'查看创建清单',run:openCreateWallpaper},{label:'返回编辑',primary:true,run:closeModal}]);
   }
   function bindWorkbench(){
+    $('device-picker-toggle').onclick=()=>{devicePickerOpen=!devicePickerOpen;syncDevicePicker();};
+    document.addEventListener('click',e=>{if(devicePickerOpen&&!e.target.closest('.preview-controls')){devicePickerOpen=false;syncDevicePicker();}});
+    document.addEventListener('keydown',e=>{if(devicePickerOpen&&e.key==='Escape'){e.preventDefault();devicePickerOpen=false;syncDevicePicker();$('device-picker-toggle').focus();}});
     $('preview-device').onchange=e=>changeDevice(e.target.value,Devices.device(e.target.value).kind==='fold'?'inner':null);$('preview-screen').onchange=e=>changeDevice($('preview-device').value,e.target.value);
     $$('[data-view-mode]').forEach(button=>button.onclick=()=>{currentView().mode=button.dataset.viewMode;renderWallpaper();scheduleSave();});
     $$('[data-edit-screen]').forEach(button=>button.onclick=()=>{const e=state.staticEditor;changeDevice(button.dataset.editScreen==='fold'?e.foldId:e.phoneId,button.dataset.editScreen==='fold'?'inner':e.phoneScreen);});

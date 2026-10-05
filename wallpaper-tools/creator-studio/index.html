@@ -6,15 +6,15 @@
   <meta name="description" content="倾境创作台交互原型：壁纸加工与内容发布。">
   <title>倾境 · 创作台原型</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233a527c'/%3E%3Cpath d='m6 11 10-5 10 5-10 5Zm0 6 10 5 10-5M6 23l10 5 10-5' fill='none' stroke='%23a8caff' stroke-width='2'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="studio.css?v=0.5">
-  <script defer src="timeline-core.js?v=0.5"></script>
-  <script defer src="project-history.js?v=0.5"></script>
-  <script defer src="project-store.js?v=0.5"></script>
-  <script defer src="project-thumbnails.js?v=0.5"></script>
-  <script defer src="parallax-runtime.js?v=0.5"></script>
-  <script defer src="wallpaper-devices.js?v=0.5"></script>
-  <script defer src="wallpaper-preview.js?v=0.5"></script>
-  <script defer src="studio.js?v=0.5"></script>
+  <link rel="stylesheet" href="studio.css?v=0.5.1">
+  <script defer src="timeline-core.js?v=0.5.1"></script>
+  <script defer src="project-history.js?v=0.5.1"></script>
+  <script defer src="project-store.js?v=0.5.1"></script>
+  <script defer src="project-thumbnails.js?v=0.5.1"></script>
+  <script defer src="parallax-runtime.js?v=0.5.1"></script>
+  <script defer src="wallpaper-devices.js?v=0.5.1"></script>
+  <script defer src="wallpaper-preview.js?v=0.5.1"></script>
+  <script defer src="studio.js?v=0.5.1"></script>
 </head>
 <body>
 <svg class="svg-defs" aria-hidden="true"><defs>
@@ -72,9 +72,11 @@
 
     <section class="preview-panel" aria-label="壁纸预览">
       <div class="preview-toolbar"><div class="segmented" id="product-tabs"><button data-product="static"><svg><use href="#i-image"/></svg>静态壁纸</button><button class="active" data-product="dynamic"><svg><use href="#i-video"/></svg>动态壁纸</button><button data-product="4d"><svg><use href="#i-layers"/></svg>4D 壁纸</button></div><span id="source-badge" class="soft-label">成片预览</span><button id="back-to-sequence" class="text-button" hidden>返回成片</button></div>
-      <div class="device-toolbar"><svg><use href="#i-phone"/></svg><div class="segmented platform-tabs"><button data-platform="android">安卓</button><button data-platform="harmony" class="active">鸿蒙</button><button data-platform="ios">iOS</button></div><span class="subtle" id="target-caption">Moving Photo · 2 秒</span></div>
-      <div class="screen-toolbar"><select id="preview-device" aria-label="预览机型"></select><select id="preview-screen" aria-label="屏幕状态"></select><div id="view-modes" class="segmented"><button data-view-mode="phone">普通屏</button><button data-view-mode="fold">折叠屏</button><button data-view-mode="both" class="active">双视图</button></div></div>
-      <div class="device-meta"><span id="resolution-label">1080 × 1920 px</span><span id="preview-dimension">9 : 16</span><span id="preview-version">鸿蒙版本独立编辑</span></div>
+      <div class="preview-controls">
+        <div class="device-toolbar"><button id="device-picker-toggle" class="icon-button" aria-label="选择预览机型" title="选择预览机型" aria-expanded="false" aria-controls="screen-toolbar"><svg><use href="#i-phone"/></svg></button><div class="segmented platform-tabs"><button data-platform="android">安卓</button><button data-platform="harmony" class="active">鸿蒙</button><button data-platform="ios">iOS</button></div><span class="subtle" id="target-caption">Moving Photo · 2 秒</span></div>
+        <div class="screen-toolbar" id="screen-toolbar" hidden><select id="preview-device" aria-label="预览机型"></select><select id="preview-screen" aria-label="屏幕状态"></select><div id="view-modes" class="segmented"><button data-view-mode="phone">普通屏</button><button data-view-mode="fold">折叠屏</button><button data-view-mode="both" class="active">双视图</button></div></div>
+        <div class="device-meta"><span id="resolution-label">1080 × 1920 px</span><span id="preview-dimension">9 : 16</span><span id="preview-version">鸿蒙版本独立编辑</span></div>
+      </div>
       <div class="stage" id="preview-stage">
         <div class="device-unit" id="device-unit"><div class="phone-body"><div class="phone-screen" id="phone-screen"><div id="wallpaper-media" class="media-content"></div><div class="camera-cutout"></div><div id="lock-overlay" class="lock-overlay" hidden><div>10月5日 星期一</div><strong>09:41</strong></div><div id="safe-overlay" class="safe-overlay" hidden><span>构图参考区域</span></div><div class="home-indicator"></div></div></div></div>
         <div id="static-layout" class="static-layout" hidden>
@@ -83,7 +85,6 @@
         </div>
         <div id="package-preview" class="package-preview" hidden><div id="package-phone-view" class="package-device"><div class="phone-body"><div class="phone-screen"><canvas id="package-phone-canvas"></canvas><div class="camera-cutout"></div><div class="home-indicator"></div></div></div><span class="mockup-caption" id="package-phone-caption"></span></div><div id="package-fold-view" class="package-device"><div class="phone-body fold-body"><div class="phone-screen"><canvas id="package-fold-canvas"></canvas><div class="camera-cutout"></div><div class="home-indicator"></div></div></div><span class="mockup-caption" id="package-fold-caption"></span></div><div class="package-motion-note">移动鼠标查看视差效果 · 原始配置只读</div></div>
         <div class="four-d-card" id="four-d-card" hidden><svg><use href="#i-layers"/></svg><h2>导入已制作的 4D 壁纸</h2><p id="four-d-name"></p><p class="hint" id="package-load-message">查看普通屏和折叠屏效果，保存原始资源包。</p><button data-import="wallpaper">导入壁纸 ZIP</button></div>
-        <div class="stage-note" id="stage-note"><kbd>拖动</kbd>调整画面位置 <span>·</span><kbd>空格</kbd>预览成片</div>
       </div>
       <div class="view-options"><label><input type="checkbox" id="phone-toggle" checked>手机样机</label><label><input type="checkbox" id="lock-toggle">锁屏参考</label><label><input type="checkbox" id="safe-toggle">安全区域</label><button id="reset-crop" class="text-button"><svg><use href="#i-reset"/></svg>画面回正</button></div>
       <div class="player-bar"><span id="current-time" class="number">00:00:01:08</span><div class="play-controls"><button id="previous-frame" class="icon-button" aria-label="上一帧"><svg><use href="#i-prev"/></svg></button><button id="play-btn" class="icon-button play-button" aria-label="播放选中片段"><svg><use href="#i-play"/></svg></button><button id="next-frame" class="icon-button" aria-label="下一帧"><svg><use href="#i-next"/></svg></button></div><span class="hint" id="preview-time-hint">选段循环预览</span></div>
@@ -118,7 +119,7 @@
   </div>
 </main>
 
-<footer class="statusbar"><span><span class="dot"></span><span id="status-text">城市飞行 · 示例素材</span></span><span id="status-middle">素材导入 → 资源整理 → 创建壁纸</span><span class="status-right">倾境创作台 · 原型 v0.5</span></footer>
+<footer class="statusbar"><span><span class="dot"></span><span id="status-text">城市飞行 · 示例素材</span></span><span id="status-middle">素材导入 → 资源整理 → 创建壁纸</span><span class="status-right">倾境创作台 · 原型 v0.5.1</span></footer>
 <input type="file" id="timeline-input" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" multiple hidden>
 <input type="file" id="wallpaper-input" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,.zip" multiple hidden>
 <input type="file" id="publish-input" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm" multiple hidden>
