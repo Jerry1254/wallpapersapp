@@ -38,3 +38,14 @@ test('项目历史互不影响，历史快照包含双平台但不共享编辑�
   restored.name='修改';assert.equal(a.entries[1].data.name,'项目A');
   assert.equal(b.entries.length,1);
 });
+
+test('普通与折叠预览切换不占历史，实际裁剪修改可以还原',()=>{
+  const original=data('静态作品',{staticEditor:{assetId:'image',mode:'both',deviceId:'phone',crops:{image:{x:0,scale:1}}},packageView:{deviceId:'phone'}});
+  const h=H.create(original),view=structuredClone(original);
+  view.staticEditor.mode='fold';view.staticEditor.deviceId='fold';view.packageView.deviceId='fold';
+  assert.equal(H.commit(h,view,'切换预览'),false);
+  view.staticEditor.crops.image.x=12;
+  assert.equal(H.commit(h,view,'调整裁剪'),true);
+  assert.equal(H.restore(h,0).staticEditor.crops.image.x,0);
+  assert.equal(H.restore(h,1).staticEditor.crops.image.x,12);
+});

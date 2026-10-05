@@ -4,9 +4,11 @@
   const layers=['background.jpg','buildings.png','character.png','light.png','debris.png'];
   function subject(record){
     const data=record.data,view=data.view||{},versions=data.versions||{};
-    let p=versions[view.platform]||versions.harmony||versions.ios;
+    let p=versions[view.platform]||versions.android||versions.harmony||versions.ios;
+    if(view.product==='4d'&&view.sourcePreview){const spec=root.WallpaperDevices?.screen(data.packageView?.mode==='fold'?data.packageView.foldId:data.packageView?.phoneId,data.packageView?.mode==='fold'?'inner':data.packageView?.phoneScreen);return {id:view.selectedId,p:spec||{width:1080,height:2400},time:0};}
+    if(view.product==='static'&&data.staticEditor){const e=data.staticEditor;return {id:e.assetId,p:e.crops?.[`${e.assetId}:${e.deviceId}:${e.screenId}`]||{width:1206,height:2622,scale:1,x:0,y:0},time:e.times?.[e.assetId]||0};}
     if(view.product==='static'&&view.sourcePreview)return {id:view.selectedId,p,time:0};
-    if(!p?.clips?.length)p=[versions.harmony,versions.ios].find(v=>v?.clips?.length);
+    if(!p?.clips?.length)p=[versions.android,versions.harmony,versions.ios].find(v=>v?.clips?.length);
     const clip=p?.clips?.[0];return clip?{id:clip.assetId,p,time:clip.start||0}:null;
   }
   function paint(sources,p,demo){
@@ -15,7 +17,7 @@
     const w=ratio>1?140:140*ratio,h=ratio>1?140/ratio:140,left=(140-w)/2,top=(140-h)/2;
     ctx.fillStyle='#17191d';ctx.fillRect(0,0,140,140);ctx.save();ctx.beginPath();ctx.rect(left,top,w,h);ctx.clip();
     for(const [i,media] of sources.entries()){
-      const mw=media.naturalWidth||media.videoWidth,mh=media.naturalHeight||media.videoHeight;
+      const mw=media.naturalWidth||media.videoWidth||media.width,mh=media.naturalHeight||media.videoHeight||media.height;
       if(!mw||!mh||media.tagName==='VIDEO'&&(media.readyState<2||media.seeking))return null;
       const scale=Math.max(w/mw,h/mh)*(p?.scale||1)*(demo?1.18:1),dw=mw*scale,dh=mh*scale;
       ctx.save();if(demo&&i===3){ctx.globalAlpha=.25;ctx.globalCompositeOperation='screen';}
@@ -25,7 +27,7 @@
   }
   function current(record,container,asset){
     const target=subject(record);if(!target||target.id!==asset?.id)return null;
-    try{return paint([...container.querySelectorAll('img,video')],target.p,asset.demo);}catch{return null;}
+    try{return paint([...container.querySelectorAll(asset.type==='4d'?'canvas':'img,video')].filter(media=>asset.type!=='4d'||!media.closest('.package-device')?.hidden).slice(0,asset.type==='4d'?1:99),target.p,asset.demo&&asset.type!=='4d');}catch{return null;}
   }
   async function image(src){const img=new Image();img.src=src;await img.decode();return img;}
   async function video(src,time){
@@ -42,6 +44,7 @@
     const target=subject(record);if(!target||!asset)return null;
     let url,media;
     try{
+      if(asset.type==='4d'){const {scene}=await root.WallpaperPreview.load(asset),canvas=document.createElement('canvas'),p=target.p;canvas.width=140;canvas.height=Math.round(140*p.height/p.width);root.ParallaxCore.render(canvas.getContext('2d'),scene,canvas.width,canvas.height);return paint([canvas],p,false);}
       if(asset.demo)return paint(await Promise.all(layers.map(name=>image(`assets/${name}`))),target.p,true);
       if(!asset.file||!['image','video'].includes(asset.type))return null;
       url=URL.createObjectURL(asset.file);media=asset.type==='image'?await image(url):await video(url,target.time);

@@ -2,7 +2,7 @@
 (function(root){
   'use strict';
   const LIMIT=15,clone=value=>JSON.parse(JSON.stringify(value));
-  function fingerprint(data){const p=clone(data);delete p.view;for(const v of Object.values(p.versions||{})){delete v.cursor;delete v.selectedClipId;delete v.zoom;}return JSON.stringify(p);}
+  function fingerprint(data){const p=clone(data);delete p.view;delete p.packageView;if(p.staticEditor)for(const key of ['mode','deviceId','screenId','phoneId','phoneScreen','foldId','assetId'])delete p.staticEditor[key];for(const v of Object.values(p.versions||{})){delete v.cursor;delete v.selectedClipId;delete v.zoom;}return JSON.stringify(p);}
   function create(data,label='新建项目'){return {entries:[{label,at:new Date().toISOString(),data:clone(data)}],index:0};}
   function commit(history,data,label){
     if(fingerprint(history.entries[history.index].data)===fingerprint(data))return false;
