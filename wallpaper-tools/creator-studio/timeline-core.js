@@ -16,10 +16,10 @@
     if (!Array.isArray(project?.clips)) {
       const start = clamp(Number.isFinite(project?.start) ? project.start : 0, 0, sourceDuration - MIN);
       const end = clamp(Number.isFinite(project?.end) ? project.end : sourceDuration, start + MIN, sourceDuration);
-      const c = clip(start, end, Number.isFinite(project?.speed) && project.speed > 0 ? project.speed : 1);
+      const c = {...clip(start, end, Number.isFinite(project?.speed) && project.speed > 0 ? project.speed : 1),assetId:project?.assetId||'demo-video',kind:'video'};
       p.clips = [c]; p.selectedClipId = c.id; p.cursor = 0;
     } else {
-      p.clips = project.clips.filter(c => Number.isFinite(c.start) && Number.isFinite(c.end) && Number.isFinite(c.speed) && c.speed >= .01 && c.speed <= 64 && c.end - c.start >= MIN - EPS && c.start >= 0 && (c.kind==='image'||c.end <= resolveDuration(c.assetId) + EPS)).map(c => ({...c,id:c.id||id(),assetId:c.assetId||'demo-video'}));
+      p.clips = project.clips.filter(c => Number.isFinite(c.start) && Number.isFinite(c.end) && Number.isFinite(c.speed) && c.speed >= .01 && c.speed <= 64 && c.end - c.start >= MIN - EPS && c.start >= 0 && (c.kind==='image'||c.end <= resolveDuration(c.assetId) + EPS)).map(c => ({...c,id:c.id||id(),assetId:c.assetId||'demo-video',kind:c.kind==='image'?'image':'video'}));
     }
     if (!p.clips.some(c => c.id === p.selectedClipId)) p.selectedClipId = p.clips[0]?.id || null;
     p.cursor = clamp(Number.isFinite(p.cursor) ? p.cursor : 0, 0, total(p));
@@ -63,8 +63,12 @@
   }
   function duplicate(p, clipId) {
     const index = p.clips.findIndex(c => c.id === clipId); if(index<0)return false;
-    const original = p.clips[index], copy = {...original,...clip(original.start, original.end, original.speed)};
-    p.clips.splice(index+1,0,copy);select(p,copy.id);return true;
+    return paste(p,p.clips[index],index+1);
+  }
+  function paste(p, source, index = p.clips.length) {
+    if(!source?.assetId||!Number.isFinite(source.start)||!Number.isFinite(source.end)||source.start<0||source.end-source.start<MIN-EPS||!Number.isFinite(source.speed)||source.speed<.01||source.speed>64)return false;
+    const copy={...source,...clip(source.start,source.end,source.speed)};
+    p.clips.splice(clamp(index,0,p.clips.length),0,copy);select(p,copy.id);return true;
   }
   function move(p, clipId, newIndex) {
     const index = p.clips.findIndex(c => c.id === clipId); if(index<0)return false;
@@ -89,6 +93,15 @@
     if(Math.abs(a-c.start)<EPS&&Math.abs(b-c.end)<EPS)return false;
     c.start=a;c.end=b;select(p,clipId);return true;
   }
+  function trimEdge(p, clipId, edge, delta, sourceDuration, reference) {
+    const c=p.clips.find(c=>c.id===clipId),initial=reference||c;
+    if(!c||c.kind==='image'||!['start','end'].includes(edge)||!Number.isFinite(delta)||!Number.isFinite(sourceDuration)||sourceDuration<MIN)return false;
+    // Pointer movement is measured in edited seconds; remove source frames at the existing speed.
+    const offset=Math.round(delta*initial.speed*FPS)/FPS;
+    const start=edge==='start'?clamp(initial.start+offset,0,initial.end-MIN):initial.start;
+    const end=edge==='end'?clamp(initial.end+offset,initial.start+MIN,sourceDuration):initial.end;
+    return trim(p,clipId,start,end,sourceDuration);
+  }
   function speed(p, clipId, value) {
     const c=p.clips.find(c=>c.id===clipId);if(!c||!Number.isFinite(value)||value<.01||value>64)return false;
     if(Math.abs(c.speed-value)<EPS)return false;
@@ -96,16 +109,10 @@
     c.speed=value;p.selectedClipId=clipId;
     p.cursor=segments(p).find(s=>s.clip.id===clipId).start+sourceOffset/value;return true;
   }
-  function fit(p, targetDuration) {
-    if(!p.clips.length||!Number.isFinite(targetDuration)||targetDuration<=0)return false;
-    const factor=total(p)/targetDuration;
-    if(p.clips.some(c=>c.speed*factor<.01||c.speed*factor>64))return false;
-    p.clips.forEach(c=>c.speed*=factor);p.cursor/=factor;return true;
-  }
   function snapshot(p) {
     const {undo,redo,...values}=p;return JSON.parse(JSON.stringify(values));
   }
-  const api={FPS,MIN,create,normalize,clipDuration,segments,total,at,selected,select,split,remove,duplicate,move,insert,stillFrames,trim,speed,fit,snapshot};
+  const api={FPS,MIN,create,normalize,clipDuration,segments,total,at,selected,select,split,remove,duplicate,paste,move,insert,stillFrames,trim,trimEdge,speed,snapshot};
   root.TimelineCore=api;
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);

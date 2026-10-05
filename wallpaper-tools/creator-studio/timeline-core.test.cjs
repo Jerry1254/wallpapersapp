@@ -41,14 +41,13 @@ test('剪断与复制保留素材身份，排序不改变源范围', () => {
   near(C.total(p), 8);
 });
 
-test('整条成片适配保留片段的相对速度，另一个平台工程不受影响', () => {
+test('修改片段速度保留源范围，另一个平台工程不受影响', () => {
   const harmony = C.create(5, 60), ios = C.create(5, 24);
   C.split(harmony, 1);
+  const source={start:harmony.clips[1].start,end:harmony.clips[1].end};
   C.speed(harmony, harmony.clips[1].id, 2);
-  const ratio = harmony.clips[1].speed / harmony.clips[0].speed;
-  assert.equal(C.fit(harmony, 2), true);
-  near(C.total(harmony), 2);
-  near(harmony.clips[1].speed / harmony.clips[0].speed, ratio);
+  near(C.total(harmony),3);
+  assert.deepEqual({start:harmony.clips[1].start,end:harmony.clips[1].end},source);
   near(C.total(ios), 5);
   assert.equal(ios.clips.length, 1);
 });
@@ -62,10 +61,41 @@ test('边界不能产生空片段，清空后仍可重新加入素材', () => {
   near(C.total(p), 5);
   C.remove(p, p.clips[0].id);
   assert.equal(C.at(p, 0), null);
-  assert.equal(C.fit(p, 2), false);
   assert.equal(C.insert(p, 'too-short', .001), false);
   assert.equal(C.insert(p, 'new-source', 2), true);
   near(C.total(p), 2);
+});
+
+test('拖动前后边缘裁掉源帧，正常和二倍速都保留原速度',()=>{
+  for(const speed of [1,2]){
+    const p=C.create(5),c=p.clips[0];C.speed(p,c.id,speed);const initial={...c};
+    C.trimEdge(p,c.id,'end',-2/speed,5,initial);
+    near(c.start,0);near(c.end,3);near(c.speed,speed);near(C.total(p),3/speed);
+    near(C.at(p,.5/speed).sourceTime,.5);
+    C.trimEdge(p,c.id,'end',-1/speed,5,initial);
+    near(c.end,4); // Each pointer position is relative to the gesture start, not the previous move.
+    C.trimEdge(p,c.id,'start',1/speed,5);
+    near(c.start,1);near(c.end,4);near(c.speed,speed);near(C.at(p,0).sourceTime,1);
+    near(C.at(p,.5/speed).sourceTime,1.5);
+  }
+});
+
+test('边缘按帧裁剪，不能越过原素材或剪成空片段',()=>{
+  const p=C.create(5),c=p.clips[0];
+  C.trimEdge(p,c.id,'end',-.017,5);near(c.end,5-1/C.FPS);
+  C.trimEdge(p,c.id,'end',-50,5);near(c.end-c.start,C.MIN);near(c.speed,1);
+  C.trimEdge(p,c.id,'end',50,5);near(c.end,5);
+  C.trimEdge(p,c.id,'start',50,5);near(c.start,5-C.MIN);
+  C.trimEdge(p,c.id,'start',-50,5);near(c.start,0);
+});
+
+test('粘贴保留裁剪范围和速度，源片段、另一个工程和副本各自独立',()=>{
+  const harmony=C.create(5,60,'source'),source=harmony.clips[0],ios=C.normalize({clips:[]},5,24);
+  C.trim(harmony,source.id,1,3,5);C.speed(harmony,source.id,2);
+  assert.equal(C.paste(ios,source),true);const copy=ios.clips[0];
+  assert.notEqual(copy.id,source.id);near(copy.start,1);near(copy.end,3);near(copy.speed,2);near(C.total(ios),1);
+  C.trimEdge(ios,copy.id,'end',-.5,5);near(copy.end,2);near(source.end,3);near(C.total(harmony),1);
+  assert.equal(C.paste(ios,{...source,end:source.start}),false);
 });
 
 test('草稿恢复验证各素材时长，快照排除历史且不与当前片段共享对象', () => {
@@ -82,6 +112,11 @@ test('草稿恢复验证各素材时长，快照排除历史且不与当前片�
   assert.equal(C.normalize({clips:[]}, 5).clips.length, 0);
   const legacy = C.normalize({start:1, end:3, speed:2}, 5);
   near(C.total(legacy), 1);
+  assert.equal(legacy.clips[0].kind,'video');
+  assert.equal(legacy.clips[0].assetId,'demo-video');
+  assert.equal(C.duplicate(legacy,legacy.clips[0].id),true);
+  const older=C.normalize({clips:[{start:0,end:1,speed:1,assetId:'source-a'}]},5);
+  assert.equal(older.clips[0].kind,'video');
 });
 
 test('图片默认十帧，映射固定画面，修改和分割均保持准确帧数', () => {
