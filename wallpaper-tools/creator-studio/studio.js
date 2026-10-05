@@ -52,12 +52,12 @@
   function setStatus(message) {$('status-text').textContent=message;}
   function timecode(seconds) { const total=Math.round(seconds*FPS),f=total%FPS,s=Math.floor(total/FPS)%60,m=Math.floor(total/(FPS*60));return `00:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}:${String(f).padStart(2,'0')}`; }
   function setRangeFill(el) {el.style.setProperty('--fill',`${(Number(el.value)-Number(el.min))/(Number(el.max)-Number(el.min))*100}%`);}
-  const Hist=window.ProjectHistory, Store=window.ProjectStore;
+  const Hist=window.ProjectHistory, Store=window.ProjectStore, Thumbnails=window.ProjectThumbnails;
   let activeProject=null, actionHistory=null, mediaRegistry=new Map(), dirtyMedia=new Map();
-  let saveQueue=Promise.resolve(),saveTimer,historyTimer,pendingLabel,revision=0,projectReady=false,loadingProject=false,importsPending=0,navigatingProject=false;
+  let saveQueue=Promise.resolve(),saveTimer,historyTimer,pendingLabel,revision=0,projectReady=false,loadingProject=false,importsPending=0,navigatingProject=false,projectMutationPending=false;
   const clone=value=>JSON.parse(JSON.stringify(value));
   function registerMedia(asset){mediaRegistry.set(asset.id,asset);dirtyMedia.set(asset.id,asset);}
-  function captureProject(){return {name:state.name,category:state.category||'simple',assetIds:state.assets.map(a=>a.id),postAssetIds:state.postAssets.map(a=>a.id),versions:Object.fromEntries(Object.entries(profiles()).map(([key,p])=>[key,Core.snapshot(p)])),posts:clone(state.posts),accounts:clone(state.accounts),selectedAccounts:[...state.selectedAccounts],timing:state.timing,scheduledAt:state.scheduledAt,view:{workspace:state.workspace,platform:state.platform,social:state.social,selectedId:state.selectedId,sourcePreview:state.sourcePreview,product:state.product}};}
+  function captureProject(){return {name:state.name,assetIds:state.assets.map(a=>a.id),postAssetIds:state.postAssets.map(a=>a.id),versions:Object.fromEntries(Object.entries(profiles()).map(([key,p])=>[key,Core.snapshot(p)])),posts:clone(state.posts),accounts:clone(state.accounts),selectedAccounts:[...state.selectedAccounts],timing:state.timing,scheduledAt:state.scheduledAt,view:{workspace:state.workspace,platform:state.platform,social:state.social,selectedId:state.selectedId,sourcePreview:state.sourcePreview,product:state.product}};}
   function releaseMedia(registry){const urls=new Set([...registry.values()].map(a=>a.url).filter(Boolean));urls.forEach(url=>URL.revokeObjectURL(url));objectUrls=objectUrls.filter(url=>!urls.has(url));}
   function serializedMedia(asset){const {url,...data}=asset;return data;}
   function saveStatus(text,error=false){$('autosave-status').textContent=text;$('autosave-status').classList.toggle('save-error',error);$('autosave-status').title=error?'自动保存失败，点击重试':'项目和素材自动保存在当前浏览器';}
@@ -65,16 +65,18 @@
   async function flushSave(){
     clearTimeout(saveTimer);if(!activeProject||!actionHistory)return false;
     const projectId=activeProject.id,rev=revision,assets=[...dirtyMedia.values()];
-    const record={...activeProject,name:state.name||'未命名项目',category:state.category||'simple',schemaVersion:3,updatedAt:new Date().toISOString(),data:captureProject(),history:clone(actionHistory),mediaIds:[...mediaRegistry.keys()]};
+    const record={...activeProject,name:state.name||'未命名项目',schemaVersion:3,updatedAt:new Date().toISOString(),data:captureProject(),history:clone(actionHistory),mediaIds:[...mediaRegistry.keys()]};
+    delete record.category;
+    record.thumbnail=Thumbnails.subject(record)?Thumbnails.current(record,$('wallpaper-media'),previewAsset())||record.thumbnail:null;
     saveStatus('保存中…');saveQueue=saveQueue.catch(()=>{}).then(()=>Store.save(record,assets.map(serializedMedia)));
-    try{await saveQueue;if(activeProject.id===projectId){activeProject=record;for(const a of assets)if(dirtyMedia.get(a.id)===a)dirtyMedia.delete(a.id);if(revision===rev)saveStatus('已自动保存');}return true;}
+    try{await saveQueue;if(activeProject?.id===projectId){activeProject=record;for(const a of assets)if(dirtyMedia.get(a.id)===a)dirtyMedia.delete(a.id);if(revision===rev)saveStatus('已自动保存');}return true;}
     catch(error){if(activeProject?.id===projectId){saveStatus('未保存 · 重试',true);setStatus('自动保存未完成，请保留页面并重试');}return false;}
   }
   function commitAction(label){if(!projectReady||loadingProject)return;clearTimeout(historyTimer);pendingLabel=null;if(Hist.commit(actionHistory,captureProject(),label)){renderHistory();syncTimeline();}scheduleSave();}
   function deferAction(label){if(!projectReady||loadingProject)return;pendingLabel=label;clearTimeout(historyTimer);historyTimer=setTimeout(()=>commitAction(label),650);scheduleSave();}
   function finishPendingAction(){if(pendingLabel)commitAction(pendingLabel);}
   function applyProjectData(data){
-    pause();state.name=data.name;state.category=data.category||'simple';state.assets=(data.assetIds||[]).map(id=>mediaRegistry.get(id)).filter(Boolean);state.postAssets=(data.postAssetIds||[]).map(id=>mediaRegistry.get(id)).filter(Boolean);
+    pause();state.name=data.name;state.assets=(data.assetIds||[]).map(id=>mediaRegistry.get(id)).filter(Boolean);state.postAssets=(data.postAssetIds||[]).map(id=>mediaRegistry.get(id)).filter(Boolean);
     state.projects=Object.fromEntries(['harmony','ios'].map(key=>[key,Core.normalize(data.versions?.[key]||{clips:[]},5,key==='ios'?24:60,id=>mediaRegistry.get(id)?.duration||0)]));
     state.posts=clone(data.posts);state.accounts=clone(data.accounts||accounts);state.selectedAccounts=new Set(data.selectedAccounts||[]);state.timing=data.timing||'now';state.scheduledAt=data.scheduledAt||'';
     const view=data.view||{};state.platform=platformNames[view.platform]?view.platform:'harmony';state.social=socialNames[view.social]?view.social:'xhs';state.product=view.product||'dynamic';state.sourcePreview=!!view.sourcePreview;state.selectedId=assetById(view.selectedId)?.id||state.assets[0]?.id;state.time=profile().cursor;state.workspace=view.workspace||'wallpaper';
@@ -86,22 +88,87 @@
   async function performOpenProject(id){
     if(importsPending){toast('素材正在导入，完成后再切换项目');return;}finishPendingAction();if(projectReady&&!await flushSave()){toast('当前项目尚未保存成功，请先点击保存状态重试');return;}
     const previousMedia=mediaRegistry;const record=await Store.load(id);if(!record){toast('找不到这个本地项目');return;}loadingProject=true;$('project-loading').hidden=false;
-    try{const assets=await Store.media(record.mediaIds||[]);mediaRegistry=new Map();dirtyMedia=new Map();for(const data of assets.filter(Boolean)){const a={...data};if(a.file){a.url=URL.createObjectURL(a.file);objectUrls.push(a.url);}mediaRegistry.set(a.id,a);}activeProject=record;actionHistory=record.history||Hist.create(record.data,'打开项目');if(Hist.fingerprint(actionHistory.entries[actionHistory.index].data)!==Hist.fingerprint(record.data))Hist.commit(actionHistory,record.data,'恢复自动保存');projectReady=true;applyProjectData(record.data);releaseMedia(previousMedia);closeModal();saveStatus('已自动保存');}
+    try{const assets=await Store.media(record.mediaIds||[]);mediaRegistry=new Map();dirtyMedia=new Map();for(const data of assets.filter(Boolean)){const a={...data};if(a.file){a.url=URL.createObjectURL(a.file);objectUrls.push(a.url);}mediaRegistry.set(a.id,a);}activeProject=record;actionHistory=record.history||Hist.create(record.data,'打开项目');if(Hist.fingerprint(actionHistory.entries[actionHistory.index].data)!==Hist.fingerprint(record.data))Hist.commit(actionHistory,record.data,'恢复自动保存');projectReady=true;$('history-btn').disabled=$('export-btn').disabled=false;applyProjectData(record.data);releaseMedia(previousMedia);closeModal();saveStatus('已自动保存');}
     finally{loadingProject=false;$('project-loading').hidden=true;}scheduleSave();await flushSave();
   }
-  async function createProject(name,category='simple',example=false){if(navigatingProject)return;navigatingProject=true;try{await performCreateProject(name,category,example);}finally{navigatingProject=false;}}
-  async function performCreateProject(name,category='simple',example=false){
+  async function createProject(name,example=false){if(navigatingProject)return;navigatingProject=true;try{await performCreateProject(name,example);}finally{navigatingProject=false;}}
+  async function performCreateProject(name,example=false){
     if(importsPending){toast('素材正在导入，完成后再新建项目');return;}finishPendingAction();if(projectReady&&!await flushSave()){toast('当前项目尚未保存成功，请先点击保存状态重试');return;}
     const previousMedia=mediaRegistry;loadingProject=true;mediaRegistry=new Map();dirtyMedia=new Map();state.assets=demoAssets();state.postAssets=example?[{...demoAssets()[1],id:'post-image'},{...demoAssets()[0],id:'post-video'}]:[];
     for(const a of [...state.assets,...state.postAssets])registerMedia(a);
     state.projects=freshProfiles();if(!example)for(const p of Object.values(state.projects)){p.clips=[];p.selectedClipId=null;p.cursor=0;}
-    state.name=name.trim()||'未命名项目';state.category=category;state.selectedId='demo-video';state.product='dynamic';state.sourcePreview=false;state.platform='harmony';state.social='xhs';state.workspace='wallpaper';state.time=0;state.posts={xhs:newPost('xhs'),douyin:newPost('douyin')};if(!example)for(const p of Object.values(state.posts))p.assetIds=[];state.selectedAccounts=new Set(['x1','d1']);state.timing='now';state.scheduledAt='';
-    const now=new Date().toISOString();activeProject={id:crypto.randomUUID(),createdAt:now,updatedAt:now};actionHistory=Hist.create(captureProject(),example?'城市飞行示例':'新建项目');projectReady=true;loadingProject=false;applyProjectData(captureProject());releaseMedia(previousMedia);closeModal();await flushSave();
+    state.name=name.trim()||'未命名项目';state.selectedId='demo-video';state.product='dynamic';state.sourcePreview=false;state.platform='harmony';state.social='xhs';state.workspace='wallpaper';state.time=0;state.posts={xhs:newPost('xhs'),douyin:newPost('douyin')};if(!example)for(const p of Object.values(state.posts))p.assetIds=[];state.selectedAccounts=new Set(['x1','d1']);state.timing='now';state.scheduledAt='';
+    const now=new Date().toISOString();activeProject={id:crypto.randomUUID(),createdAt:now,updatedAt:now};actionHistory=Hist.create(captureProject(),example?'城市飞行示例':'新建项目');projectReady=true;loadingProject=false;$('history-btn').disabled=$('export-btn').disabled=false;applyProjectData(captureProject());releaseMedia(previousMedia);closeModal();await flushSave();
   }
-  function showNewProject(){modal('新建项目',`<form id="new-project-form" class="new-project-form"><div class="field"><label for="new-project-name">项目名称</label><input id="new-project-name" maxlength="60" placeholder="例如：一念禅意 · 金色光环" required autofocus></div><div class="field"><label for="new-project-category">作品分类</label><select id="new-project-category">${Object.entries(categories).map(([key,name])=>`<option value="${key}">${name}</option>`).join('')}</select></div><p class="dialog-note">新项目包含空白的鸿蒙与 iOS 时间轴。图片、视频和推广内容都会随项目自动保存。</p><button type="submit" class="primary full-width">创建项目</button></form>`,[{label:'取消',run:closeModal}]);$('new-project-form').onsubmit=async e=>{e.preventDefault();const name=$('new-project-name').value.trim();if(!name){$('new-project-name').setCustomValidity('请输入项目名称');$('new-project-name').reportValidity();return;}$('new-project-name').setCustomValidity('');const button=e.target.querySelector('[type=submit]');button.disabled=true;try{await createProject(name,$('new-project-category').value);}finally{if(button.isConnected)button.disabled=false;}};$('new-project-name').oninput=()=> $('new-project-name').setCustomValidity('');}
-  async function showProjectList(){finishPendingAction();if(!await flushSave()){toast('当前项目未保存成功，请先重试');return;}try{const records=await Store.list();modal('我的项目',`<div class="project-list-tools"><span>${records.length} 个项目 · 按最近编辑排序</span><button id="list-new-project">${icon('plus')}新建项目</button></div><input id="project-search" placeholder="搜索项目名称" aria-label="搜索项目"><div id="project-library" class="project-library">${records.map(r=>`<button class="project-card${r.id===activeProject.id?' current':''}" data-project-id="${r.id}" data-project-name="${esc(r.name.toLowerCase())}"><span class="project-card-icon ${r.category}">${icon('folder')}</span><span><strong>${esc(r.name)}</strong><small>${categories[r.category]||'简约'} · ${new Date(r.updatedAt).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}</small><small>鸿蒙 ${r.data.versions.harmony.clips.length} 段 · iOS ${r.data.versions.ios.clips.length} 段</small></span><em>${r.id===activeProject.id?'当前项目':'打开 ↗'}</em></button>`).join('')}</div><p id="project-search-empty" class="hint" hidden>没有匹配的项目。</p><p class="dialog-note">当前项目及素材保存在本机浏览器中。正式版将接入独立项目文件夹，方便备份与迁移；清除网站数据会影响这里的本地项目。</p>`,[{label:'返回编辑',primary:true,run:closeModal}]);$('list-new-project').onclick=showNewProject;$$('[data-project-id]').forEach(b=>b.onclick=()=>openProject(b.dataset.projectId));$('project-search').oninput=e=>{const query=e.target.value.trim().toLowerCase();let count=0;$$('[data-project-id]').forEach(b=>{b.hidden=!b.dataset.projectName.includes(query);if(!b.hidden)count++;});$('project-search-empty').hidden=count>0;};}catch(error){toast('暂时无法打开项目列表，请重试');}}
+  function showNewProject(){
+    modal('新建项目',`<form id="new-project-form" class="new-project-form"><div class="field"><label for="new-project-name">项目名称</label><input id="new-project-name" maxlength="60" placeholder="例如：一念禅意 · 金色光环" required autofocus></div><p class="dialog-note">鸿蒙与 iOS 分开编辑，素材和修改自动保存。</p><button type="submit" class="primary full-width">创建项目</button></form>`,[{label:'取消',run:closeModal}]);
+    $('new-project-form').onsubmit=async e=>{e.preventDefault();const name=$('new-project-name').value.trim();if(!validProjectName($('new-project-name'),name))return;const button=e.target.querySelector('[type=submit]');button.disabled=true;try{await createProject(name);}catch{toast('项目暂时无法创建，请重试');}finally{if(button.isConnected)button.disabled=false;}};
+    $('new-project-name').oninput=()=> $('new-project-name').setCustomValidity('');
+  }
+  function validProjectName(input,name){input.setCustomValidity(name?'':'请输入项目名称');if(!name)input.reportValidity();return !!name;}
+  function projectDuration(record){const versions=record.data?.versions||{};return ['harmony','ios'].map(key=>`${platformNames[key]} ${Core.total(versions[key]||{clips:[]}).toFixed(2)}s`).join(' · ');}
+  function closeProjectMenus(){ $$('.project-menu').forEach(menu=>menu.hidden=true);$$('.project-more').forEach(button=>button.setAttribute('aria-expanded','false')); }
+  async function hydrateProjectCovers(records){
+    for(const record of records){
+      if(record.thumbnail)continue;const tile=$$('.project-tile').find(el=>el.dataset.projectId===record.id),target=Thumbnails.subject(record);if(!tile?.isConnected||!target)continue;
+      try{const [asset]=await Store.media([target.id]);const cover=await Thumbnails.create(record,asset);if(!cover)continue;await Store.setThumbnail(record.id,cover);
+        if(tile.isConnected){const image=document.createElement('img');image.src=cover;image.alt='';tile.querySelector('.project-cover-art').replaceChildren(image);}
+        if(activeProject?.id===record.id&&!activeProject.thumbnail)activeProject.thumbnail=cover;
+      }catch{/* A missing cover must not prevent opening a project. */}
+    }
+  }
+  async function showProjectList(deleted=false){
+    deleted=deleted===true;finishPendingAction();if(projectReady&&!await flushSave()){toast('当前项目未保存成功，请先重试');return;}
+    try{
+      const [records,trashed]=await Promise.all([Store.list({deleted}),deleted?Promise.resolve([]):Store.list({deleted:true})]);
+      modal(deleted?'回收站':'我的项目',`<div class="project-list-tools"><span>${records.length} 个项目${deleted?' · 可随时恢复':' · 最近编辑'}</span><div>${deleted?`<button id="list-back-projects">${icon('folder')}我的项目</button>`:`<button id="list-trash" aria-label="回收站">${icon('trash')}回收站${trashed.length?` (${trashed.length})`:''}</button><button id="list-new-project">${icon('plus')}新建项目</button>`}</div></div><input id="project-search" placeholder="搜索项目名称" aria-label="搜索项目"><div id="project-library" class="project-library">${records.map(r=>`<article class="project-tile" data-project-id="${esc(r.id)}" data-project-name="${esc(r.name.toLowerCase())}"><button class="project-card${r.id===activeProject?.id?' current':''}" data-open-project="${esc(r.id)}" aria-label="${deleted?'恢复':'打开'}项目：${esc(r.name)}"><span class="project-cover"><span class="project-cover-art">${r.thumbnail?`<img src="${esc(r.thumbnail)}" alt="">`:icon('folder')}</span>${r.id===activeProject?.id?'<span class="project-current">编辑中</span>':''}</span><strong title="${esc(r.name)}">${esc(r.name)}</strong><small>${projectDuration(r)}</small><small>${new Date(deleted?r.deletedAt:r.updatedAt).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}${deleted?' 删除':''}</small></button><button class="project-more" aria-label="更多：${esc(r.name)}" aria-haspopup="menu" aria-controls="project-menu-${esc(r.id)}" aria-expanded="false">${icon('more')}</button><div id="project-menu-${esc(r.id)}" class="project-menu" role="menu" aria-label="${esc(r.name)}的操作" hidden>${deleted?`<button role="menuitem" data-project-action="restore">${icon('undo')}恢复项目</button>`:`<button role="menuitem" data-project-action="rename">${icon('rename')}重命名</button><button role="menuitem" data-project-action="copy">${icon('copy')}复制项目</button><button role="menuitem" data-project-action="trash" class="danger-text">${icon('trash')}删除项目</button>`}</div></article>`).join('')}</div><div id="project-search-empty" class="project-empty" ${records.length?'hidden':''}>${deleted?'回收站是空的':'还没有项目，点击「新建项目」开始创作'}</div><p class="project-storage-note">${deleted?'删除的项目保留素材和编辑记录，恢复后可以继续编辑。':'自动保存到当前浏览器 · 删除的项目可在回收站恢复'}</p>`,activeProject?[{label:'返回编辑',primary:true,run:closeModal}]:[]);
+      $('dialog').classList.add('project-browser');$('dialog-close').hidden=!activeProject;$('list-new-project')?.addEventListener('click',showNewProject);$('list-trash')?.addEventListener('click',()=>showProjectList(true));$('list-back-projects')?.addEventListener('click',()=>showProjectList());
+      $$('.project-tile').forEach(tile=>{
+        const record=records.find(r=>r.id===tile.dataset.projectId),menu=tile.querySelector('.project-menu'),more=tile.querySelector('.project-more');
+        tile.querySelector('.project-card').onclick=()=>deleted?restoreProject(record.id):openProject(record.id);
+        more.onclick=()=>{const show=menu.hidden;closeProjectMenus();menu.hidden=!show;more.setAttribute('aria-expanded',String(show));if(show)menu.querySelector('button').focus();};
+        menu.onkeydown=e=>{const buttons=[...menu.querySelectorAll('button')],index=buttons.indexOf(document.activeElement);if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeProjectMenus();more.focus();}else if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();buttons[(index+(e.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length].focus();}};
+        menu.querySelectorAll('button').forEach(button=>button.onclick=()=>{closeProjectMenus();const action=button.dataset.projectAction;if(action==='rename')showRenameProject(record);else if(action==='copy')duplicateProject(record.id);else if(action==='trash')showDeleteProject(record);else restoreProject(record.id);});
+      });
+      $('project-search').oninput=e=>{closeProjectMenus();const query=e.target.value.trim().toLowerCase();let count=0;$$('.project-tile').forEach(tile=>{tile.hidden=!tile.dataset.projectName.includes(query);if(!tile.hidden)count++;});$('project-search-empty').hidden=count>0;$('project-search-empty').textContent=query?'没有匹配的项目。':deleted?'回收站是空的':'还没有项目，点击「新建项目」开始创作';};
+      if(!deleted)hydrateProjectCovers(records);
+    }catch{toast('暂时无法打开项目列表，请重试');}
+  }
+  async function mutateProject(work){
+    if(projectMutationPending||navigatingProject)return;
+    if(importsPending){toast('素材正在导入，完成后再管理项目');return;}
+    projectMutationPending=true;const buttons=$$('#dialog button');buttons.forEach(b=>b.disabled=true);
+    try{finishPendingAction();if(projectReady&&!await flushSave())throw new Error('请先重试保存当前项目');await work();}
+    catch(error){toast(`操作未完成：${error.message||'请重试'}`);}
+    finally{projectMutationPending=false;buttons.forEach(b=>{if(b.isConnected)b.disabled=false;});}
+  }
+  function showRenameProject(record){
+    modal('重命名项目',`<form id="rename-project-form" class="new-project-form"><div class="field"><label for="rename-project-name">项目名称</label><input id="rename-project-name" value="${esc(record.name)}" maxlength="60" required autofocus></div><button type="submit" class="primary full-width">确认修改</button></form>`,[{label:'取消',run:()=>showProjectList()}]);
+    $('rename-project-name').select();$('rename-project-name').oninput=e=>e.target.setCustomValidity('');
+    $('rename-project-form').onsubmit=e=>{e.preventDefault();const name=$('rename-project-name').value.trim();if(!validProjectName($('rename-project-name'),name))return;mutateProject(async()=>{
+      if(activeProject?.id===record.id){state.name=name;commitAction('修改项目名称');renderWallpaper();renderHistory();if(!await flushSave())throw new Error('名称尚未保存，请重试');}
+      else{const latest=await Store.load(record.id);if(!latest)throw new Error('项目已被删除');latest.name=latest.data.name=name;latest.updatedAt=new Date().toISOString();latest.history ||= Hist.create(latest.data,'打开项目');Hist.commit(latest.history,latest.data,'修改项目名称');await Store.save(latest,[],{activate:false});}
+      await showProjectList();toast('项目名称已修改');
+    });};
+  }
+  function duplicateProject(id){return mutateProject(async()=>{
+    const original=await Store.load(id);if(!original)throw new Error('项目已被删除');const names=new Set((await Store.list()).map(r=>r.name));let suffix=' · 副本',name=original.name.slice(0,60-suffix.length)+suffix,index=2;
+    while(names.has(name)){suffix=` · 副本 ${index++}`;name=original.name.slice(0,60-suffix.length)+suffix;}
+    const copy=clone(original),now=new Date().toISOString();copy.id=crypto.randomUUID();copy.name=copy.data.name=name;copy.createdAt=copy.updatedAt=now;delete copy.deletedAt;delete copy.category;delete copy.data.category;copy.history=Hist.create(copy.data,`复制自 ${original.name}`);
+    await Store.save(copy,[],{activate:false});await showProjectList();toast(`已复制：${name}`);
+  });}
+  function showDeleteProject(record){modal('删除项目',`<p class="dialog-intro">将「${esc(record.name)}」移入回收站？</p><p class="hint">素材和编辑记录会保留，可以在项目列表的回收站中恢复。</p>`,[{label:'取消',run:()=>showProjectList()},{label:'移入回收站',primary:true,run:()=>deleteProject(record.id)}]);}
+  function clearCurrentProject(){
+    pause();clearTimeout(saveTimer);clearTimeout(historyTimer);pendingLabel=null;releaseMedia(mediaRegistry);mediaRegistry=new Map();dirtyMedia=new Map();activeProject=null;actionHistory=null;projectReady=false;
+    state.assets=demoAssets();state.postAssets=[];state.projects=freshProfiles();for(const p of Object.values(state.projects)){p.clips=[];p.selectedClipId=null;p.cursor=0;}state.name='尚未打开项目';state.selectedId='demo-video';state.product='dynamic';state.sourcePreview=false;state.time=0;state.posts={xhs:newPost('xhs'),douyin:newPost('douyin')};for(const p of Object.values(state.posts))p.assetIds=[];
+    $('history-panel').hidden=true;$('history-list').replaceChildren();renderWallpaper();renderPublish();saveStatus('请选择项目');$('history-btn').disabled=$('export-btn').disabled=true;
+  }
+  function deleteProject(id){return mutateProject(async()=>{
+    await Store.trash(id);if(activeProject?.id===id){clearCurrentProject();const [next]=await Store.list();if(next)await openProject(next.id);}await showProjectList();toast('项目已移入回收站');
+  });}
+  function restoreProject(id){return mutateProject(async()=>{await Store.restore(id);if(!activeProject)await openProject(id);await showProjectList();toast('项目已恢复');});}
   async function initializeProjects(){
-    try{const lastId=await Store.last();if(lastId&&await Store.load(lastId))await openProject(lastId);else await createProject('城市飞行示例','simple',true);}
+    try{const lastId=await Store.last(),last=lastId&&await Store.load(lastId),records=await Store.list();if(last)await openProject(lastId);else if(records.length)await openProject(records[0].id);else if((await Store.list({deleted:true})).length){clearCurrentProject();await showProjectList();}else await createProject('城市飞行示例',true);}
     catch(error){if(!activeProject){for(const a of [...state.assets,...state.postAssets])registerMedia(a);activeProject={id:crypto.randomUUID(),createdAt:new Date().toISOString()};actionHistory=Hist.create(captureProject(),'城市飞行示例');projectReady=true;renderWallpaper();renderPublish();}saveStatus('未保存 · 重试',true);toast('本地自动保存暂不可用，请保留页面并点击保存状态重试');}
     finally{$('project-loading').hidden=true;}
   }
@@ -323,10 +390,10 @@
     commitAction(`导入 ${incoming.length} 个${workspace==='publish'?'推广':'壁纸'}素材`);await flushSave();toast(`已导入 ${incoming.length} 个素材并自动保存`);
   }
   function modal(title,body,actions=[]) {
-    pause();$('dialog-title').textContent=title;$('dialog-body').innerHTML=body;$('dialog-actions').replaceChildren();
+    pause();$('dialog').classList.remove('project-browser');$('dialog-close').hidden=false;$('dialog-title').textContent=title;$('dialog-body').innerHTML=body;$('dialog-actions').replaceChildren();
     for(const action of actions){const b=document.createElement('button');b.textContent=action.label;if(action.primary)b.className='primary';b.onclick=action.run;$('dialog-actions').append(b);}if(!$('dialog').open)$('dialog').showModal();
   }
-  function closeModal(){$('dialog').close();}
+  function closeModal(){if(activeProject)$('dialog').close();else showProjectList();}
   function download(name,data,type='application/json') {const url=URL.createObjectURL(data instanceof Blob?data:new Blob([data],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);}
   function safeName(){return (state.name||'倾境壁纸').replace(/[\\/:*?"<>|]/g,'_').slice(0,60);}
   function wallpaperPlan(allVersions=false){const versions=allVersions?Object.fromEntries(Object.entries(profiles()).map(([k,p])=>[k,Core.snapshot(p)])):{[state.platform]:Core.snapshot(profile())};return {version:3,prototype:true,name:state.name,source:{id:selectedAsset().id,name:selectedAsset().name,type:selectedAsset().type},sourcePreview:state.sourcePreview,sources:state.assets.map(a=>({id:a.id,name:a.name,type:a.type,duration:a.duration||null,demo:!!a.demo})),product:state.product,previewFps:FPS,activePlatform:state.platform,versions,note:'独立工程剪辑方案；不是苹果或鸿蒙成品资源包。视频编码与平台打包尚未接入。'};}
@@ -402,7 +469,7 @@
     for(const [id,key] of [['post-title','title'],['post-body','body'],['post-tags','tags']])$(id).oninput=e=>{currentPost()[key]=e.target.value;syncPostPreview();};
     $('copy-style').onchange=e=>currentPost().style=e.target.value;$('suggest-copy').onclick=()=>{const post=currentPost(),copy=copyPresets[post.style];Object.assign(post,copy);if(state.social==='douyin'&&post.style==='simple')post.title='这一秒，让屏幕动起来';renderPublish();toast('已填入模板示例，可继续修改；此原型未调用 AI');};$('cover-title-toggle').onchange=e=>{currentPost().coverTitle=e.target.checked;syncPostPreview();};
     $('download-copy').onclick=downloadCopy;$('export-btn').onclick=openExport;$('manage-accounts').onclick=manageAccounts;$('publish-preview-btn').onclick=openPublishPreview;$('publish-timing').onchange=e=>{state.timing=e.target.value;$('publish-date').hidden=state.timing!=='scheduled';};$('publish-date').onchange=e=>state.scheduledAt=e.target.value;
-    $('dialog-close').onclick=closeModal;$('dialog').addEventListener('click',e=>{if(e.target===$('dialog')){const r=$('dialog').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)closeModal();}});
+    document.addEventListener('click',e=>{if(!e.target.closest('.project-more,.project-menu'))closeProjectMenus();});$('dialog').addEventListener('cancel',e=>{if(!activeProject){e.preventDefault();showProjectList();}});$('dialog-close').onclick=closeModal;$('dialog').addEventListener('click',e=>{if(e.target===$('dialog')){const r=$('dialog').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)closeModal();}});
     $('help-btn').onclick=()=>modal('倾境创作台 · 项目原型',`<p class="dialog-intro">每套作品一个项目，鸿蒙与 iOS 各自编辑。</p><ul class="modal-list"><li>从素材库或文件夹拖入图片、视频。图片默认持续 10 帧，可以修改帧数或拖动边缘调整。</li><li>新建项目后自动保存素材、两条时间轴、构图参数与推广内容。项目列表可以打开不同作品。</li><li>历史面板保留最近 15 个动作，点击可还原；撤销与重做使用同一套历史。返回旧状态后继续编辑会替换之后的动作。</li><li>空格播放，方向键逐帧；Cmd/Ctrl+B 剪断，Delete 删除，Cmd/Ctrl+Z 撤销。</li></ul><p class="dialog-note">当前自动保存到本机浏览器，尚未写入电脑上的项目文件夹；清除网站数据会影响本地项目。正式视频编码、动态图片打包与账号发布尚未接入。</p>`,[{label:'知道了',primary:true,run:closeModal}]);
     document.addEventListener('keydown',e=>{if($('dialog').open||state.workspace!=='wallpaper'||state.product!=='dynamic'||/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)||e.target.isContentEditable)return;const modifier=e.metaKey||e.ctrlKey,key=e.key.toLowerCase();if(modifier&&key==='b'){e.preventDefault();splitClip();}else if(modifier&&key==='z'){e.preventDefault();undoEdit(e.shiftKey);}else if(modifier&&key==='y'){e.preventDefault();undoEdit(true);}else if(key==='delete'||key==='backspace'){e.preventDefault();$('delete-clip').click();}else if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();togglePlay();}else if(e.key==='ArrowLeft'){e.preventDefault();seek(state.time-1/FPS);}else if(e.key==='ArrowRight'){e.preventDefault();seek(state.time+1/FPS);}});
     let dragDepth=0;document.addEventListener('dragenter',e=>{if(![...e.dataTransfer.types].includes('Files'))return;e.preventDefault();dragDepth++;$('drop-overlay').hidden=!!e.target.closest('.timeline');});document.addEventListener('dragover',e=>{if([...e.dataTransfer.types].includes('Files')){e.preventDefault();$('drop-overlay').hidden=!!e.target.closest('.timeline');}});document.addEventListener('dragleave',()=>{dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)$('drop-overlay').hidden=true;});document.addEventListener('dragend',()=>{dragDepth=0;$('drop-overlay').hidden=true;clearDropMarks();});document.addEventListener('drop',e=>{e.preventDefault();dragDepth=0;$('drop-overlay').hidden=true;if(e.dataTransfer.files.length)importFiles(e.dataTransfer.files,state.workspace);});

@@ -1,14 +1,19 @@
-/* Local prototype adapter. Formal folder/server adapters can use the same records. */
+/* Local prototype adapter. Media is immutable and may be shared by independent copies. */
 (function(root){
   'use strict';
   const request=r=>new Promise((resolve,reject)=>{r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
   const done=tx=>new Promise((resolve,reject)=>{tx.oncomplete=()=>resolve();tx.onabort=tx.onerror=()=>reject(tx.error||new Error('本地存储事务未完成'));});
+  const tombstone=id=>`deleted:${id}`;
   let opening;
   function open(){return opening ||= new Promise((resolve,reject)=>{const r=indexedDB.open('qingjing-creator-projects',1);r.onupgradeneeded=()=>{r.result.createObjectStore('projects',{keyPath:'id'});r.result.createObjectStore('media',{keyPath:'id'});r.result.createObjectStore('meta');};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);r.onblocked=()=>reject(new Error('请关闭旧版创作台标签后重试'));});}
-  async function list(){const db=await open();return (await request(db.transaction('projects').objectStore('projects').getAll())).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));}
-  async function load(id){const db=await open();return request(db.transaction('projects').objectStore('projects').get(id));}
+  async function list({deleted=false}={}){const db=await open(),tx=db.transaction(['projects','meta']);const [records,keys,values]=await Promise.all([request(tx.objectStore('projects').getAll()),request(tx.objectStore('meta').getAllKeys()),request(tx.objectStore('meta').getAll())]);const markers=new Map(keys.map((key,i)=>[key,values[i]]));return records.map(r=>({...r,deletedAt:markers.get(tombstone(r.id))||r.deletedAt})).filter(r=>!!r.deletedAt===deleted).sort((a,b)=>(deleted?b.deletedAt:b.updatedAt).localeCompare(deleted?a.deletedAt:a.updatedAt));}
+  async function load(id,{includeDeleted=false}={}){const db=await open(),tx=db.transaction(['projects','meta']);const [record,marker]=await Promise.all([request(tx.objectStore('projects').get(id)),request(tx.objectStore('meta').get(tombstone(id)))]);if(!record)return undefined;record.deletedAt=marker||record.deletedAt;return record.deletedAt&&!includeDeleted?undefined:record;}
   async function media(ids){const db=await open(),tx=db.transaction('media'),store=tx.objectStore('media');return Promise.all(ids.map(id=>request(store.get(id))));}
   async function last(){const db=await open();return request(db.transaction('meta').objectStore('meta').get('lastProject'));}
-  async function save(project,assets=[]){const db=await open(),tx=db.transaction(['projects','media','meta'],'readwrite'),finished=done(tx);for(const asset of assets)tx.objectStore('media').put(asset);tx.objectStore('projects').put(project);tx.objectStore('meta').put(project.id,'lastProject');await finished;}
-  root.ProjectStore={list,load,media,last,save};
+  async function write(stores,work){const db=await open(),tx=db.transaction(stores,'readwrite'),finished=done(tx);try{const result=await work(tx);await finished;return result;}catch(error){try{tx.abort();}catch{}await finished.catch(()=>{});throw error;}}
+  async function save(project,assets=[],{activate=true}={}){return write(['projects','media','meta'],async tx=>{const projects=tx.objectStore('projects'),meta=tx.objectStore('meta');const [existing,marker]=await Promise.all([request(projects.get(project.id)),request(meta.get(tombstone(project.id)))]);if(marker||existing?.deletedAt)throw new Error('这个项目已移入回收站，不能继续保存');for(const asset of assets)tx.objectStore('media').put(asset);projects.put(project);if(activate)meta.put(project.id,'lastProject');});}
+  async function trash(id){return write(['projects','meta'],async tx=>{const projects=tx.objectStore('projects'),meta=tx.objectStore('meta');const [record,lastId]=await Promise.all([request(projects.get(id)),request(meta.get('lastProject'))]);if(!record)throw new Error('项目不存在');record.deletedAt=new Date().toISOString();projects.put(record);meta.put(record.deletedAt,tombstone(id));if(lastId===id)meta.delete('lastProject');});}
+  async function restore(id){return write(['projects','meta'],async tx=>{const projects=tx.objectStore('projects'),record=await request(projects.get(id));if(!record)throw new Error('项目不存在');delete record.deletedAt;record.updatedAt=new Date().toISOString();projects.put(record);tx.objectStore('meta').delete(tombstone(id));return record;});}
+  async function setThumbnail(id,thumbnail){return write(['projects','meta'],async tx=>{const projects=tx.objectStore('projects');const [record,marker]=await Promise.all([request(projects.get(id)),request(tx.objectStore('meta').get(tombstone(id)))]);if(record&&!marker&&!record.deletedAt&&!record.thumbnail){record.thumbnail=thumbnail;projects.put(record);}});}
+  root.ProjectStore={list,load,media,last,save,trash,restore,setThumbnail};
 })(window);
