@@ -601,10 +601,13 @@
   async function coverPreview(){
     if(!state.thumbnail)return null;const selected=state.thumbnail;return (await cropCanvas(assetById(selected.sourceId),selected.crop,selected.time,360)).toDataURL('image/jpeg',.86);
   }
+  function productPackageAsset(){
+    return [mediaRegistry.get(state.resources.fourDId),selectedAsset(),...state.assets.filter(a=>!a.demo),...state.assets].find(a=>a?.type==='4d'&&(a.demo||a.formatVersion===2&&a.file instanceof Blob));
+  }
   function productChoices(){
     const rows=[];if(state.resources.static.length)rows.push({key:'static',title:'静态壁纸',detail:state.resources.static.map(r=>`${r.width} × ${r.height}`).join(' / '),status:'PNG 已保存',resources:clone(state.resources.static)});
     for(const key of ['android','harmony','ios']){const p=profiles()[key],duration=Core.total(p),frames=Math.round(duration*FPS);if(!p.clips.length)continue;const fits=key==='android'||(key==='harmony'?Math.abs(duration-2)<.015:frames>=16&&frames<=30);rows.push({key,title:`${platformNames[key]}动态壁纸`,detail:`${p.width} × ${p.height} · ${duration.toFixed(2)} s · ${frames} 帧`,status:fits?'剪辑已保存 · 待编码':'待调整成片长度',plan:Core.snapshot(p)});}
-    const a=assetById(state.resources.fourDId);if(a?.file)rows.push({key:'4d',title:'4D 壁纸',detail:`${a.name} · ${a.layerCount} 个图层`,status:'原始 ZIP 已保存',assetId:a.id});return rows;
+    const a=productPackageAsset();if(a)rows.push({key:'4d',title:'4D 壁纸',detail:`${a.name} · ${a.layerCount||5} 个图层`,status:a.file?'原始 ZIP 已保存':'保存时生成完整 ZIP',assetId:a.id});return rows;
   }
   // Category fixtures are local only; the connected version will use the admin category list.
   const creationCategories=[
@@ -695,11 +698,24 @@
     if(!cover)return invalid(null,'请先在静态页选择列表封面');
     $('dialog-actions').querySelectorAll('button').forEach(b=>b.disabled=true);
     try{
-      const existing=state.productRecord,now=new Date().toISOString();state.productRecord={id:existing?.id||`demo-${crypto.randomUUID()}`,prototype:true,...form,status:'published',capabilities:creationCapabilities.filter(c=>rows.some(r=>r.key===c.key)).map(c=>c.value),thumbnail:clone(state.thumbnail),cover,resources:clone(rows),createdAt:existing?.createdAt||now,updatedAt:now};
+      const resources=clone(rows),packageRow=resources.find(r=>r.key==='4d');
+      if(packageRow){
+        const source=mediaRegistry.get(packageRow.assetId);if(!source)throw new Error('4D 资源已丢失，请重新导入');
+        const file=await PackagePreview.resource(source);
+        if(projectId!==activeProject?.id||!button.isConnected||!$('dialog').open)return;
+        let asset=source;
+        if(!(source.file instanceof Blob)){
+          asset={id:`resource-${crypto.randomUUID()}`,sourceId:source.id,name:source.name,type:'4d',demo:false,file,width:source.width,height:source.height,layerCount:source.layerCount||5,formatVersion:2};registerMedia(asset);
+        }
+        state.resources.fourDId=asset.id;packageRow.assetId=asset.id;packageRow.status='原始 ZIP 已保存';
+      }
+      const existing=state.productRecord,now=new Date().toISOString();state.productRecord={id:existing?.id||`demo-${crypto.randomUUID()}`,prototype:true,...form,status:'published',capabilities:creationCapabilities.filter(c=>resources.some(r=>r.key===c.key)).map(c=>c.value),thumbnail:clone(state.thumbnail),cover,resources,createdAt:existing?.createdAt||now,updatedAt:now};
       commitAction(existing?'更新本地壁纸创建记录':'保存本地壁纸创建记录');
-      if(!await flushSave()){invalid(null,'本地保存未完成，请重试');return;}
+      const saved=await flushSave();if(projectId!==activeProject?.id||!button.isConnected||!$('dialog').open)return;
+      if(!saved){invalid(null,'本地保存未完成，请重试');return;}
       closeModal();toast('已保存本地创建记录，尚未提交后台上架');
-    }finally{if(button.isConnected)$('dialog-actions').querySelectorAll('button').forEach(b=>b.disabled=false);}
+    }catch(error){if(projectId===activeProject?.id&&button.isConnected&&$('dialog').open)invalid(null,`壁纸创建未完成：${error.message}`);}
+    finally{if(button.isConnected)$('dialog-actions').querySelectorAll('button').forEach(b=>b.disabled=false);}
   }
   function formatFileSize(bytes){return bytes>=1048576?`${(bytes/1048576).toFixed(1)} MB`:`${Math.max(1,Math.ceil(bytes/1024))} KB`;}
   function projectExportFiles(){
