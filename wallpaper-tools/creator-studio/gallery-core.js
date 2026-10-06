@@ -10,7 +10,7 @@
   function node(type,extra={}){return {id:id(),type,name:({image:'图片',text:'文字',rect:'矩形',group:'分组',instance:'组件实例'})[type]||type,x:0,y:0,width:400,height:300,rotation:0,opacity:1,visible:true,locked:false,radius:0,scale:1,panX:0,panY:0,...extra};}
   function frame(width=1080,height=1440,index=0){return {id:id(),name:'画框 '+(index+1),x:(index%2)*(width+180),y:Math.floor(index/2)*(height+180),width,height,background:'#18202c',clip:true,nodes:[]};}
   function ensure(w){
-    if(w.gallery?.version===1)return w.gallery;
+    if(w.gallery?.version===1){canvasSurface(w.gallery);return w.gallery;}
     const componentId=id(),size=1080;
     const component={id:componentId,name:'主壁纸',x:-size-220,y:0,width:size,height:size,clip:true,nodes:[node('image',{name:'原图 · 替换这里',width:size,height:size,slot:'wallpaper',fit:'cover'})]};
     const frames=(w.pages.length?w.pages:[{name:'画框 1',clips:[]}]).map((p,i)=>{
@@ -19,9 +19,10 @@
       return f;
     });
     w.gallery={version:1,frames,components:{[componentId]:component},selectedSurface:frames[0].id,selection:[],view:null,preset:{width:w.width,height:w.height}};
-    return w.gallery;
+    canvasSurface(w.gallery);return w.gallery;
   }
-  const surfaces=g=>[...g.frames,...Object.values(g.components)];
+  function canvasSurface(g){return g.canvas||=( {id:'gallery-canvas',type:'canvas',name:'大画布',x:0,y:0,width:0,height:0,clip:false,nodes:[]} );}
+  const surfaces=g=>[canvasSurface(g),...g.frames,...Object.values(g.components)];
   const surface=(g,key=g.selectedSurface)=>surfaces(g).find(f=>f.id===key);
   function find(nodes,key,parent=null,matrix=identity){for(const n of nodes){const m=multiply(matrix,transform(n));if(n.id===key)return {node:n,list:nodes,parent,matrix:m,parentMatrix:matrix};if(n.children){const r=find(n.children,key,n,m);if(r)return r;}}return null;}
   function walk(nodes,fn){for(const n of nodes){fn(n);if(n.children)walk(n.children,fn);}}
@@ -30,7 +31,7 @@
   function hit(nodes,p,deep=false){for(const n of nodes.slice().reverse()){if(!n.visible||n.locked)continue;const q=point(inverse(transform(n)),p);if(n.children&&(!(n.clip??n.effectiveClip)||q.x>=0&&q.y>=0&&q.x<=n.width&&q.y<=n.height)){const child=hit(n.children,q,deep);if(child)return deep?child:n;}if(q.x>=0&&q.y>=0&&q.x<=n.width&&q.y<=n.height)return n;}return null;}
   function selected(g){return (g.selection||[]).map(key=>{for(const f of surfaces(g)){const r=find(f.nodes,key);if(r)return {...r,surface:f};}}).filter(Boolean);}
   function roots(g){const list=selected(g),ids=new Set(list.map(r=>r.node.id));return list.filter(r=>{let p=r.parent;while(p){if(ids.has(p.id))return false;p=find(r.surface.nodes,p.id)?.parent;}return true;});}
-  const selectedSurfaces=g=>(g.surfaceSelection||[]).map(id=>surface(g,id)).filter(Boolean);
+  const selectedSurfaces=g=>(g.surfaceSelection||[]).map(id=>surface(g,id)).filter(f=>f&&f.type!=='canvas');
   const worldBounds=r=>{const b=bounds(r.node,r.matrix);return {...b,x:b.x+r.surface.x,y:b.y+r.surface.y};};
   function scaleEffects(effects,sx,sy){return (effects||[]).map(e=>({...copy(e),offsetX:(e.offsetX||0)*sx,offsetY:(e.offsetY||0)*sy,blur:(e.blur||0)*Math.min(sx,sy),spread:(e.spread||0)*Math.min(sx,sy)}));}
   // Instance children are editable proxies. Only changed properties are serialized;
@@ -77,9 +78,9 @@
   }
   function instances(g,key){const list=[];for(const f of surfaces(g))walk(f.nodes,n=>{if(n.componentId===key)list.push(n);});return list;}
   function wouldCycle(g,container,key,seen=new Set()){if(container===key)return true;if(seen.has(key))return false;seen.add(key);let cyclic=false;walk(g.components[key]?.nodes||[],n=>{if(n.componentId&&wouldCycle(g,container,n.componentId,seen))cyclic=true;});return cyclic;}
-  function addInstance(g,key){const f=surface(g),c=g.components[key];if(!f||!c||wouldCycle(g,f.id,key))return null;const n=node('instance',{name:c.name,componentId:key,x:40,y:40,width:Math.min(c.width,f.width*.7),height:Math.min(c.width,f.width*.7)/c.width*c.height,mask:'none'});f.nodes.push(n);g.selection=[n.id];return n;}
+  function addInstance(g,key){const f=surface(g),c=g.components[key];if(!f||!c||wouldCycle(g,f.id,key))return null;const width=f.type==='canvas'?c.width:Math.min(c.width,f.width*.7),n=node('instance',{name:c.name,componentId:key,x:40,y:40,width,height:width/c.width*c.height,mask:'none'});f.nodes.push(n);g.selection=[n.id];return n;}
   function assets(w){const ids=new Set();if(w.gallery)for(const f of surfaces(w.gallery))walk(f.nodes,n=>{const asset=n.slot?w.slots[n.slot]:n.assetId;if(asset)ids.add(asset);if(n.type==='instance'){for(const o of Object.values(n.overrides||{})){const id=o.slot?w.slots[o.slot]:o.assetId;if(id)ids.add(id);}walk(n.localNodes||[],child=>{const id=child.slot?w.slots[child.slot]:child.assetId;if(id)ids.add(id);});}});return [...ids];}
   function resizeGroup(n,width,height){const sx=width/n.width,sy=height/n.height;function scale(nodes){for(const c of nodes){c.x*=sx;c.y*=sy;c.width*=sx;c.height*=sy;if(c.fontSize)c.fontSize*=Math.min(sx,sy);if(c.letterSpacing)c.letterSpacing*=Math.min(sx,sy);if(c.effects)c.effects=scaleEffects(c.effects,sx,sy);if(c.children)scale(c.children);}}if(n.children)scale(n.children);n.width=width;n.height=height;}
-  const api={ensure,node,frame,surfaces,surface,find,walk,bounds,union,hit,selected,selectedSurfaces,worldBounds,roots,instanceNodes,instanceViewport,refreshInstances,captureOverrides,group,ungroup,toggleMask,duplicate,remove,makeComponent,instances,wouldCycle,addInstance,assets,resizeGroup,scaleEffects,cloneNode,multiply,point,inverse,transform,identity};
+  const api={ensure,node,frame,canvasSurface,surfaces,surface,find,walk,bounds,union,hit,selected,selectedSurfaces,worldBounds,roots,instanceNodes,instanceViewport,refreshInstances,captureOverrides,group,ungroup,toggleMask,duplicate,remove,makeComponent,instances,wouldCycle,addInstance,assets,resizeGroup,scaleEffects,cloneNode,multiply,point,inverse,transform,identity};
   root.GalleryCore=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);
