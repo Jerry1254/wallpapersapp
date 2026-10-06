@@ -194,8 +194,23 @@ public class DistributionService {
         for(String cover:List.of("coverId","landscapeCoverId")) if(!n.path(cover).asText("").isEmpty()) {
             if (!type.equals("video") || (!platform.equals("douyin") && cover.equals("landscapeCoverId")) || !media(n.path(cover).asText()).get("media_type").equals("image")) throw bad("封面参数不正确");
         }
-        String declaration=n.path("declaration").asText("");
-        if (!declaration.isEmpty() && (!platform.equals("douyin") || !type.equals("video") || !Set.of("内容由AI生成","内容为个人观点或见解").contains(declaration))) throw bad("不支持这项内容声明");
+        validatePublicationSettings(platform,type,n);
+    }
+    // Shared by image and video jobs; unsupported fields must never be silently ignored.
+    static void validatePublicationSettings(String platform,String type,JsonNode n) {
+        setting(n,"visibility",Set.of("public","private","friends"));
+        Set<String> declarations=platform.equals("douyin")
+            ?Set.of("","内容由AI生成","可能引人不适","虚构演绎，仅供娱乐","危险行为，请勿模仿","内容为个人观点或见解","内容含营销推广信息")
+            :Set.of("","虚构演绎，仅供娱乐","笔记含AI合成内容");
+        setting(n,"declaration",declarations);
+        setting(n,"originality",Set.of("","original","not_original"));
+        setting(n,"downloadPermission",Set.of("","allow","deny"));
+        if(n.has("originality")&&!platform.equals("xhs"))throw bad("原创设置仅适用于小红书");
+        if(n.has("downloadPermission")&&(!platform.equals("douyin")||!type.equals("video")))throw bad("允许保存仅适用于抖音视频");
+        if(n.has("draft")||n.has("saveAsDraft")||n.has("publishMode"))throw bad("此发布流程不支持保存草稿");
+    }
+    private static void setting(JsonNode n,String key,Set<String> allowed) {
+        if(n.has(key)&&(!n.path(key).isTextual()||!allowed.contains(n.path(key).asText())))throw bad("发布设置无效："+key);
     }
     @Transactional
     public List<Map<String,Object>> createBatch(JsonNode n) {

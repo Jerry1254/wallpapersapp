@@ -10,6 +10,7 @@ import sys
 import tempfile
 import uuid
 from identity import IdentityError, read_identity
+from settings import SettingsError, apply_settings, validate_settings
 
 os.umask(0o077)
 OUTPUT = sys.stdout
@@ -169,12 +170,8 @@ async def fill_douyin(page, post):
 
 async def publish(request):
     from patchright.async_api import async_playwright
-    from uploader.douyin_uploader.main import DouYinBaseUploader
     from loguru import logger
     logger.remove()
-    class Declaration(DouYinBaseUploader):
-        async def _clear_blocking_overlays(self, page):
-            await page.keyboard.press('Escape')
     job, paths = request['job'], request['paths']
     post, platform = job['post'], job['platform']
     vault = SessionVault(request['runtime'], job['accountId'])
@@ -183,6 +180,7 @@ async def publish(request):
     phase = '打开发布页'
     browser = None
     try:
+        validate_settings(platform, post)
         async with async_playwright() as runtime:
             browser = await runtime.chromium.launch(headless=False, channel='chromium')
             context = await browser.new_context(storage_state=saved_state)
@@ -218,12 +216,9 @@ async def publish(request):
             phase = '填写标题、正文和话题'
             emit('progress', message=phase)
             title, editor = await (fill_douyin(page, post) if platform == 'douyin' else fill_xhs(page, post))
-            if post.get('declaration'):
-                phase = '设置内容声明'
-                helper = Declaration(0, '')
-                if not await helper.set_self_declaration(page, post['declaration']):
-                    raise NeedsInput('所选内容声明未设置成功，请在平台确认支持的声明')
-                await page.locator('.semi-modal-content').filter(has_text='请选择声明类型').first.wait_for(state='hidden')
+            phase = '设置并核对发布选项'
+            emit('progress', message=phase)
+            verify_settings = await apply_settings(page, platform, post)
             portrait = paths.get(post.get('coverId'))
             landscape = paths.get(post.get('landscapeCoverId'))
             if portrait or landscape:
@@ -242,6 +237,7 @@ async def publish(request):
             for tag in post['tags']:
                 if tag not in rendered:
                     raise NeedsInput('平台未完整保留话题：' + tag)
+            await verify_settings()
             button = page.get_by_role('button', name='发布', exact=True)
             await button.wait_for(state='visible')
             if not await button.is_enabled():
@@ -265,8 +261,8 @@ async def publish(request):
             return {'status': 'submitted', 'message': '平台已接收提交，请在平台确认审核结果', 'url': result_url}
     except Exception as error:
         # Never retry after the final click, regardless of a timeout or challenge.
-        return {'status': 'uncertain' if submitted else 'needs_input' if isinstance(error, (NeedsInput,IdentityError)) else 'failed',
-                'message': ('已点击发布，结果尚未确认，请到平台核对' if submitted else str(error) if isinstance(error, (NeedsInput,IdentityError)) else f'{phase}未完成；可能需要登录验证或平台页面已变化，请在账号管理重新登录后重试')}
+        return {'status': 'uncertain' if submitted else 'needs_input' if isinstance(error, (NeedsInput,IdentityError,SettingsError)) else 'failed',
+                'message': ('已点击发布，结果尚未确认，请到平台核对' if submitted else str(error) if isinstance(error, (NeedsInput,IdentityError,SettingsError)) else f'{phase}未完成；可能需要登录验证或平台页面已变化，请在账号管理重新登录后重试')}
     finally:
         if browser:
             with contextlib.suppress(Exception):
@@ -324,7 +320,7 @@ async def main(request):
     try:
         operation = publish(request) if request['mode'] == 'publish' else analytics(request) if request['mode'] == 'analytics' else login(request)
         result = await asyncio.wait_for(operation, timeout=1800 if request['mode'] == 'publish' else 420)
-    except (NeedsInput,IdentityError) as error:
+    except (NeedsInput,IdentityError,SettingsError) as error:
         result = {'status': 'needs_input', 'message': str(error)}
     except asyncio.TimeoutError:
         # Parent tracks the submitting state and upgrades this on a late timeout.

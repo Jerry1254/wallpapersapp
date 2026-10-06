@@ -74,9 +74,13 @@ class DistributionIntegrationIT {
     @Test void keepsIndependentAccountPostsAndFrozenSourcesAcrossRetriesAndRenames(){
         Source source=source();String a=account(),b=account();bind(a,UUID.randomUUID().toString());bind(b,UUID.randomUUID().toString());
         ObjectNode batch=obj().put("id",UUID.randomUUID().toString());ArrayNode entries=batch.putArray("entries");
-        entries.addObject().put("accountId",a).set("post",post(source,"账号甲标题"));entries.addObject().put("accountId",b).set("post",post(source,"账号乙标题"));
+        entries.addObject().put("accountId",a).set("post",post(source,"账号甲标题").put("visibility","private").put("originality","original").put("declaration","笔记含AI合成内容"));entries.addObject().put("accountId",b).set("post",post(source,"账号乙标题").put("visibility","public").put("originality","not_original"));
         var first=tx.execute(s->service.createBatch(batch));assertThat(first).hasSize(2);
         assertThat(first.stream().map(j->((JsonNode)j.get("post")).path("title").asText())).containsExactlyInAnyOrder("账号甲标题","账号乙标题");
+        JsonNode privatePost=first.stream().map(j->(JsonNode)j.get("post")).filter(p->p.path("title").asText().equals("账号甲标题")).findFirst().orElseThrow();
+        assertThat(privatePost.path("visibility").asText()).isEqualTo("private");
+        assertThat(privatePost.path("originality").asText()).isEqualTo("original");
+        assertThat(privatePost.path("declaration").asText()).isEqualTo("笔记含AI合成内容");
         JsonNode snapshot=((JsonNode)first.get(0).get("post")).path("source");
         assertThat(snapshot.path("projectName").asText()).isEqualTo("原项目名称");assertThat(snapshot.path("assets").get(0).path("generationTaskId").asText()).isEqualTo("generation-1");
         source.payload.put("name","后来改名");db.update("UPDATE creator_workspace_record SET payload=? WHERE collection_name='projects' AND id=?",source.payload.toString(),source.project);

@@ -1115,11 +1115,44 @@
           "enum": [
             "",
             "内容由AI生成",
-            "内容为个人观点或见解"
-          ]
+            "可能引人不适",
+            "虚构演绎，仅供娱乐",
+            "危险行为，请勿模仿",
+            "内容为个人观点或见解",
+            "内容含营销推广信息",
+            "笔记含AI合成内容"
+          ],
+          "description": "抖音图文/视频使用抖音声明；小红书图文/视频仅支持虚构演绎、AI 合成。空值不预设，所选声明须由本机助手核对后提交。"
         },
         "source": {
           "$ref": "#/schemas/PublicationSource"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "public",
+            "private",
+            "friends"
+          ],
+          "description": "作品发布后的可见范围；private 是仅自己可见，不是保存草稿。旧请求可省略以保留平台默认；新创作台默认明确选择 public。"
+        },
+        "originality": {
+          "type": "string",
+          "enum": [
+            "",
+            "original",
+            "not_original"
+          ],
+          "description": "仅小红书：空值不预设；original 声明原创；not_original 不声明原创，不会填写转载来源。"
+        },
+        "downloadPermission": {
+          "type": "string",
+          "enum": [
+            "",
+            "allow",
+            "deny"
+          ],
+          "description": "仅抖音视频：空值跟随平台默认，allow 允许保存，deny 禁止保存。"
         }
       },
       "required": [
