@@ -222,23 +222,25 @@ public class DistributionService {
         if (!hash.equals(old)) throw conflict("同一批次的发布内容发生变化，请重新预览");
         if (db.queryForObject("SELECT COUNT(*) FROM creator_publish_job WHERE batch_id=?",Long.class,batch)>0) return jobsForBatch(batch);
         JsonNode entries=n.path("entries");
-        if (!entries.isArray() || entries.isEmpty() || entries.size()>50) throw bad("请选择 1–50 个账号");
+        if (!entries.isArray() || entries.isEmpty() || entries.size()>50) throw bad("每批请选择 1–50 条发布任务");
         Instant due=Instant.now();
         if (!n.path("scheduledAt").asText("").isEmpty()) {
             try { due=Instant.parse(n.path("scheduledAt").asText()); } catch(Exception e) { throw bad("定时时间无效"); }
             if (due.isBefore(Instant.now())) throw bad("请选择未来的时间");
         }
         Set<String> seen=new HashSet<>();
+        int position=0;Timestamp createdAt=Timestamp.from(Instant.now());
         for(JsonNode entry:entries) {
             String accountId=uuid(entry.path("accountId").asText());
-            if(!seen.add(accountId)) throw bad("账号不能重复");
             db.queryForList("SELECT id FROM creator_social_account WHERE id=? FOR UPDATE",accountId);
             Map<String,Object> account=requireAccount(accountId);
             if(!"ready".equals(account.get("status"))||account.get("platformUserId")==null) throw bad("请先完成账号登录和身份检查");
             validatePost((String)account.get("platform"),entry.path("post"));
+            String contentKey=accountId+":"+entry.path("post").path("type").asText()+":"+entry.path("post").path("mediaIds").toString();
+            if(!seen.add(contentKey))throw bad("同一账号不能重复发布同一份素材");
             ObjectNode post=(ObjectNode)entry.path("post").deepCopy();
             if(post.has("source"))post.set("source",sourceSnapshot(post.path("source"),post));
-            db.update("INSERT INTO creator_publish_job(id,batch_id,account_id,payload,due_at,scheduled) VALUES(?,?,?,?,?,?)",UUID.randomUUID().toString(),batch,accountId,post.toString(),Timestamp.from(due),!n.path("scheduledAt").asText("").isEmpty());
+            db.update("INSERT INTO creator_publish_job(id,batch_id,account_id,payload,due_at,scheduled,created_at,batch_position) VALUES(?,?,?,?,?,?,?,?)",UUID.randomUUID().toString(),batch,accountId,post.toString(),Timestamp.from(due),!n.path("scheduledAt").asText("").isEmpty(),createdAt,position++);
         }
         return jobsForBatch(batch);
     }
@@ -246,20 +248,20 @@ public class DistributionService {
         Map<String,Object> v=new LinkedHashMap<>();
         for(String key:List.of("id","status","message")) v.put(key,r.getString(key));
         v.put("accountId",r.getString("account_id"));v.put("accountName",r.getString("display_name"));v.put("platform",r.getString("platform"));
-        v.put("platformUserId",r.getString("platform_user_id"));v.put("batchId",r.getString("batch_id"));
+        v.put("platformUserId",r.getString("platform_user_id"));v.put("batchId",r.getString("batch_id"));v.put("batchPosition",r.getObject("batch_position"));
         v.put("post",decode(r.getString("payload")));v.put("dueAt",r.getTimestamp("due_at"));v.put("updatedAt",r.getTimestamp("updated_at"));v.put("resultUrl",r.getString("result_url"));
         return v;
     }
     private static final String JOB_QUERY="SELECT j.*,a.display_name,a.platform,a.platform_user_id FROM creator_publish_job j JOIN creator_social_account a ON a.id=j.account_id ";
-    public List<Map<String,Object>> jobs() { return db.query(JOB_QUERY+"ORDER BY j.created_at DESC LIMIT 200",this::job); }
-    List<Map<String,Object>> jobsForBatch(String batch) { return db.query(JOB_QUERY+"WHERE j.batch_id=? ORDER BY j.created_at",this::job,batch); }
+    public List<Map<String,Object>> jobs() { return db.query(JOB_QUERY+"ORDER BY j.created_at DESC,j.batch_id,j.batch_position,j.id LIMIT 200",this::job); }
+    List<Map<String,Object>> jobsForBatch(String batch) { return db.query(JOB_QUERY+"WHERE j.batch_id=? ORDER BY j.batch_position,j.id",this::job,batch); }
     @Transactional
     public Map<String,Object> claim(String runner) {
         uuid(runner);
         // An interrupted submission is never retried automatically.
         db.update("UPDATE creator_publish_job SET status='uncertain',message='发布助手中断，请到平台核对结果',lease_token=NULL WHERE status IN ('running','submitting') AND heartbeat_at < CURRENT_TIMESTAMP(3) - INTERVAL 2 MINUTE");
         db.update("UPDATE creator_publish_job SET status='needs_input',message='已错过计划开始时间，请确认后点击重试' WHERE status='queued' AND scheduled=TRUE AND due_at < CURRENT_TIMESTAMP(3) - INTERVAL 10 MINUTE");
-        List<Map<String,Object>> candidates=db.query("SELECT j.* FROM creator_publish_job j JOIN creator_social_account a ON a.id=j.account_id WHERE j.status='queued' AND j.due_at<=CURRENT_TIMESTAMP(3) AND a.runner_id=? AND a.archived=FALSE AND a.login_status='ready' ORDER BY j.due_at LIMIT 1 FOR UPDATE SKIP LOCKED",(r,i)->Map.of("id",r.getString("id"),"accountId",r.getString("account_id")),runner);
+        List<Map<String,Object>> candidates=db.query("SELECT j.* FROM creator_publish_job j JOIN creator_social_account a ON a.id=j.account_id WHERE j.status='queued' AND j.due_at<=CURRENT_TIMESTAMP(3) AND a.runner_id=? AND a.archived=FALSE AND a.login_status='ready' ORDER BY j.due_at,j.created_at,j.batch_id,j.batch_position,j.id LIMIT 1 FOR UPDATE SKIP LOCKED",(r,i)->Map.of("id",r.getString("id"),"accountId",r.getString("account_id")),runner);
         if (candidates.isEmpty()) return Map.of();
         var candidate=candidates.get(0);
         db.queryForList("SELECT id FROM creator_social_account WHERE id=? FOR UPDATE",candidate.get("accountId"));

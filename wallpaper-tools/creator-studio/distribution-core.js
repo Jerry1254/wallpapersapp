@@ -44,6 +44,42 @@
       return `${f.label}：${label}`;
     }).join(' · ');
   }
-  const api={accountPost,currentPost,customize,source,settingFields,settings,settingsSummary};
+  function contentChoices(state){
+    const assets=new Map(state.postAssets.map(a=>[a.id,a]));
+    const usable=a=>a?.file&&!a.demo&&['image','video'].includes(a.type);
+    const works=(state.content?.items||[]).filter(w=>!w.deletedAt).map(w=>{
+      const type=w.type==='gallery'?'image':'video',ids=w.assetIds||[];
+      return {id:'work:'+w.id,name:w.name,type,assetIds:[...ids],available:ids.length>0&&ids.every(id=>usable(assets.get(id))&&assets.get(id).type===type)};
+    });
+    const imported=state.postAssets.filter(a=>!a.contentItemId&&!a.contentDraftOnly&&usable(a)).map(a=>({id:'asset:'+a.id,name:a.name,type:a.type,assetIds:[a.id],available:true}));
+    const post=currentPost(state),ids=post.assetIds||[];
+    if(post.type==='image'&&ids.length>1&&ids.every(id=>usable(assets.get(id))&&!assets.get(id).contentItemId))imported.unshift({id:'selection:'+JSON.stringify(ids),name:'当前图文组合',type:'image',assetIds:[...ids],available:true});
+    return [...works,...imported];
+  }
+  const rowKey=row=>JSON.stringify([row.accountId,row.post.type,row.post.assetIds]);
+  function buildBatch(state,contents,accounts,mode,id){
+    if(!['all','sequential'].includes(mode)||!contents.length||!accounts.length)throw new Error('请选择作品、账号和分配方式');
+    if(contents.some(w=>!w.available))throw new Error('部分作品文件未完整读取，请恢复文件后再选择');
+    if(new Set(contents.map(w=>w.id)).size!==contents.length||new Set(accounts.map(a=>a.id)).size!==accounts.length)throw new Error('作品和账号不能重复选择');
+    const pairs=mode==='all'||contents.length===1?contents.flatMap(w=>accounts.map(a=>[w,a])):contents.map((w,i)=>[w,accounts[i%accounts.length]]);
+    if(pairs.length>50)throw new Error('单批最多 50 条发布任务，请减少作品或账号');
+    const rows=pairs.map(([w,a])=>{const post=copy(accountPost(state,a));post.type=w.type;post.assetIds=[...w.assetIds];post.title=post.title||w.name;return {id:id(),accountId:a.id,contentId:w.id,contentName:w.name,post};});
+    if(new Set(rows.map(rowKey)).size!==rows.length)throw new Error('同一账号不能重复加入相同素材');
+    return rows;
+  }
+  function mergeBatch(previous,rows,append){
+    const merged=append?[...previous,...rows]:rows;
+    if(merged.length>50)throw new Error('单批最多 50 条发布任务');
+    if(new Set(merged.map(rowKey)).size!==merged.length)throw new Error('清单已有相同账号与素材，请取消重复选择');
+    return merged;
+  }
+  function finishSubmission(state,pending){
+    if(state.submissionPending?.payload.id!==pending.payload.id)return false;
+    const ids=new Set(pending.rowIds||[]);
+    if(state.batchPlan)state.batchPlan.rows=state.batchPlan.rows.filter(row=>!ids.has(row.id));
+    state.submissionPending=null;
+    return true;
+  }
+  const api={accountPost,currentPost,customize,source,settingFields,settings,settingsSummary,contentChoices,rowKey,buildBatch,mergeBatch,finishSubmission};
   if(typeof module==='object'&&module.exports)module.exports=api;else root.DistributionCore=api;
 })(typeof window==='object'?window:globalThis);

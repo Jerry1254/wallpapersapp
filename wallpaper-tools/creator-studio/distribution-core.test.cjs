@@ -42,3 +42,40 @@ test('unsupported declaration or draft visibility cannot silently become a defau
   post.type='image';assert.ok(!('downloadPermission' in Core.settings('douyin',post)));
   assert.match(Core.settingsSummary('douyin',{type:'video'}),/谁可以看：跟随平台默认/);
 });
+test('batch distribution follows ordered selection, repeats accounts, and supports one work for many accounts',()=>{
+  const s=fixture();let n=0;const id=()=>String(++n);
+  const contents=[1,2,3].map(i=>({id:'work'+i,name:'作品'+i,type:'video',assetIds:['video'+i],available:true}));
+  const targets=s.accounts.slice(0,2);
+  assert.deepEqual(Core.buildBatch(s,contents,targets,'sequential',id).map(r=>[r.contentId,r.accountId]),[['work1','a'],['work2','b'],['work3','a']]);
+  assert.equal(Core.buildBatch(s,contents.slice(0,1),targets,'sequential',id).length,2);
+  assert.equal(Core.buildBatch(s,contents,targets,'all',id).length,6);
+  const rows=Core.buildBatch(s,contents,targets,'all',id);rows[0].post.title='修改单条';
+  assert.notEqual(rows[1].post.title,'修改单条');assert.notEqual(s.posts.xhs.title,'修改单条');
+  rows[0].post.assetIds.reverse();assert.deepEqual(contents[0].assetIds,['video1']);
+});
+test('batch building rejects duplicates and too many tasks without mutating the previous list',()=>{
+  const s=fixture(),w={id:'w',name:'作品',type:'image',assetIds:['one','two'],available:true};let n=0;
+  const rows=Core.buildBatch(s,[w],s.accounts,'all',()=>String(++n));
+  assert.throws(()=>Core.mergeBatch(rows,rows,true),/相同账号与素材/);
+  assert.equal(rows.length,3);
+  assert.throws(()=>Core.buildBatch(s,Array.from({length:20},(_,i)=>({...w,id:String(i),assetIds:[String(i)]})),s.accounts,'all',()=>String(++n)),/50/);
+  assert.throws(()=>Core.buildBatch(s,[{...w,available:false}],s.accounts,'all',()=>String(++n)),/恢复文件/);
+});
+test('work choices retain the complete gallery and do not expose trash or intermediate files',()=>{
+  const s=fixture();s.posts.xhs.type='image';s.content.items.push({id:'missing',name:'缺文件',type:'gallery',assetIds:['none']},{id:'trash',deletedAt:'today',type:'video',assetIds:['video']});
+  Object.assign(s.content.items[0],{type:'gallery',assetIds:['two','one']});
+  s.postAssets.forEach(a=>a.file={});s.postAssets.push({id:'middle',type:'video',file:{},contentDraftOnly:true});
+  const choices=Core.contentChoices(s);
+  assert.deepEqual(choices.find(w=>w.id==='work:work').assetIds,['two','one']);
+  assert.equal(choices.find(w=>w.id==='work:missing').available,false);
+  assert.ok(!choices.some(w=>w.id==='work:trash'||w.id==='asset:middle'||w.id==='asset:one'));
+});
+test('a saved pending submission keeps the exact batch payload across refreshes and clears only its rows',()=>{
+  const s=fixture();s.batchPlan={rows:[{id:'sent'},{id:'later'}]};s.submissionPending={payload:{id:'batch',entries:[{accountId:'a',post:{visibility:'private'}}]},rowIds:['sent'],cards:[]};
+  const restored=JSON.parse(JSON.stringify(s)),pending=restored.submissionPending;
+  assert.equal(pending.payload.entries[0].post.visibility,'private');
+  assert.equal(Core.finishSubmission(restored,{payload:{id:'other'}}),false);
+  assert.deepEqual(restored.batchPlan.rows,[{id:'sent'},{id:'later'}]);
+  assert.equal(Core.finishSubmission(restored,pending),true);
+  assert.equal(restored.submissionPending,null);assert.deepEqual(restored.batchPlan.rows,[{id:'later'}]);
+});

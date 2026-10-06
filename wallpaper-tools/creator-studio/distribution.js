@@ -15,13 +15,13 @@
     if(options.body && !(options.body instanceof Blob)){headers['Content-Type']='application/json';options.body=JSON.stringify(options.body);}
     const response=await fetch('/creator-studio/api/distribution'+route,{...options,headers,credentials:'same-origin'});
     let data;try{data=await response.json();}catch{throw new Error('发布助手未启动，请重新启动本地创作台服务');}
-    if(!response.ok)throw new Error(data.error||data.message||'操作失败');return data;
+    if(!response.ok){const error=new Error(data.error||data.message||'操作失败');error.status=response.status;throw error;}return data;
   }
   const safe=fn=>async(...args)=>{try{return await fn(...args);}catch(e){hooks.toast(e.message);}};
   const date=v=>v?new Date(v).toLocaleString('zh-CN',{hour12:false}):'—';
   function init(h){
     hooks=h;
-    const bar=document.createElement('div');bar.className='distribution-nav';bar.innerHTML=`<nav aria-label="内容分发"><button data-distribution-view="compose" class="active">发布内容</button><button data-distribution-view="accounts">账号管理</button><button data-distribution-view="jobs">发布任务</button><button data-distribution-view="data">数据概览</button></nav><span id="distribution-status">尚未连接发布助手</span><button id="distribution-connect">连接后台</button>`;
+    const bar=document.createElement('div');bar.className='distribution-nav';bar.innerHTML=`<nav aria-label="内容分发"><button data-distribution-view="compose" class="active">发布内容</button><button data-distribution-view="batch">批量发布</button><button data-distribution-view="accounts">账号管理</button><button data-distribution-view="jobs">发布任务</button><button data-distribution-view="data">数据概览</button></nav><span id="distribution-status">尚未连接发布助手</span><button id="distribution-connect">连接后台</button>`;
     $('publish-workspace').prepend(bar);
     const pane=document.createElement('section');pane.id='distribution-pane';pane.className='distribution-pane';pane.hidden=true;$('publish-workspace').append(pane);
     bar.querySelectorAll('[data-distribution-view]').forEach(b=>b.onclick=()=>open(b.dataset.distributionView));
@@ -30,6 +30,7 @@
     const fields=document.createElement('div');fields.id='distribution-fields';$('download-copy').before(fields);
     const target=document.createElement('div');target.id='distribution-edit-target';target.className='distribution-edit-target';document.querySelector('.post-form .section-title').after(target);
     poll=setInterval(()=>{if(hooks.state().workspace==='publish')refresh();},6000);
+    window.DistributionBatch.init({state:hooks.state,projectId:hooks.projectId,accounts:()=>accounts,status:()=>status,modal:hooks.modal,close:hooks.close,toast:hooks.toast,save:hooks.save,validate,preview,render:()=>{renderAccounts();renderPane();}});
     renderAccounts();
   }
   async function refresh(){
@@ -58,6 +59,7 @@
     const selected=accounts.filter(a=>state.selectedAccounts.has(a.id)&&a.status==='ready'&&a.platformUserId&&a.runnerId===status.runnerId);
     $('selected-count').textContent=`已选 ${selected.length} 个账号`;
     $('platform-summary').textContent=`小红书 ${selected.filter(a=>a.platform==='xhs').length} · 抖音 ${selected.filter(a=>a.platform==='douyin').length}`;
+    $('publish-preview-btn').textContent=state.submissionPending?'继续确认上次清单':'预览发布清单';
     $('publish-preview-btn').disabled=!selected.length||!status.ready||submitting;
     renderTarget();
   }
@@ -76,7 +78,7 @@
     const state=hooks.state(),post=Core.currentPost(state),platform=state.social;
     const imageOptions=state.postAssets.filter(a=>a.type==='image'&&!a.demo&&a.file).map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('');
     const selected=post.assetIds.map(id=>state.postAssets.find(a=>a.id===id)).filter(Boolean);
-    $('distribution-fields').innerHTML=`<div class="distribution-parameters"><p class="hint">${names[platform]}${post.type==='video'?'视频':'图文'} · 标题最多 ${platform==='douyin'&&post.type==='video'?30:20} 字，话题最多 10 个。当前助手正文与话题合计支持 1000 字；图片每张 32 MB，视频 2 GB。</p>${post.type==='image'?`<label>图片顺序 · 第一张作为封面</label><ol class="distribution-order">${selected.map((a,i)=>`<li><span>${i+1}. ${esc(a.name)}</span><button data-order="${i}" data-step="-1" ${i===0?'disabled':''} aria-label="前移${esc(a.name)}">↑</button><button data-order="${i}" data-step="1" ${i===selected.length-1?'disabled':''} aria-label="后移${esc(a.name)}">↓</button></li>`).join('')}</ol>`:`<div class="field"><label for="distribution-cover">${platform==='douyin'?'竖版封面':'视频封面'}</label><select id="distribution-cover"><option value="">由平台选取</option>${imageOptions}</select></div>${platform==='douyin'?`<div class="field"><label for="distribution-landscape">横版封面</label><select id="distribution-landscape"><option value="">由平台选取</option>${imageOptions}</select></div>`:''}<p class="hint">需要自定义封面时，先将封面图片加入左侧素材。</p>`}${Core.settingFields(platform,post.type).map(f=>`<div class="field"><label for="distribution-${f.key}">${f.label}</label><select id="distribution-${f.key}">${f.options.map(([v,label])=>`<option value="${esc(v)}">${esc(label)}</option>`).join('')}</select></div>`).join('')}<p class="hint">所选设置会在提交前核对；平台不支持时会停止并提示处理。</p></div>`;
+    $('distribution-fields').innerHTML=`<div class="distribution-parameters">${state.submissionPending?'<p class="distribution-error">上次确认的清单等待创建；继续确认会使用已固定的内容，当前修改用于之后的新清单。</p>':''}<p class="hint">${names[platform]}${post.type==='video'?'视频':'图文'} · 标题最多 ${platform==='douyin'&&post.type==='video'?30:20} 字，话题最多 10 个。当前助手正文与话题合计支持 1000 字；图片每张 32 MB，视频 2 GB。</p>${post.type==='image'?`<label>图片顺序 · 第一张作为封面</label><ol class="distribution-order">${selected.map((a,i)=>`<li><span>${i+1}. ${esc(a.name)}</span><button data-order="${i}" data-step="-1" ${i===0?'disabled':''} aria-label="前移${esc(a.name)}">↑</button><button data-order="${i}" data-step="1" ${i===selected.length-1?'disabled':''} aria-label="后移${esc(a.name)}">↓</button></li>`).join('')}</ol>`:`<div class="field"><label for="distribution-cover">${platform==='douyin'?'竖版封面':'视频封面'}</label><select id="distribution-cover"><option value="">由平台选取</option>${imageOptions}</select></div>${platform==='douyin'?`<div class="field"><label for="distribution-landscape">横版封面</label><select id="distribution-landscape"><option value="">由平台选取</option>${imageOptions}</select></div>`:''}<p class="hint">需要自定义封面时，先将封面图片加入左侧素材。</p>`}${Core.settingFields(platform,post.type).map(f=>`<div class="field"><label for="distribution-${f.key}">${f.label}</label><select id="distribution-${f.key}">${f.options.map(([v,label])=>`<option value="${esc(v)}">${esc(label)}</option>`).join('')}</select></div>`).join('')}<p class="hint">所选设置会在提交前核对；平台不支持时会停止并提示处理。</p></div>`;
     for(const [id,key] of [['distribution-cover','coverAssetId'],['distribution-landscape','landscapeCoverAssetId']])if($(id)){ $(id).value=post[key]||'';$(id).onchange=()=>{post[key]=$(id).value;hooks.save();};}
     for(const f of Core.settingFields(platform,post.type)){const el=$('distribution-'+f.key);el.value=post[f.key]??f.fallback;el.onchange=()=>{post[f.key]=el.value;hooks.save();};}
     $('distribution-fields').querySelectorAll('[data-order]').forEach(b=>b.onclick=()=>{const i=Number(b.dataset.order),j=i+Number(b.dataset.step);[post.assetIds[i],post.assetIds[j]]=[post.assetIds[j],post.assetIds[i]];hooks.save();hooks.render();});
@@ -116,6 +118,7 @@
   function renderPane(){
     const pane=$('distribution-pane');if(view==='compose')return;
     if(!status.connected){pane.innerHTML='<div class="distribution-empty"><h2>连接后台后开始分发</h2><p>账号、发布任务和结果集中保存在本地后台。</p><button id="distribution-pane-connect" class="primary">连接后台</button></div>';$('distribution-pane-connect').onclick=connection;return;}
+    if(view==='batch'){window.DistributionBatch.render(pane);return;}
     if(view==='accounts'){
       const oldSearch=$('distribution-search')?.value||'',oldPlatform=$('distribution-filter')?.value||'';
       pane.innerHTML=`<div class="distribution-heading"><div><h2>账号管理</h2><p>账号独立登录，按平台和分组管理。</p></div><button id="distribution-add" class="primary">＋ 添加账号</button></div><div class="distribution-filters"><input id="distribution-search" placeholder="搜索账号或分组" value="${esc(oldSearch)}"><select id="distribution-filter"><option value="">全部平台</option value="xhs">小红书</option><option value="douyin">抖音</option></select></div><div id="distribution-account-grid" class="distribution-account-grid"></div>`;
@@ -154,6 +157,7 @@
     if([...body].length+tags.reduce((n,t)=>n+[...t].length+3,0)>1000)throw new Error(`${names[platform]}正文与话题合计超过当前助手支持的 1000 字`);
     if(tags.length>10||tags.some(t=>[...t].length>50))throw new Error(`${names[platform]}最多 10 个话题，单个不超过 50 字`);
     if(!assets.length||assets.some(a=>!a?.file||a.demo||a.type!==post.type))throw new Error(`${names[platform]}请选择真实的${post.type==='video'?'视频':'图片'}素材`);
+    if(assets.some(a=>a.contentItemId&&!state.content.items.some(w=>w.id===a.contentItemId&&!w.deletedAt)))throw new Error('来源作品已不存在或已移入回收站，请先恢复作品');
     if(assets.length>(post.type==='video'?1:platform==='douyin'?35:18))throw new Error(`${names[platform]}素材数量超过当前助手支持范围`);
     for(const a of assets)if(a.file.size>(a.type==='image'?32:2048)*1024*1024)throw new Error(`“${a.name}”超过当前发布助手支持的大小`);
     const coverIds=post.type==='video'?[post.coverAssetId,platform==='douyin'?post.landscapeCoverAssetId:null].filter(Boolean):[];
@@ -166,25 +170,44 @@
     const workspaceMediaId=await window.CreatorBackend.hash(asset.file);
     const value=await request('/media/reuse',{method:'POST',body:{workspaceMediaId}});uploads.set(key,value.id);return value.id;
   }
-  async function preview(){
+  function reviewHTML(cards){
+    return cards.map(c=>`<div class="distribution-preview"><strong>${esc(c.accountName)} · ${names[c.platform]} · ${c.post.type==='video'?'视频':'图文'}</strong><small>${esc(c.identity)} · ${esc(c.editing)}</small><p>来源：${c.sourceNames.map(esc).join('、')}</p><h3>${esc(c.post.title)}</h3><p class="distribution-body">${esc(c.post.body)}</p><p>${c.post.tags.map(t=>'#'+esc(t)).join(' ')}</p><small>${c.assetCount} 个素材 · ${c.coverName?'自定义封面：'+esc(c.coverName):c.post.type==='image'?'首图为封面':'平台选取封面'}${c.landscapeName?' · 横封面：'+esc(c.landscapeName):''} · ${esc(Core.settingsSummary(c.platform,c.post))}</small></div>`).join('');
+  }
+  async function preview(rows){
     if(submitting)return;
     try{
-      await hooks.prepare();await refresh();const state=hooks.state(),selected=accounts.filter(a=>state.selectedAccounts.has(a.id));
-      if(!selected.length)throw new Error('请选择至少一个发布账号');
+      await hooks.prepare();await refresh();const state=hooks.state(),projectId=hooks.projectId(),existing=state.submissionPending;
       if(!status.connected||!status.ready)throw new Error('请先连接后台并准备发布助手');
-      if(selected.some(a=>a.status!=='ready'||!a.platformUserId||a.runnerId!==status.runnerId))throw new Error('所选账号需要在本机重新登录');
-      const checked=Object.fromEntries(selected.map(a=>[a.id,validate(a.platform,Core.accountPost(state,a),state)]));
-      const projectId=hooks.projectId(),sources=Object.fromEntries(selected.map(a=>[a.id,Core.source(state,projectId,Core.accountPost(state,a))]));
-      let scheduledAt='';if(state.timing==='scheduled'){const date=new Date(state.scheduledAt);if(!Number.isFinite(date.getTime())||date.getTime()<=Date.now())throw new Error('请选择未来的定时开始时间');scheduledAt=date.toISOString();}
-      const batchId=crypto.randomUUID();let payload=null;
-      hooks.modal('确认发布清单',`<p class="dialog-intro">${selected.length} 个账号 · ${scheduledAt?'定时开始：'+esc(date(scheduledAt)):'立即开始上传'}</p>${selected.map(a=>{const p=checked[a.id];return `<div class="distribution-preview"><strong>${esc(accountName(a))} · ${names[a.platform]} · ${p.type==='video'?'视频':'图文'}</strong><small>${esc(identityText(a))} · ${state.accountPosts?.[a.id]?'独立设置':'统一设置'}</small><p>来源：${sources[a.id].names.map(esc).join('、')}</p><h3>${esc(p.title)}</h3><p class="distribution-body">${esc(p.body)}</p><p>${p.tags.map(t=>'#'+esc(t)).join(' ')}</p><small>${p.assets.length} 个素材 · ${p.cover?'自定义封面：'+esc(p.cover.name):p.type==='image'?'首图为封面':'平台选取封面'}${p.landscape?' · 横封面：'+esc(p.landscape.name):''} · ${esc(Core.settingsSummary(a.platform,p))}</small></div>`;}).join('')}<p class="hint">确认后会向平台提交这些内容。定时任务到点开始上传，请保持电脑和本地服务在线。平台审核结果在任务页核对。</p><p id="distribution-submit-status" role="status"></p>`,[{label:'返回编辑',run:()=>{if(!submitting)hooks.close();}},{label:scheduledAt?'确认创建定时任务':'确认发布',primary:true,run:async()=>{
-        if(submitting)return;submitting=true;$('dialog-close').disabled=true;renderAccounts();const label=$('distribution-submit-status');label.textContent='正在保存发布素材，请勿关闭窗口…';
+      let targets=[],cards=[],scheduledAt='',payload=existing?.payload||null;
+      const rowIds=existing?.rowIds|| (Array.isArray(rows)?rows.map(r=>r.id):[]);
+      if(existing){cards=existing.cards;scheduledAt=payload.scheduledAt;}
+      else {
+        const inputs=Array.isArray(rows)?rows.map(row=>({row,account:accounts.find(a=>a.id===row.accountId),post:row.post})):accounts.filter(a=>state.selectedAccounts.has(a.id)).map(a=>({account:a,post:Core.accountPost(state,a)}));
+        if(!inputs.length||inputs.length>50)throw new Error('请选择 1–50 条发布内容');
+        if(inputs.some(({account:a})=>!a||a.status!=='ready'||!a.platformUserId||a.runnerId!==status.runnerId))throw new Error('所选账号需要在本机重新登录并核对身份');
+        targets=inputs.map(({account,row,post})=>({account,row,post:validate(account.platform,post,state),source:Core.source(state,projectId,post)}));
+        cards=targets.map(({account:a,row,post:p,source})=>({accountId:a.id,accountName:accountName(a),platform:a.platform,identity:identityText(a),editing:row?'清单独立设置':state.accountPosts?.[a.id]?'独立设置':'统一设置',sourceNames:source.names,assetCount:p.assets.length,coverName:p.cover?.name,landscapeName:p.landscape?.name,post:{title:p.title,body:p.body,tags:p.tags,type:p.type,...Core.settings(a.platform,p)}}));
+        if(state.timing==='scheduled'){const value=new Date(state.scheduledAt);if(!Number.isFinite(value.getTime())||value.getTime()<=Date.now())throw new Error('请选择未来的定时开始时间');scheduledAt=value.toISOString();}
+      }
+      const batchId=payload?.id||crypto.randomUUID();
+      hooks.modal('确认发布清单',`<p class="dialog-intro">${cards.length} 条任务 · ${new Set(cards.map(c=>c.accountId)).size} 个账号 · ${scheduledAt?'定时开始：'+esc(date(scheduledAt)):'立即开始上传'}</p>${existing?'<p class="hint">继续创建上次已确认的同一批次，内容已固定。</p>':''}${reviewHTML(cards)}<p class="hint">确认后会向平台提交这些内容。定时任务到点开始上传，请保持电脑和本地服务在线。平台审核结果在任务页核对。</p><p id="distribution-submit-status" role="status"></p>`,[{label:'返回',run:()=>{if(!submitting)hooks.close();}},{label:existing?'继续创建同一批次':scheduledAt?'确认创建定时任务':'确认发布',primary:true,run:async()=>{
+        if(submitting)return;submitting=true;$('dialog-close').disabled=true;renderAccounts();const label=$('distribution-submit-status');label.textContent='正在保存发布清单，请勿关闭窗口…';let created=false;
         try{
-          if(hooks.projectId()!==projectId)throw new Error('项目已切换，请返回当前项目重新预览发布');
-          if(!payload){const entries=[];for(const account of selected){const p=checked[account.id],mediaIds=[];for(const a of p.assets)mediaIds.push(await upload(a));entries.push({accountId:account.id,post:{title:p.title,body:p.body,tags:p.tags,type:p.type,mediaIds,coverId:await upload(p.cover),landscapeCoverId:await upload(p.landscape),...Core.settings(account.platform,p),source:{projectId,assetIds:sources[account.id].assetIds}}});}payload={id:batchId,scheduledAt,entries};}
-          await request('/batches',{method:'POST',body:payload});hooks.close();hooks.toast(`已创建 ${selected.length} 个发布任务`);open('jobs');
-        }catch(e){if(label.isConnected)label.textContent=e.message+'。可以点击确认重试，同一批任务不会重复创建。';else hooks.toast(e.message);}
-        finally{submitting=false;$('dialog-close').disabled=false;renderAccounts();}
+          if(hooks.projectId()!==projectId)throw new Error('项目已切换，请重新打开原项目的待确认清单');
+          if(state.submissionPending&&state.submissionPending.payload.id!==batchId)throw new Error('已有其他清单等待确认，请重新打开');
+          if(!payload){const entries=[];for(const {account:a,post:p,source} of targets){const mediaIds=[];for(const asset of p.assets)mediaIds.push(await upload(asset));entries.push({accountId:a.id,post:{title:p.title,body:p.body,tags:p.tags,type:p.type,mediaIds,coverId:await upload(p.cover),landscapeCoverId:await upload(p.landscape),...Core.settings(a.platform,p),source:{projectId,assetIds:source.assetIds}}});}payload={id:batchId,scheduledAt,entries};}
+          if(hooks.projectId()!==projectId)throw new Error('项目已切换，请重新预览发布');
+          const pending={payload,cards,rowIds};state.submissionPending=pending;hooks.save();await hooks.prepare();
+          if(hooks.projectId()!==projectId)throw new Error('项目已切换，清单已保留在原项目，请在那里继续确认');
+          await request('/batches',{method:'POST',body:payload});created=true;
+          if(hooks.projectId()===projectId){Core.finishSubmission(state,pending);hooks.save();await hooks.prepare();}
+          hooks.close();hooks.toast(`已创建 ${cards.length} 条发布任务`);open('jobs');
+        }catch(e){
+          if(e.status===422&&hooks.projectId()===projectId&&state.submissionPending?.payload.id===batchId){state.submissionPending=null;hooks.save();}
+          const message=created?'任务已创建，清单状态尚未保存，请重试保存项目':e.status===422?e.message+'。请返回编辑并重新预览。':e.message+'。继续确认会使用同一批次，不会重复创建。';
+          if(e.status===422)$('dialog-actions').querySelector('.primary').disabled=true;
+          if(label.isConnected)label.textContent=message;else hooks.toast(message);
+        }finally{submitting=false;$('dialog-close').disabled=false;renderAccounts();}
       }}]);
     }catch(e){hooks.toast(e.message);}
   }

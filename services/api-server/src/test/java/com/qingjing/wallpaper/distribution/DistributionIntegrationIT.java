@@ -22,7 +22,7 @@ class DistributionIntegrationIT {
     static JdbcTemplate db;
     static TransactionTemplate tx;
     static final ObjectMapper JSON=new ObjectMapper();
-    static final String RUNNER=UUID.randomUUID().toString(),LEGACY=UUID.randomUUID().toString();
+    static final String RUNNER=UUID.randomUUID().toString(),LEGACY=UUID.randomUUID().toString(),LEGACY_SECOND=UUID.randomUUID().toString(),LEGACY_BATCH=UUID.randomUUID().toString();
     DistributionService service;
     FileStorage storage;
     @BeforeAll static void database(){
@@ -30,6 +30,9 @@ class DistributionIntegrationIT {
         Flyway.configure().dataSource(ds).target("25").load().migrate();
         db=new JdbcTemplate(ds);tx=new TransactionTemplate(new DataSourceTransactionManager(ds));
         db.update("INSERT INTO creator_social_account(id,platform,display_name,runner_id,login_status) VALUES(?,'xhs','已有账号',?,'ready')",LEGACY,RUNNER);
+        db.update("INSERT INTO creator_social_account(id,platform,display_name,runner_id,login_status) VALUES(?,'xhs','第二个旧账号',?,'ready')",LEGACY_SECOND,RUNNER);
+        db.update("INSERT INTO creator_publish_batch(id,request_hash) VALUES(?,?)",LEGACY_BATCH,"f".repeat(64));
+        for(String account:new String[]{LEGACY,LEGACY_SECOND})db.update("INSERT INTO creator_publish_job(id,batch_id,account_id,payload,status,due_at) VALUES(?,?,?,'{}','cancelled',CURRENT_TIMESTAMP(3))",UUID.randomUUID().toString(),LEGACY_BATCH,account);
         Flyway.configure().dataSource(ds).load().migrate();
     }
     @BeforeEach void setup(){storage=mock(FileStorage.class);service=new DistributionService(db,JSON,storage);}
@@ -39,6 +42,12 @@ class DistributionIntegrationIT {
     ObjectNode update(String value){ObjectNode n=obj().put("status","ready").put("runnerId",RUNNER);n.set("identity",identity(value));return n;}
     Map<String,Object> bind(String id,String value){return tx.execute(s->service.updateAccount(id,update(value)));}
     @Test void migratesLegacyAccountsWithoutDiscardingTheirRecords(){assertThat(service.requireAccount(LEGACY)).containsEntry("status","unverified").containsEntry("platformUserId",null);}
+    @Test void migratesLegacyJobsAndPreservesTheirAccountsAndPayloads(){
+        var jobs=service.jobsForBatch(LEGACY_BATCH);
+        assertThat(jobs).hasSize(2);assertThat(jobs.stream().map(j->j.get("accountId"))).containsExactlyInAnyOrder(LEGACY,LEGACY_SECOND);
+        assertThat(jobs.stream().map(j->j.get("batchPosition"))).containsExactly(0,1);
+        assertThat(jobs.stream().map(j->j.get("status"))).containsOnly("cancelled");
+    }
     @Test void rejectsAccountSwapDuplicateIdentityAndWrongComputer(){
         String a=account(),b=account(),value=UUID.randomUUID().toString();bind(a,value);
         assertThatThrownBy(()->bind(a,"wrong")).isInstanceOf(ApiException.class).hasMessageContaining("不一致");
@@ -86,5 +95,29 @@ class DistributionIntegrationIT {
         source.payload.put("name","后来改名");db.update("UPDATE creator_workspace_record SET payload=? WHERE collection_name='projects' AND id=?",source.payload.toString(),source.project);
         var retry=tx.execute(s->service.createBatch(batch));assertThat(retry.stream().map(j->j.get("id"))).containsExactlyElementsOf(first.stream().map(j->j.get("id")).toList());
         assertThat(((JsonNode)retry.get(0).get("post")).path("source").path("projectName").asText()).isEqualTo("原项目名称");
+    }
+    @Test void sameAccountCanReceiveDifferentWorksAndRetryReturnsTheSameTasks(){
+        Source first=source(),second=source();String a=account();bind(a,UUID.randomUUID().toString());
+        ObjectNode batch=obj().put("id",UUID.randomUUID().toString());
+        var entries=batch.putArray("entries");
+        entries.addObject().put("accountId",a).set("post",post(first,"第一份作品"));
+        entries.addObject().put("accountId",a).set("post",post(second,"第二份作品").put("visibility","private"));
+        var jobs=tx.execute(s->service.createBatch(batch));assertThat(jobs).hasSize(2);
+        assertThat(jobs.stream().map(j->j.get("accountId"))).containsOnly(a);
+        assertThat(jobs.stream().map(j->j.get("batchPosition"))).containsExactly(0,1);
+        assertThat(jobs.stream().map(j->((JsonNode)j.get("post")).path("title").asText())).containsExactly("第一份作品","第二份作品");
+        var retry=tx.execute(s->service.createBatch(batch));
+        assertThat(retry.stream().map(j->j.get("id"))).containsExactlyElementsOf(jobs.stream().map(j->j.get("id")).toList());
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM creator_publish_job WHERE batch_id=?",Integer.class,batch.path("id").asText())).isEqualTo(2);
+    }
+    @Test void duplicateMediaForOneAccountRollsBackTheEntireBatchEvenWithDifferentTitles(){
+        Source source=source();String a=account();bind(a,UUID.randomUUID().toString());
+        ObjectNode batch=obj().put("id",UUID.randomUUID().toString());
+        var entries=batch.putArray("entries");
+        entries.addObject().put("accountId",a).set("post",post(source,"第一次"));
+        entries.addObject().put("accountId",a).set("post",post(source,"改个标题重复发"));
+        assertThatThrownBy(()->tx.execute(s->service.createBatch(batch))).isInstanceOf(ApiException.class).hasMessageContaining("重复发布");
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM creator_publish_job WHERE batch_id=?",Integer.class,batch.path("id").asText())).isZero();
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM creator_publish_batch WHERE id=?",Integer.class,batch.path("id").asText())).isZero();
     }
 }
