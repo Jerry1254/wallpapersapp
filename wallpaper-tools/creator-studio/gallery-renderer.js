@@ -46,7 +46,7 @@
       else if(n.type==='text')text(ctx,n);
       else if(n.type==='rect'){round(ctx,n.width,n.height,n.radius);ctx.fillStyle=E.fill(ctx,n.color,n.width,n.height);ctx.fill();}
       else if(n.type==='instance'||(n.type==='group'&&n.mask)){
-        const def=n.type==='group'?{id:n.id,width:n.width,height:n.height,nodes:n.children}:w.gallery.components[n.componentId];
+        const def=n.type==='group'?{id:n.id,width:n.width,height:n.height,nodes:n.children}:G.componentSource(w.gallery,n);
         if(!def&&!options.preview)throw new Error('组件来源缺失，请重新设置组件');
         if(def&&!stack.has(def.id)){
           let width=n.width,height=n.height;ctx.save();
@@ -75,7 +75,7 @@
   }
   function extent(frame,overflow=false,g=null){
     const rectangles=[{x:0,y:0,width:frame.width,height:frame.height}];
-    function visit(nodes,m=G.identity,stack=new Set()){for(const n of nodes){if(n.visible===false)continue;const matrix=G.multiply(m,G.transform(n));const area=effectArea({x:0,y:0,width:n.width,height:n.height},n.effects);rectangles.push(G.bounds(area,G.multiply(matrix,[1,0,0,1,area.x,area.y])));if(n.type==='instance'&&g&&!stack.has(n.componentId)&&(n.clip??g.components[n.componentId]?.clip)===false&&n.mask!=='phone'){visit(G.instanceNodes(g,n),matrix,new Set([...stack,n.componentId]));}else if(n.children&&!n.clip)visit(n.children,matrix,stack);}}
+    function visit(nodes,m=G.identity,stack=new Set()){for(const n of nodes){if(n.visible===false)continue;const matrix=G.multiply(m,G.transform(n)),def=n.type==='instance'&&g?G.componentSource(g,n):null;const area=effectArea({x:0,y:0,width:n.width,height:n.height},n.effects);rectangles.push(G.bounds(area,G.multiply(matrix,[1,0,0,1,area.x,area.y])));if(def&&!stack.has(def.id)&&(n.clip??def.clip)===false&&n.mask!=='phone'){visit(G.instanceNodes(g,n),matrix,new Set([...stack,def.id]));}else if(n.children&&!n.clip)visit(n.children,matrix,stack);}}
     if(overflow)visit(frame.nodes);return G.union(rectangles);
   }
   async function paint(canvas,w,frame,resolve,options={}){

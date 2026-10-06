@@ -37,21 +37,34 @@
   // Instance children are editable proxies. Only changed properties are serialized;
   // unmodified properties continue to come from the shared component.
   const instanceBases=new WeakMap();
+  const componentSource=(g,n)=>n.detachedSource||g.components[n.componentId];
+  function detachInstance(g,n){const def=componentSource(g,n);if(!def)return false;n.detachedSource=copy(def);n.componentId=null;return true;}
+  function detachComponents(g,keys){
+    captureOverrides(g);const ids=new Set(keys),sources=new Map([...ids].filter(key=>g.components[key]).map(key=>[key,copy(g.components[key])])),seen=new WeakSet();
+    // Keep a private source on each surviving instance. Existing overrides retain
+    // their source IDs, so local text, crops, nested content and mockups stay intact.
+    function release(nodes){for(const n of nodes){if(!n||seen.has(n))continue;seen.add(n);if(sources.has(n.componentId)){n.detachedSource=copy(sources.get(n.componentId));n.componentId=null;}
+      if(n.detachedSource)release(n.detachedSource.nodes||[]);
+      if(Object.prototype.propertyIsEnumerable.call(n,'children'))release(n.children||[]);
+      release(n.localNodes||[]);release(Object.values(n.overrides||{}));
+    }}
+    for(const f of surfaces(g))release(f.nodes);
+  }
   function instanceNodes(g,n,width=n.width,height=n.height,scoped=true,stack=new Set()){
-    const def=g.components[n.componentId];if(!def||stack.has(def.id))return [];
+    const def=componentSource(g,n);if(!def||stack.has(def.id))return [];
     const sx=width/def.width,sy=height/def.height,small=Math.min(sx,sy);
     const adapt=nodes=>nodes.filter(source=>!n.overrides?.[source.id]?._removed).map(source=>{const out=copy(source),override=n.overrides?.[source.id]||{};Object.assign(out,override);out.sourceId=source.id;out.id=scoped?n.id+'::'+source.id:source.id;for(const key of ['x','width'])out[key]*=sx;for(const key of ['y','height'])out[key]*=sy;for(const key of ['fontSize','letterSpacing','radius'])if(out[key])out[key]*=small;if(out.effects)out.effects=scaleEffects(out.effects,sx,sy);if(source.children)out.children=adapt(source.children);if(out.type==='image'){out.scale=(out.scale||1)*(n.scale||1);out.panX=(out.panX||0)+(n.panX||0);out.panY=(out.panY||0)+(n.panY||0);}return out;});
     const nodes=copy(def.nodes);for(const local of n.localNodes||[]){const parent=local.localParentId?find(nodes,local.localParentId)?.node:null;if(parent){(parent.children||=[]).push(copy(local));}else nodes.push(copy(local));}return adapt(nodes);
   }
   function instanceViewport(n){if(n.mask!=='phone')return {x:0,y:0,width:n.width,height:n.height};const width=Math.min(n.width,n.height*.46),height=width/.46,border=width*.024;return {x:(n.width-width)/2+border,y:(n.height-height)/2+border,width:width-border*2,height:height-border*2};}
   function refreshInstances(g){
-    function visit(nodes,stack=new Set()){for(const n of nodes){if(n.type==='instance'){const def=g.components[n.componentId];if(!def||stack.has(def.id))continue;const v=instanceViewport(n),children=instanceNodes(g,n,v.width,v.height);children.forEach(c=>{c.x+=v.x;c.y+=v.y;});Object.defineProperty(n,'effectiveClip',{value:(n.clip??def.clip)!==false,writable:true,configurable:true,enumerable:false});Object.defineProperty(n,'children',{value:children,writable:true,configurable:true,enumerable:false});instanceBases.set(n,copy(children));visit(children,new Set([...stack,def.id]));}else if(n.children)visit(n.children,stack);}}
+    function visit(nodes,stack=new Set()){for(const n of nodes){if(n.type==='instance'){const def=componentSource(g,n);if(!def||stack.has(def.id))continue;const v=instanceViewport(n),children=instanceNodes(g,n,v.width,v.height);children.forEach(c=>{c.x+=v.x;c.y+=v.y;});Object.defineProperty(n,'effectiveClip',{value:(n.clip??def.clip)!==false,writable:true,configurable:true,enumerable:false});Object.defineProperty(n,'children',{value:children,writable:true,configurable:true,enumerable:false});instanceBases.set(n,copy(children));visit(children,new Set([...stack,def.id]));}else if(n.children)visit(n.children,stack);}}
     for(const f of surfaces(g))visit(f.nodes);
   }
   function captureOverrides(g){
     const ignored=new Set(['id','sourceId','children','localParentId']);
     function visit(nodes){for(const n of nodes){if(n.type==='instance'&&instanceBases.has(n)){
-      const def=g.components[n.componentId],v=instanceViewport(n),sx=v.width/def.width,sy=v.height/def.height,small=Math.min(sx,sy),base=instanceBases.get(n);
+      const def=componentSource(g,n),v=instanceViewport(n);if(!def)continue;const sx=v.width/def.width,sy=v.height/def.height,small=Math.min(sx,sy),base=instanceBases.get(n);
       const normalize=(key,value,child,depth)=>{if(key==='effects')return (value||[]).map(e=>({...copy(e),offsetX:(e.offsetX||0)/sx,offsetY:(e.offsetY||0)/sy,blur:(e.blur||0)/small,spread:(e.spread||0)/small}));if(key==='scale'&&child.type==='image')return value/(n.scale||1);if(['panX','panY'].includes(key)&&child.type==='image')return value-(n[key]||0);if(['x','width'].includes(key))return (value-(key==='x'&&!depth?v.x:0))/sx;if(['y','height'].includes(key))return (value-(key==='y'&&!depth?v.y:0))/sy;if(['fontSize','letterSpacing','radius'].includes(key))return value/small;return value;};
       const canonical=(child,depth)=>{const out=copy(child);delete out.sourceId;for(const key of Object.keys(out))if(!ignored.has(key))out[key]=normalize(key,out[key],child,depth);if(child.children)out.children=child.children.map(c=>canonical(c,depth+1));return out;};
       const compare=(current,prior,depth=0,parentId=null)=>{
@@ -78,10 +91,10 @@
     g.components[componentId]=def;const instance=node('instance',{name:def.name,componentId,x:n.x,y:n.y,width:n.width,height:n.height,rotation:n.rotation,opacity:n.opacity,blendMode:n.blendMode||'pass-through',mask:'none'});r.list.splice(r.list.indexOf(n),1,instance);g.selection=[instance.id];return def;
   }
   function instances(g,key){const list=[];for(const f of surfaces(g))walk(f.nodes,n=>{if(n.componentId===key)list.push(n);});return list;}
-  function wouldCycle(g,container,key,seen=new Set()){if(container===key)return true;if(seen.has(key))return false;seen.add(key);let cyclic=false;walk(g.components[key]?.nodes||[],n=>{if(n.componentId&&wouldCycle(g,container,n.componentId,seen))cyclic=true;});return cyclic;}
+  function wouldCycle(g,container,key,seen=new Set()){if(container===key)return true;if(seen.has(key))return false;seen.add(key);let cyclic=false;function visit(nodes){walk(nodes,n=>{if(n.componentId&&wouldCycle(g,container,n.componentId,seen))cyclic=true;if(n.detachedSource)visit(n.detachedSource.nodes||[]);});}visit(g.components[key]?.nodes||[]);return cyclic;}
   function addInstance(g,key){const f=surface(g),c=g.components[key];if(!f||!c||wouldCycle(g,f.id,key))return null;const width=f.type==='canvas'?c.width:Math.min(c.width,f.width*.7),n=node('instance',{name:c.name,componentId:key,x:40,y:40,width,height:width/c.width*c.height,opacity:c.opacity??1,blendMode:c.blendMode||'pass-through',mask:'none'});f.nodes.push(n);g.selection=[n.id];return n;}
-  function assets(w){const ids=new Set();if(w.gallery)for(const f of surfaces(w.gallery))walk(f.nodes,n=>{const asset=n.slot?w.slots[n.slot]:n.assetId;if(asset)ids.add(asset);if(n.type==='instance'){for(const o of Object.values(n.overrides||{})){const id=o.slot?w.slots[o.slot]:o.assetId;if(id)ids.add(id);}walk(n.localNodes||[],child=>{const id=child.slot?w.slots[child.slot]:child.assetId;if(id)ids.add(id);});}});return [...ids];}
+  function assets(w){const ids=new Set();function visit(nodes){walk(nodes,n=>{const asset=n.slot?w.slots[n.slot]:n.assetId;if(asset)ids.add(asset);if(n.detachedSource)visit(n.detachedSource.nodes||[]);visit(Object.values(n.overrides||{}));visit(n.localNodes||[]);});}if(w.gallery)for(const f of surfaces(w.gallery))visit(f.nodes);return [...ids];}
   function resizeGroup(n,width,height){const sx=width/n.width,sy=height/n.height;function scale(nodes){for(const c of nodes){c.x*=sx;c.y*=sy;c.width*=sx;c.height*=sy;if(c.fontSize)c.fontSize*=Math.min(sx,sy);if(c.letterSpacing)c.letterSpacing*=Math.min(sx,sy);if(c.effects)c.effects=scaleEffects(c.effects,sx,sy);if(c.children)scale(c.children);}}if(n.children)scale(n.children);n.width=width;n.height=height;}
-  const api={ensure,node,frame,canvasSurface,surfaces,surface,find,walk,bounds,union,hit,selected,selectedSurfaces,worldBounds,roots,instanceNodes,instanceViewport,refreshInstances,captureOverrides,group,ungroup,toggleMask,duplicate,remove,makeComponent,frameToComponent,instances,wouldCycle,addInstance,assets,resizeGroup,scaleEffects,cloneNode,multiply,point,inverse,transform,identity};
+  const api={ensure,node,frame,canvasSurface,surfaces,surface,find,walk,bounds,union,hit,selected,selectedSurfaces,worldBounds,roots,componentSource,detachInstance,detachComponents,instanceNodes,instanceViewport,refreshInstances,captureOverrides,group,ungroup,toggleMask,duplicate,remove,makeComponent,frameToComponent,instances,wouldCycle,addInstance,assets,resizeGroup,scaleEffects,cloneNode,multiply,point,inverse,transform,identity};
   root.GalleryCore=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);
