@@ -15,7 +15,7 @@
   }
   function pruneTracks(w){w.tracks=w.tracks.filter(t=>t.clips.length||t.keepEmpty);}
   function freeStart(track,start,duration,ignore=null){
-    let next=Math.max(0,Math.round(start*30)/30);const clips=track.clips.filter(c=>c!==ignore).slice().sort((a,b)=>a.start-b.start);
+    let next=Math.max(0,start);const clips=track.clips.filter(c=>c!==ignore).slice().sort((a,b)=>a.start-b.start);
     for(const c of clips)if(next<c.start+c.duration-1e-7&&next+duration>c.start+1e-7)next=c.start+c.duration;
     return next+duration<=maxDuration+1e-7?next:null;
   }
