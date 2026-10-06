@@ -115,7 +115,7 @@
     $('dialog').addEventListener('close',()=>{if(!$('dialog').open)job?.abort();});
   }
   async function generate(){
-    if(job)return;stop();const original=work();if(original.type==='gallery')G.ensure(original);const w=C.copy(original),project=B.projectId(),controller=new AbortController();job=controller;const signal=controller.signal;R.clear();
+    if(job)return;stop();const original=work();if(original.type==='gallery'){G.ensure(original);if(!original.gallery.frames.length)return B.toast('请先新建画框并放入组件，再生成图片作品');}const w=C.copy(original),project=B.projectId(),controller=new AbortController();job=controller;const signal=controller.signal;R.clear();
     B.modal('生成内容成品','<div class="content-generation"><strong id="content-progress-title">准备画面…</strong><progress id="content-progress" value="0" max="100"></progress><small id="content-progress-note">将使用当前素材、样机、动画和音乐生成实际文件。</small></div>',[{label:'取消',run:()=>{controller.abort();B.close();}}]);
     const progress=(value,text)=>{if($('content-progress'))$('content-progress').value=value;if($('content-progress-title'))$('content-progress-title').textContent=text;};
     try{
