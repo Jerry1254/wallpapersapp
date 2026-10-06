@@ -11,7 +11,7 @@
   const end=w=>Math.max(0,...w.tracks.flatMap(t=>t.clips.map(c=>c.start+c.duration)));
   const extent=w=>Math.min(maxDuration,Math.max(w.duration+2,end(w)+2,5));
   function videoSettings(w){
-    if(w.type!=='video')return;w.fps=fps(w);w.durationMode=w.durationMode==='auto'?'auto':'manual';w.lockAspect=!!w.lockAspect;
+    if(w.type!=='video')return;w.fps=fps(w);w.durationMode=w.durationMode==='manual'?'manual':'auto';w.lockAspect=!!w.lockAspect;
     const o=w.output&&typeof w.output==='object'?w.output:{};
     w.output={name:typeof o.name==='string'?o.name:'',followCanvas:o.followCanvas!==false,lockAspect:o.lockAspect!==false,
       width:Math.round(clamp(Number(o.width)||w.width,64,4096)/2)*2,height:Math.round(clamp(Number(o.height)||w.height,64,4096)/2)*2,

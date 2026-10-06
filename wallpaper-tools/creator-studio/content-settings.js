@@ -26,9 +26,9 @@
         <div class="field"><label for="content-output-size">输出尺寸</label><select id="content-output-size"><option value="canvas">与画布一致</option><option value="custom">自定义尺寸</option></select></div>
         <div id="content-output-custom"><div class="two-fields"><label>宽度 px<input id="content-output-width" type="number" min="64" max="4096" step="2"></label><label>高度 px<input id="content-output-height" type="number" min="64" max="4096" step="2"></label></div><label class="content-setting-check"><input id="content-output-lock" type="checkbox">锁定输出比例</label></div>
         <div class="content-setting-row"><span>输出帧率</span><strong id="content-output-fps"></strong></div>
-        <div class="field"><label for="content-output-quality">画质</label><select id="content-output-quality"><option value="standard">标准</option><option value="high">高画质</option><option value="custom">自定义码率</option></select></div>
+        <div class="field"><label for="content-output-quality">画质</label><select id="content-output-quality" aria-describedby="content-quality-help"><option value="standard">标准 · 日常发布</option><option value="high">高画质 · 保留更多细节</option><option value="custom">自定义码率</option></select><p id="content-quality-help" class="content-slot-help"></p></div>
         <div class="field" id="content-output-bitrate-field"><label for="content-output-bitrate">视频码率 · Mbps</label><input id="content-output-bitrate" type="number" min="0.5" max="100" step="0.5"></div>
-        <p class="content-slot-help">输出帧率跟随项目。自定义输出尺寸不会改变画布布局。</p>
+        <p class="content-slot-help">画质影响压缩程度和文件大小，尺寸与帧率保持当前设置。</p>
       </section>
       <section class="content-export-action"><div id="content-output-summary"></div><button id="content-export-video" class="primary">导出视频</button></section>`;
     $('content-work-name').onchange=e=>{const name=e.target.value.trim();if(!name){render();return;}work().name=name;H.change('修改作品名称');};
@@ -69,6 +69,7 @@
     $('content-output-name').value=o.name;$('content-output-name').placeholder=w.name;$('content-output-size').value=o.followCanvas?'canvas':'custom';$('content-output-custom').hidden=o.followCanvas;
     $('content-output-width').value=o.width;$('content-output-height').value=o.height;$('content-output-lock').checked=o.lockAspect;
     $('content-output-fps').textContent=rate+' fps · 跟随项目';$('content-output-quality').value=o.quality;$('content-output-bitrate').value=o.bitrate;$('content-output-bitrate-field').hidden=o.quality!=='custom';
+    $('content-quality-help').textContent={standard:'兼顾清晰度和文件大小，适合日常发布与快速分享。',high:'压缩更少，保留更多纹理与渐变细节，文件通常更大。壁纸展示或保存成品建议选这一档。',custom:'按填写的码率编码，数值越大通常文件越大。有明确码率要求时使用。'}[o.quality];
     $('content-output-summary').textContent=`${size.width} × ${size.height} · ${rate} fps · ${Number((frames/rate).toFixed(3))} 秒`;
   }
   window.ContentSettings={mount,render};
