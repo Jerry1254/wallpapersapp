@@ -44,7 +44,7 @@
   function filePreview(files){clearPreview();previewURLs=files.map(f=>URL.createObjectURL(f));return '<div class="content-result-preview">'+files.map((f,i)=>f.type.startsWith('video')?'<video controls src="'+previewURLs[i]+'"></video>':'<figure><img src="'+previewURLs[i]+'" alt="图集第 '+(i+1)+' 张"><figcaption>'+(i+1)+' · '+esc(f.name)+'</figcaption></figure>').join('')+'</div>';}
   function confirm(files,w){
     const project=H.projectId(),preview=filePreview(files);let saving=false,savedItem=null;
-    H.modal('预览生成作品','<div class="content-result"><label>内容名称<input id="content-result-name" value="'+esc(w.name)+'" maxlength="60"></label><p class="content-slot-help">确认保存后才进入内容库。之后修改模板不会改变这份内容。</p>'+preview+'</div>',[{label:'取消',run:H.close},{label:'保存至内容',primary:true,run:async()=>{
+    H.modal('预览生成作品','<div class="content-result"><label>内容名称<input id="content-result-name" value="'+esc(w.name)+'" maxlength="60"></label><p class="content-slot-help">确认保存后进入'+(w.type==='gallery'?'图片库':'视频库')+'的「已生成」。之后修改模板不会改变这份作品。</p>'+preview+'</div>',[{label:'取消',run:H.close},{label:'保存至'+(w.type==='gallery'?'图片库':'视频库'),primary:true,run:async()=>{
       const name=$('content-result-name').value.trim();if(!name)return $('content-result-name').focus();if(H.projectId()!==project||saving)return;saving=true;
       const item=savedItem||{id:C.id(),name,type:w.type,createdAt:new Date().toISOString(),templateId:w.templateId,assetIds:[],frames:w.type==='gallery'?w.gallery.frames.map(f=>({name:f.name,width:f.width,height:f.height})):null};
       if(!savedItem)for(let i=0;i<files.length;i++){const file=files[i],f=item.frames?.[i],asset={id:C.id(),name:file.name.replace(/\.[^.]+$/,''),type:w.type==='gallery'?'image':'video',file,url:URL.createObjectURL(file),width:f?.width||(w.type==='video'?C.outputSize(w).width:w.width),height:f?.height||(w.type==='video'?C.outputSize(w).height:w.height),fps:w.type==='video'?C.fps(w):undefined,duration:w.type==='video'?C.outputFrames(w)/C.fps(w):undefined,contentItemId:item.id};H.remember(asset);item.assetIds.push(asset.id);}
@@ -58,8 +58,6 @@
     const files=item.assetIds.map(H.resolve).filter(a=>a?.file).map(a=>a.file);
     H.modal('已保存的内容','<div class="content-result"><h3>'+esc(item.name)+'</h3><p class="content-slot-help">'+new Date(item.createdAt).toLocaleString('zh-CN')+' · '+(item.type==='gallery'?files.length+' 张图片':'视频')+'</p>'+filePreview(files)+'</div>',[{label:'关闭',run:H.close},{label:'下载成品',run:()=>download(item)},{label:'加入待发布',primary:true,run:()=>{H.close();H.publish(item.assetIds,item.type,item.name);}}]);
   }
-  function contents(){
-    const items=H.data().items||[];H.modal('内容库','<div class="template-manager"><p class="content-slot-help">这里只显示已经生成并确认保存的图集和视频。</p><div class="template-manager-grid">'+items.map(item=>{const a=H.resolve(item.assetIds[0]);return '<article class="template-manager-card"><button class="template-manager-art" data-content-item="'+item.id+'">'+(a?.type==='image'?'<img src="'+esc(a.url)+'" alt="">':'<span>▶</span>')+'</button><strong>'+esc(item.name)+'</strong><small>'+(item.type==='gallery'?item.assetIds.length+' 张图片':'视频')+' · '+new Date(item.createdAt).toLocaleDateString('zh-CN')+'</small><button data-content-item="'+item.id+'">预览内容</button></article>';}).join('')+'</div>'+(!items.length?'<div class="content-library-empty"><strong>还没有已保存的内容</strong><p>编辑模板后点击「生成作品」，预览并确认保存。</p></div>':'')+'</div>',[{label:'返回编辑',run:H.close}]);document.querySelectorAll('[data-content-item]').forEach(b=>b.onclick=()=>openItem(items.find(i=>i.id===b.dataset.contentItem)));
-  }
-  window.ContentLibrary={mount,save,manage,create,confirm,contents,clearPreview};
+  function contents(){window.ContentMediaLibrary.open();}
+  window.ContentLibrary={mount,save,manage,create,confirm,contents,openItem,clearPreview};
 })();
