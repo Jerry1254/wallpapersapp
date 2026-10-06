@@ -4,7 +4,7 @@
 #content-timeline-inner{min-width:100%;min-height:100%}.content-track{min-height:67px;border-bottom:0}.content-track-lane{min-height:67px;background:#24262b;background-image:linear-gradient(90deg,#ffffff05 1px,transparent 1px);background-size:80px 100%}
 .content-track.content-ruler{position:sticky;top:0;z-index:5;background:#292b30}.content-ruler.content-track-lane{min-height:26px;background:#292b30}.content-ruler .half-tick{height:8px;border-color:#444a55;color:#687887}
 .content-track-name{z-index:4;gap:2px;padding:0 5px}.content-track-name .content-track-kind{flex:0;width:14px;color:#899aae;font-size:12px}
-.content-track-name button.content-track-title{flex:1;min-width:0;width:auto;padding:3px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:#c3cbd8}
+.content-track-name .content-track-title{flex:1;min-width:0;width:auto;padding:3px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:#c3cbd8}
 .content-track-name>button:not(.content-track-title){width:17px;min-width:17px;font-size:11px}.content-track-name>button[data-content-hide]{display:flex;justify-content:center;align-items:center}
 .track-hidden .content-track-lane{opacity:.4}.content-track-lane.drop-ready{background-color:#30444c;box-shadow:inset 0 0 0 1px #6fcbdc}
 .content-track-clip{top:4px;height:59px;display:block;padding:0;border-radius:4px;background:#153c43;border-color:#327783;color:#d7f1f3;min-width:7px;touch-action:none}
