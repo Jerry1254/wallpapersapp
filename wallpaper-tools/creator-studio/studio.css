@@ -68,3 +68,5 @@ dialog.resource-export-dialog{width:820px;max-height:calc(100dvh - 48px);overflo
 .creator-task small { color: #aab4c4; margin-top: 6px; }
 .creator-task p { color: #ffb6ab; margin: 6px 0 0; }
 .creator-task>div:last-child { display: flex; gap: 8px; flex-shrink: 0; }
+
+.wallpaper-publication-state{border:1px solid #465770;background:#29384a55;border-radius:6px;padding:12px;margin:0 0 18px}.wallpaper-publication-state>strong,.wallpaper-publication-state>small{display:block;overflow-wrap:anywhere}.wallpaper-publication-state>strong{font-size:13px;color:#bbd4fa}.wallpaper-publication-state>small{font-size:11px;color:#a4aec0;margin-top:4px}.wallpaper-publication-state.is-processing{border-color:#6a98d4}.wallpaper-publication-tools{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.wallpaper-publication-tools button{font-size:11px}.create-form-grid textarea{width:100%;resize:vertical;min-height:70px}.wallpaper-publication-state .hint{margin-top:9px;font-size:11px}

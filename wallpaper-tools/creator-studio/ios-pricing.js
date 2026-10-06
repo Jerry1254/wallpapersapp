@@ -16,7 +16,7 @@
     }
   }
   function normalize(value){
-    return {credits:null,productId:'',chinaReferencePrice:null,productIdLocked:false,verifiedTransactionAt:null,...value,acquisitionMode:value?.acquisitionMode||(value?.productId?'NON_CONSUMABLE':'CREDITS'),enabled:true,firstFreeEligible:true};
+    return {credits:null,productId:'',chinaReferencePrice:null,productIdLocked:false,verifiedTransactionAt:null,...value,acquisitionMode:value?.acquisitionMode||(value?.productId?'NON_CONSUMABLE':'CREDITS'),enabled:value?.enabled??true,firstFreeEligible:value?.firstFreeEligible??true};
   }
   const api={iosCreditPack,iosPriceSyncLabel,normalize};
   root.IosPricing=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;

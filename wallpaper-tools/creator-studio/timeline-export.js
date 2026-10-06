@@ -22,7 +22,7 @@
     });
     return {job:{version:1,fps:30,profile:Object.fromEntries(['width','height','scale','x','y'].map(key=>[key,profile[key]])),clips,sources},files};
   }
-  async function render(prepared,JSZip,signal){
+  async function render(prepared,JSZip,signal,projectId=root.CreatorBackend.projectId){
     if(signal?.aborted)throw new DOMException('已取消','AbortError');
     const sources=[];for(const entry of prepared.files)sources.push({path:entry.path,hash:await root.CreatorBackend.hash(entry.file)});
     return root.CreatorJobs.video('WALLPAPER_RENDER',{rendererVersion:2,plan:prepared.job,sources},async()=>{
@@ -32,7 +32,7 @@
       if(signal?.aborted)throw new DOMException('已取消','AbortError');
       if(payload.size>512*1048576)throw new Error('素材包超过 512 MB，请分批导出');
       return payload;
-    },signal);
+    },signal,undefined,projectId);
   }
 
   const api={prepare,render};root.TimelineExport=api;

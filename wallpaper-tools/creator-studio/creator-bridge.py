@@ -9,15 +9,16 @@ import time
 import uuid
 from http.cookies import SimpleCookie
 from pathlib import Path
-from urllib.parse import urlsplit, quote
+from urllib.parse import urlsplit, quote, parse_qs, urlencode
 
 PREFIX = '/creator-studio/api/creator'
 MAX_BODY = 512 * 1024 * 1024
 
 class BridgeError(Exception):
-    def __init__(self, message, status=400):
+    def __init__(self, message, status=400, details=None):
         super().__init__(message)
         self.status = status
+        self.details = details or {}
 
 class CreatorBridge:
     def __init__(self):
@@ -46,7 +47,8 @@ class CreatorBridge:
         if data is not None:
             fields.update({'Content-Type': 'application/json', 'Content-Length': str(len(body))})
         elif source is not None:
-            fields.update({'Content-Type': 'application/octet-stream', 'Content-Length': str(size)})
+            fields.setdefault('Content-Type', 'application/octet-stream')
+            fields['Content-Length'] = str(size)
         try:
             conn.request(method, '/api/v1/admin/' + path, body=body, headers=fields)
             response = conn.getresponse()
@@ -67,7 +69,10 @@ class CreatorBridge:
             if response.status >= 400:
                 if response.status == 401 and current is self.session:
                     self.session = None
-                raise BridgeError(result.get('message') or result.get('detail') or '创作数据请求失败', response.status)
+                detail = result.get('error', result)
+                if not isinstance(detail, dict):
+                    detail = {'message': str(detail)}
+                raise BridgeError(detail.get('message') or detail.get('detail') or '创作数据请求失败', response.status, detail)
             if path == 'sessions' and method == 'POST':
                 return result, response.getheader('Set-Cookie', '').split(';')[0]
             return result
@@ -88,13 +93,13 @@ class CreatorBridge:
         h.wfile.write(raw)
         return True
 
-    def content(self, h, path):
+    def content(self, h, path, admin=False):
         conn = http.client.HTTPConnection(self.backend.hostname, self.backend.port or 8080, timeout=120)
         try:
             headers = {'Cookie': self.session['cookie']}
             if h.headers.get('Range'):
                 headers['Range'] = h.headers['Range']
-            conn.request('GET', '/api/v1/admin/creator' + path, headers=headers)
+            conn.request('GET', '/api/v1/admin' + ('' if admin else '/creator') + path, headers=headers)
             response = conn.getresponse()
             if response.status >= 400 and response.status != 416:
                 if response.status == 401:
@@ -125,7 +130,8 @@ class CreatorBridge:
                 raise BridgeError('请求来源不正确', 403)
             route = path[len(PREFIX):]
             size = int(h.headers.get('Content-Length', '0'))
-            if not 0 <= size <= (MAX_BODY if route == '/media' else 11 * 1024 * 1024):
+            maximum = MAX_BODY if route == '/media' else (201 * 1024 * 1024 if route in ('/wallpaper/assets', '/wallpaper/parallax-packages') else 11 * 1024 * 1024)
+            if not 0 <= size <= maximum:
                 raise BridgeError('创作数据或文件过大', 413)
             cookies = SimpleCookie(h.headers.get('Cookie', ''))
             token = cookies.get('CREATOR_DATA_SESSION')
@@ -150,6 +156,55 @@ class CreatorBridge:
             if route == '/wallpaper-categories' and h.command == 'GET':
                 return self.respond(h, self.api('GET', 'categories'))
             import re
+            asset_content = re.fullmatch(r'/wallpaper/assets/([1-9][0-9]*)/content', route)
+            if asset_content and h.command == 'GET':
+                return self.content(h, '/assets/' + asset_content[1] + '/content', admin=True)
+            # The wallpaper adapter has a fixed route inventory and cannot select another API.
+            wallpaper_routes = {
+                '/wallpaper/capabilities': ('GET', 'creator/capabilities'),
+                '/wallpaper/categories': ('GET', 'categories'),
+                '/wallpaper/assets': ('POST', 'assets'),
+                '/wallpaper/parallax-packages': ('POST', 'parallax-packages'),
+                '/wallpaper/publications': ('GET,POST', 'creator/wallpaper-publications'),
+            }
+            match = re.fullmatch(r'/wallpaper/(assets|products|publications)/([1-9][0-9]*)(/retry|/publication-check)?', route)
+            if match:
+                kind, identifier, suffix = match.groups()
+                prefixes = {'assets': 'assets', 'parallax-packages': 'parallax-packages', 'products': 'wallpapers', 'publications': 'creator/wallpaper-publications'}
+                allowed = 'GET' if not suffix else 'POST'
+                if suffix and not ((kind == 'publications' and suffix == '/retry') or (kind == 'products' and suffix == '/publication-check')):
+                    raise BridgeError('接口不存在', 404)
+                wallpaper_routes[route] = (allowed, prefixes[kind] + '/' + identifier + (suffix or ''))
+            if route in wallpaper_routes:
+                allowed, upstream = wallpaper_routes[route]
+                if h.command not in allowed.split(','):
+                    raise BridgeError('请求方式不正确', 405)
+                query = urlsplit(h.path).query
+                if query:
+                    params = parse_qs(query, keep_blank_values=True)
+                    if route != '/wallpaper/publications' or h.command != 'GET' or any(k not in ('clientProjectKey', 'page', 'pageSize') or len(v) != 1 for k, v in params.items()):
+                        raise BridgeError('请求参数不正确', 400)
+                    upstream += '?' + urlencode({k: v[0] for k, v in params.items()})
+                fields = {'Idempotency-Key': h.headers.get('Idempotency-Key', ''), 'X-Request-Id': str(uuid.uuid4())}
+                if route in ('/wallpaper/assets', '/wallpaper/parallax-packages'):
+                    content_type = h.headers.get('Content-Type', '')
+                    if not content_type.startswith('multipart/form-data;') or 'boundary=' not in content_type or not size:
+                        raise BridgeError('请选择要上传的文件', 400)
+                    fields['Content-Type'] = content_type
+                    with tempfile.TemporaryFile() as source:
+                        remaining = size
+                        while remaining:
+                            chunk = h.rfile.read(min(1024 * 1024, remaining))
+                            if not chunk:
+                                raise BridgeError('上传中断，请使用原文件重试')
+                            source.write(chunk)
+                            remaining -= len(chunk)
+                        source.seek(0)
+                        result = self.api('POST', upstream, source=source, size=size, headers=fields)
+                else:
+                    body = h.rfile.read(size) if size else b''
+                    result = self.api(h.command, upstream, data=json.loads(body) if body else None, headers=fields)
+                return self.respond(h, result, 202 if h.command == 'POST' and '/publications' in route else 200)
             if h.command == 'GET' and re.fullmatch(r'/media/[A-Za-z0-9_-]+/content', route):
                 return self.content(h, route)
             import re
@@ -177,7 +232,7 @@ class CreatorBridge:
                 result = self.api(h.command, 'creator' + route + ('?' + query if query else ''), data=n, headers=headers)
             return self.respond(h, result)
         except BridgeError as error:
-            return self.respond(h, {'error': str(error)}, error.status)
+            return self.respond(h, {'error': str(error), **error.details}, error.status)
         except (ValueError, TypeError):
             return self.respond(h, {'error': '创作请求格式无效'}, 400)
         except (BrokenPipeError, ConnectionResetError):
