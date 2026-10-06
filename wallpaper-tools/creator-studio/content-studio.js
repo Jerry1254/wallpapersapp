@@ -2,7 +2,8 @@
 (() => {
   'use strict';
   const C=window.ContentCore,R=window.ContentRenderer,G=window.GalleryCore,GE=window.GalleryEditor,T=window.ContentTimeline,S=window.ContentSettings,V=window.ContentCanvasEditor,P=window.GalleryProperties,Lib=window.ContentLibrary,$=id=>document.getElementById(id),esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),icon=name=>`<svg><use href="#i-${name}"/></svg>`;
-  let B,libraryTab='assets',selectedSource=null,playing=false,raf,previous=0,painting=false,paintAgain=false,paintPromise=Promise.resolve(),job=null,clipboard=null;
+  const previewCanvas=document.createElement('canvas');
+  let B,libraryTab='assets',selectedSource=null,playing=false,raf,previous=0,painting=false,paintAgain=false,paintPromise=Promise.resolve(),previewRevision=0,job=null,clipboard=null;
   const work=()=>B.data().drafts.find(w=>w.id===B.data().activeId);
   const current=()=>C.selected(work());
   const resolve=id=>B.media(id);
@@ -92,8 +93,30 @@
   function clearSelection(updateTimeline=true){
     const w=work();if(!w||w.type!=='video'||job)return;w.selectedClipId=null;renderInspector();if(updateTimeline)renderTimeline();else document.querySelectorAll('[data-content-clip]').forEach(el=>el.classList.remove('selected'));requestPaint();B.save();
   }
-  function requestPaint(){V.draw();if(!work()||work().type==='gallery'||B.workspace()!=='create'||job)return;paintAgain=true;if(painting)return;paintPromise=(async()=>{painting=true;try{while(paintAgain&&!job){paintAgain=false;const w=work(),canvas=$('content-canvas');if(canvas.width!==w.width||canvas.height!==w.height){canvas.width=w.width;canvas.height=w.height;}await R.paint(canvas,w,w.cursor,resolve,null,true);}}catch(error){if(error.name!=='AbortError')B.toast(`预览未完成：${error.message}`);}finally{painting=false;if(paintAgain&&!job)requestPaint();}})();}
-  function stop(){playing=false;cancelAnimationFrame(raf);previous=0;document.querySelectorAll('#content-workspace audio').forEach(a=>a.pause());}
+  function requestPaint(){
+    V.draw();if(!work()||work().type==='gallery'||B.workspace()!=='create'||job)return;
+    if(!playing)previewRevision++;paintAgain=true;if(painting)return;
+    paintPromise=(async()=>{
+      painting=true;
+      try{
+        while(paintAgain&&!job){
+          paintAgain=false;const target=work(),project=B.projectId(),revision=previewRevision;
+          if(!target||target.type!=='video'||B.workspace()!=='create')break;
+          const w=C.copy(target),canvas=$('content-canvas');
+          if(previewCanvas.width!==w.width)previewCanvas.width=w.width;
+          if(previewCanvas.height!==w.height)previewCanvas.height=w.height;
+          // Decode and compose offscreen so a pending video seek cannot erase the visible frame.
+          await R.paint(previewCanvas,w,w.cursor,resolve,null,true);
+          if(job||work()!==target||B.projectId()!==project||B.workspace()!=='create'||revision!==previewRevision)continue;
+          if(canvas.width!==w.width)canvas.width=w.width;
+          if(canvas.height!==w.height)canvas.height=w.height;
+          const ctx=canvas.getContext('2d');ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=1;ctx.globalCompositeOperation='copy';ctx.drawImage(previewCanvas,0,0);ctx.restore();
+        }
+      }catch(error){if(error.name!=='AbortError')B.toast(`预览未完成：${error.message}`);}
+      finally{painting=false;if(paintAgain&&!job)requestPaint();}
+    })();
+  }
+  function stop(){playing=false;previewRevision++;cancelAnimationFrame(raf);previous=0;document.querySelectorAll('#content-workspace audio').forEach(a=>a.pause());}
   function tick(now){const w=work();if(!playing||!w)return;if(previous)w.cursor=(w.cursor+Math.min((now-previous)/1000,.1))%w.duration;previous=now;updatePosition();requestPaint();syncAudio();raf=requestAnimationFrame(tick);}
   function syncAudio(){
     const w=work(),track=w.tracks.find(t=>t.kind==='audio'),active=new Set();
@@ -150,7 +173,7 @@
     $('content-add-source').onclick=()=>addSource();$('content-import').onclick=$('content-import-foot').onclick=$('content-add-music').onclick=()=>$('content-input').click();$('content-input').onchange=async e=>{const list=await importFiles([...e.target.files]);e.target.value='';if(list[0]?.type==='audio'&&work()?.type==='video')await addSource(list[0].id);};
     for(const [id,key] of [['content-title','title'],['content-subtitle','subtitle'],['content-accent','accent']])$(id).onchange=e=>{work()[key]=e.target.value;change('调整模板内容');};
     $('content-open-settings').onclick=()=>clearSelection();
-    $('content-play').onclick=()=>{if(playing){stop();updatePosition();}else{playing=true;previous=0;raf=requestAnimationFrame(tick);}};
+    $('content-play').onclick=()=>{if(playing){stop();updatePosition();requestPaint();}else{playing=true;previous=0;raf=requestAnimationFrame(tick);}};
     for(const [id,delta] of [['content-prev',-1],['content-next',1]])$(id).onclick=()=>{const w=work();w.pageIndex=(w.pageIndex+delta+w.pages.length)%w.pages.length;w.selectedClipId=C.all(w)[0]?.id;render();B.save();};
     $('content-split').onclick=()=>{stop();if(C.split(work(),work().cursor))change('剪断片段');else B.toast('把播放头移到选中片段中间再剪断');};$('content-duplicate').onclick=duplicate;$('content-delete').onclick=remove;$('content-undo').onclick=()=>B.undo();$('content-redo').onclick=()=>B.undo(true);
     $('content-add-text').onclick=()=>{const w=work(),c=C.clip('text',null,w.type==='gallery'?0:w.cursor,w.type==='gallery'?1:Math.min(3,w.duration-w.cursor),{text:'双击编辑文字',x:50,y:15,w:70,h:48*1.3/w.height*100,fontFamily:'system-ui',fontSize:48,fontWeight:400,lineHeight:1.3,letterSpacing:0,align:'left',verticalAlign:'top',textResize:'auto-height',color:w.accent});if(w.type==='gallery')w.pages[w.pageIndex].clips.push(c);else{if(!C.place(w,c,{index:0},w.cursor))return B.toast('请把播放头移到视频结束之前');}w.selectedClipId=c.id;change('新增文字');};$('content-delete-page').onclick=()=>{const w=work();if(w.pages.length<=1)return;w.pages.splice(w.pageIndex,1);w.pageIndex=Math.min(w.pageIndex,w.pages.length-1);w.selectedClipId=C.all(w)[0]?.id;change('删除页面');};$('content-add-track').onclick=()=>{C.addTrack(work(),'visual',0,true);change('新增画面轨道');};$('content-add-page').onclick=()=>{const w=work(),page=C.copy(w.pages[w.pageIndex]);page.id=C.id();page.name='新页面';for(const c of page.clips)c.id=C.id();w.pages.push(page);w.pageIndex=w.pages.length-1;w.selectedClipId=C.all(w)[0]?.id;change('新增页面');};
