@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.20.1
+  version: 2.21.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -18,6 +18,8 @@ servers:
     description: 当前来源下的 V1 API；本地联调默认由开发代理转发到 API Server
 security: []
 tags:
+  - name: Admin Creator Wallpapers
+    description: 创作台壁纸上传与持久上架，不包含编辑器项目或渲染
   - name: App Updates
     description: 三端独立版本、强制门槛与Android APK更新
   - name: Admin App Releases
@@ -1010,6 +1012,11 @@ paths:
         - adminCookie: []
           adminCsrf: []
       parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: 创作台上传建议发送 UUID；同一用途、文件及元数据重放返回原资产，不重新创建。
+          schema: {type: string, format: uuid}
         - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
@@ -1025,6 +1032,12 @@ paths:
                   type: string
                   format: binary
       responses:
+        '200':
+          description: 同一 Idempotency-Key 对应的原已上传资产
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AdminAsset'}
+        '409': {$ref: '#/components/responses/Conflict'}
         '201':
           description: 文件元数据；VALIDATING 表示异步校验尚未完成
           content:
@@ -3416,6 +3429,225 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '500': {$ref: '#/components/responses/InternalError'}
 
+  /admin/creator/capabilities:
+    get:
+      tags:
+        - Admin Creator Wallpapers
+      operationId: getCreatorWallpaperCapabilities
+      summary: 查询壁纸上传和上架规则
+      security:
+        - adminCookie: []
+      responses:
+        "200":
+          description: 当前 API 环境和真实上传规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorWallpaperCapabilities"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /admin/creator/wallpaper-publications:
+    post:
+      tags:
+        - Admin Creator Wallpapers
+      operationId: submitCreatorWallpaperPublication
+      summary: 提交持久壁纸草稿或上架任务
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      description: 仅接收已经通过现有上传接口得到的 assetId/sourcePackageId。必填环境 ID、稳定 clientProjectKey 和 UUID 请求键。相同请求复用任务；改变输入必须使用新键。更新必须明确保留未替换的其他已发布资源。任务失败时保留草稿和已完成步骤。
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatorWallpaperPublicationRequest"
+      responses:
+        "202":
+          description: 已接受；必须轮询并回读实际壁纸，不能把 202 当作已上架
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorWallpaperPublicationTask"
+          headers:
+            Location:
+              description: 任务查询相对路径
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      tags:
+        - Admin Creator Wallpapers
+      operationId: listCreatorWallpaperPublications
+      summary: 查询并恢复壁纸上架任务
+      security:
+        - adminCookie: []
+      parameters:
+        - name: clientProjectKey
+          in: query
+          schema:
+            type: string
+            pattern: ^[A-Za-z0-9._:-]{1,128}$
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: 持久任务列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorWallpaperPublicationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /admin/creator/wallpaper-publications/{taskId}:
+    get:
+      tags:
+        - Admin Creator Wallpapers
+      operationId: getCreatorWallpaperPublication
+      summary: 读取真实上架进度和已完成 ID
+      security:
+        - adminCookie: []
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/LongId"
+      responses:
+        "200":
+          description: 上架任务状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorWallpaperPublicationTask"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /admin/creator/wallpaper-publications/{taskId}/retry:
+    post:
+      tags:
+        - Admin Creator Wallpapers
+      operationId: retryCreatorWallpaperPublication
+      summary: 恢复可重试的失败上架任务
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      description: 仅 FAILED 且 retryable=true。沿用原输入及已完成步骤；NEEDS_INPUT 必须读取商品版本后确认新的请求。已提交的上架不会重复执行。
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/LongId"
+      responses:
+        "202":
+          description: 重新排队
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorWallpaperPublicationTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /admin/wallpapers/{wallpaperId}/publication-check:
+    post:
+      tags:
+        - Admin Creator Wallpapers
+      operationId: checkWallpaperPublication
+      summary: 只读检查所选完整资源版本集合
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      description: 不创建或构建资源、不转码、不修改发布状态。正式发布在商品版本锁内再次运行相同检查。预览沿用现有发布后的异步水印生成队列：尚未生成显示 WARNING，不阻止正式包上架；已损坏的文件阻止上架。
+      parameters:
+        - $ref: "#/components/parameters/WallpaperId"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishWallpaperRequest"
+      responses:
+        "200":
+          description: 当前发布条件与稳定检查代码
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WallpaperPublicationCheckResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     deviceBearer:
@@ -3771,6 +4003,15 @@ components:
       type: string
       description: V1 稳定错误码；message 可本地化，客户端分支只依赖 code。
       enum:
+        - CREATOR_RULES_CHANGED
+        - CREATOR_ENVIRONMENT_MISMATCH
+        - CREATOR_WALLPAPER_LINK_CONFLICT
+        - CREATOR_PUBLICATION_NOT_FOUND
+        - PUBLICATION_CHECK_FAILED
+        - PUBLICATION_PROCESSING_FAILED
+        - PUBLICATION_SELECTION_INCOMPLETE
+        - IOS_SOURCE_MP4_REQUIRED
+        - STORAGE_UNAVAILABLE
         - APP_RELEASE_INVALID
         - APP_APK_INVALID
         - APP_RELEASE_CONFLICT
@@ -6260,3 +6501,443 @@ components:
         releaseNotes: {type: string, minLength: 1, maxLength: 1000}
         forceUpdate: {type: boolean}
         storeUrl: {type: string, format: uri, nullable: true, maxLength: 1000}
+
+    CreatorWallpaperEnvironment:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - label
+        - mode
+        - apiVersion
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        mode:
+          type: string
+        apiVersion:
+          type: string
+    CreatorWallpaperVariantRule:
+      type: object
+      additionalProperties: false
+      required:
+        - platform
+        - resourceType
+        - uploadPurpose
+        - requiredRole
+        - acceptedMimeTypes
+        - maximumBytes
+        - source
+        - preview
+      properties:
+        platform:
+          $ref: "#/components/schemas/DeliveryPlatform"
+        resourceType:
+          $ref: "#/components/schemas/ResourceType"
+        uploadPurpose:
+          type: string
+        requiredRole:
+          type: string
+        acceptedMimeTypes:
+          type: array
+          items:
+            type: string
+        maximumBytes:
+          type: integer
+          format: int64
+          minimum: 1
+        source:
+          type: object
+          additionalProperties: true
+        preview:
+          type: object
+          additionalProperties: true
+    CreatorWallpaperCapabilities:
+      type: object
+      additionalProperties: false
+      required:
+        - environment
+        - rulesVersion
+        - wallpaperVariants
+        - coverMaximumBytes
+        - coverMimeTypes
+        - supportedMetadataFields
+        - supportedIosAcquisitionFields
+        - supportedOperations
+      properties:
+        environment:
+          $ref: "#/components/schemas/CreatorWallpaperEnvironment"
+        rulesVersion:
+          type: string
+        wallpaperVariants:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreatorWallpaperVariantRule"
+        coverMaximumBytes:
+          type: integer
+          format: int64
+        coverMimeTypes:
+          type: array
+          items:
+            type: string
+        supportedMetadataFields:
+          type: array
+          items:
+            type: string
+        supportedIosAcquisitionFields:
+          type: array
+          items:
+            type: string
+        supportedOperations:
+          type: object
+          additionalProperties:
+            type: boolean
+    CreatorWallpaperResource:
+      type: object
+      additionalProperties: false
+      required:
+        - platform
+        - resourceType
+      properties:
+        platform:
+          $ref: "#/components/schemas/DeliveryPlatform"
+        resourceType:
+          $ref: "#/components/schemas/ResourceType"
+        assetId:
+          type: string
+          allOf:
+            - $ref: "#/components/schemas/LongId"
+          nullable: true
+          description: 非 4D 必填，来自相同环境的 READY 正式资产；4D 不得提供 assetId。
+        sourcePackageId:
+          type: string
+          allOf:
+            - $ref: "#/components/schemas/LongId"
+          nullable: true
+          description: 4D 必填，来自专用 ZIP 导入；非 4D 不得提供 sourcePackageId。
+    CreatorIosAcquisitionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - firstFreeEligible
+        - enabled
+      properties:
+        productId:
+          type: string
+          maxLength: 255
+          pattern: ^[A-Za-z0-9._-]+$
+          nullable: true
+        chinaReferencePrice:
+          type: string
+          pattern: ^(?:0|[1-9][0-9]{0,7})\.[0-9]{2}$
+          description: 兼容旧字段，仅接受校验；价格由 Apple 同步，创作台不应提交这个字段。
+          nullable: true
+        firstFreeEligible:
+          type: boolean
+        enabled:
+          type: boolean
+        acquisitionMode:
+          type: string
+          enum:
+            - CREDITS
+            - NON_CONSUMABLE
+          nullable: true
+        credits:
+          type: integer
+          minimum: 1
+          maximum: 30
+          nullable: true
+    CreatorWallpaperPublicationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - environmentId
+        - clientProjectKey
+        - action
+        - metadata
+        - resources
+        - retainResourceVersionIds
+        - rulesVersion
+      properties:
+        environmentId:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: ^[A-Za-z0-9._:-]{1,80}$
+        clientProjectKey:
+          type: string
+          pattern: ^[A-Za-z0-9._:-]{1,128}$
+        action:
+          type: string
+          enum:
+            - SAVE_DRAFT
+            - PUBLISH
+        wallpaperId:
+          type: string
+          allOf:
+            - $ref: "#/components/schemas/LongId"
+          nullable: true
+        expectedWallpaperVersion:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+        metadata:
+          $ref: "#/components/schemas/CreatorWallpaperMetadata"
+        resources:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreatorWallpaperResource"
+          maxItems: 5
+        retainResourceVersionIds:
+          type: array
+          items:
+            $ref: "#/components/schemas/LongId"
+          maxItems: 20
+          uniqueItems: true
+        iosAcquisition:
+          type: object
+          allOf:
+            - $ref: "#/components/schemas/CreatorIosAcquisitionRequest"
+          nullable: true
+        rulesVersion:
+          type: string
+          enum:
+            - creator-wallpaper-rules-1
+    CreatorWallpaperPublicationStep:
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - id
+      properties:
+        key:
+          type: string
+        id:
+          $ref: "#/components/schemas/LongId"
+    CreatorWallpaperPublicationResult:
+      type: object
+      additionalProperties: false
+      required:
+        - wallpaperId
+        - status
+        - version
+        - resourceVersionIds
+        - previewGenerationStatus
+      properties:
+        wallpaperId:
+          $ref: "#/components/schemas/LongId"
+        status:
+          $ref: "#/components/schemas/WallpaperStatus"
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+        resourceVersionIds:
+          type: array
+          items:
+            $ref: "#/components/schemas/LongId"
+        previewGenerationStatus:
+          type: string
+          enum:
+            - PENDING
+            - PROCESSING
+            - READY
+            - FAILED
+    CreatorWallpaperPublicationTask:
+      type: object
+      additionalProperties: false
+      required:
+        - taskId
+        - state
+        - stage
+        - environmentId
+        - wallpaperId
+        - wallpaperVersion
+        - attempt
+        - completedSteps
+        - result
+        - errorCode
+        - errorMessage
+        - retryable
+        - createdAt
+        - updatedAt
+        - clientProjectKey
+        - action
+        - title
+      properties:
+        taskId:
+          $ref: "#/components/schemas/LongId"
+        state:
+          type: string
+          enum:
+            - QUEUED
+            - RUNNING
+            - SUCCEEDED
+            - FAILED
+            - NEEDS_INPUT
+        stage:
+          type: string
+        environmentId:
+          type: string
+        wallpaperId:
+          type: string
+          allOf:
+            - $ref: "#/components/schemas/LongId"
+          nullable: true
+        wallpaperVersion:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+        attempt:
+          type: integer
+          minimum: 0
+        completedSteps:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreatorWallpaperPublicationStep"
+        result:
+          type: object
+          allOf:
+            - $ref: "#/components/schemas/CreatorWallpaperPublicationResult"
+          nullable: true
+        errorCode:
+          type: string
+          nullable: true
+        errorMessage:
+          type: string
+          nullable: true
+        retryable:
+          type: boolean
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+        clientProjectKey:
+          type: string
+        action:
+          type: string
+          enum:
+            - SAVE_DRAFT
+            - PUBLISH
+        title:
+          type: string
+    CreatorWallpaperPublicationPage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - page
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreatorWallpaperPublicationTask"
+        page:
+          $ref: "#/components/schemas/PageMetadata"
+    WallpaperPublicationCheck:
+      type: object
+      additionalProperties: false
+      required:
+        - scope
+        - code
+        - level
+        - message
+        - suggestedAction
+        - preventsPreparation
+      properties:
+        scope:
+          type: string
+        code:
+          type: string
+        level:
+          type: string
+          enum:
+            - BLOCKING
+            - WARNING
+        message:
+          type: string
+        suggestedAction:
+          type: string
+        preventsPreparation:
+          type: boolean
+    WallpaperPublicationCheckResult:
+      type: object
+      additionalProperties: false
+      required:
+        - wallpaperId
+        - wallpaperVersion
+        - canPrepare
+        - canPublish
+        - checks
+      properties:
+        wallpaperId:
+          $ref: "#/components/schemas/LongId"
+        wallpaperVersion:
+          type: integer
+          format: int64
+        canPrepare:
+          type: boolean
+        canPublish:
+          type: boolean
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/WallpaperPublicationCheck"
+    CreatorWallpaperMetadata:
+      type: object
+      required:
+        - title
+        - slug
+        - accessType
+        - rootCategoryId
+        - coverAssetId
+        - sortOrder
+        - copyrightNote
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 40
+        slug:
+          type: string
+          minLength: 2
+          maxLength: 64
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+        accessType:
+          $ref: "#/components/schemas/WallpaperAccessType"
+        offlinePromotionOnly:
+          type: boolean
+          default: false
+          description: 仅吉意壁纸 Android 线下推广使用；默认 false，PATCH省略保留现值。true时正式Android/iOS/Harmony及匿名入口均不可见，服务端按当前策略检查；不改变收费、水印和资源生成。
+        previewWatermarkEnabled:
+          type: boolean
+          default: true
+          description: 创建时未提供默认为 true；PATCH 未提供时保留原开关。只有 accessType=REDEEM 且开关为 true 时添加水印，免费始终无水印。切换开关或收费规则会异步重新生成预览。
+        rootCategoryId:
+          $ref: "#/components/schemas/LongId"
+        childCategoryId:
+          type: string
+          allOf:
+            - $ref: "#/components/schemas/LongId"
+          nullable: true
+          description: 提供时必须是 rootCategoryId 的直接子节点；数据库只保存这个最深节点。
+        coverAssetId:
+          $ref: "#/components/schemas/LongId"
+        featuredRank:
+          type: integer
+          minimum: 0
+          maximum: 999999
+          nullable: true
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 999999
+        copyrightNote:
+          type: string
+          minLength: 1
+          maxLength: 500
+      additionalProperties: false

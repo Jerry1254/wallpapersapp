@@ -62,19 +62,21 @@ public class AdminWallpaperService {
     private final AdminAssetService assets;
     private final ObjectMapper objectMapper;
     private final com.qingjing.wallpaper.delivery.PreviewGenerationService previews;
+    private final WallpaperPublicationChecks publicationChecks;
 
     public AdminWallpaperService(
             JdbcTemplate jdbc,
             AdminContentViewReader views,
             AdminCategoryService categories,
             AdminAssetService assets,
-            ObjectMapper objectMapper, com.qingjing.wallpaper.delivery.PreviewGenerationService previews) {
+            ObjectMapper objectMapper, com.qingjing.wallpaper.delivery.PreviewGenerationService previews,
+            WallpaperPublicationChecks publicationChecks) {
         this.jdbc = jdbc;
         this.namedJdbc = new NamedParameterJdbcTemplate(jdbc);
         this.views = views;
         this.categories = categories;
         this.assets = assets;
-        this.objectMapper = objectMapper; this.previews=previews;
+        this.objectMapper = objectMapper; this.previews=previews;this.publicationChecks=publicationChecks;
     }
 
     @Transactional(readOnly = true)
@@ -371,6 +373,7 @@ public class AdminWallpaperService {
             PublishWallpaperRequest request) {
         ensureUniqueStrings(request.resourceVersionIds(), "resourceVersionIds");
         WallpaperRow wallpaper = lockWallpaper(wallpaperId, expectedVersion);
+        publicationChecks.requirePublishable(wallpaperId, request.resourceVersionIds());
         if (wallpaper.status().equals("ARCHIVED")) {
             throw stateConflict("An archived wallpaper cannot be published");
         }
@@ -611,7 +614,7 @@ public class AdminWallpaperService {
     }
 
     private WallpaperRow lockWallpaper(long wallpaperId, long expectedVersion) {
-        WallpaperRow wallpaper = views.wallpaperRow(wallpaperId);
+        views.wallpaperRow(wallpaperId); // Retain the domain 404 before attempting the lock.
         Long currentVersion = jdbc.queryForObject(
                 "SELECT lock_version FROM wallpaper WHERE id = ? FOR UPDATE",
                 Long.class,
@@ -619,7 +622,7 @@ public class AdminWallpaperService {
         if (currentVersion == null || currentVersion != expectedVersion) {
             throw versionConflict("The wallpaper version has changed");
         }
-        return wallpaper;
+        return views.wallpaperRow(wallpaperId);
     }
 
     private VariantRow lockVariant(long variantId, long expectedVersion) {
