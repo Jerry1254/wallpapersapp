@@ -5,10 +5,11 @@
   let H,opening,records=[],queue=Promise.resolve(),fingerprints=new Map(),filter='gallery',trash=false,previewURLs=[],worksFilter='all';
   const builtins=[{id:'gallery-showcase',name:'壁纸展示图集',type:'gallery',style:'showcase',detail:'4 个画框 · 样机、全图、细节、锁屏'},{id:'gallery-minimal',name:'极简质感图集',type:'gallery',style:'minimal',detail:'3 个画框 · 浅色排版'},{id:'video-showcase',name:'动态样机视频',type:'video',style:'showcase',detail:'多画面轨道 · 12 秒'},{id:'video-detail',name:'细节展示视频',type:'video',style:'detail',detail:'动态与细节 · 12 秒'}];
   function db(){return opening||=new Promise((resolve,reject)=>{const q=indexedDB.open('qingjing-content-templates',1);q.onupgradeneeded=()=>q.result.createObjectStore('templates',{keyPath:'id'});q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error);});}
-  async function load(){const store=(await db()).transaction('templates').objectStore('templates');records=await new Promise((resolve,reject)=>{const q=store.getAll();q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error);});}
-  async function put(record){const database=await db();await new Promise((resolve,reject)=>{const tx=database.transaction('templates','readwrite');tx.objectStore('templates').put(record);tx.oncomplete=resolve;tx.onerror=tx.onabort=()=>reject(tx.error);});records=records.filter(t=>t.id!==record.id);records.push(record);}
+  async function load(){const store=(await db()).transaction('templates').objectStore('templates');records=await new Promise((resolve,reject)=>{const q=store.getAll();q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error);});if(window.CreatorBackend.connected){records=await window.CreatorBackend.migrate('templates',records);for(const record of records)await cachePut(record);}}
+  async function cachePut(record){const database=await db();await new Promise((resolve,reject)=>{const tx=database.transaction('templates','readwrite');tx.objectStore('templates').put(record);tx.oncomplete=resolve;tx.onerror=tx.onabort=()=>reject(tx.error);});records=records.filter(t=>t.id!==record.id);records.push(record);}
+  async function put(record){await cachePut({...record,_creatorPending:true});if(window.CreatorBackend.connected){await window.CreatorBackend.put('templates',record);await cachePut({...record,_creatorPending:false});}}
   function mount(bridge){
-    H=bridge;load().catch(()=>H.toast('模板库暂时无法读取'));$('dialog').addEventListener('close',()=>{if(!$('dialog').open)clearPreview();});
+    H=bridge;document.addEventListener('creator-connection',()=>{if(window.CreatorBackend.connected)load().catch(error=>H.toast(error.message));});load().catch(()=>H.toast('模板库暂时无法读取'));$('dialog').addEventListener('close',()=>{if(!$('dialog').open)clearPreview();});
     window.EditingMenu.register({matches:(scope,event)=>scope.id==='dialog'&&!!event.target.closest('[data-work-id]'),items:event=>{
       const id=event.target.closest('[data-work-id]').dataset.workId,item=H.data().items.find(row=>row.id===id);if(!item)return [];
       return [{label:'预览作品',run:()=>openItem(item)},{label:'导出到本地',run:()=>download(item)},null,{label:'进入下一步',run:()=>nextStep(item)}];
@@ -20,7 +21,7 @@
     if(fingerprints.get(t.id)===fingerprint)return queue;fingerprints.set(t.id,fingerprint);
     const ids=new Set([...Object.values(w.slots),...G.assets(w),...(w.type==='video'?C.all(w).map(c=>c.assetId):[])].filter(Boolean));
     t.media=[...ids].map(H.resolve).filter(Boolean).map(a=>{const {url,...data}=a;return data;});t.createdAt=records.find(r=>r.id===t.id)?.createdAt||new Date().toISOString();
-    queue=queue.catch(()=>{}).then(()=>put(t)).catch(error=>{fingerprints.delete(t.id);H.toast('模板自动保存失败，请检查浏览器存储空间');throw error;});queue.catch(()=>{});return queue;
+    queue=queue.catch(()=>{}).then(()=>put(t)).catch(error=>{fingerprints.delete(t.id);H.toast('模板尚未保存到本地后台，请重试');throw error;});queue.catch(()=>{});return queue;
   }
   function mediaFor(t){for(const a of t.media||[]){if(!H.resolve(a.id)){const asset={...a};if(asset.file)asset.url=URL.createObjectURL(asset.file);H.remember(asset);}}}
   function openTemplate(t){mediaFor(t);const w=C.instantiate(t,t.snapshot.slots||{});w.templateId=t.id;H.openDraft(w);H.close();}
@@ -48,15 +49,16 @@
   }
   function clearPreview(){previewURLs.forEach(URL.revokeObjectURL);previewURLs=[];}
   function filePreview(files){clearPreview();previewURLs=files.map(f=>URL.createObjectURL(f));return '<div class="content-result-preview">'+files.map((f,i)=>f.type.startsWith('video')?'<video controls src="'+previewURLs[i]+'"></video>':'<figure><img src="'+previewURLs[i]+'" alt="图集第 '+(i+1)+' 张"><figcaption>'+(i+1)+' · '+esc(f.name)+'</figcaption></figure>').join('')+'</div>';}
-  function confirm(files,w){
+  function confirm(files,w,taskId){
     const project=H.projectId(),preview=filePreview(files);let saving=false,savedItem=null;
     H.modal('预览生成作品','<div class="content-result"><label>作品名称<input id="content-result-name" value="'+esc(w.name)+'" maxlength="60"></label><p class="content-slot-help">保存后可在「内容发布」的素材列表中使用。之后修改模板不会改变这份作品。</p>'+preview+'</div>',[{label:'取消',run:H.close},{label:'保存至发布内容',primary:true,run:async()=>{
       const name=$('content-result-name').value.trim();if(!name)return $('content-result-name').focus();if(H.projectId()!==project||saving)return;saving=true;
-      const item=savedItem||{id:C.id(),name,type:w.type,createdAt:new Date().toISOString(),templateId:w.templateId,assetIds:[],frames:w.type==='gallery'?w.gallery.frames.map(f=>({name:f.name,width:f.width,height:f.height})):null};
+      const item=savedItem||{id:C.id(),name,type:w.type,taskId:taskId||null,createdAt:new Date().toISOString(),templateId:w.templateId,assetIds:[],frames:w.type==='gallery'?w.gallery.frames.map(f=>({name:f.name,width:f.width,height:f.height})):null};
       if(!savedItem)for(let i=0;i<files.length;i++){const file=files[i],f=item.frames?.[i],asset={id:C.id(),name:file.name.replace(/\.[^.]+$/,''),type:w.type==='gallery'?'image':'video',file,url:URL.createObjectURL(file),width:f?.width||(w.type==='video'?C.outputSize(w).width:w.width),height:f?.height||(w.type==='video'?C.outputSize(w).height:w.height),fps:w.type==='video'?C.fps(w):undefined,duration:w.type==='video'?C.outputFrames(w)/C.fps(w):undefined,contentItemId:item.id};H.remember(asset);item.assetIds.push(asset.id);}
       if(!savedItem){H.data().items.push(item);savedItem=item;H.commit('保存作品至发布内容');}
       else if(item.name!==name){item.name=name;H.commit('修改作品名称');}
       if(!await H.flush()){saving=false;H.toast('作品保存失败，请重试');return;}
+      try{await window.CreatorBackend.put('works',{...item,id:project+'_'+item.id,workId:item.id,projectId:project,taskId:taskId||null,media:item.assetIds.map(H.resolve).filter(Boolean)});}catch(error){saving=false;H.toast(error.message);return;}
       if(H.projectId()!==project)return;
       H.close();H.toast('已保存至发布内容');
     }}]);

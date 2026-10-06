@@ -15,6 +15,8 @@ servers:
     description: 当前来源下的 V1 API；本地联调默认由开发代理转发到 API Server
 security: []
 tags:
+  - name: Admin Creator
+    description: 本地创作项目、素材、模板、收藏、作品与生成任务
   - name: Admin distribution
     description: 创作台自建账号管理、发布任务与累计指标快照
   - name: Public Catalog
@@ -43,6 +45,26 @@ tags:
     description: App Store Server Notifications V2 验签入口
 
 paths:
+  /admin/creator/records/{collection}:
+    $ref: './creator-workspace.yaml#/records'
+  /admin/creator/records/{collection}/{id}:
+    $ref: './creator-workspace.yaml#/record'
+  /admin/creator/media:
+    $ref: './creator-workspace.yaml#/media'
+  /admin/creator/media/{id}:
+    $ref: './creator-workspace.yaml#/mediaItem'
+  /admin/creator/media/{id}/content:
+    $ref: './creator-workspace.yaml#/mediaContent'
+  /admin/creator/tasks:
+    $ref: './creator-workspace.yaml#/tasks'
+  /admin/creator/tasks/{id}:
+    $ref: './creator-workspace.yaml#/task'
+  /admin/creator/tasks/{id}/action:
+    $ref: './creator-workspace.yaml#/action'
+  /admin/creator/claim:
+    $ref: './creator-workspace.yaml#/claim'
+  /admin/creator/tasks/{id}/report:
+    $ref: './creator-workspace.yaml#/report'
   /admin/distribution/accounts:
     $ref: './distribution.yaml#/accounts'
   /admin/distribution/accounts/{id}:

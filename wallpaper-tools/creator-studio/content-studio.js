@@ -202,20 +202,23 @@
   function exportVideo(){if(work()?.type==='video')return generate('download');}
   async function generate(destination='work'){
     if(job)return;stop();const original=work();if(!original)return;if(original.type==='gallery'){G.ensure(original);if(!original.gallery.frames.length)return B.toast('请先新建画框并放入组件，再生成图片作品');}const w=C.copy(original),project=B.projectId(),controller=new AbortController(),local=destination==='download';job=controller;const signal=controller.signal;R.clear();
-    B.modal(local?'导出视频':'生成作品','<div class="content-generation"><strong id="content-progress-title">准备画面…</strong><progress id="content-progress" value="0" max="100"></progress><small id="content-progress-note">'+(local?'完成后将下载 MP4 到本地。':'完成后可预览作品，并保存至发布内容。')+'</small></div>',[{label:'取消',run:()=>{controller.abort();B.close();}}]);
-    const progress=(value,text)=>{if($('content-progress'))$('content-progress').value=value;if($('content-progress-title'))$('content-progress-title').textContent=text;};
+    B.modal(local?'导出视频':'生成作品','<div class="content-generation"><strong id="content-progress-title">准备画面…</strong><progress id="content-progress" value="0" max="100"></progress><small id="content-progress-note">'+(local?'完成后将下载 MP4 到本地。':'画面准备时请保持页面打开；开始本地编码后可在「生成任务」查看结果。')+'</small></div>',[{label:'取消',run:()=>{controller.abort();B.close();}}]);
+    let task;const progress=(value,text)=>{if($('content-progress'))$('content-progress').value=value;if($('content-progress-title'))$('content-progress-title').textContent=text;};
     try{
-      await paintPromise;if(signal.aborted)throw new DOMException('已取消','AbortError');const canvas=document.createElement('canvas');canvas.width=w.width;canvas.height=w.height;const files=[];
-      if(w.type==='gallery'){
+      await window.CreatorBackend.requireConnection();if(!await B.flush())throw new Error('请先重试保存当前项目');await paintPromise;if(signal.aborted)throw new DOMException('已取消','AbortError');const canvas=document.createElement('canvas');canvas.width=w.width;canvas.height=w.height;const files=[];task=await window.CreatorJobs.begin(w.type==='gallery'?'GALLERY_RENDER':'CONTENT_RENDER',await window.CreatorJobs.snapshot(w,resolve));
+      if(task.state==='SUCCEEDED')files.push(...await window.CreatorJobs.result(task));
+      else if(['QUEUED','RUNNING'].includes(task.state))files.push(...await window.CreatorJobs.wait(task,signal,(text,value)=>progress(value??94,text)));
+      else if(w.type==='gallery'){
         const frames=w.gallery.frames;if(frames.reduce((sum,f)=>sum+f.width*f.height,0)>100000000)throw new Error('图集总像素过大，请减少画框或尺寸');
         for(let i=0;i<frames.length;i++){const f=frames[i];await window.GalleryRenderer.paint(canvas,w,f,resolve,{signal});files.push(new File([await R.blob(canvas)],window.ResourceExport.filename(w.name)+'-'+String(i+1).padStart(2,'0')+'.png',{type:'image/png'}));progress((i+1)/frames.length*95,'已生成 '+(i+1)+' / '+frames.length+' 张');}
+        const outputMediaIds=[];for(const file of files){if(signal.aborted)throw new DOMException('已取消','AbortError');outputMediaIds.push((await window.CreatorBackend.upload(file,{type:'image'})).id);}await window.CreatorJobs.action(task.id,'complete',{outputMediaIds});
       }else{
-        const blob=await window.ContentVideoExport.render(canvas,w,resolve,signal,progress);
+        const blob=await window.ContentVideoExport.render(canvas,w,resolve,signal,progress,task);
         files.push(new File([blob],`${window.ResourceExport.filename(w.output.name||w.name)}.mp4`,{type:'video/mp4'}));
       }
       if(signal.aborted||project!==B.projectId()||work()!==original)return;
-      job=null;B.close();if(local){B.download(files[0].name,files[0]);B.toast('视频已下载到本地');}else{Lib.confirm(files,w);renderLibrary();}
-    }catch(error){if(error.name!=='AbortError'&&project===B.projectId()){job=null;B.close();B.toast(`${local?'导出':'生成'}未完成：${error.message}`);}}finally{R.clearExport();if(job===controller)job=null;if(work()?.type==='gallery')GE.refresh();else requestPaint();}
+      job=null;B.close();if(local){B.download(files[0].name,files[0]);B.toast('视频已下载到本地');}else{Lib.confirm(files,w,task?.id);renderLibrary();}
+    }catch(error){if(task)await window.CreatorJobs.action(task.id,error.name==='AbortError'?'cancel':'fail',{message:error.message}).catch(()=>{});if(error.name!=='AbortError'&&project===B.projectId()){job=null;B.close();B.toast(`${local?'导出':'生成'}未完成：${error.message}`);}}finally{R.clearExport();if(job===controller)job=null;if(work()?.type==='gallery')GE.refresh();else requestPaint();}
   }
   function enter(){ensure();render();}
   function reset(){stop();V.reset();T.reset();GE.reset();Lib.clearPreview();ML.clearPreview();job?.abort();job=null;paintAgain=false;R.clear();selectedSource=null;clipboard=null;}

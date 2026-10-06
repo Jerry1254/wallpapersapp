@@ -3,42 +3,45 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="倾境创作台交互原型：壁纸加工、内容创作与内容发布。">
-  <title>倾境 · 创作台原型</title>
+  <meta name="description" content="倾境创作台：壁纸加工、内容创作与内容发布。">
+  <title>倾境 · 创作台</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233a527c'/%3E%3Cpath d='m6 11 10-5 10 5-10 5Zm0 6 10 5 10-5M6 23l10 5 10-5' fill='none' stroke='%23a8caff' stroke-width='2'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="studio.css?v=0.8.0">
-  <script defer src="timeline-core.js?v=0.8.0"></script>
-  <script defer src="project-history.js?v=0.8.0"></script>
-  <script defer src="project-store.js?v=0.8.0"></script>
-  <script defer src="project-thumbnails.js?v=0.8.0"></script>
-  <script defer src="parallax-runtime.js?v=0.8.0"></script>
-  <script defer src="wallpaper-devices.js?v=0.8.0"></script>
-  <script defer src="wallpaper-preview.js?v=0.8.0"></script>
-  <script defer src="ios-pricing.js?v=0.8.0"></script>
-  <script defer src="resource-export.js?v=0.8.0"></script>
-  <script defer src="timeline-export.js?v=0.8.0"></script>
-  <link rel="stylesheet" href="content-studio.css?v=0.8.0">
-  <script defer src="content-core.js?v=0.8.0"></script>
-  <script defer src="gallery-core.js?v=0.8.0"></script>
-  <script defer src="gallery-editing.js?v=0.8.0"></script>
-  <script defer src="gallery-properties.js?v=0.8.0"></script>
-  <script defer src="content-renderer.js?v=0.8.0"></script>
-  <script defer src="content-video-export.js?v=0.8.0"></script>
-  <script defer src="gallery-renderer.js?v=0.8.0"></script>
-  <link rel="stylesheet" href="editing-menu.css?v=0.8.0">
-  <script defer src="editing-menu.js?v=0.8.0"></script>
-  <script defer src="gallery-editor.js?v=0.8.0"></script>
-  <script defer src="content-library.js?v=0.8.0"></script>
-  <script defer src="content-media-library.js?v=0.8.0"></script>
-  <link rel="stylesheet" href="gallery-editor.css?v=0.8.0">
-  <link rel="stylesheet" href="content-timeline.css?v=0.8.0">
-  <script defer src="content-timeline.js?v=0.8.0"></script>
-  <script defer src="content-settings.js?v=0.8.0"></script>
-  <script defer src="content-canvas-editor.js?v=0.8.0"></script>
-  <script defer src="content-studio.js?v=0.8.0"></script>
-  <script defer src="distribution.js?v=0.8.0"></script>
-<script defer src="studio.js?v=0.8.0"></script>
-<link rel="stylesheet" href="distribution.css?v=0.8.0">
+  <link rel="stylesheet" href="studio.css?v=0.9.0">
+  <script defer src="timeline-core.js?v=0.9.0"></script>
+  <script defer src="project-history.js?v=0.9.0"></script>
+  <script defer src="creator-backend.js?v=0.9.0"></script>
+  <script defer src="creator-jobs.js?v=0.9.0"></script>
+  <script defer src="creator-backup.js?v=0.9.0"></script>
+  <script defer src="project-store.js?v=0.9.0"></script>
+  <script defer src="project-thumbnails.js?v=0.9.0"></script>
+  <script defer src="parallax-runtime.js?v=0.9.0"></script>
+  <script defer src="wallpaper-devices.js?v=0.9.0"></script>
+  <script defer src="wallpaper-preview.js?v=0.9.0"></script>
+  <script defer src="ios-pricing.js?v=0.9.0"></script>
+  <script defer src="resource-export.js?v=0.9.0"></script>
+  <script defer src="timeline-export.js?v=0.9.0"></script>
+  <link rel="stylesheet" href="content-studio.css?v=0.9.0">
+  <script defer src="content-core.js?v=0.9.0"></script>
+  <script defer src="gallery-core.js?v=0.9.0"></script>
+  <script defer src="gallery-editing.js?v=0.9.0"></script>
+  <script defer src="gallery-properties.js?v=0.9.0"></script>
+  <script defer src="content-renderer.js?v=0.9.0"></script>
+  <script defer src="content-video-export.js?v=0.9.0"></script>
+  <script defer src="gallery-renderer.js?v=0.9.0"></script>
+  <link rel="stylesheet" href="editing-menu.css?v=0.9.0">
+  <script defer src="editing-menu.js?v=0.9.0"></script>
+  <script defer src="gallery-editor.js?v=0.9.0"></script>
+  <script defer src="content-library.js?v=0.9.0"></script>
+  <script defer src="content-media-library.js?v=0.9.0"></script>
+  <link rel="stylesheet" href="gallery-editor.css?v=0.9.0">
+  <link rel="stylesheet" href="content-timeline.css?v=0.9.0">
+  <script defer src="content-timeline.js?v=0.9.0"></script>
+  <script defer src="content-settings.js?v=0.9.0"></script>
+  <script defer src="content-canvas-editor.js?v=0.9.0"></script>
+  <script defer src="content-studio.js?v=0.9.0"></script>
+  <script defer src="distribution.js?v=0.9.0"></script>
+<script defer src="studio.js?v=0.9.0"></script>
+<link rel="stylesheet" href="distribution.css?v=0.9.0">
 </head>
 <body>
 <svg class="svg-defs" aria-hidden="true"><defs>
@@ -80,9 +83,9 @@
 </defs></svg>
 
 <header class="appbar">
-  <div class="brand"><span class="brand-mark"><svg><use href="#i-layers"/></svg></span><strong>倾境</strong><span>创作台</span><span class="version">交互原型</span></div>
+  <div class="brand"><span class="brand-mark"><svg><use href="#i-layers"/></svg></span><strong>倾境</strong><span>创作台</span><span class="version">本地版</span></div>
   <nav class="workspace-tabs" aria-label="工作区"><button class="active" data-workspace="wallpaper"><svg><use href="#i-image"/></svg>壁纸加工</button><button data-workspace="create"><svg><use href="#i-layers"/></svg>内容创作</button><button data-workspace="publish"><svg><use href="#i-send"/></svg>内容发布</button></nav>
-  <div class="project-actions"><button id="help-btn" class="icon-button" aria-label="原型说明"><svg><use href="#i-help"/></svg></button><button id="project-list-btn" aria-label="项目列表" title="项目列表"><svg><use href="#i-folder"/></svg><span>项目</span></button><button id="new-project-btn" aria-label="新建项目" title="新建项目"><svg><use href="#i-plus"/></svg><span>新建</span></button><button id="history-btn" aria-label="历史记录" title="历史记录"><svg><use href="#i-clock"/></svg><span>历史</span></button><button id="fullscreen-btn" aria-label="全屏显示" title="全屏显示" aria-pressed="false"><svg><use href="#i-maximize"/></svg><span>全屏</span></button><button id="autosave-status" class="autosave-status" title="项目和素材自动保存在当前浏览器">正在打开…</button><button id="export-resources-btn" aria-label="导出项目资源" title="导出项目资源"><svg><use href="#i-export"/></svg><span>导出</span></button><button id="export-btn" class="primary"><svg><use href="#i-export"/></svg><span>创建壁纸</span></button></div>
+  <div class="project-actions"><button id="help-btn" class="icon-button" aria-label="使用说明"><svg><use href="#i-help"/></svg></button><button id="project-list-btn" aria-label="项目列表" title="项目列表"><svg><use href="#i-folder"/></svg><span>项目</span></button><button id="new-project-btn" aria-label="新建项目" title="新建项目"><svg><use href="#i-plus"/></svg><span>新建</span></button><button id="history-btn" aria-label="历史记录" title="历史记录"><svg><use href="#i-clock"/></svg><span>历史</span></button><button id="fullscreen-btn" aria-label="全屏显示" title="全屏显示" aria-pressed="false"><svg><use href="#i-maximize"/></svg><span>全屏</span></button><button id="autosave-status" class="autosave-status" title="项目和素材自动保存在当前浏览器">正在打开…</button><button id="export-resources-btn" aria-label="导出项目资源" title="导出项目资源"><svg><use href="#i-export"/></svg><span>导出</span></button><button id="export-btn" class="primary"><svg><use href="#i-export"/></svg><span>创建壁纸</span></button></div>
 </header>
 
 <main id="wallpaper-workspace" class="workspace-view">
@@ -118,8 +121,8 @@
     <aside class="sidebar inspector" aria-label="导出与剪辑参数">
       <div class="panel-heading"><div><svg><use href="#i-tune"/></svg><strong>参数</strong></div><span class="count" id="inspector-platform">鸿蒙版本</span></div>
       <div class="inspector-scroll">
-        <section class="inspector-section"><div class="field"><label for="project-name">项目名称</label><input id="project-name" value="城市飞行" maxlength="60"></div><div class="field" id="output-size-field"><label for="size-preset">固定尺寸 <span>px</span></label><select id="size-preset"><option value="1206x2622">iPhone 17 Pro · 1206 × 2622 · @3×</option><option value="1320x2868">iPhone 17 Pro Max · 1320 × 2868 · @3×</option><option value="1080x1920">1080 × 1920 · 9:16</option><option value="1242x2688">1242 × 2688 · 全面屏</option><option value="1440x2560">1440 × 2560 · 9:16</option><option value="custom">自定义尺寸</option></select></div><div class="two-fields" id="custom-size" hidden><label>宽<input id="custom-width" type="number" min="64" max="8192" value="1080"></label><label>高<input id="custom-height" type="number" min="64" max="8192" value="1920"></label></div></section>
-        <section class="inspector-section" id="motion-settings"><div class="section-title"><strong>片段编辑</strong><span id="selected-clip-label">片段 01</span></div><div class="field" id="still-duration-field" hidden><label for="still-frames">静态片段时长 <span>30 帧 / 秒</span></label><input id="still-frames" type="number" min="1" max="30000" step="1" value="10"><p class="hint">图片默认 10 帧，可拖动片段边缘调整。</p></div><div class="two-fields" id="video-range-fields"><label>原视频入点 · 秒<input id="in-point" type="number" min="0" step="0.01" value="0"></label><label>原视频出点 · 秒<input id="out-point" type="number" min="0.04" step="0.01" value="5"></label></div><div class="field speed-field"><label for="speed">当前片段速度 <output id="speed-label">1×</output></label><input id="speed" type="range" min="0.1" max="4" step="0.05" value="1"><div class="speed-presets"><button data-speed="0.5">0.5×</button><button data-speed="1">1×</button><button data-speed="1.5">1.5×</button><button data-speed="2">2×</button><button data-speed="2.5">2.5×</button></div></div><div id="ios-frames-field" class="field" hidden><label for="ios-frames">iOS 成片目标 <output id="ios-frames-value">24 帧</output></label><input id="ios-frames" type="range" min="16" max="30" step="1" value="24"><div class="range-labels"><span>16 帧</span><span>30 帧</span></div></div><div class="output-readout"><div><span>整条成片时长</span><strong id="output-duration">5.00 <small>s</small></strong></div><div><span>成片总帧数</span><strong id="output-frames">150 <small>帧</small></strong></div></div><p class="hint trim-behavior-note">拖动边缘裁掉前后帧，保留片段速度。变速只在上方调整。</p><p id="target-validation" class="validation-text"><svg><use href="#i-check"/></svg><span>通过裁剪调整成片长度</span></p></section>
+        <section class="inspector-section"><div class="field"><label for="project-name">项目名称</label><input id="project-name" value="未命名项目" maxlength="60"></div><div class="field" id="output-size-field"><label for="size-preset">固定尺寸 <span>px</span></label><select id="size-preset"><option value="1206x2622">iPhone 17 Pro · 1206 × 2622 · @3×</option><option value="1320x2868">iPhone 17 Pro Max · 1320 × 2868 · @3×</option><option value="1080x1920">1080 × 1920 · 9:16</option><option value="1242x2688">1242 × 2688 · 全面屏</option><option value="1440x2560">1440 × 2560 · 9:16</option><option value="custom">自定义尺寸</option></select></div><div class="two-fields" id="custom-size" hidden><label>宽<input id="custom-width" type="number" min="64" max="8192" value="1080"></label><label>高<input id="custom-height" type="number" min="64" max="8192" value="1920"></label></div></section>
+        <section class="inspector-section" id="motion-settings"><div class="section-title"><strong>片段编辑</strong><span id="selected-clip-label">片段 01</span></div><div class="field" id="still-duration-field" hidden><label for="still-frames">静态片段时长 <span>30 帧 / 秒</span></label><input id="still-frames" type="number" min="1" max="30000" step="1" value="10"><p class="hint">图片默认 10 帧，可拖动片段边缘调整。</p></div><div class="two-fields" id="video-range-fields"><label>原视频入点 · 秒<input id="in-point" type="number" min="0" step="0.01" value="0"></label><label>原视频出点 · 秒<input id="out-point" type="number" min="0.04" step="0.01" value="5"></label></div><div class="field speed-field"><label for="speed">当前片段速度 <output id="speed-label">1×</output></label><input id="speed" type="range" min="0.1" max="4" step="0.05" value="1"><div class="speed-presets"><button data-speed="0.5">0.5×</button><button data-speed="1">1×</button><button data-speed="1.5">1.5×</button><button data-speed="2">2×</button><button data-speed="2.5">2.5×</button></div></div><div id="ios-frames-field" class="field" hidden><label for="ios-frames">iOS 成片目标 <output id="ios-frames-value">60 帧</output></label><input id="ios-frames" type="range" min="60" max="300" step="1" value="60"><div class="range-labels"><span>60 帧</span><span>300 帧</span></div></div><div class="output-readout"><div><span>整条成片时长</span><strong id="output-duration">5.00 <small>s</small></strong></div><div><span>成片总帧数</span><strong id="output-frames">150 <small>帧</small></strong></div></div><p class="hint trim-behavior-note">拖动边缘裁掉前后帧，保留片段速度。变速只在上方调整。</p><p id="target-validation" class="validation-text"><svg><use href="#i-check"/></svg><span>通过裁剪调整成片长度</span></p></section>
         <details class="inspector-section" id="crop-settings"><summary><svg><use href="#i-crop"/></svg>画面裁剪<span>Crop</span></summary><div class="field"><label for="crop-scale">画面缩放 <output id="crop-scale-label">100%</output></label><input id="crop-scale" type="range" min="100" max="200" step="1" value="100"></div><div class="two-fields"><label>水平位置<input id="crop-x" type="number" min="-50" max="50" step="1" value="0"></label><label>垂直位置<input id="crop-y" type="number" min="-50" max="50" step="1" value="0"></label></div><p class="hint">也可以在预览画面中拖动主体。</p></details>
         <section class="inspector-section" id="static-settings" hidden><div class="section-title"><strong>静态资源</strong><span>PNG</span></div><p class="hint">按机型实际像素输出。普通屏与折叠屏分别保留构图，样机边框只用于预览。</p><label class="thumbnail-choice"><input type="checkbox" id="apply-thumbnail">应用为壁纸缩略图</label><p id="thumbnail-note" class="hint">作为创建商品时的列表封面。</p><button id="capture-cover" class="full-width">将当前视频帧用于静态裁剪</button><div id="cover-time" class="hint"></div><div id="saved-static-list" class="saved-resource-list"></div><button id="download-static" class="full-width">下载当前尺寸 PNG</button></section>
         <section class="inspector-section" id="package-settings" hidden><div class="section-title"><strong>4D 资源</strong><span>只读</span></div><p class="hint">图层、位移和透明度保留包内设置。在外部工具完成制作后导入。</p><div id="package-info" class="package-info"></div><label class="thumbnail-choice"><input type="checkbox" id="parallax-auto" checked>自动演示视差</label><button id="save-package" class="full-width">保存 4D 资源</button><button id="download-package" class="full-width">下载原始 ZIP</button></section>
@@ -144,7 +147,7 @@
   </div>
 </main>
 
-<footer class="statusbar"><span><span class="dot"></span><span id="status-text">城市飞行 · 示例素材</span></span><span id="status-middle">素材导入 → 资源整理 → 创建壁纸</span><span class="status-right">倾境创作台 · v0.8.0</span></footer>
+<footer class="statusbar"><span><span class="dot"></span><span id="status-text">城市飞行 · 示例素材</span></span><span id="status-middle">素材导入 → 资源整理 → 创建壁纸</span><span class="status-right">倾境创作台 · v0.9.0</span></footer>
 <input type="file" id="timeline-input" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" multiple hidden>
 <input type="file" id="wallpaper-input" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,.zip" multiple hidden>
 <input type="file" id="publish-input" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm" multiple hidden>

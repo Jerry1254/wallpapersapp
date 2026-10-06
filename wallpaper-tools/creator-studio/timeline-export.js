@@ -23,18 +23,18 @@
     return {job:{version:1,fps:30,profile:Object.fromEntries(['width','height','scale','x','y'].map(key=>[key,profile[key]])),clips,sources},files};
   }
   async function render(prepared,JSZip,signal){
-    const zip=new JSZip();zip.file('timeline.json',JSON.stringify(prepared.job));
-    for(const entry of prepared.files)zip.file(entry.path,entry.file);
-    const payload=await zip.generateAsync({type:'blob',compression:'STORE'});
     if(signal?.aborted)throw new DOMException('已取消','AbortError');
-    if(payload.size>512*1048576)throw new Error('素材包超过 512 MB，请分批导出');
-    let response;
-    try{response=await fetch('api/render',{method:'POST',headers:{'Content-Type':'application/zip','X-Creator-Export':'1'},body:payload,signal});}
-    catch(error){if(error.name==='AbortError')throw error;throw new Error('本地视频导出服务未连接，请重启创作台');}
-    if(!response.ok){const error=await response.json().catch(()=>null);throw new Error(error?.error||(response.status===404||response.status===501?'本地视频导出服务未启动，请使用创作台启动程序':'视频导出失败，请重试'));}
-    if(!response.headers.get('Content-Type')?.includes('video/mp4'))throw new Error('没有收到视频文件，请重试');
-    return response.blob();
+    const sources=[];for(const entry of prepared.files)sources.push({path:entry.path,hash:await root.CreatorBackend.hash(entry.file)});
+    return root.CreatorJobs.video('WALLPAPER_RENDER',{rendererVersion:2,plan:prepared.job,sources},async()=>{
+      const zip=new JSZip();zip.file('timeline.json',JSON.stringify(prepared.job));
+      for(const entry of prepared.files)zip.file(entry.path,entry.file);
+      const payload=await zip.generateAsync({type:'blob',compression:'STORE'});
+      if(signal?.aborted)throw new DOMException('已取消','AbortError');
+      if(payload.size>512*1048576)throw new Error('素材包超过 512 MB，请分批导出');
+      return payload;
+    },signal);
   }
+
   const api={prepare,render};root.TimelineExport=api;
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);

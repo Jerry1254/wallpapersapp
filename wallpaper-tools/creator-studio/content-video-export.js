@@ -57,7 +57,7 @@
     }
     return audio;
   }
-  async function attempt(canvas,w,resolve,signal,progress,native){
+  async function attempt(canvas,w,resolve,signal,progress,native,task){
     const size=C.outputSize(w),rate=C.fps(w),frames=C.outputFrames(w),total=frames/rate,zip=new JSZip(),audio=audioArchive(zip,w,resolve,total),outputCanvas=size.width===canvas.width&&size.height===canvas.height?canvas:document.createElement('canvas');
     if(outputCanvas!==canvas){outputCanvas.width=size.width;outputCanvas.height=size.height;}
     const ctx=outputCanvas.getContext('2d');let frameBytes=0;
@@ -79,23 +79,20 @@
       zip.file('content.json',JSON.stringify(manifest));progress(90,native?'合成视频和声音…':'编码视频和音乐…');
       const payload=await zip.generateAsync({type:'blob',compression:'STORE'});cancelled(signal);
       if(payload.size>512*1048576)throw new Error('成片数据超过 512 MB，请缩短视频');
-      const response=await fetch('api/render-content',{method:'POST',headers:{'Content-Type':'application/zip','X-Creator-Export':'1'},body:payload,signal});
-      if(!response.ok){const failure=await response.json().catch(()=>null),message=failure?.error||'本地视频生成服务不可用';if(native&&response.status===422)throw new NativeEncodingFailure(message);throw new Error(message);}
-      if(!response.headers.get('Content-Type')?.includes('video/mp4'))throw new Error('没有收到视频文件');
-      return response.blob();
+      return window.CreatorJobs.submit(task,payload,signal,(text,value)=>progress(value??94,text));
     }finally{native?.close();}
   }
-  async function render(canvas,w,resolve,signal,progress){
+  async function render(canvas,w,resolve,signal,progress,task){
     C.videoSettings(w);const native=await encoderFor(C.outputSize(w),C.fps(w),w.output,signal);
     try{
       cancelled(signal);
       if(native){
-        try{return await attempt(canvas,w,resolve,signal,progress,native);}catch(failure){
+        try{return await attempt(canvas,w,resolve,signal,progress,native,task);}catch(failure){
           if(!(failure instanceof NativeEncodingFailure))throw failure;
           cancelled(signal);R.clearExport();progress(0,'正在切换兼容生成方式…');
         }
       }
-      return await attempt(canvas,w,resolve,signal,progress,null);
+      return await attempt(canvas,w,resolve,signal,progress,null,task);
     }finally{native?.close();}
   }
   window.ContentVideoExport={render};

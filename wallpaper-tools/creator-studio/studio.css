@@ -56,3 +56,15 @@ dialog.resource-export-dialog{width:820px;max-height:calc(100dvh - 48px);overflo
 @media(max-width:1250px){.project-actions{gap:4px}.project-actions>button:not(.primary){padding-left:7px;padding-right:7px}}
 @media(max-width:1050px) and (min-width:801px){#export-resources-btn>span,#fullscreen-btn>span{display:none}#export-resources-btn,#fullscreen-btn{width:30px}}
 @media(max-width:700px){.resource-export-body{padding:14px}.export-file-row{gap:8px}.export-file-icon{width:28px;height:34px}.export-file-copy strong{font-size:11px}}
+
+/* Creator persistence and local generation tasks. */
+.appbar { height: auto; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; }
+.workspace-tabs { min-height: 40px; }
+.project-actions { flex-wrap: wrap; justify-content: flex-end; }
+#creator-connection { font-size: 11px; }
+#creator-login-error { color: #ffb6ab; white-space: pre-wrap; }
+.creator-task { display: flex; justify-content: space-between; align-items: center; gap: 20px; border-bottom: 1px solid var(--border, #3d4148); padding: 16px 0; }
+.creator-task strong, .creator-task small { display: block; }
+.creator-task small { color: #aab4c4; margin-top: 6px; }
+.creator-task p { color: #ffb6ab; margin: 6px 0 0; }
+.creator-task>div:last-child { display: flex; gap: 8px; flex-shrink: 0; }

@@ -1,0 +1,1256 @@
+{
+  "records": {
+    "get": {
+      "tags": [
+        "Admin Creator"
+      ],
+      "operationId": "creatorRecordsList",
+      "summary": "分页读取创作集合，包含软删除记录",
+      "security": [
+        {
+          "adminCookie": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "items",
+                  "nextCursor"
+                ],
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/schemas/Record"
+                    }
+                  },
+                  "nextCursor": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+                    "maxLength": 128,
+                    "nullable": true
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "403": {
+          "description": "CSRF 校验失败"
+        },
+        "404": {
+          "description": "记录或素材不存在"
+        },
+        "409": {
+          "description": "任务状态、租约或素材幂等标识冲突"
+        },
+        "412": {
+          "description": "乐观锁版本冲突"
+        },
+        "422": {
+          "description": "参数或媒体清单无效"
+        }
+      },
+      "parameters": [
+        {
+          "name": "collection",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "projects",
+              "templates",
+              "favorites",
+              "works",
+              "meta"
+            ]
+          }
+        },
+        {
+          "name": "after",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "maxLength": 128
+          }
+        },
+        {
+          "name": "limit",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 25,
+            "default": 20
+          }
+        }
+      ]
+    }
+  },
+  "record": {
+    "get": {
+      "tags": [
+        "Admin Creator"
+      ],
+      "operationId": "creatorRecordGet",
+      "summary": "读取完整创作快照",
+      "security": [
+        {
+          "adminCookie": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/schemas/Record"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "403": {
+          "description": "CSRF 校验失败"
+        },
+        "404": {
+          "description": "记录或素材不存在"
+        },
+        "409": {
+          "description": "任务状态、租约或素材幂等标识冲突"
+        },
+        "412": {
+          "description": "乐观锁版本冲突"
+        },
+        "422": {
+          "description": "参数或媒体清单无效"
+        }
+      },
+      "parameters": [
+        {
+          "name": "collection",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "projects",
+              "templates",
+              "favorites",
+              "works",
+              "meta"
+            ]
+          }
+        },
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "maxLength": 128
+          }
+        }
+      ]
+    },
+    "put": {
+      "tags": [
+        "Admin Creator"
+      ],
+      "operationId": "creatorRecordPut",
+      "summary": "保存完整快照与文件引用，单条快照不超过 10 MiB",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/schemas/Record"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "403": {
+          "description": "CSRF 校验失败"
+        },
+        "404": {
+          "description": "记录或素材不存在"
+        },
+        "409": {
+          "description": "任务状态、租约或素材幂等标识冲突"
+        },
+        "412": {
+          "description": "乐观锁版本冲突"
+        },
+        "422": {
+          "description": "参数或媒体清单无效"
+        }
+      },
+      "parameters": [
+        {
+          "name": "collection",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "projects",
+              "templates",
+              "favorites",
+              "works",
+              "meta"
+            ]
+          }
+        },
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "maxLength": 128
+          }
+        },
+        {
+          "name": "If-Match",
+          "in": "header",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^\"[0-9]+\"$",
+            "description": "新建为 \"0\"；更新使用当前版本。相同内容重试返回已有版本。"
+          }
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "record",
+                "mediaIds"
+              ],
+              "properties": {
+                "record": {
+                  "type": "object",
+                  "required": [
+                    "id"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+                      "maxLength": 128
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "deletedAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    }
+                  },
+                  "additionalProperties": true
+                },
+                "mediaIds": {
+                  "type": "array",
+                  "maxItems": 5000,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+                    "maxLength": 128
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      }
+    },
+    "delete": {
+      "tags": [
+        "Admin Creator"
+      ],
+      "operationId": "creatorRecordDelete",
+      "summary": "软删除创作记录，保留文件引用与快照",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "204": {
+          "description": "操作成功"
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "403": {
+          "description": "CSRF 校验失败"
+        },
+        "404": {
+          "description": "记录或素材不存在"
+        },
+        "409": {
+          "description": "任务状态、租约或素材幂等标识冲突"
+        },
+        "412": {
+          "description": "乐观锁版本冲突"
+        },
+        "422": {
+          "description": "参数或媒体清单无效"
+        }
+      },
+      "parameters": [
+        {
+          "name": "collection",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "projects",
+              "templates",
+              "favorites",
+              "works",
+              "meta"
+            ]
+          }
+        },
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "maxLength": 128
+          }
+        },
+        {
+          "name": "If-Match",
+          "in": "header",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^\"[0-9]+\"$",
+            "description": "新建为 \"0\"；更新使用当前版本。相同内容重试返回已有版本。"
+          }
+        }
+      ]
+    }
+  },
+  "media": {
+    "post": {
+      "tags": [
+        "Admin Creator"
+      ],
+      "operationId": "creatorMediaUpload",
+      "summary": "保存不可变创作文件，同一标识与哈希可重复提交",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/schemas/Media"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "403": {
+          "description": "CSRF 校验失败"
+        },
+        "404": {
+          "description": "记录或素材不存在"
+        },
+        "409": {
+          "description": "任务状态、租约或素材幂等标识冲突"
+        },
+        "412": {
+          "description": "乐观锁版本冲突"
+        },
+        "422": {
+          "description": "参数或媒体清单无效"
+        }
+      },
+      "parameters": [
+        {
+          "name": "X-Media-Id",
+          "in": "header",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "maxLength": 128
+          }
+        },
+        {
+          "name": "X-Filename",
+          "in": "header",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "description": "UTF-8 URL 编码的文件名"
+          }
+        },
+        {
+          "name": "X-Media-Metadata",
+          "in": "header",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "maxLength": 16000,
+            "description": "UTF-8 URL 编码 JSON，包含 type: image/video/audio/4d/bundle"
+          }
+        }
+      ],
+      "description": "图片不超过 50 MiB，4D ZIP 不超过 100 MiB，视频、音频和任务素材包不超过 512 MiB。与壁纸上传/上架 API 分开；此接口不签发 App 正式下载资源。",
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/octet-stream": {
+            "schema": {
+              "type": "string",
+              "format": "binary"
+            }
+          }
+        }
+      }
+    }
+  },
+  "mediaItem": {
+    "get": {
+      "tags": [
+        "Admin Creator"
+      ],
+      "operationId": "creatorMediaGet",
+      "summary": "读取创作素材元信息",
+      "security": [
+        {
+          "adminCookie": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/schemas/Media"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "403": {
+          "description": "CSRF 校验失败"
+        },
+        "404": {
+          "description": "记录或素材不存在"
+        },
+        "409": {
+          "description": "任务状态、租约或素材幂等标识冲突"
+        },
+        "412": {
+          "description": "乐观锁版本冲突"
+        },
+        "422": {
+          "description": "参数或媒体清单无效"
+        }
+      },
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "maxLength": 128
+          }
+        }
+      ]
+    }
+  },
+  "mediaContent": {
+    "get": {
+      "tags": [
+        "Admin Creator"
+      ],
+      "operationId": "creatorMediaContent",
+      "summary": "读取创作文件，支持单段 HTTP Range",
+      "security": [
+        {
+          "adminCookie": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "完整文件",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "403": {
+          "description": "CSRF 校验失败"
+        },
+        "404": {
+          "description": "记录或素材不存在"
+        },
+        "409": {
+          "description": "任务状态、租约或素材幂等标识冲突"
+        },
+        "412": {
+          "description": "乐观锁版本冲突"
+        },
+        "422": {
+          "description": "参数或媒体清单无效"
+        },
+        "206": {
+          "description": "文件字节区间",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "416": {
+          "description": "字节区间无效"
+        }
+      },
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "maxLength": 128
+          }
+        },
+        {
+          "name": "Range",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "pattern": "^bytes=([0-9]+-[0-9]*|-[0-9]+)$"
+          }
+        }
+      ]
+    }
+  },
+  "tasks": {
+    "get": {
+      "tags": [
+        "Admin Creator"
+      ],
+      "operationId": "creatorTasksList",
+      "summary": "最近 100 个生成任务摘要，不返回输入快照或租约令牌",
+      "security": [
+        {
+          "adminCookie": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/schemas/Task"
+                }
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "403": {
+          "description": "CSRF 校验失败"
+        },
+        "404": {
+          "description": "记录或素材不存在"
+        },
+        "409": {
+          "description": "任务状态、租约或素材幂等标识冲突"
+        },
+        "412": {
+          "description": "乐观锁版本冲突"
+        },
+        "422": {
+          "description": "参数或媒体清单无效"
+        }
+      }
+    },
+    "post": {
+      "tags": [
+        "Admin Creator"
+      ],
+      "operationId": "creatorTaskCreate",
+      "summary": "创建冻结输入任务，相同项目、类型和输入复用进行中或成功任务",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "202": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/schemas/Task"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "403": {
+          "description": "CSRF 校验失败"
+        },
+        "404": {
+          "description": "记录或素材不存在"
+        },
+        "409": {
+          "description": "任务状态、租约或素材幂等标识冲突"
+        },
+        "412": {
+          "description": "乐观锁版本冲突"
+        },
+        "422": {
+          "description": "参数或媒体清单无效"
+        }
+      },
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "id",
+                "projectId",
+                "type",
+                "input"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "projectId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+                  "maxLength": 128
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "WALLPAPER_RENDER",
+                    "CONTENT_RENDER",
+                    "GALLERY_RENDER"
+                  ]
+                },
+                "input": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      }
+    }
+  },
+  "task": {
+    "get": {
+      "tags": [
+        "Admin Creator"
+      ],
+      "operationId": "creatorTaskGet",
+      "summary": "读取生成任务完整快照",
+      "security": [
+        {
+          "adminCookie": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/schemas/Task"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "403": {
+          "description": "CSRF 校验失败"
+        },
+        "404": {
+          "description": "记录或素材不存在"
+        },
+        "409": {
+          "description": "任务状态、租约或素材幂等标识冲突"
+        },
+        "412": {
+          "description": "乐观锁版本冲突"
+        },
+        "422": {
+          "description": "参数或媒体清单无效"
+        }
+      },
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ]
+    }
+  },
+  "action": {
+    "post": {
+      "tags": [
+        "Admin Creator"
+      ],
+      "operationId": "creatorTaskAction",
+      "summary": "取消、排队、重试或完成浏览器图片生成",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/schemas/Task"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "403": {
+          "description": "CSRF 校验失败"
+        },
+        "404": {
+          "description": "记录或素材不存在"
+        },
+        "409": {
+          "description": "任务状态、租约或素材幂等标识冲突"
+        },
+        "412": {
+          "description": "乐观锁版本冲突"
+        },
+        "422": {
+          "description": "参数或媒体清单无效"
+        }
+      },
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "action"
+              ],
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "enqueue",
+                    "retry",
+                    "cancel",
+                    "complete",
+                    "fail"
+                  ]
+                },
+                "payloadMediaId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+                  "maxLength": 128
+                },
+                "outputMediaIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+                    "maxLength": 128
+                  },
+                  "minItems": 1,
+                  "maxItems": 100
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 1000
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      }
+    }
+  },
+  "claim": {
+    "post": {
+      "tags": [
+        "Admin Creator"
+      ],
+      "operationId": "creatorTaskClaim",
+      "summary": "本地编码助手领取任务，租约 120 秒；过期任务转为可重试中断",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/schemas/Task"
+                  },
+                  {
+                    "type": "object",
+                    "maxProperties": 0
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "403": {
+          "description": "CSRF 校验失败"
+        },
+        "404": {
+          "description": "记录或素材不存在"
+        },
+        "409": {
+          "description": "任务状态、租约或素材幂等标识冲突"
+        },
+        "412": {
+          "description": "乐观锁版本冲突"
+        },
+        "422": {
+          "description": "参数或媒体清单无效"
+        }
+      },
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "runnerId"
+              ],
+              "properties": {
+                "runnerId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      }
+    }
+  },
+  "report": {
+    "post": {
+      "tags": [
+        "Admin Creator"
+      ],
+      "operationId": "creatorTaskReport",
+      "summary": "本地助手续租或报告终态，令牌、处理器、次数必须匹配",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/schemas/Task"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "403": {
+          "description": "CSRF 校验失败"
+        },
+        "404": {
+          "description": "记录或素材不存在"
+        },
+        "409": {
+          "description": "任务状态、租约或素材幂等标识冲突"
+        },
+        "412": {
+          "description": "乐观锁版本冲突"
+        },
+        "422": {
+          "description": "参数或媒体清单无效"
+        }
+      },
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "runnerId",
+                "leaseToken",
+                "attempt",
+                "state"
+              ],
+              "properties": {
+                "runnerId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "leaseToken": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "attempt": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "RUNNING",
+                    "SUCCEEDED",
+                    "FAILED",
+                    "CANCELLED"
+                  ]
+                },
+                "stage": {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                "progress": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "outputMediaIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+                    "maxLength": 128
+                  },
+                  "maxItems": 1
+                },
+                "error": {
+                  "type": "string",
+                  "maxLength": 1000
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      }
+    }
+  },
+  "schemas": {
+    "Record": {
+      "type": "object",
+      "required": [
+        "record",
+        "version"
+      ],
+      "properties": {
+        "record": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "maxLength": 128
+            }
+          },
+          "additionalProperties": true
+        },
+        "version": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1
+        }
+      }
+    },
+    "Media": {
+      "type": "object",
+      "required": [
+        "id",
+        "filename",
+        "type",
+        "mimeType",
+        "sizeBytes",
+        "sha256",
+        "metadata"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+          "maxLength": 128
+        },
+        "filename": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "image",
+            "video",
+            "audio",
+            "4d",
+            "bundle"
+          ]
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Task": {
+      "type": "object",
+      "required": [
+        "id",
+        "projectId",
+        "type",
+        "state",
+        "stage",
+        "inputHash",
+        "outputMediaIds",
+        "attempt",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "projectId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+          "maxLength": 128
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "WALLPAPER_RENDER",
+            "CONTENT_RENDER",
+            "GALLERY_RENDER"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "PREPARING",
+            "QUEUED",
+            "RUNNING",
+            "CANCEL_REQUESTED",
+            "CANCELLED",
+            "SUCCEEDED",
+            "FAILED",
+            "INTERRUPTED"
+          ]
+        },
+        "stage": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "progress": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "nullable": true
+        },
+        "inputHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "input": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "payloadMediaId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+          "maxLength": 128,
+          "nullable": true
+        },
+        "outputMediaIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "maxLength": 128
+          }
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "leaseToken": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": true
+        },
+        "error": {
+          "type": "string",
+          "maxLength": 1000,
+          "nullable": true
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

@@ -1,7 +1,7 @@
-"""Local prototype server: static workbench and FFmpeg timeline exports.
+"""Local creator workbench and durable FFmpeg job runner.
 
 Start with: python3 wallpaper-tools/creator-studio/render-server.py
-Media is staged in a temporary directory and removed after the response.
+Temporary encoding inputs are removed after each task; durable files use the admin storage adapter.
 """
 import argparse
 import ctypes
@@ -23,6 +23,11 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 import zipfile
 from publishing.bridge import bridge as publishing_bridge
+import importlib.util
+_creator_spec = importlib.util.spec_from_file_location("creator_bridge", Path(__file__).with_name("creator-bridge.py"))
+_creator_module = importlib.util.module_from_spec(_creator_spec)
+_creator_spec.loader.exec_module(_creator_module)
+creator_bridge = _creator_module.bridge
 
 
 ROOT = Path(__file__).resolve().parent
@@ -435,15 +440,15 @@ class Handler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_PUT(self):
-        if not publishing_bridge.handle(self):
+        if not creator_bridge.handle(self) and not publishing_bridge.handle(self):
             self.error('接口不存在', 404)
 
     def do_DELETE(self):
-        if not publishing_bridge.handle(self):
+        if not creator_bridge.handle(self) and not publishing_bridge.handle(self):
             self.error('接口不存在', 404)
 
     def do_GET(self):
-        if publishing_bridge.handle(self):
+        if creator_bridge.handle(self) or publishing_bridge.handle(self):
             return
         if urlsplit(self.path).path != '/creator-studio/api/fonts':
             return super().do_GET()
@@ -460,7 +465,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.error('系统字体暂时无法读取', 503)
 
     def do_POST(self):
-        if publishing_bridge.handle(self):
+        if creator_bridge.handle(self) or publishing_bridge.handle(self):
             return
         endpoint = urlsplit(self.path).path
         if endpoint not in ['/creator-studio/api/render', '/creator-studio/api/render-content']:
@@ -509,5 +514,6 @@ if __name__ == '__main__':
     arguments = parser.parse_args()
     executable('ffmpeg')
     executable('ffprobe')
+    creator_bridge.start({'WALLPAPER_RENDER': render, 'CONTENT_RENDER': render_content}, RENDER_LOCK)
     print(f'倾境创作台：http://127.0.0.1:{arguments.port}/creator-studio/', flush=True)
     ThreadingHTTPServer(('127.0.0.1', arguments.port), Handler).serve_forever()
