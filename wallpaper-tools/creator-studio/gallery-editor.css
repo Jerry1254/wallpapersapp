@@ -36,6 +36,7 @@
 .template-manager-card>div{display:flex;gap:5px}.template-manager-card button{font-size:11px;min-height:28px;padding:4px 8px}
 .template-manager-card .template-manager-art{height:112px;width:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:8px;background:radial-gradient(ellipse at 50% 120%,#516986,#202734);border:0;overflow:hidden}
 .template-manager-art>span{font-size:29px;color:#a6c5ef}.template-manager-art small{font-size:10px;color:#b3c5df}.template-manager-art img{width:100%;height:100%;object-fit:contain}
+.content-work-art>svg{width:36px;height:36px;color:#a6c5ef}.content-works .template-manager-card>div{flex-wrap:wrap}
 #dialog:has(.template-manager),#dialog:has(.content-result){width:min(1300px,94vw);max-width:94vw;height:min(880px,90vh);max-height:90vh}
 #dialog[open]:has(.template-manager),#dialog[open]:has(.content-result){display:flex;flex-direction:column;overflow:hidden}
 #dialog:has(.template-manager) #dialog-body,#dialog:has(.content-result) #dialog-body{flex:1;min-height:0;max-height:none;overflow:auto}

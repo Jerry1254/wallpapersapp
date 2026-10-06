@@ -23,6 +23,11 @@
       if(valid.length)favorite(valid);else H.toast('请选择'+names[chosenType].replace('库','')+'文件');
     };
     $('dialog').addEventListener('close',()=>{if(!$('dialog').open){session++;clearPreview();}});
+    window.EditingMenu.register({matches:(scope,event)=>scope.id==='dialog'&&!!event.target.closest('[data-media-row]'),items:event=>{
+      const card=event.target.closest('[data-media-row]'),row=rows[Number(card.dataset.mediaRow)];
+      if(!row)return [];
+      return [{label:type==='audio'?'试听':'预览',run:()=>preview(row)},{label:type==='audio'?'加入时间轴':'加入画面',run:()=>card.querySelector('[data-media-use]').click()},null,{label:'导出到本地',run:()=>exportRow(row)},{label:row.record?'修改收藏名称':'收藏…',run:()=>card.querySelector('[data-media-favorite]').click()}];
+    }});
   }
   function clearPreview(){
     previewRevision++;
@@ -40,11 +45,10 @@
     }
     return H.sources().filter(asset=>asset.type===type&&!asset.contentItemId).map(asset=>({key:asset.id,name:asset.name,asset}));
   }
-  function generatedRows(){return (H.data().items||[]).slice().sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).flatMap(item=>item.assetIds.map((id,index)=>{const asset=H.resolve(id);return asset?.type===type?{key:id,name:item.type==='gallery'?item.name+' · '+(item.frames?.[index]?.name||'第 '+(index+1)+' 张'):item.name,asset,item}:null;}).filter(Boolean));}
   function info(asset){if(asset.type==='text')return '可编辑文字';if(asset.type==='image')return asset.width+' × '+asset.height;const duration=Math.max(0,Math.round(asset.duration||0));return Math.floor(duration/60).toString().padStart(2,'0')+':'+(duration%60).toString().padStart(2,'0');}
-  function shell(){return '<div class="media-library"><div class="media-library-tabs">'+Object.keys(names).map(key=>'<button data-media-type="'+key+'" class="'+(key===type?'active':'')+'">'+icon(key)+'<span>'+names[key]+'</span></button>').join('')+'</div><div class="media-library-toolbar"><div class="segmented"><button data-media-scope="favorites">我的收藏</button><button data-media-scope="project">项目素材</button>'+(['image','video'].includes(type)?'<button data-media-scope="generated">已生成</button>':'')+'</div>'+(type!=='text'?'<button id="media-library-import">'+icon('plus')+'导入并收藏</button>':'')+'</div><label class="media-library-search">'+icon('search')+'<input id="media-library-search" type="search" value="'+esc(query)+'" placeholder="搜索'+names[type].replace('库','')+'名称或文件名" aria-label="搜索素材"><span id="media-library-count"></span></label><div id="media-library-list"><p class="content-empty">正在读取素材…</p></div><div id="media-library-preview" class="media-library-preview" hidden></div><p class="media-library-note">收藏保留在本机，可在不同项目中重复使用。</p></div>';}
+  function shell(){return '<div class="media-library"><div class="media-library-tabs">'+Object.keys(names).map(key=>'<button data-media-type="'+key+'" class="'+(key===type?'active':'')+'">'+icon(key)+'<span>'+names[key]+'</span></button>').join('')+'</div><div class="media-library-toolbar"><div class="segmented"><button data-media-scope="favorites">我的收藏</button><button data-media-scope="project">项目素材</button></div>'+(type!=='text'?'<button id="media-library-import">'+icon('plus')+'导入并收藏</button>':'')+'</div><label class="media-library-search">'+icon('search')+'<input id="media-library-search" type="search" value="'+esc(query)+'" placeholder="搜索'+names[type].replace('库','')+'名称或文件名" aria-label="搜索素材"><span id="media-library-count"></span></label><div id="media-library-list"><p class="content-empty">正在读取素材…</p></div><div id="media-library-preview" class="media-library-preview" hidden></div><p class="media-library-note">收藏保留在本机，可在不同项目中重复使用。</p></div>';}
   async function open(nextType=type,nextScope=scope){
-    clearPreview();const token=++session;H.stop();type=names[nextType]?nextType:'audio';scope=nextScope==='generated'&&!['image','video'].includes(type)?'favorites':nextScope;H.modal(names[type],shell(),[{label:'返回编辑',run:H.close}]);
+    clearPreview();const token=++session;H.stop();type=names[nextType]?nextType:'audio';scope=nextScope==='project'?'project':'favorites';H.modal(names[type],shell(),[{label:'返回编辑',run:H.close}]);
     document.querySelectorAll('[data-media-type]').forEach(button=>button.onclick=()=>{query='';open(button.dataset.mediaType);});
     document.querySelectorAll('[data-media-scope]').forEach(button=>button.onclick=()=>{scope=button.dataset.mediaScope;renderCards();});
     $('media-library-search').oninput=event=>{query=event.target.value;renderCards();};
@@ -53,20 +57,23 @@
   }
   function renderCards(){
     if(!$('media-library-list'))return;hidePreview();document.querySelectorAll('[data-media-scope]').forEach(button=>button.classList.toggle('active',button.dataset.mediaScope===scope));
-    const search=query.trim().toLocaleLowerCase();rows=(scope==='project'?projectRows():scope==='generated'?generatedRows():favoriteRows()).filter(row=>(row.name+' '+(row.asset.file?.name||'')+' '+(row.record?.clip?.text||row.clip?.text||'')).toLocaleLowerCase().includes(search));
+    const search=query.trim().toLocaleLowerCase();rows=(scope==='project'?projectRows():favoriteRows()).filter(row=>(row.name+' '+(row.asset.file?.name||'')+' '+(row.record?.clip?.text||row.clip?.text||'')).toLocaleLowerCase().includes(search));
     $('media-library-count').textContent=rows.length+' 项';
     $('media-library-list').innerHTML=rows.length?'<div class="media-library-grid">'+rows.map((row,index)=>{
       const asset=row.asset,saved=row.record||matching(asset),art=asset.type==='image'&&(asset.url||asset.demo)?'<img src="'+esc(asset.url||'assets/background.jpg')+'" alt="" loading="lazy">':icon(asset.type),useLabel=type==='audio'?(H.work()?.type==='video'?'加入时间轴':'加入视频'):'加入画面';
-      return '<article class="media-library-card"><button class="media-library-art '+asset.type+'" data-media-preview="'+index+'" aria-label="预览 '+esc(row.name)+'">'+art+'</button><div class="media-library-copy"><strong title="'+esc(row.name)+'">'+esc(row.name)+'</strong><small>'+esc(info(row.record?.clip?{...asset,duration:row.record.clip.duration}:asset))+(row.record?.clip?' · 已收藏片段':'')+(asset.file?' · '+esc(asset.file.name):'')+'</small><div class="media-library-card-actions"><button data-media-preview="'+index+'">'+icon('play')+(type==='audio'?'试听':'预览')+'</button><button data-media-use="'+index+'" class="primary">'+icon('plus')+useLabel+'</button><button data-media-favorite="'+index+'" class="media-library-star '+(saved?'saved':'')+'" title="'+(saved?'修改收藏名称':'收藏并命名')+'" aria-label="'+(saved?'修改收藏名称':'收藏并命名')+'">'+icon('star')+'</button>'+(row.record?'<button class="media-library-remove" data-media-remove="'+index+'" title="移出收藏" aria-label="移出收藏">'+icon('trash')+'</button>':'')+(row.item?'<button data-media-output="'+index+'">作品</button>':'')+'</div></div></article>';
-    }).join('')+'</div>':'<div class="media-library-empty">'+icon(type)+'<strong>'+(search?'没有找到匹配素材':scope==='favorites'?'还没有收藏的'+names[type].replace('库',''):scope==='generated'?'还没有生成的'+names[type].replace('库',''):'当前项目没有'+names[type].replace('库','')+'素材')+'</strong><p>'+(search?'换个名称试试。':type==='text'?'右键文字片段，选择「收藏」并命名；也可以在「项目素材」里收藏文字。':scope==='favorites'?'导入文件，或到「项目素材」中点击星星，命名后收藏。':scope==='generated'?'生成并确认保存的作品会显示在这里。':'点击「导入并收藏」添加素材。')+'</p></div>';
+      return '<article class="media-library-card" data-media-row="'+index+'"><button class="media-library-art '+asset.type+'" data-media-preview="'+index+'" aria-label="预览 '+esc(row.name)+'">'+art+'</button><div class="media-library-copy"><strong title="'+esc(row.name)+'">'+esc(row.name)+'</strong><small>'+esc(info(row.record?.clip?{...asset,duration:row.record.clip.duration}:asset))+(row.record?.clip?' · 已收藏片段':'')+(asset.file?' · '+esc(asset.file.name):'')+'</small><div class="media-library-card-actions"><button data-media-preview="'+index+'">'+icon('play')+(type==='audio'?'试听':'预览')+'</button><button data-media-use="'+index+'" class="primary">'+icon('plus')+useLabel+'</button><button data-media-favorite="'+index+'" class="media-library-star '+(saved?'saved':'')+'" title="'+(saved?'修改收藏名称':'收藏并命名')+'" aria-label="'+(saved?'修改收藏名称':'收藏并命名')+'">'+icon('star')+'</button>'+(row.record?'<button class="media-library-remove" data-media-remove="'+index+'" title="移出收藏" aria-label="移出收藏">'+icon('trash')+'</button>':'')+'</div></div></article>';
+    }).join('')+'</div>':'<div class="media-library-empty">'+icon(type)+'<strong>'+(search?'没有找到匹配素材':scope==='favorites'?'还没有收藏的'+names[type].replace('库',''):'当前项目没有'+names[type].replace('库','')+'素材')+'</strong><p>'+(search?'换个名称试试。':type==='text'?'右键文字片段，选择「收藏」并命名；也可以在「项目素材」里收藏文字。':scope==='favorites'?'导入文件，或到「项目素材」中点击星星，命名后收藏。':'点击「导入并收藏」添加素材。')+'</p></div>';
     document.querySelectorAll('[data-media-preview]').forEach(button=>button.onclick=()=>preview(rows[Number(button.dataset.mediaPreview)]));
     document.querySelectorAll('[data-media-use]').forEach(button=>button.onclick=()=>use(rows[Number(button.dataset.mediaUse)],button));
     document.querySelectorAll('[data-media-favorite]').forEach(button=>button.onclick=()=>{const row=rows[Number(button.dataset.mediaFavorite)];favorite([row.asset],row.record||matching(row.asset),row.clip);});
     document.querySelectorAll('[data-media-remove]').forEach(button=>button.onclick=async()=>{const row=rows[Number(button.dataset.mediaRemove)];button.disabled=true;try{await write(row.record,true);renderCards();H.toast('已移出收藏');}catch(error){button.disabled=false;H.toast(error.message);}});
-    document.querySelectorAll('[data-media-output]').forEach(button=>button.onclick=()=>{const row=rows[Number(button.dataset.mediaOutput)];session++;clearPreview();H.openItem(row.item);});
   }
   function hidePreview(){previewRevision++;const panel=$('media-library-preview');if(!panel)return;panel.querySelectorAll('audio,video').forEach(media=>{media.pause();media.removeAttribute('src');media.load();});panel.replaceChildren();panel.hidden=true;}
   async function resolveAsset(asset){return asset.virtual?H.materialize(asset.id):asset;}
+  function exportText(text,name){H.download(window.ResourceExport.filename(name||'文字')+'.txt',text,'text/plain;charset=utf-8');H.toast('文字已导出到本地');}
+  function exportRow(row){if(row.asset.type==='text')exportText((row.record?.clip||row.clip).text,row.name);else H.exportAsset({...row.asset,name:row.name});}
+  function exportClip(w,clip){if(clip.presentation==='text')exportText(window.ContentRenderer.textValue(w,clip),clip.name||'文字');else H.exportAsset(H.resolve(C.resolve(w,clip)));}
+  function exportNode(w,node){if(node.type==='text')exportText(node.text,node.name);else if(node.type==='image')H.exportAsset(H.resolve(node.slot?w.slots[node.slot]:node.assetId));}
   async function preview(row){
     const token=session,project=H.projectId();hidePreview();const revision=previewRevision,panel=$('media-library-preview');panel.hidden=false;panel.innerHTML='<p class="content-empty">正在准备预览…</p>';
     try{
@@ -116,5 +123,5 @@
     if(node.type==='text'){H.stop();type='text';scope='favorites';query='';favorite([{id:node.id,type:'text',name:node.name||node.text,duration:3}],null,nodeClip(w,node));}
     else if(node.type==='image'){const asset=H.resolve(node.slot?w.slots[node.slot]:node.assetId);if(!asset)return H.toast('图片素材暂不可用，请重新绑定');H.stop();type='image';scope='favorites';query='';favorite([asset]);}
   }
-  window.ContentMediaLibrary={mount,open,favoriteClip,favoriteNode,clearPreview,icon};
+  window.ContentMediaLibrary={mount,open,favoriteClip,favoriteNode,exportClip,exportNode,clearPreview,icon};
 })();

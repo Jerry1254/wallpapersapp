@@ -2,12 +2,18 @@
 (() => {
   'use strict';
   const C=window.ContentCore,G=window.GalleryCore,$=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let H,opening,records=[],queue=Promise.resolve(),fingerprints=new Map(),filter='gallery',trash=false,previewURLs=[];
+  let H,opening,records=[],queue=Promise.resolve(),fingerprints=new Map(),filter='gallery',trash=false,previewURLs=[],worksFilter='all';
   const builtins=[{id:'gallery-showcase',name:'壁纸展示图集',type:'gallery',style:'showcase',detail:'4 个画框 · 样机、全图、细节、锁屏'},{id:'gallery-minimal',name:'极简质感图集',type:'gallery',style:'minimal',detail:'3 个画框 · 浅色排版'},{id:'video-showcase',name:'动态样机视频',type:'video',style:'showcase',detail:'多画面轨道 · 12 秒'},{id:'video-detail',name:'细节展示视频',type:'video',style:'detail',detail:'动态与细节 · 12 秒'}];
   function db(){return opening||=new Promise((resolve,reject)=>{const q=indexedDB.open('qingjing-content-templates',1);q.onupgradeneeded=()=>q.result.createObjectStore('templates',{keyPath:'id'});q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error);});}
   async function load(){const store=(await db()).transaction('templates').objectStore('templates');records=await new Promise((resolve,reject)=>{const q=store.getAll();q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error);});}
   async function put(record){const database=await db();await new Promise((resolve,reject)=>{const tx=database.transaction('templates','readwrite');tx.objectStore('templates').put(record);tx.oncomplete=resolve;tx.onerror=tx.onabort=()=>reject(tx.error);});records=records.filter(t=>t.id!==record.id);records.push(record);}
-  function mount(bridge){H=bridge;load().catch(()=>H.toast('模板库暂时无法读取'));$('dialog').addEventListener('close',()=>{if(!$('dialog').open)clearPreview();});}
+  function mount(bridge){
+    H=bridge;load().catch(()=>H.toast('模板库暂时无法读取'));$('dialog').addEventListener('close',()=>{if(!$('dialog').open)clearPreview();});
+    window.EditingMenu.register({matches:(scope,event)=>scope.id==='dialog'&&!!event.target.closest('[data-work-id]'),items:event=>{
+      const id=event.target.closest('[data-work-id]').dataset.workId,item=H.data().items.find(row=>row.id===id);if(!item)return [];
+      return [{label:'预览作品',run:()=>openItem(item)},{label:'导出到本地',run:()=>download(item)},null,{label:'进入下一步',run:()=>nextStep(item)}];
+    }});
+  }
   function snapshot(w){const t=C.template(w,w.name);t.id=w.templateId;t.snapshot.slots=C.copy(w.slots);delete t.snapshot.templateId;delete t.snapshot.templateVersion;delete t.snapshot.canvasHistory;if(t.snapshot.gallery){t.snapshot.gallery.view=null;t.snapshot.gallery.selection=[];t.snapshot.gallery.surfaceSelection=[];t.snapshot.gallery.selectedSurface=t.snapshot.gallery.frames[0]?.id||Object.keys(t.snapshot.gallery.components)[0]||G.canvasSurface(t.snapshot.gallery).id;}return t;}
   function save(w){
     if(!w)return queue;if(!w.templateId)w.templateId=C.id();const t=snapshot(w),fingerprint=JSON.stringify(t.snapshot);
@@ -44,20 +50,40 @@
   function filePreview(files){clearPreview();previewURLs=files.map(f=>URL.createObjectURL(f));return '<div class="content-result-preview">'+files.map((f,i)=>f.type.startsWith('video')?'<video controls src="'+previewURLs[i]+'"></video>':'<figure><img src="'+previewURLs[i]+'" alt="图集第 '+(i+1)+' 张"><figcaption>'+(i+1)+' · '+esc(f.name)+'</figcaption></figure>').join('')+'</div>';}
   function confirm(files,w){
     const project=H.projectId(),preview=filePreview(files);let saving=false,savedItem=null;
-    H.modal('预览生成作品','<div class="content-result"><label>内容名称<input id="content-result-name" value="'+esc(w.name)+'" maxlength="60"></label><p class="content-slot-help">确认保存后进入'+(w.type==='gallery'?'图片库':'视频库')+'的「已生成」。之后修改模板不会改变这份作品。</p>'+preview+'</div>',[{label:'取消',run:H.close},{label:'保存至'+(w.type==='gallery'?'图片库':'视频库'),primary:true,run:async()=>{
+    H.modal('预览生成作品','<div class="content-result"><label>作品名称<input id="content-result-name" value="'+esc(w.name)+'" maxlength="60"></label><p class="content-slot-help">确认后保存到作品库，并将成品带入下一步的素材列表。之后修改模板不会改变这份作品。</p>'+preview+'</div>',[{label:'取消',run:H.close},{label:'保存并进入下一步',primary:true,run:async()=>{
       const name=$('content-result-name').value.trim();if(!name)return $('content-result-name').focus();if(H.projectId()!==project||saving)return;saving=true;
       const item=savedItem||{id:C.id(),name,type:w.type,createdAt:new Date().toISOString(),templateId:w.templateId,assetIds:[],frames:w.type==='gallery'?w.gallery.frames.map(f=>({name:f.name,width:f.width,height:f.height})):null};
       if(!savedItem)for(let i=0;i<files.length;i++){const file=files[i],f=item.frames?.[i],asset={id:C.id(),name:file.name.replace(/\.[^.]+$/,''),type:w.type==='gallery'?'image':'video',file,url:URL.createObjectURL(file),width:f?.width||(w.type==='video'?C.outputSize(w).width:w.width),height:f?.height||(w.type==='video'?C.outputSize(w).height:w.height),fps:w.type==='video'?C.fps(w):undefined,duration:w.type==='video'?C.outputFrames(w)/C.fps(w):undefined,contentItemId:item.id};H.remember(asset);item.assetIds.push(asset.id);}
-      if(!savedItem){H.data().items.push(item);savedItem=item;H.commit('确认保存内容作品');}
-      if(!await H.flush()){saving=false;H.toast('内容保存失败，请点击顶部保存状态重试');return;}
-      H.close();openItem(item);
+      if(!savedItem){H.data().items.push(item);savedItem=item;H.commit('保存到作品库');}
+      else if(item.name!==name){item.name=name;H.commit('修改作品名称');}
+      if(!await H.flush()){saving=false;H.toast('作品保存失败，请重试');return;}
+      if(H.projectId()!==project)return;
+      nextStep(item);
     }}]);
   }
   async function download(item){const files=item.assetIds.map(H.resolve).filter(a=>a?.file);if(!files.length)return H.toast('成品文件暂不可用');if(files.length===1)H.download(files[0].file.name,files[0].file);else{const zip=new JSZip();files.forEach((a,i)=>zip.file(String(i+1).padStart(2,'0')+'-'+a.file.name,a.file));H.download(window.ResourceExport.filename(item.name)+'.zip',await zip.generateAsync({type:'blob'}));}}
   function openItem(item){
     const files=item.assetIds.map(H.resolve).filter(a=>a?.file).map(a=>a.file);
-    H.modal('已保存的内容','<div class="content-result"><h3>'+esc(item.name)+'</h3><p class="content-slot-help">'+new Date(item.createdAt).toLocaleString('zh-CN')+' · '+(item.type==='gallery'?files.length+' 张图片':'视频')+'</p>'+filePreview(files)+'</div>',[{label:'关闭',run:H.close},{label:'下载成品',run:()=>download(item)},{label:'加入待发布',primary:true,run:()=>{H.close();H.publish(item.assetIds,item.type,item.name);}}]);
+    H.modal('作品预览','<div class="content-result"><h3>'+esc(item.name)+'</h3><p class="content-slot-help">'+new Date(item.createdAt).toLocaleString('zh-CN')+' · '+(item.type==='gallery'?files.length+' 张图片':'视频')+'</p>'+filePreview(files)+'</div>',[{label:'返回作品库',run:works},{label:'下载成品',run:()=>download(item)},{label:'进入下一步',primary:true,run:()=>nextStep(item)}]);
+  }
+  function nextStep(item){H.close();H.publish(item.assetIds,item.type,item.name);}
+  function works(){
+    clearPreview();H.stop();
+    H.modal('作品库','<div class="template-manager content-works"><div class="template-manager-toolbar"><div class="segmented"><button data-works-filter="all">全部作品</button><button data-works-filter="gallery">图片作品</button><button data-works-filter="video">视频作品</button></div><input id="works-search" type="search" placeholder="搜索作品名称" aria-label="搜索作品名称"></div><p class="content-slot-help">当前项目已生成并保存的成品，可下载到本地，或带入下一步。</p><div id="works-card-list"></div></div>',[{label:'返回编辑',run:H.close}]);
+    document.querySelectorAll('[data-works-filter]').forEach(button=>button.onclick=()=>{worksFilter=button.dataset.worksFilter;renderWorks();});$('works-search').oninput=renderWorks;renderWorks();
+  }
+  function renderWorks(){
+    if(!$('works-card-list'))return;
+    document.querySelectorAll('[data-works-filter]').forEach(button=>button.classList.toggle('active',button.dataset.worksFilter===worksFilter));
+    const query=$('works-search').value.trim().toLocaleLowerCase(),items=(H.data().items||[]).filter(item=>(worksFilter==='all'||item.type===worksFilter)&&item.name.toLocaleLowerCase().includes(query)).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+    $('works-card-list').innerHTML=items.length?'<div class="template-manager-grid">'+items.map((item,index)=>{
+      const asset=item.assetIds.map(H.resolve).find(a=>a?.file),image=item.type==='gallery',art=image&&asset?.url?'<img src="'+esc(asset.url)+'" alt="'+esc(item.name)+'" loading="lazy">':'<svg aria-hidden="true"><use href="#i-'+(image?'image':'video')+'"/></svg>';
+      return '<article class="template-manager-card" data-work-id="'+esc(item.id)+'"><button class="template-manager-art content-work-art" data-work-preview="'+index+'" aria-label="预览 '+esc(item.name)+'">'+art+'</button><strong>'+esc(item.name)+'</strong><small>'+(image?item.assetIds.length+' 张图片':'视频')+' · '+new Date(item.createdAt).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})+'</small><div><button data-work-preview="'+index+'">预览</button><button data-work-download="'+index+'">下载</button><button data-work-next="'+index+'" class="primary">下一步</button></div></article>';
+    }).join('')+'</div>':'<p class="content-empty">'+(query?'没有找到匹配的作品。':'还没有保存的作品。点击「生成作品」，预览后保存并进入下一步。')+'</p>';
+    document.querySelectorAll('[data-work-preview]').forEach(button=>button.onclick=()=>openItem(items[Number(button.dataset.workPreview)]));
+    document.querySelectorAll('[data-work-download]').forEach(button=>button.onclick=()=>download(items[Number(button.dataset.workDownload)]));
+    document.querySelectorAll('[data-work-next]').forEach(button=>button.onclick=()=>nextStep(items[Number(button.dataset.workNext)]));
   }
   function contents(){window.ContentMediaLibrary.open();}
-  window.ContentLibrary={mount,save,manage,create,confirm,contents,openItem,clearPreview};
+  window.ContentLibrary={mount,save,manage,create,confirm,contents,works,openItem,clearPreview};
 })();

@@ -43,7 +43,7 @@
       button.onclick=()=>{if(item.children){expand(true);return;}close(true);item.run?.();};
       button.expand=expand;entry.buttons.push(button);element.append(button);
     }
-    document.body.append(element);position(element,x,y);return entry;
+    const dialog=document.getElementById('dialog');(dialog?.open?dialog:document.body).append(element);position(element,x,y);return entry;
   }
   function show(items,event,focus){
     close();if(!items?.length)return;restoreFocus=focus||event.target.closest('[tabindex]')||document.activeElement;
@@ -62,16 +62,17 @@
     }
     const add=scope.querySelector('[data-import],#content-import');
     if(add)items.push({label:'导入素材…',run:()=>add.click()});
-    for(const [label,id] of [['打开内容库…','content-library-btn'],['模板库…','content-save-template']]){const item=command(label,id,'',scope);if(item)items.push(item);}
+    for(const [label,id] of [['素材库…','content-library-btn'],['作品库…','content-works-btn'],['模板库…','content-save-template']]){const item=command(label,id,'',scope);if(item)items.push(item);}
     if(!items.length)items.push({label:'打开项目列表…',run:()=>document.getElementById('project-list-btn')?.click()});
     return items;
   }
   document.addEventListener('contextmenu',event=>{
     if(event.target.closest('.editing-context-menu')){event.preventDefault();return;}
-    const scope=event.target.closest('.workspace-view');
-    if(!scope||scope.hidden||event.target.closest(editable)||document.getElementById('dialog')?.open){close();return;}
-    event.preventDefault();close();
+    const scope=event.target.closest('.workspace-view,#dialog'),dialog=document.getElementById('dialog');
+    if(!scope||scope.hidden||event.target.closest(editable)||dialog?.open&&scope!==dialog){close();return;}
     const provider=providers.slice().reverse().find(p=>p.matches(scope,event));
+    if(scope===dialog&&!provider){close();return;}
+    event.preventDefault();close();
     const items=provider?provider.items(event):fallback(scope);
     show(items,event,provider?.focus?.());
   });
@@ -90,6 +91,7 @@
     closeChildren(level<0?0:level);buttons[next].focus({preventScroll:true});
   },true);
   document.addEventListener('scroll',event=>{if(!menus.length)return;if(event.target.closest?.('.editing-context-menu'))return;close();},true);
+  document.addEventListener('close',()=>close(),true);
   window.addEventListener('resize',()=>close());window.addEventListener('blur',()=>close());
   window.EditingMenu={register:provider=>providers.push(provider),close,shortcut};
 })();

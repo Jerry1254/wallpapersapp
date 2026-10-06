@@ -47,7 +47,7 @@
     $('content-output-lock').onchange=e=>{work().output.lockAspect=e.target.checked;H.change('调整输出比例锁定');};
     $('content-output-quality').onchange=e=>{work().output.quality=e.target.value;H.change('调整输出画质');};
     $('content-output-bitrate').onchange=e=>{const value=e.target.valueAsNumber;if(!Number.isFinite(value)||value<.5||value>100)return invalid('视频码率请输入 0.5–100 Mbps');work().output.bitrate=value;H.change('调整输出码率');};
-    $('content-export-video').onclick=()=>H.generate();
+    $('content-export-video').onclick=()=>H.exportVideo();
   }
   function invalid(message){H.toast(message);render();}
   function resize(kind,axis,value){
