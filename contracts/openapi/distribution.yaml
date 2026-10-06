@@ -1,0 +1,1209 @@
+{
+  "accounts": {
+    "get": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "列出未移除的社交账号",
+      "security": [
+        {
+          "adminCookie": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/schemas/Account"
+                }
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "operationId": "creatorDistributionAccountsGet"
+    },
+    "post": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "创建社交账号记录",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/schemas/Account"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "platform": {
+                  "type": "string",
+                  "enum": [
+                    "xhs",
+                    "douyin"
+                  ]
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "group": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "runnerId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "platform",
+                "name",
+                "runnerId"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "operationId": "creatorDistributionAccountsPost"
+    }
+  },
+  "account": {
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    ],
+    "put": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "更新账号备注、分组或本机登录状态",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/schemas/Account"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "group": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "ready",
+                    "expired",
+                    "disconnected"
+                  ]
+                },
+                "runnerId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "operationId": "creatorDistributionAccountPut"
+    },
+    "delete": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "移除账号关联并取消排队任务",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/schemas/Ok"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "description": "进行中的任务会阻止移除；保留历史任务。平台 Cookie 不存入后台。",
+      "operationId": "creatorDistributionAccountDelete"
+    }
+  },
+  "media": {
+    "post": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "保存发布素材",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "filename": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "image",
+                      "video"
+                    ]
+                  },
+                  "size": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "extension": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "filename",
+                  "type",
+                  "size",
+                  "extension"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "description": "流式存入 FileStorage。图片支持 JPG/JPEG/PNG/WebP，每张最多 32 MiB；视频支持 MP4/MOV/WebM，最多 2 GiB。这是当前助手能力范围。",
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/octet-stream": {
+            "schema": {
+              "type": "string",
+              "format": "binary"
+            }
+          }
+        }
+      },
+      "parameters": [
+        {
+          "name": "X-Filename",
+          "in": "header",
+          "required": true,
+          "description": "UTF-8 URL 编码的原始文件名",
+          "schema": {
+            "type": "string",
+            "maxLength": 1024
+          }
+        }
+      ],
+      "operationId": "creatorDistributionMediaPost"
+    }
+  },
+  "mediaContent": {
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    ],
+    "get": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "发布助手读取已保存素材",
+      "security": [
+        {
+          "adminCookie": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "素材字节流",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "operationId": "creatorDistributionMediaContentGet"
+    }
+  },
+  "jobs": {
+    "get": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "最近 200 条逐账号发布任务",
+      "security": [
+        {
+          "adminCookie": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/schemas/Job"
+                }
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "operationId": "creatorDistributionJobsGet"
+    }
+  },
+  "batches": {
+    "post": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "创建幂等发布批次",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/schemas/Job"
+                }
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "scheduledAt": {
+                  "type": "string",
+                  "description": "空字符串代表立即排队，否则传 UTC ISO 8601 时间；定时是到点开始上传。"
+                },
+                "entries": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "accountId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "post": {
+                        "$ref": "#/schemas/Post"
+                      }
+                    },
+                    "required": [
+                      "accountId",
+                      "post"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "minItems": 1,
+                  "maxItems": 50
+                }
+              },
+              "required": [
+                "id",
+                "entries"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "description": "同一 id 与同一内容重试返回原任务；同一 id 内容变化返回 409。逐账号保存内容快照。小红书标题最多 20 字、图文最多 18 张；抖音图文标题最多 20 字、35 张，视频标题最多 30 字；正文与话题合计当前支持 1000 字，话题最多 10 个。不静默截断内容。",
+      "operationId": "creatorDistributionBatchesPost"
+    }
+  },
+  "claim": {
+    "post": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "本机助手领取到期任务",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "accountId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "accountName": {
+                        "type": "string"
+                      },
+                      "platform": {
+                        "type": "string",
+                        "enum": [
+                          "xhs",
+                          "douyin"
+                        ]
+                      },
+                      "post": {
+                        "$ref": "#/schemas/Post"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "queued",
+                          "running",
+                          "submitting",
+                          "submitted",
+                          "published",
+                          "failed",
+                          "uncertain",
+                          "needs_input",
+                          "cancelled"
+                        ]
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "dueAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "updatedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "resultUrl": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                      },
+                      "leaseToken": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "files": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "extension": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "extension"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "accountId",
+                      "accountName",
+                      "platform",
+                      "post",
+                      "status",
+                      "message",
+                      "dueAt",
+                      "updatedAt",
+                      "leaseToken",
+                      "files"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "runnerId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": [
+                "runnerId"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "description": "按登录电脑和账号串行领取。2 分钟未心跳的执行中任务置为 uncertain，不自动重试。 定时任务逾期超过 10 分钟转为 needs_input，由用户确认重试。",
+      "operationId": "creatorDistributionClaimPost"
+    }
+  },
+  "report": {
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    ],
+    "post": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "续约并报告发布阶段或结果",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/schemas/Ok"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "leaseToken": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "running",
+                    "submitting",
+                    "submitted",
+                    "failed",
+                    "uncertain",
+                    "needs_input"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                "resultUrl": {
+                  "type": "string",
+                  "maxLength": 1000
+                }
+              },
+              "required": [
+                "leaseToken",
+                "status",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "description": "发布前先持久化 submitting。平台跳转只标记 submitted，不等同审核通过。租约失效返回 409，助手必须停止。",
+      "operationId": "creatorDistributionReportPost"
+    }
+  },
+  "action": {
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    ],
+    "post": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "取消、重试或人工核对任务",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/schemas/Ok"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "cancel",
+                    "retry",
+                    "resolve"
+                  ]
+                },
+                "result": {
+                  "type": "string",
+                  "enum": [
+                    "published",
+                    "failed"
+                  ]
+                }
+              },
+              "required": [
+                "action"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "description": "queued 可取消；failed/needs_input 可重试；submitted/uncertain 只能核对后标记 published 或 failed。",
+      "operationId": "creatorDistributionActionPost"
+    }
+  },
+  "metrics": {
+    "get": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "各账号最近一次累计指标快照",
+      "security": [
+        {
+          "adminCookie": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "accountId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "metrics": {
+                      "$ref": "#/schemas/Metrics"
+                    },
+                    "sourceUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "collectedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "accountId",
+                    "metrics",
+                    "sourceUrl",
+                    "collectedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "operationId": "creatorDistributionMetricsGet"
+    }
+  },
+  "accountMetrics": {
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    ],
+    "put": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "保存平台累计指标采集快照",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/schemas/Ok"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "metrics": {
+                  "$ref": "#/schemas/Metrics"
+                },
+                "sourceUrl": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              },
+              "required": [
+                "metrics",
+                "sourceUrl"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "description": "只接收可明确读取的累计整数；缺失指标省略，不补零，不混入区间值。数据来源必须是账号对应平台创作者中心。",
+      "operationId": "creatorDistributionAccountMetricsPut"
+    }
+  },
+  "schemas": {
+    "Account": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "platform": {
+          "type": "string",
+          "enum": [
+            "xhs",
+            "douyin"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "group": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "runnerId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "expired",
+            "disconnected"
+          ]
+        },
+        "checkedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        }
+      },
+      "required": [
+        "id",
+        "platform",
+        "name",
+        "group",
+        "runnerId",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "Post": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "body": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 50
+          },
+          "maxItems": 10
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "image",
+            "video"
+          ]
+        },
+        "mediaIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "minItems": 1,
+          "maxItems": 35
+        },
+        "coverId": {
+          "type": "string"
+        },
+        "landscapeCoverId": {
+          "type": "string"
+        },
+        "declaration": {
+          "type": "string",
+          "enum": [
+            "",
+            "内容由AI生成",
+            "内容为个人观点或见解"
+          ]
+        }
+      },
+      "required": [
+        "title",
+        "body",
+        "tags",
+        "type",
+        "mediaIds"
+      ],
+      "additionalProperties": false
+    },
+    "Job": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "accountId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "accountName": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string",
+          "enum": [
+            "xhs",
+            "douyin"
+          ]
+        },
+        "post": {
+          "$ref": "#/schemas/Post"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "running",
+            "submitting",
+            "submitted",
+            "published",
+            "failed",
+            "uncertain",
+            "needs_input",
+            "cancelled"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "dueAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "resultUrl": {
+          "type": "string",
+          "format": "uri",
+          "nullable": true
+        }
+      },
+      "required": [
+        "id",
+        "accountId",
+        "accountName",
+        "platform",
+        "post",
+        "status",
+        "message",
+        "dueAt",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    },
+    "Metrics": {
+      "type": "object",
+      "properties": {
+        "followers": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 0
+        },
+        "plays": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 0
+        },
+        "likes": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 0
+        },
+        "favorites": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 0
+        },
+        "comments": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "Ok": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

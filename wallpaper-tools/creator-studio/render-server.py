@@ -22,6 +22,7 @@ import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 import zipfile
+from publishing.bridge import bridge as publishing_bridge
 
 
 ROOT = Path(__file__).resolve().parent
@@ -433,7 +434,17 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def do_PUT(self):
+        if not publishing_bridge.handle(self):
+            self.error('接口不存在', 404)
+
+    def do_DELETE(self):
+        if not publishing_bridge.handle(self):
+            self.error('接口不存在', 404)
+
     def do_GET(self):
+        if publishing_bridge.handle(self):
+            return
         if urlsplit(self.path).path != '/creator-studio/api/fonts':
             return super().do_GET()
         if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}':
@@ -449,6 +460,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.error('系统字体暂时无法读取', 503)
 
     def do_POST(self):
+        if publishing_bridge.handle(self):
+            return
         endpoint = urlsplit(self.path).path
         if endpoint not in ['/creator-studio/api/render', '/creator-studio/api/render-content']:
             return self.error('接口不存在', 404)

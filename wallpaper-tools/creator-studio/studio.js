@@ -1,4 +1,4 @@
-/* Interactive prototype with local timeline encoding; publishing adapters remain deferred. */
+/* Creator workbench with local timeline encoding and self-hosted distribution. */
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
@@ -16,16 +16,7 @@
     {id:'demo-image',name:'城市飞行 · 静态图',type:'image',demo:true,width:2048,height:2048},
     {id:'demo-4d',name:'城市飞行 · 4D 分层',type:'4d',demo:true,width:2048,height:2048}
   ];
-  const accounts = [
-    {id:'x1',name:'倾境 · 每日壁纸',platform:'xhs',category:'simple'},
-    {id:'x2',name:'倾境 · 一念禅意',platform:'xhs',category:'zen'},
-    {id:'x3',name:'倾境 · 古风画卷',platform:'xhs',category:'ancient'},
-    {id:'x4',name:'倾境 · 卡通小宇宙',platform:'xhs',category:'cartoon'},
-    {id:'d1',name:'倾境 · 动态壁纸',platform:'douyin',category:'simple'},
-    {id:'d2',name:'倾境 · 禅意时刻',platform:'douyin',category:'zen'},
-    {id:'d3',name:'倾境 · 国风意境',platform:'douyin',category:'ancient'},
-    {id:'d4',name:'倾境 · 卡通星球',platform:'douyin',category:'cartoon'}
-  ];
+  const accounts = [];
   const copyPresets = {
     simple: {title:'把城市的风，留在你的屏幕里',body:'今天的屏幕，换一点不一样的视角。\n\n光影穿过城市，定格在刚刚好的那一秒。\n静态与动态，都有各自的好看。\n\n你更喜欢哪一种？',tags:'#壁纸 #动态壁纸 #手机壁纸 #今日分享'},
     zen: {title:'一方屏幕，一刻清静',body:'把喧闹留在屏幕之外。\n\n在光影缓缓流动的片刻，给自己一点安静。\n愿每次点亮手机，都能找回片刻平和。',tags:'#禅意壁纸 #治愈系 #动态壁纸 #静心'},
@@ -33,7 +24,7 @@
     cartoon: {title:'今天的快乐，从换壁纸开始',body:'给屏幕换上新的小宇宙！\n\n静态耐看，动起来又多了一点惊喜。\n挑了最喜欢的一小段，连解锁都变得有意思。',tags:'#卡通壁纸 #快乐日常 #手机壁纸 #动态壁纸'}
   };
   const newPost = social => ({...copyPresets.simple,title:social==='douyin'?'这一秒，让屏幕动起来':copyPresets.simple.title,type:social==='douyin'?'video':'image',assetIds:[social==='douyin'?'post-video':'post-image'],coverTitle:false,style:'simple'});
-  const state = {workspace:'wallpaper',assets:demoAssets(),selectedId:'demo-video',filter:'all',product:'dynamic',platform:'harmony',projects:null,sourcePreview:false,time:0,playing:false,loop:true,name:'城市飞行',social:'xhs',postAssets:[{...demoAssets()[1],id:'post-image'},{...demoAssets()[0],id:'post-video'}],posts:{xhs:newPost('xhs'),douyin:newPost('douyin')},accounts,selectedAccounts:new Set(['x1','d1']),timing:'now',scheduledAt:'',published:[]};
+  const state = {workspace:'wallpaper',assets:demoAssets(),selectedId:'demo-video',filter:'all',product:'dynamic',platform:'harmony',projects:null,sourcePreview:false,time:0,playing:false,loop:true,name:'城市飞行',social:'xhs',postAssets:[{...demoAssets()[1],id:'post-image'},{...demoAssets()[0],id:'post-video'}],posts:{xhs:newPost('xhs'),douyin:newPost('douyin')},accounts,selectedAccounts:new Set(),timing:'now',scheduledAt:'',published:[]};
   let toastTimer, lastTimestamp=0, animationFrame, objectUrls=[],devicePickerOpen=false,resourceExportController=null;
   state.staticEditor=Devices.fresh();state.packageView=Devices.fresh();state.resources={static:[],fourDId:null};state.thumbnail=null;state.productRecord=null;state.content=window.ContentCore.normalize(null);
   let packageFrame,packageScene=null,packageSceneAssetId=null,packageEpoch=0,packageTarget={x:0,y:0},packageMotion={x:0,y:0};
@@ -65,7 +56,7 @@
   let projectBrowserExpanded=false;
   const clone=value=>JSON.parse(JSON.stringify(value));
   function registerMedia(asset){mediaRegistry.set(asset.id,asset);dirtyMedia.set(asset.id,asset);}
-  function captureProject(){return {name:state.name,staticEditor:clone(state.staticEditor),packageView:clone(state.packageView),resources:clone(state.resources),thumbnail:clone(state.thumbnail),productRecord:clone(state.productRecord),content:clone(state.content),assetIds:state.assets.map(a=>a.id),postAssetIds:state.postAssets.map(a=>a.id),versions:Object.fromEntries(Object.entries(profiles()).map(([key,p])=>[key,Core.snapshot(p)])),posts:clone(state.posts),accounts:clone(state.accounts),selectedAccounts:[...state.selectedAccounts],timing:state.timing,scheduledAt:state.scheduledAt,view:{workspace:state.workspace,platform:state.platform,social:state.social,selectedId:state.selectedId,sourcePreview:state.sourcePreview,product:state.product}};}
+  function captureProject(){return {name:state.name,staticEditor:clone(state.staticEditor),packageView:clone(state.packageView),resources:clone(state.resources),thumbnail:clone(state.thumbnail),productRecord:clone(state.productRecord),content:clone(state.content),assetIds:state.assets.map(a=>a.id),postAssetIds:state.postAssets.map(a=>a.id),versions:Object.fromEntries(Object.entries(profiles()).map(([key,p])=>[key,Core.snapshot(p)])),posts:clone(state.posts),selectedAccounts:[...state.selectedAccounts],timing:state.timing,scheduledAt:state.scheduledAt,view:{workspace:state.workspace,platform:state.platform,social:state.social,selectedId:state.selectedId,sourcePreview:state.sourcePreview,product:state.product}};}
   function releaseMedia(registry){const urls=new Set([...registry.values()].map(a=>a.url).filter(Boolean));urls.forEach(url=>URL.revokeObjectURL(url));objectUrls=objectUrls.filter(url=>!urls.has(url));}
   function serializedMedia(asset){const {url,...data}=asset;return data;}
   function saveStatus(text,error=false){$('autosave-status').textContent=text;$('autosave-status').classList.toggle('save-error',error);$('autosave-status').title=error?'自动保存失败，点击重试':'项目和素材自动保存在当前浏览器';}
@@ -87,7 +78,7 @@
     pause();Content.reset();if(resetTimeline)timelineViews={android:0,harmony:0,ios:0};state.name=data.name;state.assets=(data.assetIds||[]).map(id=>mediaRegistry.get(id)).filter(Boolean);state.postAssets=(data.postAssetIds||[]).map(id=>mediaRegistry.get(id)).filter(Boolean);state.content=window.ContentCore.normalize(data.content);
     state.projects=Object.fromEntries(['android','harmony','ios'].map(key=>[key,Core.normalize(data.versions?.[key]||{clips:[]},5,key==='ios'?24:60,id=>mediaRegistry.get(id)?.duration||0)]));
     state.staticEditor=Devices.normalize(data.staticEditor);state.packageView=Devices.normalize(data.packageView);state.resources=clone(data.resources||{static:[],fourDId:null});state.thumbnail=clone(data.thumbnail||null);state.productRecord=clone(data.productRecord||null);
-    state.posts=clone(data.posts);state.accounts=clone(data.accounts||accounts);state.selectedAccounts=new Set(data.selectedAccounts||[]);state.timing=data.timing||'now';state.scheduledAt=data.scheduledAt||'';
+    state.posts=clone(data.posts);state.selectedAccounts=new Set(data.selectedAccounts||[]);state.timing=data.timing||'now';state.scheduledAt=data.scheduledAt||'';
     const view=data.view||{};state.platform=platformNames[view.platform]?view.platform:'harmony';state.social=socialNames[view.social]?view.social:'xhs';state.product=view.product||'dynamic';state.sourcePreview=!!view.sourcePreview;state.selectedId=assetById(view.selectedId)?.id||state.assets[0]?.id;state.time=profile().cursor;state.workspace=view.workspace||'wallpaper';
     if(!data.staticEditor&&state.product==='static'){const asset=selectedAsset();if(asset&&asset.type!=='4d'){state.staticEditor.assetId=asset.id;const old=profile(),match=Devices.devices.flatMap(d=>d.screens.map(s=>({d,s}))).find(v=>v.s.width===old.width&&v.s.height===old.height);if(match)Devices.choose(state.staticEditor,match.d.id,match.s.id);Object.assign(Devices.crop(state.staticEditor),{width:old.width,height:old.height,scale:old.scale,x:old.x,y:old.y});state.staticEditor.times[asset.id]=old.coverTime||0;}}
     $('publish-timing').value=state.timing;$('publish-date').value=state.scheduledAt;$('publish-date').hidden=state.timing!=='scheduled';renderWallpaper();renderPublish();switchWorkspace(state.workspace);renderHistory();
@@ -107,7 +98,7 @@
     const previousMedia=mediaRegistry;loadingProject=true;mediaRegistry=new Map();dirtyMedia=new Map();state.assets=demoAssets();state.postAssets=example?[{...demoAssets()[1],id:'post-image'},{...demoAssets()[0],id:'post-video'}]:[];
     for(const a of [...state.assets,...state.postAssets])registerMedia(a);
     stopPackagePreview();PackagePreview.clear();Content.reset();state.content=window.ContentCore.normalize(null);state.staticEditor=Devices.fresh();state.packageView=Devices.fresh();state.resources={static:[],fourDId:null};state.thumbnail=null;state.productRecord=null;state.projects=freshProfiles();if(!example)for(const p of Object.values(state.projects)){p.clips=[];p.selectedClipId=null;p.cursor=0;}
-    state.name=name.trim()||'未命名项目';state.selectedId='demo-video';state.product='dynamic';state.sourcePreview=false;state.platform='harmony';state.social='xhs';state.workspace='wallpaper';state.time=0;state.posts={xhs:newPost('xhs'),douyin:newPost('douyin')};if(!example)for(const p of Object.values(state.posts))p.assetIds=[];state.selectedAccounts=new Set(['x1','d1']);state.timing='now';state.scheduledAt='';
+    state.name=name.trim()||'未命名项目';state.selectedId='demo-video';state.product='dynamic';state.sourcePreview=false;state.platform='harmony';state.social='xhs';state.workspace='wallpaper';state.time=0;state.posts={xhs:newPost('xhs'),douyin:newPost('douyin')};if(!example)for(const p of Object.values(state.posts))p.assetIds=[];state.selectedAccounts=new Set();state.timing='now';state.scheduledAt='';
     const now=new Date().toISOString();activeProject={id:crypto.randomUUID(),createdAt:now,updatedAt:now};actionHistory=Hist.create(captureProject(),example?'城市飞行示例':'新建项目');projectReady=true;loadingProject=false;$('history-btn').disabled=$('export-btn').disabled=false;applyProjectData(captureProject(),true);releaseMedia(previousMedia);closeModal();await flushSave();
   }
   function showNewProject(){
@@ -402,18 +393,15 @@
     const v=$('publish-media').querySelector('video');if(v){v.controls=true;v.style.pointerEvents='auto';v.classList.remove('uploaded-video');v.style.cssText='width:100%;height:100%;object-fit:cover;pointer-events:auto';}
     if(asset?.demo&&post.type==='video')$('post-page-indicator').textContent='视频示意 · 5 s';
   }
-  function renderAccounts(){
-    $('account-list').innerHTML=state.accounts.map(a=>`<label class="account-row"><span class="account-avatar ${a.category}">${categories[a.category][0]}</span><span class="account-copy"><strong>${esc(a.name)}</strong><span><em class="platform-name ${a.platform}">${socialNames[a.platform]}</em> · ${categories[a.category]}</span></span><input type="checkbox" aria-label="选择${esc(a.name)}" data-account="${a.id}" ${state.selectedAccounts.has(a.id)?'checked':''}></label>`).join('');
-    $('account-count').textContent=state.accounts.length;$$('[data-account]').forEach(input=>input.onchange=()=>{input.checked?state.selectedAccounts.add(input.dataset.account):state.selectedAccounts.delete(input.dataset.account);syncAccountSummary();syncPostPreview();});syncAccountSummary();
-  }
-  function syncAccountSummary(){const selected=state.accounts.filter(a=>state.selectedAccounts.has(a.id));$('selected-count').textContent=`已选 ${selected.length} 个账号`;$('platform-summary').textContent=`小红书 ${selected.filter(a=>a.platform==='xhs').length} · 抖音 ${selected.filter(a=>a.platform==='douyin').length}`;$('publish-preview-btn').disabled=!selected.length;}
+  function renderAccounts(){window.Distribution?.renderAccounts();}
+  function syncAccountSummary(){window.Distribution?.renderAccounts();}
   function renderPublish() {
     const post=currentPost();$$('#social-tabs button').forEach(b=>{b.classList.toggle('active',b.dataset.social===state.social);b.setAttribute('aria-pressed',b.dataset.social===state.social);});$$('#post-type-tabs button').forEach(b=>b.classList.toggle('active',b.dataset.postType===post.type));
-    $('editing-platform').textContent=socialNames[state.social];$('post-title').value=post.title;$('post-body').value=post.body;$('post-tags').value=post.tags;$('copy-style').value=post.style;$('cover-title-toggle').checked=post.coverTitle;renderPublishAssets();renderPostMedia();syncPostPreview();renderAccounts();
+    $('editing-platform').textContent=socialNames[state.social];$('post-title').value=post.title;$('post-body').value=post.body;$('post-tags').value=post.tags;$('copy-style').value=post.style;$('cover-title-toggle').checked=post.coverTitle;renderPublishAssets();renderPostMedia();syncPostPreview();renderAccounts();window.Distribution?.fields();
   }
   function switchWorkspace(name) {
     pause();Content.stop();state.workspace=name;$('wallpaper-workspace').hidden=name!=='wallpaper';$('content-workspace').hidden=name!=='create';$('publish-workspace').hidden=name!=='publish';$$('[data-workspace]').forEach(b=>{b.classList.toggle('active',b.dataset.workspace===name);b.setAttribute('aria-pressed',b.dataset.workspace===name);});$('export-btn').querySelector('span').textContent=name==='wallpaper'?'创建壁纸':name==='create'?'生成作品':'导出内容';$('status-middle').textContent=name==='wallpaper'?'素材导入 → 资源整理 → 创建壁纸':name==='create'?'项目素材 → 套用模板 → 生成成品':'内容成品 → 选择账号 → 发布清单';
-    setStatus(name==='wallpaper'?`${selectedAsset()?.name||state.name} · ${state.product==='static'?'静态裁剪':state.product==='4d'?'4D 只读预览':`${platformNames[state.platform]}工程`}`:name==='create'?'内容创作 · 单屏样机 / 多轨模板':'内容发布 · 示例账号');if(name==='publish')renderPublish();else if(name==='create')Content.enter();else renderWallpaper();
+    setStatus(name==='wallpaper'?`${selectedAsset()?.name||state.name} · ${state.product==='static'?'静态裁剪':state.product==='4d'?'4D 只读预览':`${platformNames[state.platform]}工程`}`:name==='create'?'内容创作 · 单屏样机 / 多轨模板':'内容发布 · 抖音 / 小红书');if(name==='publish'){renderPublish();window.Distribution?.enter();}else if(name==='create')Content.enter();else renderWallpaper();
   }
   async function readAsset(file) {
     const ext=file.name.split('.').pop().toLowerCase();let type=['png','jpg','jpeg','webp'].includes(ext)?'image':['mp4','mov','webm'].includes(ext)?'video':ext==='zip'?'4d':null;
@@ -473,21 +461,11 @@
   function safeName(){return (state.name||'倾境壁纸').replace(/[\\/:*?"<>|]/g,'_').slice(0,60);}
   function openExport(){if(state.workspace==='publish')openContentExport();else if(state.workspace==='create')Content.generate();else openCreateWallpaper();}
 
-  function postBundle(){return {prototype:true,posts:state.posts,accounts:state.accounts.filter(a=>state.selectedAccounts.has(a.id)),timing:state.timing,scheduledAt:state.scheduledAt,assets:state.postAssets.map(a=>({id:a.id,name:a.name,type:a.type})),note:'这是内容方案与模拟账号清单，不是已发布结果。'};}
+  function postBundle(){return {posts:state.posts,accounts:state.accounts.filter(a=>state.selectedAccounts.has(a.id)),timing:state.timing,scheduledAt:state.scheduledAt,assets:state.postAssets.map(a=>({id:a.id,name:a.name,type:a.type})),note:'这是待发布内容方案，实际结果请查看发布任务。'};}
   function downloadCopy(){const post=currentPost();download(`${socialNames[state.social]}-文案.txt`,`${post.title}\n\n${post.body}\n\n${post.tags}`,'text/plain;charset=utf-8');toast('已导出当前平台文案');}
-  function openContentExport(){modal('导出推广内容',`<p class="dialog-intro">小红书与抖音的文案分别保留，可在你选择的发布工具中继续使用。</p><div class="export-row">${icon('text')}<div><strong>当前平台文案</strong><small>${socialNames[state.social]} · 标题、正文和话题</small></div><span>TXT</span></div><div class="export-row">${icon('users')}<div><strong>完整内容方案</strong><small>两平台文案、素材清单、选定账号与发布时间</small></div><span>JSON</span></div><p class="dialog-note">示例账号尚未连接。原型不向社交平台发送内容。</p>`,[{label:'返回编辑',run:closeModal},{label:'导出内容方案',run:()=>download('倾境-推广内容方案.json',JSON.stringify(postBundle(),null,2))},{label:'导出文案',primary:true,run:downloadCopy}]);}
-  function openPublishPreview() {
-    const selected=state.accounts.filter(a=>state.selectedAccounts.has(a.id));if(!selected.length){toast('请至少选择一个发布账号');return;}
-    const missing=selected.find(a=>!state.posts[a.platform].title.trim()||!state.posts[a.platform].assetIds.length);if(missing){toast(`请先完善${socialNames[missing.platform]}的标题与素材`);return;}
-    if(state.timing==='scheduled'&&(!state.scheduledAt||new Date(state.scheduledAt).getTime()<=Date.now())){toast('请选择未来的发布时间');$('publish-date').focus();return;}
-    const rows=selected.map(a=>`<div class="publish-result-row"><span class="account-avatar ${a.category}">${categories[a.category][0]}</span><div><strong>${esc(a.name)}</strong><small>${socialNames[a.platform]} · ${state.posts[a.platform].type==='video'?'视频':'图文'} · ${esc(state.posts[a.platform].title)}</small></div><span class="count">模拟任务</span></div>`).join('');
-    modal('发布清单 · 演示',`<p class="dialog-intro">共 ${selected.length} 个账号 · ${state.timing==='now'?'立即发布':esc(state.scheduledAt.replace('T',' '))}</p>${rows}<p class="dialog-note">账号与发布结果均为原型演示。确认后只生成本地演示记录，不会发布到小红书或抖音。</p>`,[{label:'返回修改',run:closeModal},{label:'确认演示',primary:true,run:()=>{state.published.push({at:new Date().toISOString(),accounts:selected.map(a=>a.name)});modal('发布流程演示完成',`<p class="dialog-intro">已模拟创建 ${selected.length} 条发布任务。</p>${selected.map(a=>`<div class="publish-result-row">${icon('check')}<div><strong>${esc(a.name)}</strong><small>${socialNames[a.platform]} · 演示记录，未向平台发送</small></div></div>`).join('')}<p class="dialog-note">正式版会在这里显示真实的发布状态、作品链接和失败重试入口。</p>`,[{label:'完成',primary:true,run:closeModal}]);}}]);
-  }
-  function manageAccounts(){
-    modal('账号管理 · 原型',`<p class="dialog-intro">先确认账号数量与垂直分类。当前都是演示账号。</p><div id="account-manage-list">${state.accounts.map(a=>`<div class="account-manage-row"><span class="platform-name ${a.platform}">${socialNames[a.platform]}</span><span>${esc(a.name)}</span><select aria-label="${esc(a.name)}的分类" data-category-account="${a.id}">${Object.entries(categories).map(([key,label])=>`<option value="${key}"${key===a.category?' selected':''}>${label}</option>`).join('')}</select></div>`).join('')}</div><form id="add-account-form" class="add-account-form"><input id="new-account-name" aria-label="新账号名称" maxlength="24" placeholder="新账号名称" required><select id="new-account-platform" aria-label="新账号平台"><option value="xhs">小红书</option><option value="douyin">抖音</option></select><button type="submit">添加</button></form><p class="dialog-note">正式账号登录与授权在选定分发工具后接入。</p>`,[{label:'完成',primary:true,run:()=>{renderAccounts();syncPostPreview();closeModal();}}]);
-    $$('[data-category-account]').forEach(select=>select.onchange=()=>{state.accounts.find(a=>a.id===select.dataset.categoryAccount).category=select.value;commitAction('调整账号分类');});
-    $('add-account-form').onsubmit=event=>{event.preventDefault();const name=$('new-account-name').value.trim();if(!name)return;state.accounts.push({id:`account-${Date.now()}`,name,platform:$('new-account-platform').value,category:'simple'});commitAction('添加示例账号');manageAccounts();renderAccounts();toast('已添加演示账号');};
-  }
+  function openContentExport(){modal('导出推广内容',`<p class="dialog-intro">小红书与抖音的文案分别保留，可在你选择的发布工具中继续使用。</p><div class="export-row">${icon('text')}<div><strong>当前平台文案</strong><small>${socialNames[state.social]} · 标题、正文和话题</small></div><span>TXT</span></div><div class="export-row">${icon('users')}<div><strong>完整内容方案</strong><small>两平台文案、素材清单、选定账号与发布时间</small></div><span>JSON</span></div><p class="dialog-note">此处导出文案和方案。发布到平台请使用“预览发布清单”。</p>`,[{label:'返回编辑',run:closeModal},{label:'导出内容方案',run:()=>download('倾境-推广内容方案.json',JSON.stringify(postBundle(),null,2))},{label:'导出文案',primary:true,run:downloadCopy}]);}
+  function openPublishPreview(){window.Distribution.preview();}
+  function manageAccounts(){window.Distribution.manage();}
   function editingCrop(){return state.product==='static'?Devices.crop(state.staticEditor):profile();}
   function currentView(){return state.product==='static'?state.staticEditor:state.packageView;}
   function cropKey(){const e=state.staticEditor;return Devices.key(e.assetId,e.deviceId,e.screenId);}
@@ -878,5 +856,6 @@
     const row=event.target.closest('[data-asset-id],[data-download-resource]'),id=row.dataset.assetId||row.dataset.downloadResource,asset=mediaRegistry.get(id);
     return [{label:'导出到本地',disabled:!asset,run:()=>exportAssetToLocal(asset)}];
   }});
+  window.Distribution.init({state:()=>state,save:scheduleSave,render:renderPublish,preview:syncPostPreview,modal,close:closeModal,toast});
   bindEvents();bindWorkbench();bindProjectPersistence();renderWallpaper();renderPublish();initializeProjects();
 })();
