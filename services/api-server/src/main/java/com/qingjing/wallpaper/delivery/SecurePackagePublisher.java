@@ -29,24 +29,31 @@ public class SecurePackagePublisher {
     private final ObjectMapper mapper;
     private final ParallaxConfigEnvelopeValidator parallaxConfigs;
     private final ParallaxStorageCleanup cleanup;
+    private final com.qingjing.wallpaper.delivery.infrastructure.PreviewWatermarkRenderer watermark;
     private final Semaphore slots = new Semaphore(1);
     public SecurePackagePublisher(JdbcTemplate jdbc, FileStorage storage, AssetContentValidator assetValidator,
             PackageMediaInspector media, PackageSigningKeys signing, SecurityCrypto crypto, ObjectMapper mapper,
-            ParallaxConfigEnvelopeValidator parallaxConfigs,ParallaxStorageCleanup cleanup) {
+            ParallaxConfigEnvelopeValidator parallaxConfigs,ParallaxStorageCleanup cleanup,
+            com.qingjing.wallpaper.delivery.infrastructure.PreviewWatermarkRenderer watermark) {
         this.jdbc=jdbc; this.storage=storage; this.assetValidator=assetValidator; this.media=media;
-        this.signing=signing; this.crypto=crypto; this.mapper=mapper;this.parallaxConfigs=parallaxConfigs;this.cleanup=cleanup;
+        this.signing=signing; this.crypto=crypto; this.mapper=mapper;this.parallaxConfigs=parallaxConfigs;this.cleanup=cleanup;this.watermark=watermark;
     }
     @Transactional
     public void build(long versionId) {
         if (!slots.tryAcquire()) throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "RATE_LIMITED", "Another resource package is being prepared");
-        try { buildLocked(versionId, false); } finally { slots.release(); }
+        try { buildLocked(versionId, false, null, 0); } finally { slots.release(); }
     }
     @Transactional
     public void prepareForPublication(long versionId) {
         if (!slots.tryAcquire()) throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "RATE_LIMITED", "Another resource package is being prepared");
-        try { buildLocked(versionId, true); } finally { slots.release(); }
+        try { buildLocked(versionId, true, null, 0); } finally { slots.release(); }
     }
-    private void buildLocked(long versionId, boolean skipUnsupported) {
+    @Transactional
+    public void rebuildPreview(long versionId, boolean watermarked, long revision) {
+        if (!slots.tryAcquire()) throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "RATE_LIMITED", "Another resource package is being prepared");
+        try { buildLocked(versionId, true, watermarked, revision); } finally { slots.release(); }
+    }
+    private void buildLocked(long versionId, boolean skipUnsupported, Boolean watermarked, long revision) {
         var rows = jdbc.query("""
                 SELECT r.id,r.version_no,r.status,v.id AS variant_id,v.wallpaper_id,v.platform,v.resource_type
                 FROM resource_version r JOIN wallpaper_variant v ON v.id=r.variant_id WHERE r.id=? FOR UPDATE
@@ -68,7 +75,7 @@ public class SecurePackagePublisher {
                 rs.getString("plaintext_sha256"),rs.getString("manifest_sha256"),rs.getString("content_key_ciphertext")),versionId)
                 .stream().findFirst().orElse(null);
         if (!version.status().equals("READY") && !version.status().equals("PUBLISHED")) throw new ApiException(HttpStatus.CONFLICT,"STATE_CONFLICT","Only a ready or published version may be prepared");
-        if (skipUnsupported && existingPreview!=null && fullExists) return;
+        if (watermarked==null && fullExists) return;
         signing.privateKey();
         var bindings = jdbc.query("""
                     SELECT b.role,b.ordinal,a.storage_key,a.mime_type,a.sha256,a.size_bytes,a.validation_status,a.deleted_at
@@ -104,14 +111,18 @@ public class SecurePackagePublisher {
         }
         if (version.type().equals("LAYER_PARALLAX")) validateParallax(parallax,images);
         var identity=new SecurePackageCodec.Identity(version.wallpaperId(),version.variantId(),version.number(),version.type());
-        if (fullExists && existingPreview!=null && previewMatchesSource(version.id(),identity,existingPreview,payloads)) return;
-        if (existingPreview!=null) {
+        var previewSource=watermarked==null?null:previewPayloads(version.type(),payloads,watermarked);
+        if(watermarked!=null) {
+            Long currentRevision=jdbc.queryForObject("SELECT requested_revision FROM wallpaper_preview_state WHERE wallpaper_id=? FOR SHARE",Long.class,version.wallpaperId());
+            if(currentRevision==null || currentRevision!=revision) throw new ApiException(HttpStatus.CONFLICT,"PREVIEW_SUPERSEDED","Preview generation was superseded");
+        }
+        if (watermarked!=null && existingPreview!=null) {
             jdbc.update("DELETE FROM preview_resource_package WHERE resource_version_id=?",version.id());
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override public void afterCommit() { cleanup.delete(existingPreview.object()); }
             });
         }
-        if (!fullExists) {
+        if (watermarked==null && !fullExists) {
         SecurePackageCodec.Encoded encoded;
         try { encoded=new SecurePackageCodec(mapper).encode(identity,payloads,signing.keyId(),signing.privateKey()); }
         catch (IllegalArgumentException exception) { throw invalid(); }
@@ -134,9 +145,9 @@ public class SecurePackagePublisher {
             jdbc.update("UPDATE resource_version SET manifest_sha256=?,lock_version=lock_version+1 WHERE id=?",encoded.manifestSha256(),version.id());
         } finally { Arrays.fill(encoded.contentKey(),(byte)0); }
         }
-        buildPreview(version,identity,payloads);
+        if(watermarked!=null) buildPreview(version,identity,previewSource,revision);
     }
-    private void buildPreview(Version version,SecurePackageCodec.Identity identity,List<SecurePackageCodec.Payload> source) {
+    private void buildPreview(Version version,SecurePackageCodec.Identity identity,List<SecurePackageCodec.Payload> source,long revision) {
         var encoded=new SecurePackageCodec(mapper).encodePreview(identity,source,signing.keyId(),signing.privateKey());
         try {
             StagedObject staged=storage.stage(new ByteArrayInputStream(encoded.encrypted()),68157440);
@@ -147,67 +158,22 @@ public class SecurePackagePublisher {
             });
             jdbc.update("""
                     INSERT INTO preview_resource_package
-                    (resource_version_id,storage_key,size_bytes,plaintext_size_bytes,encrypted_sha256,plaintext_sha256,manifest_sha256,signing_key_id,content_key_ciphertext)
-                    VALUES (?,?,?,?,?,?,?,?,?)
-                    """,version.id(),stored.storageKey().value(),stored.sizeBytes(),stored.sizeBytes()-36,encoded.encryptedSha256(),encoded.plaintextSha256(),
+                    (preview_revision,resource_version_id,storage_key,size_bytes,plaintext_size_bytes,encrypted_sha256,plaintext_sha256,manifest_sha256,signing_key_id,content_key_ciphertext)
+                    VALUES (?,?,?,?,?,?,?,?,?,?)
+                    """,revision,version.id(),stored.storageKey().value(),stored.sizeBytes(),stored.sizeBytes()-36,encoded.encryptedSha256(),encoded.plaintextSha256(),
                     encoded.manifestSha256(),encoded.signingKeyId(),crypto.encrypt("preview-package-key-v1:"+version.id(),encoded.contentKey()));
         } finally { Arrays.fill(encoded.contentKey(),(byte)0); }
     }
-    private boolean previewMatchesSource(long versionId,SecurePackageCodec.Identity identity,Preview preview,List<SecurePackageCodec.Payload> source) {
-        byte[] key=null;
-        try {
-            if(preview.object().sizeBytes()<21 || preview.object().sizeBytes()>68157440)return false;
-            byte[] encrypted;
-            try(var content=storage.open(preview.object().storageKey())) {
-                if(content.sizeBytes()!=preview.object().sizeBytes())return false;
-                encrypted=content.inputStream().readNBytes((int)preview.object().sizeBytes()+1);
-            }
-            if(encrypted.length!=preview.object().sizeBytes() || !SecurePackageCodec.sha256(encrypted).equals(preview.object().sha256()) ||
-                    !Arrays.equals(Arrays.copyOfRange(encrypted,0,8),"QJPV0001".getBytes(java.nio.charset.StandardCharsets.US_ASCII))) return false;
-            key=crypto.decrypt("preview-package-key-v1:"+versionId,preview.encryptedKey());
-            var cipher=javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(javax.crypto.Cipher.DECRYPT_MODE,new javax.crypto.spec.SecretKeySpec(key,"AES"),
-                    new javax.crypto.spec.GCMParameterSpec(128,Arrays.copyOfRange(encrypted,8,20)));
-            cipher.updateAAD(SecurePackageCodec.previewAad(identity));
-            byte[] plain=cipher.doFinal(Arrays.copyOfRange(encrypted,20,encrypted.length));
-            if(!SecurePackageCodec.sha256(plain).equals(preview.plaintextSha256()))return false;
-
-            try(var zip=new java.util.zip.ZipInputStream(new ByteArrayInputStream(plain),java.nio.charset.StandardCharsets.UTF_8)) {
-                var manifestEntry=zip.getNextEntry();
-                if(manifestEntry==null || !manifestEntry.getName().equals("manifest.json"))return false;
-                byte[] manifest=zip.readNBytes(65537);
-                if(manifest.length>65536 || !SecurePackageCodec.sha256(manifest).equals(preview.manifestSha256()))return false;
-                var root=mapper.readTree(manifest);
-                if(root.path("formatVersion").asInt()!=3 || !root.path("purpose").asText().equals("APP_PREVIEW") ||
-                        !root.path("wallpaperId").asText().equals(Long.toString(identity.wallpaperId())) ||
-                        !root.path("variantId").asText().equals(Long.toString(identity.variantId())) ||
-                        root.path("versionNo").asInt()!=identity.versionNo() || !root.path("resourceType").asText().equals(identity.resourceType()) ||
-                        !root.path("signingKeyId").asText().equals(signing.keyId()) || !root.path("files").isArray())return false;
-
-                Map<String,SecurePackageCodec.Payload> expectedById=new HashMap<>();
-                for(var payload:source)if(expectedById.putIfAbsent(payload.role()+":"+payload.ordinal(),payload)!=null)return false;
-                Map<String,SecurePackageCodec.Payload> expectedByPath=new HashMap<>();
-                for(var file:root.path("files")) {
-                    String id=file.path("role").asText()+":"+file.path("ordinal").asInt(-1);
-                    var payload=expectedById.get(id);
-                    String path=file.path("path").asText();
-                    if(payload==null || !path.startsWith("payload/") || expectedByPath.putIfAbsent(path,payload)!=null ||
-                            !file.path("mimeType").asText().equals(payload.mimeType()) ||
-                            file.path("sizeBytes").asLong()!=payload.content().length ||
-                            !file.path("sha256").asText().equals(SecurePackageCodec.sha256(payload.content())))return false;
-                }
-                if(expectedById.size()!=expectedByPath.size())return false;
-
-                var signature=zip.getNextEntry();
-                if(signature==null || !signature.getName().equals("manifest.sig") || zip.readNBytes(4097).length!=256)return false;
-                for(var entry=zip.getNextEntry();entry!=null;entry=zip.getNextEntry()) {
-                    var payload=expectedByPath.remove(entry.getName());
-                    if(payload==null || !Arrays.equals(zip.readNBytes(payload.content().length+1),payload.content()))return false;
-                }
-                return expectedByPath.isEmpty();
-            }
-        } catch(Exception error) { return false; }
-        finally { if(key!=null)Arrays.fill(key,(byte)0); }
+    List<SecurePackageCodec.Payload> previewPayloads(String type,List<SecurePackageCodec.Payload> source,boolean marked) {
+        if(!marked) return source;
+        return source.stream().map(payload -> {
+            boolean image=type.equals("STATIC_IMAGE") && payload.role().equals("STATIC_IMAGE")
+                || type.equals("LAYER_PARALLAX") && payload.role().equals("FOREGROUND") && payload.ordinal()==0;
+            if(image) return new SecurePackageCodec.Payload(payload.role(),payload.ordinal(),"image/png",watermark.image(payload.content()));
+            if(type.equals("VIDEO") && payload.role().equals("VIDEO"))
+                return new SecurePackageCodec.Payload(payload.role(),payload.ordinal(),"video/mp4",watermark.video(payload.content(),false));
+            return payload;
+        }).toList();
     }
     private void validateParallax(byte[] bytes,Map<String,PackageMediaInspector.Media> images) {
         try {

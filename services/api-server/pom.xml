@@ -26,6 +26,16 @@
 
     <dependencies>
         <dependency>
+            <groupId>com.android.tools.build</groupId>
+            <artifactId>apksig</artifactId>
+            <version>8.9.3</version>
+        </dependency>
+        <dependency>
+            <groupId>net.dongliu</groupId>
+            <artifactId>apk-parser</artifactId>
+            <version>2.6.10</version>
+        </dependency>
+        <dependency>
             <groupId>com.auth0</groupId>
             <artifactId>java-jwt</artifactId>
             <version>4.5.1</version>
@@ -98,6 +108,13 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <repositories>
+        <repository>
+            <id>google</id>
+            <url>https://dl.google.com/dl/android/maven2/</url>
+        </repository>
+    </repositories>
 
     <build>
         <plugins>

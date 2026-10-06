@@ -40,8 +40,10 @@ public class ParallaxStorageCleanup {
                             SELECT (SELECT COUNT(*) FROM asset WHERE storage_key=?) +
                                    (SELECT COUNT(*) FROM parallax_source_package WHERE storage_key=?) +
                                    (SELECT COUNT(*) FROM secure_resource_package WHERE storage_key=?) +
-                                   (SELECT COUNT(*) FROM preview_resource_package WHERE storage_key=?)
-                            """,Long.class,item.reference(),item.reference(),item.reference(),item.reference());
+                                   (SELECT COUNT(*) FROM preview_resource_package WHERE storage_key=?) +
+                                   (SELECT COUNT(*) FROM preview_media WHERE storage_key=?) +
+                                   (SELECT COUNT(*) FROM wallpaper_preview_state WHERE cover_storage_key=?)
+                            """,Long.class,item.reference(),item.reference(),item.reference(),item.reference(),item.reference(),item.reference());
                     if(references!=null&&references>0)continue;
                     storage.delete(new StorageKey(item.reference()));
                 }

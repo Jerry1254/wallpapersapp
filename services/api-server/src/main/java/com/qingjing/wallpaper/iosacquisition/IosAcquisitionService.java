@@ -32,6 +32,8 @@ public class IosAcquisitionService {
     private final IosAppleGateway apple;
     private final SecurityCrypto crypto;
     private final EntitlementGrantService grants;
+    private final IosProductService products;
+    private final IosCreditPurchaseService credits;
 
     public IosAcquisitionService(
             JdbcTemplate jdbc,
@@ -39,13 +41,16 @@ public class IosAcquisitionService {
             IosAcquisitionProperties properties,
             IosAppleGateway apple,
             SecurityCrypto crypto,
-            EntitlementGrantService grants) {
+            EntitlementGrantService grants,
+            IosProductService products, IosCreditPurchaseService credits) {
         this.jdbc = jdbc;
         this.transactions = transactions;
         this.properties = properties;
         this.apple = apple;
         this.crypto = crypto;
         this.grants = grants;
+        this.products = products;
+        this.credits = credits;
     }
 
     public ChallengeResponse challenge(DevicePrincipal principal, ChallengeRequest request) {
@@ -60,6 +65,7 @@ public class IosAcquisitionService {
             throw validation("resetId is only valid for FREE_RESET");
         }
         Long wallpaperId = parseId(request.wallpaperId(), "wallpaperId");
+        if(wallpaperId!=null)new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).requireVisible(wallpaperId,principal.deviceId());
         String challengeId = UUID.randomUUID().toString();
         String nonce = crypto.randomToken(32);
         Instant expiresAt = Instant.now().plus(properties.getChallengeTtl());
@@ -125,6 +131,7 @@ public class IosAcquisitionService {
         requireEnabled(principal);
         String requestId = uuid(request.requestId(), "requestId").toString();
         long wallpaperId = parseId(request.wallpaperId(), "wallpaperId");
+        new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).requireVisible(wallpaperId,principal.deviceId());
         Challenge proof = verifyProof(principal.deviceId(), keyId, assertion, request.challengeId(), request.nonce(),
                 Action.FREE_CLAIM, wallpaperId, rawBody);
         ClaimRow reserved = transactions.execute(tx -> {
@@ -204,6 +211,10 @@ public class IosAcquisitionService {
         verifyProof(principal.deviceId(), keyId, assertion, request.challengeId(), request.nonce(), Action.PURCHASE_SYNC, null, rawBody);
         VerifiedTransaction verified = apple.verifyTransaction(request.signedTransaction(), request.signedAppTransaction(), request.deviceVerificationId());
         requireTrustedTransaction(verified);
+        if("CONSUMABLE".equals(verified.productType())) {
+            credits.purchase(principal.deviceId(),verified);
+            return state(principal.deviceId());
+        }
         // A new purchase must carry our installation token. Older device-verified transactions can restore across installations.
         Installation installation = ensureInstallation(principal.deviceId());
         Instant installedAt = jdbc.queryForObject("SELECT created_at FROM ios_installation_acquisition WHERE device_id=?", Timestamp.class, principal.deviceId()).toInstant();
@@ -211,6 +222,7 @@ public class IosAcquisitionService {
             throw forbidden("IOS_PURCHASE_INVALID", "A new purchase must use the issued appAccountToken");
         }
         long wallpaperId = mappedWallpaper(verified.productId());
+        new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).requireVisible(wallpaperId,principal.deviceId());
         transactions.executeWithoutResult(tx -> {
             installationForUpdate(principal.deviceId());
             persistTransaction(verified, wallpaperId);
@@ -264,6 +276,28 @@ public class IosAcquisitionService {
         return state(principal.deviceId());
     }
 
+    public IosCreditDtos.Order creditOrder(DevicePrincipal principal,String keyId,String assertion,IosCreditDtos.OrderRequest request,byte[] rawBody) {
+        requireEnabled(principal);
+        long wallpaper=parseId(request.wallpaperId(),"wallpaperId");
+        new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).requireVisible(wallpaper,principal.deviceId());
+        verifyProof(principal.deviceId(),keyId,assertion,request.challengeId(),request.nonce(),Action.CREDIT_ORDER,wallpaper,rawBody);
+        return credits.create(principal.deviceId(),wallpaper,request.signedAppTransaction(),request.deviceVerificationId());
+    }
+
+    public AcquisitionState cancelCreditOrder(DevicePrincipal principal,String keyId,String assertion,String orderId,IosCreditDtos.RestoreRequest request,byte[] rawBody) {
+        requireEnabled(principal);
+        verifyProof(principal.deviceId(),keyId,assertion,request.challengeId(),request.nonce(),Action.CREDIT_CANCEL,null,rawBody);
+        credits.cancel(orderId,request.signedAppTransaction(),request.deviceVerificationId());
+        return state(principal.deviceId());
+    }
+
+    public AcquisitionState restoreCredits(DevicePrincipal principal,String keyId,String assertion,IosCreditDtos.RestoreRequest request,byte[] rawBody) {
+        requireEnabled(principal);
+        verifyProof(principal.deviceId(),keyId,assertion,request.challengeId(),request.nonce(),Action.CREDIT_RESTORE,null,rawBody);
+        credits.restore(principal.deviceId(),request.signedAppTransaction(),request.deviceVerificationId());
+        return state(principal.deviceId());
+    }
+
     void expireReset(long deviceId, String resetId) {
         transactions.executeWithoutResult(tx -> {
             installationForUpdate(deviceId);
@@ -307,11 +341,14 @@ public class IosAcquisitionService {
             if (status.isEmpty() || status.get(0).equals("PROCESSED")) return;
             if (current != null) {
                 requireTrustedTransaction(current);
+                if("CONSUMABLE".equals(current.productType()))credits.notification(current);
+                else {
                 long wallpaper = mappedWallpaper(current.productId());
                 persistTransaction(current, wallpaper);
                 Timestamp revoked = jdbc.queryForObject("SELECT revoked_at FROM ios_store_transaction WHERE environment=? AND bundle_id=? AND transaction_id=?", Timestamp.class,
                         current.environment(), current.bundleId(), current.transactionId());
                 if (revoked != null) revokePurchaseSources(current);
+                }
             }
             jdbc.update("UPDATE apple_notification_inbox SET status='PROCESSED',processed_at=UTC_TIMESTAMP(6),attempts=attempts+1,error_code=NULL WHERE id=?", id);
             audit(null, notification.notificationUuid(), "NOTIFICATION_PROCESSED", notification.environment());
@@ -354,20 +391,20 @@ public class IosAcquisitionService {
         Installation installation = ensureInstallation(deviceId);
         List<String> free = grantWallpapers(deviceId, "IOS_FIRST_FREE");
         List<String> purchased = grantWallpapers(deviceId, "IOS_IAP");
-        List<Product> products = jdbc.query(
-                """
-                SELECT CAST(m.wallpaper_id AS CHAR) wallpaper_id,m.product_id
-                FROM ios_product_mapping m JOIN wallpaper w ON w.id=m.wallpaper_id
-                WHERE m.bundle_id=? AND m.enabled=TRUE AND w.status='PUBLISHED' AND EXISTS (SELECT 1 FROM wallpaper_variant v JOIN resource_version rv ON rv.variant_id=v.id WHERE v.wallpaper_id=w.id AND v.enabled=TRUE AND v.platform IN ('IOS','UNIVERSAL') AND rv.status='PUBLISHED')
-                ORDER BY m.wallpaper_id
-                """,
-                (rs,row)->new Product(rs.getString("wallpaper_id"),rs.getString("product_id")),
-                properties.getBundleId());
         PendingReset pending = pendingReset(deviceId);
         return new AcquisitionState(
                 publicDeviceId(deviceId), installation.accountToken(), installation.freeGeneration(),
                 pending == null ? FreeAllowance.valueOf(installation.allowance()) : FreeAllowance.PENDING_RESET,
-                free, purchased, products, pending, Instant.now());
+                free, purchased, products.catalogue(), pending, Instant.now());
+    }
+
+    public ProductCatalogue productCatalogue(DevicePrincipal principal) {
+        if (principal.platform() != DevicePlatform.IOS) {
+            throw forbidden("IOS_DEVICE_REQUIRED", "An iOS device session is required");
+        }
+        // Product metadata needs the device session, not a DeviceCheck quota
+        // query, App Attest challenge, Apple secret, or purchase restoration.
+        return new ProductCatalogue(products.catalogue());
     }
 
     private Challenge verifyProof(long deviceId, String keyId, String assertion, String challengeId,
@@ -435,15 +472,17 @@ public class IosAcquisitionService {
     }
     private List<ClaimRow> claim(long deviceId,String requestId){return jdbc.query("SELECT wallpaper_id,free_generation,status FROM ios_free_claim WHERE device_id=? AND request_id=?",(rs,row)->new ClaimRow(rs.getLong(1),rs.getLong(2),rs.getString(3)),deviceId,requestId);}
     private void requireEligibleWallpaper(long wallpaperId){Long count=jdbc.queryForObject("""
-            SELECT COUNT(*) FROM ios_product_mapping m JOIN wallpaper w ON w.id=m.wallpaper_id
-            JOIN wallpaper_variant v ON v.wallpaper_id=w.id AND v.platform='IOS' AND v.resource_type='LIVE_PHOTO'
+            SELECT COUNT(*) FROM wallpaper w
+            JOIN wallpaper_variant v ON v.wallpaper_id=w.id AND v.enabled=TRUE AND v.platform IN ('IOS','UNIVERSAL')
             JOIN resource_version rv ON rv.variant_id=v.id AND rv.status='PUBLISHED'
-            WHERE m.wallpaper_id=? AND m.bundle_id=? AND m.enabled=TRUE AND m.first_free_eligible=TRUE
-              AND w.status='PUBLISHED' AND w.access_type='REDEEM'
-            """,Long.class,wallpaperId,properties.getBundleId());if(count==null||count==0)throw conflict("IOS_FREE_WALLPAPER_INELIGIBLE","The wallpaper is not eligible for first free");}
+            WHERE w.id=? AND w.status='PUBLISHED' AND w.access_type='REDEEM' AND w.offline_promotion_only=FALSE AND (
+                EXISTS (SELECT 1 FROM ios_wallpaper_credit_price c WHERE c.wallpaper_id=w.id AND c.bundle_id=? AND c.enabled=TRUE AND c.first_free_eligible=TRUE)
+                OR (NOT EXISTS (SELECT 1 FROM ios_wallpaper_credit_price c WHERE c.wallpaper_id=w.id AND c.bundle_id=?)
+                    AND EXISTS (SELECT 1 FROM ios_product_mapping m WHERE m.wallpaper_id=w.id AND m.bundle_id=? AND m.enabled=TRUE AND m.first_free_eligible=TRUE)))
+            """,Long.class,wallpaperId,properties.getBundleId(),properties.getBundleId(),properties.getBundleId());if(count==null||count==0)throw conflict("IOS_FREE_WALLPAPER_INELIGIBLE","The wallpaper is not eligible for first free");}
     private long mappedWallpaper(String productId){List<Long> rows=jdbc.query("SELECT wallpaper_id FROM ios_product_mapping WHERE bundle_id=? AND product_id=?",(rs,row)->rs.getLong(1),properties.getBundleId(),productId);if(rows.isEmpty())throw forbidden("IOS_PURCHASE_INVALID","The Apple product is not mapped");return rows.get(0);}
     private void requireTrustedTransaction(VerifiedTransaction value){if(!properties.getBundleId().equals(value.bundleId())||!properties.storeEnvironments().contains(value.environment())||"XCODE".equals(value.environment()))throw forbidden("IOS_PURCHASE_ENVIRONMENT_INVALID","The Apple transaction environment is invalid");}
-    private List<String> grantWallpapers(long deviceId,String type){return jdbc.query("SELECT CAST(de.wallpaper_id AS CHAR) FROM entitlement_grant eg JOIN device_entitlement de ON de.id=eg.entitlement_id WHERE de.device_id=? AND eg.source_type=? AND eg.status='ACTIVE' ORDER BY de.wallpaper_id",(rs,row)->rs.getString(1),deviceId,type);}
+    private List<String> grantWallpapers(long deviceId,String type){return jdbc.query("SELECT CAST(de.wallpaper_id AS CHAR) FROM entitlement_grant eg JOIN device_entitlement de ON de.id=eg.entitlement_id JOIN wallpaper w ON w.id=de.wallpaper_id AND w.offline_promotion_only=FALSE WHERE de.device_id=? AND eg.source_type=? AND eg.status='ACTIVE' ORDER BY de.wallpaper_id",(rs,row)->rs.getString(1),deviceId,type);}
     private String publicDeviceId(long id){return jdbc.queryForObject("SELECT public_id FROM anonymous_device WHERE id=?",String.class,id);}
     private PendingReset pendingReset(long deviceId){List<PendingReset> rows=jdbc.query("SELECT id,expected_generation,status,expires_at FROM ios_free_reset WHERE device_id=? AND status IN ('WAITING_DEVICE','PROCESSING','APPLE_RESET_CONFIRMED','RETRYABLE_FAILURE') ORDER BY created_at DESC LIMIT 1",(rs,row)->new PendingReset(rs.getString(1),rs.getLong(2),rs.getString(3),rs.getTimestamp(4).toInstant()),deviceId);return rows.isEmpty()?null:rows.get(0);}
     private void requirePendingReset(long deviceId,String resetId,long generation){ResetRow row=resetForUpdate(deviceId,resetId);if((!row.status().equals("COMPLETED") && row.expectedGeneration()!=generation)||!List.of("WAITING_DEVICE","APPLE_RESET_CONFIRMED","COMPLETED").contains(row.status()))throw conflict("IOS_FREE_RESET_PENDING","The reset cannot accept a challenge");}

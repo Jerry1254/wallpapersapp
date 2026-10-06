@@ -45,7 +45,7 @@ management:
 info:
   app:
     name: ${spring.application.name}
-    contract-version: ${QJ_API_CONTRACT_VERSION:2.15.0}
+    contract-version: ${QJ_API_CONTRACT_VERSION:2.21.0}
     environment-id: ${QJ_ENVIRONMENT_ID:UNCONFIGURED}
     deployment-stage: ${QJ_DEPLOYMENT_STAGE:UNCONFIGURED}
     git-commit: ${QJ_DEPLOYMENT_GIT_COMMIT:unknown}
@@ -67,6 +67,7 @@ qingjing:
   security:
     master-key: ${QJ_SECURITY_MASTER_KEY:}
   device:
+    offline-android-enabled: ${QJ_DEVICE_OFFLINE_ANDROID_ENABLED:false}
     h5-test-enabled: false
     allowed-h5-scopes: []
     harmony-enabled: ${QJ_DEVICE_HARMONY_ENABLED:true}
@@ -115,3 +116,12 @@ qingjing:
     request-timeout: ${QJ_APPLE_REQUEST_TIMEOUT:15s}
     challenge-ttl: 2m
     reset-ttl: 30m
+  ios-pricing:
+    enabled: ${QJ_IOS_PRICE_SYNC_ENABLED:false}
+    issuer-id: ${QJ_ASC_PRICE_ISSUER_ID:}
+    key-id: ${QJ_ASC_PRICE_KEY_ID:}
+    private-key: ${QJ_ASC_PRICE_PRIVATE_KEY:}
+    private-key-file: ${QJ_ASC_PRICE_PRIVATE_KEY_FILE:}
+    max-age: 15m
+    sync-delay: 300000
+    initial-delay: 15000

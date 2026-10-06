@@ -62,7 +62,8 @@ public final class PublicCatalogDtos {
             PublicMedia cover,
             boolean featured,
             int sortOrder,
-            List<DeliveryCapability> availableCapabilities) {
+            List<DeliveryCapability> availableCapabilities,
+            long previewRevision, String previewGenerationStatus) {
     }
 
     public record PublicWallpaperDetail(
@@ -77,7 +78,8 @@ public final class PublicCatalogDtos {
             int sortOrder,
             List<DeliveryCapability> availableCapabilities,
             String copyrightNote,
-            Instant publishedAt) {
+            Instant publishedAt,
+            long previewRevision, String previewGenerationStatus) {
 
         public static PublicWallpaperDetail from(
                 PublicWallpaperSummary summary,
@@ -95,7 +97,7 @@ public final class PublicCatalogDtos {
                     summary.sortOrder(),
                     summary.availableCapabilities(),
                     copyrightNote,
-                    publishedAt);
+                    publishedAt,summary.previewRevision(),summary.previewGenerationStatus());
         }
     }
 

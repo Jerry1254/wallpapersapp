@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.15.0
+  version: 2.21.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -10,15 +10,22 @@ info:
 
     所有 Long ID 在 JSON 中使用字符串；所有时间均为带时区的 ISO 8601 字符串。
     公开目录仅返回封面和能力描述，不返回存储键、绝对路径、内容密钥或正式资源永久地址。
+    wallpaper.offlinePromotionOnly=true 的作品仅对已登记 Android com.jiyi.wallpaper（吉意壁纸）渠道可见。
+    正式三端、其他安装范围及匿名资源请求按 ONLINE 过滤；渠道来自服务器设备记录，不接受客户端 channel 切换。
+    列表、分类计数、详情、权益、兑换、预览和下载均执行当前策略，先前已签发的票据不绕过新策略。
 servers:
   - url: /api/v1
     description: 当前来源下的 V1 API；本地联调默认由开发代理转发到 API Server
 security: []
 tags:
-  - name: Admin Creator
-    description: 本地创作项目、素材、模板、收藏、作品与生成任务
   - name: Admin distribution
     description: 创作台自建账号管理、发布任务与累计指标快照
+  - name: Admin Creator Wallpapers
+    description: 创作台壁纸上传与持久上架，不包含编辑器项目或渲染
+  - name: App Updates
+    description: 三端独立版本、强制门槛与Android APK更新
+  - name: Admin App Releases
+    description: 上传或登记草稿、发布、关闭强制和弃用版本
   - name: Public Catalog
     description: 按已认证安装包平台返回已发布资源能力与封面
   - name: Public Tutorial
@@ -203,12 +210,65 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /wallpapers/{wallpaperId}/cover:
+    get:
+      tags: [Public Catalog]
+      operationId: readWallpaperPreviewCover
+      summary: 按作品当前预览策略读取封面
+      description: |
+        普通作品无需设备会话；仅返回已发布且当前渠道可见的预览封面。免费壁纸无水印；付费壁纸默认有水印，管理员可关闭。
+        仅线下作品需要吉意壁纸有效 deviceBearer；匿名或正式三端请求返回404，提供无效会话返回401。
+        revision 仅用于客户端缓存分代，不允许读取旧策略或正式原图。预览尚在生成或失败时拒绝返回，不回退原图。
+      security: [{}, {deviceBearer: []}]
+      parameters:
+        - $ref: '#/components/parameters/WallpaperId'
+        - name: revision
+          in: query
+          required: false
+          description: 公开目录返回的 previewRevision；仅作为缓存版本标识，服务端始终执行当前策略。
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+      responses:
+        '200':
+          description: 当前策略下的预览封面；水印衍生图为 PNG，关闭水印时保持原图 MIME。
+          headers:
+            Cache-Control:
+              description: 禁止客户端和代理缓存跨策略复用的封面内容。
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            image/jpeg:
+              schema: {type: string, format: binary}
+            image/png:
+              schema: {type: string, format: binary}
+            image/webp:
+              schema: {type: string, format: binary}
+            image/svg+xml:
+              schema: {type: string, format: binary}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/PreviewUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /public/assets/{assetId}/content:
     get:
       tags: [Public Catalog]
       operationId: readPublicAssetContent
       summary: 读取允许公开展示的分类图标或壁纸封面
-      description: 仅 Asset 被已发布目录投影引用且角色允许公开展示时返回文件字节。
+      description: |
+        仅 Asset 被已发布目录投影引用且角色允许公开展示时返回文件字节。
+        关联付费且开启水印的壁纸时禁止回源原图；作品策略无歧义时可返回当前水印衍生封面。
+        同一封面被多个不同预览策略的壁纸或分类复用时拒绝请求，客户端改用按作品隔离的 /wallpapers/{wallpaperId}/cover。
+        生成未完成或失败时拒绝返回，不回退干净源；付费水印预览使用 Cache-Control: no-store。
+        可选 deviceBearer 决定可见渠道；匿名或正式三端不得读取仅线下作品封面（即使复用为分类图标）。
+      security: [{}, {deviceBearer: []}]
       parameters:
         - $ref: '#/components/parameters/AssetId'
       responses:
@@ -239,8 +299,12 @@ paths:
               schema:
                 type: string
                 format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/PreviewUnavailable'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -547,6 +611,10 @@ paths:
       security:
         - deviceBearer: []
       parameters:
+        - $ref: '#/components/parameters/AppVersionName'
+        - $ref: '#/components/parameters/AppVersionCode'
+        - $ref: '#/components/parameters/AppAbi'
+        - $ref: '#/components/parameters/AppAndroidSdk'
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/RequestId'
         - $ref: '#/components/parameters/RequestTimestamp'
@@ -559,6 +627,7 @@ paths:
             schema:
               $ref: '#/components/schemas/RedeemWallpaperRequest'
       responses:
+        '426': {$ref: '#/components/responses/AppUpdateRequired'}
         '200':
           description: 已存在的幂等结果，或设备原本已拥有壁纸
           content:
@@ -669,6 +738,10 @@ paths:
       security:
         - deviceBearer: []
       parameters:
+        - $ref: '#/components/parameters/AppVersionName'
+        - $ref: '#/components/parameters/AppVersionCode'
+        - $ref: '#/components/parameters/AppAbi'
+        - $ref: '#/components/parameters/AppAndroidSdk'
         - $ref: '#/components/parameters/WallpaperId'
         - $ref: '#/components/parameters/RequestId'
         - $ref: '#/components/parameters/RequestTimestamp'
@@ -681,6 +754,7 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateDownloadTicketRequest'
       responses:
+        '426': {$ref: '#/components/responses/AppUpdateRequired'}
         '201':
           description: 下载描述已签发
           content:
@@ -982,6 +1056,11 @@ paths:
         - adminCookie: []
           adminCsrf: []
       parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: 创作台上传建议发送 UUID；同一用途、文件及元数据重放返回原资产，不重新创建。
+          schema: {type: string, format: uuid}
         - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
@@ -997,6 +1076,12 @@ paths:
                   type: string
                   format: binary
       responses:
+        '200':
+          description: 同一 Idempotency-Key 对应的原已上传资产
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AdminAsset'}
+        '409': {$ref: '#/components/responses/Conflict'}
         '201':
           description: 文件元数据；VALIDATING 表示异步校验尚未完成
           content:
@@ -1466,6 +1551,81 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /admin/wallpaper-previews/rebuild-plan:
+    get:
+      tags: [Admin Catalog]
+      operationId: getWallpaperPreviewRebuildPlan
+      summary: 统计存量壁纸预览重建范围
+      description: 按当前收费和水印开关统计所有未归档壁纸及其资源版本，不修改正式资源。
+      security:
+        - adminCookie: []
+      responses:
+        '200':
+          description: 本次重建范围及水印策略统计
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewRebuildPlan'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/wallpaper-previews/rebuild:
+    post:
+      tags: [Admin Catalog]
+      operationId: rebuildAllWallpaperPreviews
+      summary: 将全部未归档壁纸异步排入预览重建队列
+      description: |
+        无请求体。按当前收费和水印开关重建封面、缩略图、图片、视频和 4D 最前层预览；正式交付源不修改。
+        响应表示任务已排队，实际完成状态由壁纸 previewGenerationStatus 查询；重建时 previewRevision 递增并停止读取旧策略预览。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: 已异步排队的重建范围
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewRebuildPlan'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /admin/wallpapers/{wallpaperId}/preview-rebuild:
+    post:
+      tags: [Admin Catalog]
+      operationId: rebuildWallpaperPreview
+      summary: 按当前策略异步重建一款壁纸预览
+      description: 无请求体；递增 previewRevision，排队生成独立预览衍生资源。免费资源保持无水印，正式交付不变。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: '#/components/parameters/WallpaperId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: 已排队重建的壁纸详情，包含新的预览代次和生成状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminWallpaperDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /admin/wallpapers:
     get:
       tags: [Admin Catalog]
@@ -1614,8 +1774,9 @@ paths:
           $ref: '#/components/responses/InternalError'
     delete:
       tags: [Admin Catalog]
-      operationId: deleteAdminWallpaperDraft
-      summary: 硬删除没有任何引用的壁纸草稿
+      operationId: deleteAdminWallpaper
+      summary: 删除壁纸（保留商品和历史记录）
+      description: 上架、下架和草稿均可删除；状态置为 ARCHIVED 并停用已发布资源。记录保留，可通过 status=ARCHIVED 查询，删除后不能编辑或再次上架。
       security:
         - adminCookie: []
           adminCsrf: []
@@ -1625,7 +1786,7 @@ paths:
         - $ref: '#/components/parameters/RequestId'
       responses:
         '204':
-          description: 草稿已删除
+          description: 壁纸已删除，商品和历史记录保留
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -1729,7 +1890,7 @@ paths:
     post:
       tags: [Admin Catalog]
       operationId: archiveAdminWallpaper
-      summary: 归档草稿或已下架壁纸
+      summary: 删除壁纸（兼容原归档入口）
       security:
         - adminCookie: []
           adminCsrf: []
@@ -1745,7 +1906,7 @@ paths:
               $ref: '#/components/schemas/StateChangeReasonRequest'
       responses:
         '200':
-          description: 壁纸已归档
+          description: 壁纸已删除，商品和历史记录保留
           headers:
             ETag:
               $ref: '#/components/headers/EntityTag'
@@ -2381,9 +2542,10 @@ paths:
       summary: 为 App 按精确资源类型签发详情效果预览描述
       description: |
         需设备会话与持钥签名，无需权益，不扣兑换额度。服务端按请求的 deliveryPlatform/resourceType 精确选择已发布资源，不读取设备能力档案，也不跨类型回退。
-        Android、通用资源使用与正式版本绑定一致的 APP_PREVIEW 加密包。
-        IOS/LIVE_PHOTO 直接返回 live_photo_package 中 READY 且符合 IntoLive 前 60 帧顺序、60 fps、精确 1 秒的标准化 MOV，使用独立短时预览票据，不读取源 MP4，也不产生权益或正式下载记录。
-        HarmonyOS/MOVING_PHOTO 返回发布时生成的不超过 2 秒 H.264 MP4 动态片段，鸿蒙 App 缓存后自动播放一次，结束后仅由用户点击重新播放；正式保存仍使用下载接口交付 JPEG 与 MP4 两个文件。
+        Android、通用资源使用当前 previewRevision 的 APP_PREVIEW 加密包，内含独立生成的预览素材；4D 只在最前面的图层烧录水印，其他图层保持正常景深效果。
+        IOS/LIVE_PHOTO 从 live_photo_package 标准化 MOV 生成独立预览视频，保持 IntoLive 前 60 帧顺序、60 fps、精确 1 秒；付费且开启水印时每帧烧录“预览专用”。使用独立短时预览票据，不读取源 MP4，也不产生权益或正式下载记录。
+        HarmonyOS/MOVING_PHOTO 返回保持原尺寸、帧率和不超过 2 秒时长的独立预览 MP4，付费且开启水印时每帧烧录水印。鸿蒙 App 缓存后自动播放一次，结束后仅由用户点击重新播放；正式保存仍使用下载接口交付 JPEG 与 MP4 两个文件。
+        免费壁纸的预览无水印；付费默认有水印，管理员可关闭。策略变化和重建后旧代次票据不得继续读取；生成未完成或失败时返回 503，不回退正式资源。
         所有预览票据有效 90 秒；Android App 的解密预览窗口仍由客户端单调时钟限制为 120 秒。
       security:
         - deviceBearer: []
@@ -2420,6 +2582,8 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/PreviewUnavailable"
         "500":
           $ref: "#/components/responses/InternalError"
   /preview/files:
@@ -2552,7 +2716,7 @@ paths:
               additionalProperties: false
               properties:
                 keyId: {type: string, minLength: 1, maxLength: 256}
-                action: {type: string, enum: [ENROLL, STATUS, FREE_CLAIM, PURCHASE_SYNC, FREE_RESET]}
+                action: {type: string, enum: [ENROLL, STATUS, FREE_CLAIM, PURCHASE_SYNC, FREE_RESET, CREDIT_ORDER, CREDIT_RESTORE, CREDIT_CANCEL]}
                 wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
                 resetId: {type: string, format: uuid}
       responses:
@@ -2604,6 +2768,28 @@ paths:
                   registered: {type: boolean, enum: [true]}
         '403': {$ref: '#/components/responses/Error'}
         default: {$ref: '#/components/responses/Error'}
+  /device/ios/products:
+    get:
+      tags: [iOS Acquisition]
+      operationId: getIosProductCatalogue
+      summary: 查询已启用商品与人民币展示价
+      description: |
+        仅需有效 iOS 设备会话；不执行 App Attest、DeviceCheck 首免查询或恢复购买。
+        展示价由服务端从 App Store Connect 自动同步，不接受手工金额，不作为支付金额、购买凭证或下载授权。
+        实际扣款仍由 StoreKit 对应账号地区的商品决定，不限制账号地区。
+      security: [{deviceBearer: []}]
+      responses:
+        '200':
+          description: 最新商品映射与中国区参考价格
+          headers:
+            Cache-Control:
+              schema: {type: string, enum: [no-store]}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IosProductCatalogue'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
   /device/ios/acquisition/status:
     post:
       tags: [iOS Acquisition]
@@ -2642,6 +2828,10 @@ paths:
         存在未完成重置时拒绝新领取；challenge 绑定的免费代次必须仍有效。
         已被重置撤销的旧 requestId 返回 IOS_FREE_CLAIM_RESET，不重新发放免费来源。
       parameters:
+        - $ref: '#/components/parameters/AppVersionName'
+        - $ref: '#/components/parameters/AppVersionCode'
+        - $ref: '#/components/parameters/AppAbi'
+        - $ref: '#/components/parameters/AppAndroidSdk'
         - {$ref: '#/components/parameters/AppAttestKey'}
         - {$ref: '#/components/parameters/AppAttestAssertion'}
       requestBody:
@@ -2657,6 +2847,7 @@ paths:
                     wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
                     requestId: {type: string, format: uuid}
       responses:
+        '426': {$ref: '#/components/responses/AppUpdateRequired'}
         '200':
           description: 已持久化当前安装免费权益；重复请求返回同一结果
           content:
@@ -2673,7 +2864,7 @@ paths:
       description: |
         按可信 Apple transactionId/originalTransactionId 幂等，商品映射和正式价格由服务端和 Apple 管理。
         不接受客户端 purchased=true、壁纸 ID、客户端 environment 或价格作为购买证明。
-        已购买壁纸为非消耗型商品；卸载重装后支持有效恢复，不重新收费，不重新发放免费额度。
+        新购买为订单绑定的消耗型积分商品；旧非消耗型继续恢复。必须核对数量、CNY金额、CHN商店和订单appAccountToken；一笔交易只能兑换固定壁纸。
         服务端验证撤销/退款，返回免费和付费两种来源的最新快照，不能误删同壁纸独立免费权益。
         只有当前购买或有效历史恢复验证完成后才发放本安装权益；不能信任粘贴来的任意 JWT。
       parameters:
@@ -2700,6 +2891,112 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/AcquisitionState'}
         '403': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /device/ios/acquisition/credit-orders:
+    post:
+      tags: [iOS Acquisition]
+      operationId: createIosCreditOrder
+      summary: 创建固定壁纸的积分购买订单
+      description: 需要设备会话、设备签名和App Attest。验证Apple签名AppTransaction及deviceVerification。订单固定金额、积分包、数量、壁纸和专属token；客户端不能传价格。相同未完成订单幂等返回，保留价格快照。
+      parameters:
+        - $ref: '#/components/parameters/AppVersionName'
+        - $ref: '#/components/parameters/AppVersionCode'
+        - $ref: '#/components/parameters/AppAbi'
+        - $ref: '#/components/parameters/AppAndroidSdk'
+        - {$ref: '#/components/parameters/AppAttestKey'}
+        - {$ref: '#/components/parameters/AppAttestAssertion'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [challengeId, nonce, signedAppTransaction, deviceVerificationId, wallpaperId]
+              properties:
+                challengeId: {type: string, format: uuid}
+                nonce: {type: string}
+                signedAppTransaction: {type: string, minLength: 10, maxLength: 32768}
+                deviceVerificationId: {type: string, minLength: 1, maxLength: 256}
+                wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
+      responses:
+        '426': {$ref: '#/components/responses/AppUpdateRequired'}
+        '200':
+          description: 服务端验证完成并持久化结果
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IosCreditOrder'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /device/ios/acquisition/credit-restores:
+    post:
+      tags: [iOS Acquisition]
+      operationId: restoreIosCreditEntitlements
+      summary: 通过Apple签名账户身份恢复已兑换壁纸
+      description: 需要设备会话、设备签名和App Attest。验证Apple签名AppTransaction及deviceVerification。不重复发积分；先从Apple核查退款，再恢复当前安装的权益。不发放新的首免额度。
+      parameters:
+        - {$ref: '#/components/parameters/AppAttestKey'}
+        - {$ref: '#/components/parameters/AppAttestAssertion'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [challengeId, nonce, signedAppTransaction, deviceVerificationId]
+              properties:
+                challengeId: {type: string, format: uuid}
+                nonce: {type: string}
+                signedAppTransaction: {type: string, minLength: 10, maxLength: 32768}
+                deviceVerificationId: {type: string, minLength: 1, maxLength: 256}
+      responses:
+        '200':
+          description: 服务端验证完成并持久化结果
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AcquisitionState'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /device/ios/acquisition/credit-orders/{orderId}/cancel:
+    post:
+      tags: [iOS Acquisition]
+      operationId: cancelIosCreditOrder
+      summary: 明确取消付款后关闭当前订单，允许重新下单
+      description: 需要CREDIT_CANCEL证明及订单所属Apple账户。仅OPEN转CANCELLED；如Apple后来返回成功，仍按原价格快照交付，不能丢弃已付交易。网络异常不视为取消。
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema: {type: string, format: uuid}
+        - {$ref: '#/components/parameters/AppAttestKey'}
+        - {$ref: '#/components/parameters/AppAttestAssertion'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [challengeId, nonce, signedAppTransaction, deviceVerificationId]
+              properties:
+                challengeId: {type: string, format: uuid}
+                nonce: {type: string}
+                signedAppTransaction: {type: string, minLength: 10, maxLength: 32768}
+                deviceVerificationId: {type: string, minLength: 1, maxLength: 256}
+      responses:
+        '200':
+          description: 服务端验证完成并持久化结果
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AcquisitionState'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
         default: {$ref: '#/components/responses/Error'}
   /device/ios/acquisition/free-resets/{resetId}/complete:
@@ -2887,7 +3184,7 @@ paths:
     put:
       tags: [iOS Test Administration]
       operationId: updateAdminWallpaperIosAcquisition
-      summary: 保存壁纸的 Apple 非消耗型 Product ID 和首免资格
+      summary: 保存壁纸积分价和首免资格，兼容旧非消耗型映射
       security: [{adminCookie: [], adminCsrf: []}]
       parameters:
         - in: path
@@ -2901,9 +3198,15 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [productId, firstFreeEligible, enabled]
+              required: [firstFreeEligible, enabled]
               properties:
-                productId: {type: string, minLength: 1, maxLength: 255, pattern: '^[A-Za-z0-9._-]+$'}
+                productId: {type: string, nullable: true, minLength: 1, maxLength: 255, pattern: '^[A-Za-z0-9._-]+$'}
+                acquisitionMode: {type: string, enum: [CREDITS, NON_CONSUMABLE], default: NON_CONSUMABLE}
+                credits: {$ref: '#/components/schemas/IosWallpaperCredits'}
+                chinaReferencePrice:
+                  allOf: [{$ref: '#/components/schemas/IosChinaReferencePrice'}]
+                  deprecated: true
+                  description: 兼容旧管理后台的废弃字段；值始终忽略，价格只能从 App Store Connect 自动同步。
                 firstFreeEligible: {type: boolean}
                 enabled: {type: boolean}
       responses:
@@ -2913,6 +3216,481 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/IosProductConfiguration'}
         '409': {$ref: '#/components/responses/Error'}
+
+  /admin/wallpapers/{wallpaperId}/ios-acquisition/price-sync:
+    post:
+      tags: [iOS Test Administration]
+      operationId: syncIosProductPrice
+      summary: 立即从 Apple 同步当前中国区价格
+      description: 仅查询 Apple 已生效的 customerPrice，不修改 Apple 定价。不接受金额参数；自动任务也使用同一同步服务。
+      security: [{adminCookie: [], adminCsrf: []}]
+      parameters:
+        - in: path
+          name: wallpaperId
+          required: true
+          schema: {$ref: '#/components/schemas/WallpaperId'}
+      responses:
+        '200':
+          description: 当前配置与同步结果；Apple 失败时 priceSyncStatus 为 ERROR，不返回未经确认的金额
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IosProductConfiguration'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /app-updates/check:
+    get:
+      tags: [App Updates]
+      operationId: checkAppUpdate
+      summary: 无需会话检查当前安装版本
+      description: |
+        仅 PUBLISHED 版本生效。最新目标和强制门槛分别计算；DRAFT/DEPRECATED 均不参与。
+        android/harmony 使用 versionCode，iOS 使用数字营销 versionName（忽略同营销版不同build）。
+        Android 传 ABI/SDK 时以最高兼容版本为目标，无法到达强制门槛不拦截。
+        Cache-Control 为 no-store；首次请求失败不能自行判定必须更新。
+      security: []
+      parameters:
+        - name: packageName
+          in: query
+          description: 实际package/bundleId；Android com.qingjing.bizhi与com.jiyi.wallpaper各自独立版本与强制门槛。未提供默认倾境；其他包无更新。此公开参数只决定显示，业务拦截使用已认证设备库中的app_install_scope。
+          schema: {type: string, maxLength: 255}
+        - name: platform
+          in: query
+          required: true
+          schema: {$ref: '#/components/schemas/AppReleasePlatform'}
+        - name: versionName
+          in: query
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 64}
+        - name: versionCode
+          in: query
+          required: true
+          schema: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        - name: abi
+          in: query
+          schema: {type: string, enum: [arm64-v8a, armeabi-v7a, x86, x86_64]}
+        - name: androidSdk
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 1000}
+      responses:
+        '200':
+          description: 当前规则判断，nullable版本字段在无生效版本时为null
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AppUpdateCheckEnvelope'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '500': {$ref: '#/components/responses/InternalError'}
+
+  /app-updates/packages/{releaseId}:
+    get:
+      tags: [App Updates]
+      operationId: downloadPublishedAppApk
+      summary: 下载已发布Android APK（支持单Range断点）
+      description: 只能按版本ID读取PUBLISHED Android APK，不接收存储路径；草稿和弃用包返回404，不暴露其他资源。支持If-Range SHA-256 ETag。
+      security: []
+      parameters:
+        - name: releaseId
+          in: path
+          required: true
+          schema: {$ref: '#/components/schemas/LongId'}
+        - name: Range
+          in: header
+          schema: {type: string, example: 'bytes=1048576-'}
+        - name: If-Range
+          in: header
+          schema: {type: string}
+      responses:
+        '200':
+          description: 完整APK；Accept-Ranges为bytes，Cache-Control为no-store
+          content:
+            application/vnd.android.package-archive:
+              schema: {type: string, format: binary}
+        '206':
+          description: APK单字节范围；包含Content-Range、Content-Length与ETag
+          content:
+            application/vnd.android.package-archive:
+              schema: {type: string, format: binary}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '416':
+          description: 无效、多段或不可满足Range；Content-Range为bytes */文件长度
+        '500': {$ref: '#/components/responses/InternalError'}
+
+  /admin/app-releases:
+    get:
+      tags: [Admin App Releases]
+      operationId: listAdminAppReleases
+      summary: 查询指定平台全部版本记录
+      security: [{adminCookie: []}]
+      parameters:
+        - name: platform
+          in: query
+          required: true
+          schema: {$ref: '#/components/schemas/AppReleasePlatform'}
+        - name: packageName
+          in: query
+          description: Android 应用选择，默认倾境；两款 App 版本及强制门槛独立。iOS/Harmony 省略。
+          schema: {type: string, enum: [com.qingjing.bizhi, com.jiyi.wallpaper], default: com.qingjing.bizhi}
+      responses:
+        '200':
+          description: 数字版本降序，包含草稿与弃用记录，多个发布版本可同时生效
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: {$ref: '#/components/schemas/AppReleaseView'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    post:
+      tags: [Admin App Releases]
+      operationId: createStoreAppRelease
+      summary: 登记iOS或鸿蒙商店版本草稿
+      security: [{adminCookie: [], adminCsrf: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StoreAppReleaseRequest'}
+      responses:
+        '201': {$ref: '#/components/responses/AppReleaseResult'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+
+  /admin/app-releases/android:
+    post:
+      tags: [Admin App Releases]
+      operationId: uploadAndroidAppRelease
+      summary: 上传正式APK，解析实际版本并验签后生成草稿
+      description: 实际包名必须匹配所选 App（倾境或吉意）；拒绝debuggable/testOnly/split、损坏或验签失败APK。每个应用独立递增版本并校验历史签名；默认forceUpdate=false，不自动启用。
+      security: [{adminCookie: [], adminCsrf: []}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, releaseNotes]
+              properties:
+                file: {type: string, format: binary, description: 260MiB以内的完整正式APK}
+                releaseNotes: {type: string, minLength: 1, maxLength: 1000}
+                packageName: {type: string, enum: [com.qingjing.bizhi, com.jiyi.wallpaper], default: com.qingjing.bizhi, description: 所选目标应用；必须与APK实际解析包名一致}
+      responses:
+        '201': {$ref: '#/components/responses/AppReleaseResult'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413':
+          description: APK超出上传大小限制
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+        '500': {$ref: '#/components/responses/InternalError'}
+
+  /admin/app-releases/{releaseId}:
+    put:
+      tags: [Admin App Releases]
+      operationId: updateAppReleasePolicy
+      summary: 修改说明、商店地址和强制开关
+      description: 关闭forceUpdate后该版本转为普通更新，其他发布版本的强制门槛继续生效。版本身份和APK不可变；弃用版本不可编辑。
+      security: [{adminCookie: [], adminCsrf: []}]
+      parameters:
+        - name: releaseId
+          in: path
+          required: true
+          schema: {$ref: '#/components/schemas/LongId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AppReleaseUpdateRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/AppReleaseResult'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+
+  /admin/app-releases/{releaseId}/publish:
+    post:
+      tags: [Admin App Releases]
+      operationId: publishAppRelease
+      summary: 发布版本并使其参与更新判断
+      description: |
+        发布序列必须递增；不能以低版本修复，应新增更高版本。Android正式包必须与此前已发布包同包名、同签名。
+        商店平台此操作表示管理员已确认商店可下载此版本；未上架版本不得发布/强更。
+        多个发布版本保留，最高普通/强制目标分别计算。
+      security: [{adminCookie: [], adminCsrf: []}]
+      parameters:
+        - name: releaseId
+          in: path
+          required: true
+          schema: {$ref: '#/components/schemas/LongId'}
+      responses:
+        '200': {$ref: '#/components/responses/AppReleaseResult'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+
+  /admin/app-releases/{releaseId}/deprecate:
+    post:
+      tags: [Admin App Releases]
+      operationId: deprecateAppRelease
+      summary: 弃用版本，退出普通提醒和强制门槛计算
+      description: 保留审计和包文件，不允许再次发布；弃用版本的APK不再公开下载。全部弃用时旧客户端不提示更新。
+      security: [{adminCookie: [], adminCsrf: []}]
+      parameters:
+        - name: releaseId
+          in: path
+          required: true
+          schema: {$ref: '#/components/schemas/LongId'}
+      responses:
+        '200': {$ref: '#/components/responses/AppReleaseResult'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+
+  /admin/creator/capabilities:
+    get:
+      tags:
+        - Admin Creator Wallpapers
+      operationId: getCreatorWallpaperCapabilities
+      summary: 查询壁纸上传和上架规则
+      security:
+        - adminCookie: []
+      responses:
+        "200":
+          description: 当前 API 环境和真实上传规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorWallpaperCapabilities"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /admin/creator/wallpaper-publications:
+    post:
+      tags:
+        - Admin Creator Wallpapers
+      operationId: submitCreatorWallpaperPublication
+      summary: 提交持久壁纸草稿或上架任务
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      description: 仅接收已经通过现有上传接口得到的 assetId/sourcePackageId。必填环境 ID、稳定 clientProjectKey 和 UUID 请求键。相同请求复用任务；改变输入必须使用新键。更新必须明确保留未替换的其他已发布资源。任务失败时保留草稿和已完成步骤。
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatorWallpaperPublicationRequest"
+      responses:
+        "202":
+          description: 已接受；必须轮询并回读实际壁纸，不能把 202 当作已上架
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorWallpaperPublicationTask"
+          headers:
+            Location:
+              description: 任务查询相对路径
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      tags:
+        - Admin Creator Wallpapers
+      operationId: listCreatorWallpaperPublications
+      summary: 查询并恢复壁纸上架任务
+      security:
+        - adminCookie: []
+      parameters:
+        - name: clientProjectKey
+          in: query
+          schema:
+            type: string
+            pattern: ^[A-Za-z0-9._:-]{1,128}$
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: 持久任务列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorWallpaperPublicationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /admin/creator/wallpaper-publications/{taskId}:
+    get:
+      tags:
+        - Admin Creator Wallpapers
+      operationId: getCreatorWallpaperPublication
+      summary: 读取真实上架进度和已完成 ID
+      security:
+        - adminCookie: []
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/LongId"
+      responses:
+        "200":
+          description: 上架任务状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorWallpaperPublicationTask"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /admin/creator/wallpaper-publications/{taskId}/retry:
+    post:
+      tags:
+        - Admin Creator Wallpapers
+      operationId: retryCreatorWallpaperPublication
+      summary: 恢复可重试的失败上架任务
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      description: 仅 FAILED 且 retryable=true。沿用原输入及已完成步骤；NEEDS_INPUT 必须读取商品版本后确认新的请求。已提交的上架不会重复执行。
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/LongId"
+      responses:
+        "202":
+          description: 重新排队
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatorWallpaperPublicationTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /admin/wallpapers/{wallpaperId}/publication-check:
+    post:
+      tags:
+        - Admin Creator Wallpapers
+      operationId: checkWallpaperPublication
+      summary: 只读检查所选完整资源版本集合
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      description: 不创建或构建资源、不转码、不修改发布状态。正式发布在商品版本锁内再次运行相同检查。预览沿用现有发布后的异步水印生成队列：尚未生成显示 WARNING，不阻止正式包上架；已损坏的文件阻止上架。
+      parameters:
+        - $ref: "#/components/parameters/WallpaperId"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishWallpaperRequest"
+      responses:
+        "200":
+          description: 当前发布条件与稳定检查代码
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WallpaperPublicationCheckResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
 components:
   securitySchemes:
@@ -2955,6 +3733,24 @@ components:
         pattern: '^"[0-9]+"$'
 
   parameters:
+    AppVersionName:
+      name: X-App-Version-Name
+      in: header
+      description: 实际安装包营销版本；有生效强制规则时缺失/无效按旧客户端处理。兼容门禁不等于防伪硬件证明。
+      schema: {type: string, maxLength: 64}
+    AppVersionCode:
+      name: X-App-Version-Code
+      in: header
+      description: 实际安装包build/versionCode；平台从已认证会话读取，不能由header切换。
+      schema: {type: string, pattern: '^[1-9][0-9]*$'}
+    AppAbi:
+      name: X-App-ABI
+      in: header
+      schema: {type: string, enum: [arm64-v8a, armeabi-v7a, x86, x86_64]}
+    AppAndroidSdk:
+      name: X-App-Android-Sdk
+      in: header
+      schema: {type: string, pattern: '^[1-9][0-9]*$'}
     Page:
       name: page
       in: query
@@ -3091,6 +3887,16 @@ components:
       schema: {type: string, maxLength: 32768}
 
   responses:
+    AppReleaseResult:
+      description: 新增或更新后的版本记录（data外层）
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/AppReleaseEnvelope'}
+    AppUpdateRequired:
+      description: 当前会话平台版本低于有效强制门槛；客户端重新检查并展示不可关闭弹窗。支付验签/恢复不被该门槛阻断。
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
     BadRequest:
       description: 请求格式、参数或字段校验失败
       content:
@@ -3140,6 +3946,12 @@ components:
           schema:
             type: integer
             minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    PreviewUnavailable:
+      description: 当前预览未就绪；503 PREVIEW_PROCESSING 表示等待或处理中，PREVIEW_GENERATION_FAILED 表示失败，不返回干净源或旧代次预览。
       content:
         application/json:
           schema:
@@ -3235,6 +4047,20 @@ components:
       type: string
       description: V1 稳定错误码；message 可本地化，客户端分支只依赖 code。
       enum:
+        - CREATOR_RULES_CHANGED
+        - CREATOR_ENVIRONMENT_MISMATCH
+        - CREATOR_WALLPAPER_LINK_CONFLICT
+        - CREATOR_PUBLICATION_NOT_FOUND
+        - PUBLICATION_CHECK_FAILED
+        - PUBLICATION_PROCESSING_FAILED
+        - PUBLICATION_SELECTION_INCOMPLETE
+        - IOS_SOURCE_MP4_REQUIRED
+        - STORAGE_UNAVAILABLE
+        - APP_RELEASE_INVALID
+        - APP_APK_INVALID
+        - APP_RELEASE_CONFLICT
+        - APP_RELEASE_NOT_FOUND
+        - APP_UPDATE_REQUIRED
         - VALIDATION_FAILED
         - MALFORMED_REQUEST
         - UNAUTHORIZED
@@ -3293,6 +4119,11 @@ components:
         - SECURE_PACKAGE_NOT_READY
         - SIGNED_REQUEST_INVALID
         - TIMESTAMP_INVALID
+        - PREVIEW_PROCESSING
+        - PREVIEW_GENERATION_FAILED
+        - PREVIEW_SOURCE_NOT_READY
+        - PREVIEW_SUPERSEDED
+        - PREVIEW_WATERMARK_FAILED
         - PREVIEW_TICKET_INVALID
         - PREVIEW_RESOURCE_NOT_READY
         - TUTORIAL_NOT_FOUND
@@ -3330,6 +4161,14 @@ components:
         - IOS_PURCHASE_INVALID
         - IOS_PURCHASE_ENVIRONMENT_INVALID
         - IOS_PRODUCT_ID_LOCKED
+        - IOS_CREDIT_PRICE_REQUIRED
+        - IOS_CREDIT_PRICE_UNSUPPORTED
+        - IOS_CREDIT_CONFIGURATION_REQUIRED
+        - IOS_CREDIT_WALLPAPER_UNAVAILABLE
+        - IOS_CREDIT_PRICE_UNAVAILABLE
+        - IOS_CREDIT_PURCHASE_INVALID
+        - IOS_PRICE_SYNC_UNAVAILABLE
+        - IOS_PRODUCT_CONFIGURATION_REQUIRED
         - IDEMPOTENCY_CONFLICT
 
     WallpaperKind:
@@ -3347,6 +4186,7 @@ components:
 
     WallpaperStatus:
       type: string
+      description: 管理后台展示三个状态：PUBLISHED 为上架，DRAFT 和 OFFLINE 归为下架，ARCHIVED 为删除。保留内部草稿状态以支持资源未齐全时保存。
       enum: [DRAFT, PUBLISHED, OFFLINE, ARCHIVED]
 
     DeliveryPlatform:
@@ -3511,6 +4351,8 @@ components:
           title,
           slug,
           accessType,
+          previewRevision,
+          previewGenerationStatus,
           rootCategory,
           cover,
           featured,
@@ -3531,6 +4373,13 @@ components:
           pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
         accessType:
           $ref: '#/components/schemas/WallpaperAccessType'
+        previewRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: 当前预览策略代次；策略变化或手动重建后递增，App 按此隔离并清理旧预览缓存。
+        previewGenerationStatus:
+          $ref: '#/components/schemas/PreviewGenerationStatus'
         rootCategory:
           $ref: '#/components/schemas/CategorySummary'
         childCategory:
@@ -4333,6 +5182,14 @@ components:
           pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
         accessType:
           $ref: '#/components/schemas/WallpaperAccessType'
+        offlinePromotionOnly:
+          type: boolean
+          default: false
+          description: 仅吉意壁纸 Android 线下推广使用；默认 false，PATCH省略保留现值。true时正式Android/iOS/Harmony及匿名入口均不可见，服务端按当前策略检查；不改变收费、水印和资源生成。
+        previewWatermarkEnabled:
+          type: boolean
+          default: true
+          description: 创建时未提供默认为 true；PATCH 未提供时保留原开关。只有 accessType=REDEEM 且开关为 true 时添加水印，免费始终无水印。切换开关或收费规则会异步重新生成预览。
         rootCategoryId:
           $ref: '#/components/schemas/LongId'
         childCategoryId:
@@ -4365,6 +5222,11 @@ components:
           title,
           slug,
           accessType,
+          previewRevision,
+          previewGenerationStatus,
+          previewWatermarkEnabled,
+          previewGenerationError,
+          offlinePromotionOnly,
           rootCategory,
           cover,
           featured,
@@ -4386,6 +5248,24 @@ components:
           maxLength: 64
         accessType:
           $ref: '#/components/schemas/WallpaperAccessType'
+        previewRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: 当前预览策略代次；策略变化或手动重建后递增，App 按此隔离并清理旧预览缓存。
+        previewGenerationStatus:
+          $ref: '#/components/schemas/PreviewGenerationStatus'
+        offlinePromotionOnly:
+          type: boolean
+          description: 是否仅吉意壁纸 Android 线下渠道可见。
+        previewWatermarkEnabled:
+          type: boolean
+          description: 管理员保存的付费预览水印开关；免费壁纸始终不加水印。默认 true。
+        previewGenerationError:
+          type: string
+          nullable: true
+          maxLength: 100
+          description: 生成失败错误码；成功或生成中为 null，不暴露路径和原始文件内容。
         rootCategory:
           $ref: '#/components/schemas/CategorySummary'
         childCategory:
@@ -4457,7 +5337,19 @@ components:
       type: object
       required: [productId, firstFreeEligible, enabled, productIdLocked]
       properties:
+        acquisitionMode: {type: string, enum: [CREDITS, NON_CONSUMABLE]}
+        credits: {$ref: '#/components/schemas/IosWallpaperCredits'}
+        packCredits: {type: integer, nullable: true, enum: [1, 2, 3]}
+        purchaseQuantity: {type: integer, nullable: true, minimum: 1, maximum: 10}
+        priceVersion: {type: integer, format: int64, nullable: true, minimum: 1}
+
         productId: {type: string, maxLength: 255}
+        chinaReferencePrice: {$ref: '#/components/schemas/IosChinaReferencePrice'}
+        priceSource: {type: string, enum: [APP_STORE_CONNECT]}
+        priceCurrency: {type: string, enum: [CNY]}
+        priceSyncStatus: {type: string, enum: [UNSYNCED, READY, STALE, ERROR, UNAVAILABLE]}
+        priceSyncedAt: {type: string, format: date-time, nullable: true}
+        priceSyncError: {type: string, nullable: true, description: 脱敏同步错误码，不包含 Apple 密钥或响应原文}
         firstFreeEligible: {type: boolean}
         enabled: {type: boolean}
         productIdLocked: {type: boolean}
@@ -5367,6 +6259,7 @@ components:
         - ticket
         - expiresAt
         - resourceVersion
+        - previewRevision
       properties:
         deliveryMode:
           type: string
@@ -5399,6 +6292,11 @@ components:
           format: date-time
         resourceVersion:
           $ref: "#/components/schemas/DownloadResourceVersion"
+        previewRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: 签发时的当前预览代次；不匹配当前策略的旧票据不得读取，App 不得复用旧缓存。
         package:
           type: object
           allOf:
@@ -5409,6 +6307,32 @@ components:
           allOf:
             - $ref: "#/components/schemas/DeliveryFile"
           nullable: true
+    PreviewGenerationStatus:
+      type: string
+      enum: [PENDING, PROCESSING, READY, FAILED]
+      description: 当前代次预览的生成状态；非 READY 时不得向未授权预览请求回退干净源。
+    PreviewRebuildPlan:
+      type: object
+      required: [wallpaperCount, resourceVersionCount, watermarkedWallpaperCount, cleanWallpaperCount]
+      properties:
+        wallpaperCount:
+          type: integer
+          format: int64
+          minimum: 0
+        resourceVersionCount:
+          type: integer
+          format: int64
+          minimum: 0
+        watermarkedWallpaperCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: accessType=REDEEM 且 previewWatermarkEnabled=true 的壁纸数。
+        cleanWallpaperCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 免费壁纸与管理员关闭水印的付费壁纸数。
     FreeGeneration:
       type: integer
       format: int32
@@ -5453,6 +6377,57 @@ components:
         challengeId: {type: string, format: uuid}
         nonce: {type: string}
         deviceToken: {type: string, format: byte, maxLength: 16384}
+    IosChinaReferencePrice:
+      type: string
+      nullable: true
+      pattern: '^(?:0\.(?:0[1-9]|[1-9][0-9])|[1-9][0-9]{0,7}\.[0-9]{2})$'
+      example: '1.00'
+      description: Apple 中国区 customerPrice 的 CNY 十进制金额字符串，精确到分；仅 READY 状态返回金额，其他状态为 null。不参与实际支付或权益验证。
+    IosStoreProductMapping:
+      type: object
+      required: [wallpaperId, productId]
+      properties:
+        acquisitionMode: {type: string, enum: [CREDITS, NON_CONSUMABLE]}
+        credits: {$ref: '#/components/schemas/IosWallpaperCredits'}
+        packCredits: {type: integer, nullable: true, enum: [1, 2, 3]}
+        purchaseQuantity: {type: integer, nullable: true, minimum: 1, maximum: 10}
+        priceVersion: {type: integer, format: int64, nullable: true, minimum: 1}
+
+        firstFreeEligible: {type: boolean}
+        wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
+        productId: {type: string, description: 积分价未配置时可为空；多个壁纸可共用同一积分商品}
+        chinaReferencePrice: {$ref: '#/components/schemas/IosChinaReferencePrice'}
+        priceSource: {type: string, enum: [APP_STORE_CONNECT]}
+        priceCurrency: {type: string, enum: [CNY]}
+        priceSyncStatus: {type: string, enum: [UNSYNCED, READY, STALE, ERROR, UNAVAILABLE]}
+        priceSyncedAt: {type: string, format: date-time, nullable: true}
+    IosWallpaperCredits:
+      type: integer
+      nullable: true
+      enum: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30]
+      description: 壁纸整数售价自动转为同数量积分，1积分＝1元。不能用三个积分商品一次精确支付的金额拒绝保存。
+    IosCreditOrder:
+      type: object
+      required: [orderId, wallpaperId, productId, packCredits, quantity, credits, amount, accountToken, priceVersion, status, paymentAllowed]
+      properties:
+        orderId: {type: string, format: uuid}
+        wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
+        productId: {type: string}
+        packCredits: {type: integer, enum: [1, 2, 3]}
+        quantity: {type: integer, minimum: 1, maximum: 10}
+        credits: {$ref: '#/components/schemas/IosWallpaperCredits'}
+        amount: {type: string, pattern: '^[1-9][0-9]*\.00$', description: CNY订单总额等于积分数}
+        accountToken: {type: string, format: uuid, description: 每个订单专属的Apple appAccountToken}
+        priceVersion: {type: integer, format: int64}
+        status: {type: string, enum: [OPEN, FULFILLED]}
+        paymentAllowed: {type: boolean, description: 仅新建或未发起付款的订单为true；重复下单禁止再次调起Apple付款}
+    IosProductCatalogue:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/IosStoreProductMapping'}
     AcquisitionState:
       type: object
       required: [installationId, accountToken, freeAllowance, freeGeneration, products, freeWallpaperIds, purchasedWallpaperIds]
@@ -5477,13 +6452,8 @@ components:
           description: 仅本安装待处理重置；无操作时省略或 null。存在时免费状态为 UNAVAILABLE，旧客户端不能直接领取。
         products:
           type: array
-          description: 已发布且启用的壁纸与 Apple 非消耗型 productId 映射
-          items:
-            type: object
-            required: [wallpaperId, productId]
-            properties:
-              wallpaperId: {$ref: '#/components/schemas/WallpaperId'}
-              productId: {type: string, minLength: 1}
+          description: 已发布且启用的壁纸，含CREDITS共用商品、壁纸积分价、数量和首免资格；旧非消耗型继续兼容。
+          items: {$ref: '#/components/schemas/IosStoreProductMapping'}
         freeWallpaperIds:
           type: array
           uniqueItems: true
@@ -5508,3 +6478,510 @@ components:
             WALLPAPER_UNAVAILABLE, UNAUTHORIZED, FORBIDDEN, VALIDATION_FAILED,
             APPLE_NOTIFICATION_INVALID, RATE_LIMITED, INTERNAL_ERROR]
         message: {type: string}
+
+    AppReleasePlatform:
+      type: string
+      enum: [android, ios, harmony]
+    AppReleaseView:
+      type: object
+      required: [id, platform, versionName, versionCode, releaseNotes, forceUpdate, status, deliveryType, createdAt]
+      properties:
+        id: {$ref: '#/components/schemas/LongId'}
+        platform: {$ref: '#/components/schemas/AppReleasePlatform'}
+        versionName: {type: string, maxLength: 64}
+        versionCode: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        releaseNotes: {type: string, maxLength: 1000}
+        forceUpdate: {type: boolean, description: 此版本仅在PUBLISHED时形成最低使用门槛}
+        status: {type: string, enum: [DRAFT, PUBLISHED, DEPRECATED]}
+        deliveryType: {type: string, enum: [apk, store]}
+        storeUrl: {type: string, format: uri, nullable: true, description: 商店详情https链接；Android为null}
+        packageName: {type: string, nullable: true}
+        sha256: {type: string, pattern: '^[a-f0-9]{64}$', nullable: true}
+        fileSize: {type: integer, format: int64, nullable: true}
+        abi: {type: string, nullable: true, description: 逗号分隔ABI，或universal}
+        signerSha256: {type: string, pattern: '^[a-f0-9]{64}$', nullable: true}
+        minSdkVersion: {type: integer, nullable: true, description: APK解析的Android最低系统SDK}
+        downloadUrl: {type: string, nullable: true, description: '仅PUBLISHED Android返回同源相对/api/v1/app-updates/packages/{id}，从API源解析'}
+        createdAt: {$ref: '#/components/schemas/Timestamp'}
+        publishedAt: {type: string, format: date-time, nullable: true}
+    AppReleaseEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/AppReleaseView'}
+    AppUpdateCheckEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [platform, updateAvailable, mandatory, minimumVersion, latestVersion, checkedAt]
+          properties:
+            platform: {$ref: '#/components/schemas/AppReleasePlatform'}
+            updateAvailable: {type: boolean}
+            mandatory: {type: boolean, description: 当前版本低于强制门槛且存在可达更新目标}
+            minimumVersion:
+              type: object
+              allOf: [{$ref: '#/components/schemas/AppReleaseView'}]
+              nullable: true
+            latestVersion:
+              type: object
+              allOf: [{$ref: '#/components/schemas/AppReleaseView'}]
+              nullable: true
+            checkedAt: {$ref: '#/components/schemas/Timestamp'}
+    StoreAppReleaseRequest:
+      type: object
+      required: [platform, versionName, versionCode, releaseNotes, storeUrl]
+      properties:
+        platform: {type: string, enum: [ios, harmony]}
+        versionName: {type: string, maxLength: 64, pattern: '^[0-9]+(?:\.[0-9]+){1,2}$'}
+        versionCode: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        releaseNotes: {type: string, minLength: 1, maxLength: 1000}
+        storeUrl: {type: string, format: uri, maxLength: 1000}
+    AppReleaseUpdateRequest:
+      type: object
+      required: [releaseNotes, forceUpdate]
+      properties:
+        releaseNotes: {type: string, minLength: 1, maxLength: 1000}
+        forceUpdate: {type: boolean}
+        storeUrl: {type: string, format: uri, nullable: true, maxLength: 1000}
+
+    CreatorWallpaperEnvironment:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - label
+        - mode
+        - apiVersion
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        mode:
+          type: string
+        apiVersion:
+          type: string
+    CreatorWallpaperVariantRule:
+      type: object
+      additionalProperties: false
+      required:
+        - platform
+        - resourceType
+        - uploadPurpose
+        - requiredRole
+        - acceptedMimeTypes
+        - maximumBytes
+        - source
+        - preview
+      properties:
+        platform:
+          $ref: "#/components/schemas/DeliveryPlatform"
+        resourceType:
+          $ref: "#/components/schemas/ResourceType"
+        uploadPurpose:
+          type: string
+        requiredRole:
+          type: string
+        acceptedMimeTypes:
+          type: array
+          items:
+            type: string
+        maximumBytes:
+          type: integer
+          format: int64
+          minimum: 1
+        source:
+          type: object
+          additionalProperties: true
+        preview:
+          type: object
+          additionalProperties: true
+    CreatorWallpaperCapabilities:
+      type: object
+      additionalProperties: false
+      required:
+        - environment
+        - rulesVersion
+        - wallpaperVariants
+        - coverMaximumBytes
+        - coverMimeTypes
+        - supportedMetadataFields
+        - supportedIosAcquisitionFields
+        - supportedOperations
+      properties:
+        environment:
+          $ref: "#/components/schemas/CreatorWallpaperEnvironment"
+        rulesVersion:
+          type: string
+        wallpaperVariants:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreatorWallpaperVariantRule"
+        coverMaximumBytes:
+          type: integer
+          format: int64
+        coverMimeTypes:
+          type: array
+          items:
+            type: string
+        supportedMetadataFields:
+          type: array
+          items:
+            type: string
+        supportedIosAcquisitionFields:
+          type: array
+          items:
+            type: string
+        supportedOperations:
+          type: object
+          additionalProperties:
+            type: boolean
+    CreatorWallpaperResource:
+      type: object
+      additionalProperties: false
+      required:
+        - platform
+        - resourceType
+      properties:
+        platform:
+          $ref: "#/components/schemas/DeliveryPlatform"
+        resourceType:
+          $ref: "#/components/schemas/ResourceType"
+        assetId:
+          type: string
+          allOf:
+            - $ref: "#/components/schemas/LongId"
+          nullable: true
+          description: 非 4D 必填，来自相同环境的 READY 正式资产；4D 不得提供 assetId。
+        sourcePackageId:
+          type: string
+          allOf:
+            - $ref: "#/components/schemas/LongId"
+          nullable: true
+          description: 4D 必填，来自专用 ZIP 导入；非 4D 不得提供 sourcePackageId。
+    CreatorIosAcquisitionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - firstFreeEligible
+        - enabled
+      properties:
+        productId:
+          type: string
+          maxLength: 255
+          pattern: ^[A-Za-z0-9._-]+$
+          nullable: true
+        chinaReferencePrice:
+          type: string
+          pattern: ^(?:0|[1-9][0-9]{0,7})\.[0-9]{2}$
+          description: 兼容旧字段，仅接受校验；价格由 Apple 同步，创作台不应提交这个字段。
+          nullable: true
+        firstFreeEligible:
+          type: boolean
+        enabled:
+          type: boolean
+        acquisitionMode:
+          type: string
+          enum:
+            - CREDITS
+            - NON_CONSUMABLE
+          nullable: true
+        credits:
+          type: integer
+          minimum: 1
+          maximum: 30
+          nullable: true
+    CreatorWallpaperPublicationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - environmentId
+        - clientProjectKey
+        - action
+        - metadata
+        - resources
+        - retainResourceVersionIds
+        - rulesVersion
+      properties:
+        environmentId:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: ^[A-Za-z0-9._:-]{1,80}$
+        clientProjectKey:
+          type: string
+          pattern: ^[A-Za-z0-9._:-]{1,128}$
+        action:
+          type: string
+          enum:
+            - SAVE_DRAFT
+            - PUBLISH
+        wallpaperId:
+          type: string
+          allOf:
+            - $ref: "#/components/schemas/LongId"
+          nullable: true
+        expectedWallpaperVersion:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+        metadata:
+          $ref: "#/components/schemas/CreatorWallpaperMetadata"
+        resources:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreatorWallpaperResource"
+          maxItems: 5
+        retainResourceVersionIds:
+          type: array
+          items:
+            $ref: "#/components/schemas/LongId"
+          maxItems: 20
+          uniqueItems: true
+        iosAcquisition:
+          type: object
+          allOf:
+            - $ref: "#/components/schemas/CreatorIosAcquisitionRequest"
+          nullable: true
+        rulesVersion:
+          type: string
+          enum:
+            - creator-wallpaper-rules-1
+    CreatorWallpaperPublicationStep:
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - id
+      properties:
+        key:
+          type: string
+        id:
+          $ref: "#/components/schemas/LongId"
+    CreatorWallpaperPublicationResult:
+      type: object
+      additionalProperties: false
+      required:
+        - wallpaperId
+        - status
+        - version
+        - resourceVersionIds
+        - previewGenerationStatus
+      properties:
+        wallpaperId:
+          $ref: "#/components/schemas/LongId"
+        status:
+          $ref: "#/components/schemas/WallpaperStatus"
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+        resourceVersionIds:
+          type: array
+          items:
+            $ref: "#/components/schemas/LongId"
+        previewGenerationStatus:
+          type: string
+          enum:
+            - PENDING
+            - PROCESSING
+            - READY
+            - FAILED
+    CreatorWallpaperPublicationTask:
+      type: object
+      additionalProperties: false
+      required:
+        - taskId
+        - state
+        - stage
+        - environmentId
+        - wallpaperId
+        - wallpaperVersion
+        - attempt
+        - completedSteps
+        - result
+        - errorCode
+        - errorMessage
+        - retryable
+        - createdAt
+        - updatedAt
+        - clientProjectKey
+        - action
+        - title
+      properties:
+        taskId:
+          $ref: "#/components/schemas/LongId"
+        state:
+          type: string
+          enum:
+            - QUEUED
+            - RUNNING
+            - SUCCEEDED
+            - FAILED
+            - NEEDS_INPUT
+        stage:
+          type: string
+        environmentId:
+          type: string
+        wallpaperId:
+          type: string
+          allOf:
+            - $ref: "#/components/schemas/LongId"
+          nullable: true
+        wallpaperVersion:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+        attempt:
+          type: integer
+          minimum: 0
+        completedSteps:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreatorWallpaperPublicationStep"
+        result:
+          type: object
+          allOf:
+            - $ref: "#/components/schemas/CreatorWallpaperPublicationResult"
+          nullable: true
+        errorCode:
+          type: string
+          nullable: true
+        errorMessage:
+          type: string
+          nullable: true
+        retryable:
+          type: boolean
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+        clientProjectKey:
+          type: string
+        action:
+          type: string
+          enum:
+            - SAVE_DRAFT
+            - PUBLISH
+        title:
+          type: string
+    CreatorWallpaperPublicationPage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - page
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreatorWallpaperPublicationTask"
+        page:
+          $ref: "#/components/schemas/PageMetadata"
+    WallpaperPublicationCheck:
+      type: object
+      additionalProperties: false
+      required:
+        - scope
+        - code
+        - level
+        - message
+        - suggestedAction
+        - preventsPreparation
+      properties:
+        scope:
+          type: string
+        code:
+          type: string
+        level:
+          type: string
+          enum:
+            - BLOCKING
+            - WARNING
+        message:
+          type: string
+        suggestedAction:
+          type: string
+        preventsPreparation:
+          type: boolean
+    WallpaperPublicationCheckResult:
+      type: object
+      additionalProperties: false
+      required:
+        - wallpaperId
+        - wallpaperVersion
+        - canPrepare
+        - canPublish
+        - checks
+      properties:
+        wallpaperId:
+          $ref: "#/components/schemas/LongId"
+        wallpaperVersion:
+          type: integer
+          format: int64
+        canPrepare:
+          type: boolean
+        canPublish:
+          type: boolean
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/WallpaperPublicationCheck"
+    CreatorWallpaperMetadata:
+      type: object
+      required:
+        - title
+        - slug
+        - accessType
+        - rootCategoryId
+        - coverAssetId
+        - sortOrder
+        - copyrightNote
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 40
+        slug:
+          type: string
+          minLength: 2
+          maxLength: 64
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+        accessType:
+          $ref: "#/components/schemas/WallpaperAccessType"
+        offlinePromotionOnly:
+          type: boolean
+          default: false
+          description: 仅吉意壁纸 Android 线下推广使用；默认 false，PATCH省略保留现值。true时正式Android/iOS/Harmony及匿名入口均不可见，服务端按当前策略检查；不改变收费、水印和资源生成。
+        previewWatermarkEnabled:
+          type: boolean
+          default: true
+          description: 创建时未提供默认为 true；PATCH 未提供时保留原开关。只有 accessType=REDEEM 且开关为 true 时添加水印，免费始终无水印。切换开关或收费规则会异步重新生成预览。
+        rootCategoryId:
+          $ref: "#/components/schemas/LongId"
+        childCategoryId:
+          type: string
+          allOf:
+            - $ref: "#/components/schemas/LongId"
+          nullable: true
+          description: 提供时必须是 rootCategoryId 的直接子节点；数据库只保存这个最深节点。
+        coverAssetId:
+          $ref: "#/components/schemas/LongId"
+        featuredRank:
+          type: integer
+          minimum: 0
+          maximum: 999999
+          nullable: true
+        sortOrder:
+          type: integer
+          minimum: 0
+          maximum: 999999
+        copyrightNote:
+          type: string
+          minLength: 1
+          maxLength: 500
+      additionalProperties: false

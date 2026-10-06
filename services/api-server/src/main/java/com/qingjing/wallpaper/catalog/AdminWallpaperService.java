@@ -61,19 +61,22 @@ public class AdminWallpaperService {
     private final AdminCategoryService categories;
     private final AdminAssetService assets;
     private final ObjectMapper objectMapper;
+    private final com.qingjing.wallpaper.delivery.PreviewGenerationService previews;
+    private final WallpaperPublicationChecks publicationChecks;
 
     public AdminWallpaperService(
             JdbcTemplate jdbc,
             AdminContentViewReader views,
             AdminCategoryService categories,
             AdminAssetService assets,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper, com.qingjing.wallpaper.delivery.PreviewGenerationService previews,
+            WallpaperPublicationChecks publicationChecks) {
         this.jdbc = jdbc;
         this.namedJdbc = new NamedParameterJdbcTemplate(jdbc);
         this.views = views;
         this.categories = categories;
         this.assets = assets;
-        this.objectMapper = objectMapper;
+        this.objectMapper = objectMapper; this.previews=previews;this.publicationChecks=publicationChecks;
     }
 
     @Transactional(readOnly = true)
@@ -149,6 +152,7 @@ public class AdminWallpaperService {
         if (key == null) {
             throw new IllegalStateException("Wallpaper insert returned no identifier");
         }
+        previews.enqueue(key.longValue());
         return views.wallpaper(key.longValue());
     }
 
@@ -164,7 +168,8 @@ public class AdminWallpaperService {
                     """
                     UPDATE wallpaper
                     SET title = ?, slug = ?, access_type = ?, category_id = ?, cover_asset_id = ?,
-                        featured_rank = ?, sort_order = ?, copyright_note = ?, lock_version = lock_version + 1
+                        featured_rank = ?, sort_order = ?, copyright_note = ?, preview_watermark_enabled = ?,
+                        offline_promotion_only = ?, lock_version = lock_version + 1
                     WHERE id = ? AND lock_version = ?
                     """,
                     request.title().strip(),
@@ -175,6 +180,8 @@ public class AdminWallpaperService {
                     request.featuredRank(),
                     request.sortOrder(),
                     request.copyrightNote().strip(),
+                    request.previewWatermarkEnabled()==null?existing.previewWatermarkEnabled():request.previewWatermarkEnabled(),
+                    request.offlinePromotionOnly()==null?existing.offlinePromotionOnly():request.offlinePromotionOnly(),
                     wallpaperId,
                     expectedVersion);
             if (updated == 0) {
@@ -183,30 +190,10 @@ public class AdminWallpaperService {
         } catch (DataIntegrityViolationException exception) {
             throw wallpaperConflict(exception);
         }
+        boolean newFlag=request.previewWatermarkEnabled()==null?existing.previewWatermarkEnabled():request.previewWatermarkEnabled();
+        if(existing.coverAssetId()!=shape.coverAssetId() || !existing.accessType().equals(accessType(request).name())
+                || existing.previewWatermarkEnabled()!=newFlag) previews.enqueue(wallpaperId);
         return views.wallpaper(wallpaperId);
-    }
-
-    @Transactional
-    public void deleteDraft(long wallpaperId, long expectedVersion) {
-        WallpaperRow wallpaper = lockWallpaper(wallpaperId, expectedVersion);
-        if (!wallpaper.status().equals("DRAFT")) {
-            throw stateConflict("Only a draft wallpaper can be deleted");
-        }
-        Long versionCount = jdbc.queryForObject(
-                """
-                SELECT COUNT(*) FROM resource_version rv
-                JOIN wallpaper_variant v ON v.id = rv.variant_id
-                WHERE v.wallpaper_id = ?
-                """,
-                Long.class,
-                wallpaperId);
-        if (versionCount != null && versionCount > 0) {
-            throw new ApiException(
-                    HttpStatus.CONFLICT,
-                    "RESOURCE_IN_USE",
-                    "A draft with resource version history cannot be deleted");
-        }
-        jdbc.update("DELETE FROM wallpaper WHERE id = ? AND lock_version = ?", wallpaperId, expectedVersion);
     }
 
     @Transactional
@@ -295,6 +282,7 @@ public class AdminWallpaperService {
         } catch (DataIntegrityViolationException exception) {
             throw new ApiException(HttpStatus.CONFLICT, "DUPLICATE_VARIANT", "The wallpaper variant already exists");
         }
+        if(variant.enabled()!=request.enabled()) previews.enqueue(variant.wallpaperId());
         return views.variant(variantId);
     }
 
@@ -385,6 +373,7 @@ public class AdminWallpaperService {
             PublishWallpaperRequest request) {
         ensureUniqueStrings(request.resourceVersionIds(), "resourceVersionIds");
         WallpaperRow wallpaper = lockWallpaper(wallpaperId, expectedVersion);
+        publicationChecks.requirePublishable(wallpaperId, request.resourceVersionIds());
         if (wallpaper.status().equals("ARCHIVED")) {
             throw stateConflict("An archived wallpaper cannot be published");
         }
@@ -454,6 +443,7 @@ public class AdminWallpaperService {
         if (updated != 1) {
             throw versionConflict("The wallpaper version changed during publication");
         }
+        previews.enqueue(wallpaperId);
         return views.wallpaper(wallpaperId);
     }
 
@@ -480,8 +470,8 @@ public class AdminWallpaperService {
     @Transactional
     public AdminWallpaperDetail archive(long wallpaperId, long expectedVersion) {
         WallpaperRow wallpaper = lockWallpaper(wallpaperId, expectedVersion);
-        if (!wallpaper.status().equals("DRAFT") && !wallpaper.status().equals("OFFLINE")) {
-            throw stateConflict("Only a draft or offline wallpaper can be archived");
+        if (wallpaper.status().equals("ARCHIVED")) {
+            throw stateConflict("The wallpaper has already been deleted");
         }
         jdbc.update(
                 """
@@ -624,7 +614,7 @@ public class AdminWallpaperService {
     }
 
     private WallpaperRow lockWallpaper(long wallpaperId, long expectedVersion) {
-        WallpaperRow wallpaper = views.wallpaperRow(wallpaperId);
+        views.wallpaperRow(wallpaperId); // Retain the domain 404 before attempting the lock.
         Long currentVersion = jdbc.queryForObject(
                 "SELECT lock_version FROM wallpaper WHERE id = ? FOR UPDATE",
                 Long.class,
@@ -632,7 +622,7 @@ public class AdminWallpaperService {
         if (currentVersion == null || currentVersion != expectedVersion) {
             throw versionConflict("The wallpaper version has changed");
         }
-        return wallpaper;
+        return views.wallpaperRow(wallpaperId);
     }
 
     private VariantRow lockVariant(long variantId, long expectedVersion) {
@@ -665,8 +655,8 @@ public class AdminWallpaperService {
                 """
                 INSERT INTO wallpaper
                     (title, slug, access_type, category_id, cover_asset_id, featured_rank,
-                     sort_order, copyright_note, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT')
+                     sort_order, copyright_note, preview_watermark_enabled, offline_promotion_only, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT')
                 """,
                 Statement.RETURN_GENERATED_KEYS);
         statement.setString(1, request.title().strip());
@@ -681,6 +671,8 @@ public class AdminWallpaperService {
         }
         statement.setInt(7, request.sortOrder());
         statement.setString(8, request.copyrightNote().strip());
+        statement.setBoolean(9,request.previewWatermarkEnabled()==null || request.previewWatermarkEnabled());
+        statement.setBoolean(10,Boolean.TRUE.equals(request.offlinePromotionOnly()));
         return statement;
     }
 

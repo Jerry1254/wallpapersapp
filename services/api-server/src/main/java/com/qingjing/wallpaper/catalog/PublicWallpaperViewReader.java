@@ -29,8 +29,10 @@ public class PublicWallpaperViewReader {
                        selected.id AS selected_id, selected.name AS selected_name,
                        selected.slug AS selected_slug, selected.level AS selected_level,
                        parent.id AS parent_id, parent.name AS parent_name, parent.slug AS parent_slug,
-                       a.id AS asset_id, a.mime_type, a.width_px, a.height_px
+                       a.id AS asset_id, COALESCE(ps.cover_mime_type,a.mime_type) AS mime_type, a.width_px, a.height_px,
+                       COALESCE(ps.requested_revision,1) AS preview_revision,COALESCE(ps.status,'PENDING') AS preview_status
                 FROM wallpaper w
+                LEFT JOIN wallpaper_preview_state ps ON ps.wallpaper_id=w.id
                 JOIN category selected ON selected.id = w.category_id
                 LEFT JOIN category parent ON parent.id = selected.parent_id
                 JOIN asset a ON a.id = w.cover_asset_id
@@ -44,7 +46,7 @@ public class PublicWallpaperViewReader {
                 resultSet.getObject("parent_id", Long.class), resultSet.getString("parent_name"),
                 resultSet.getString("parent_slug"), resultSet.getLong("asset_id"),
                 resultSet.getString("mime_type"), resultSet.getObject("width_px", Integer.class),
-                resultSet.getObject("height_px", Integer.class)), wallpaperId);
+                resultSet.getObject("height_px", Integer.class),resultSet.getLong("preview_revision"),resultSet.getString("preview_status")), wallpaperId);
         if (rows.isEmpty()) {
             throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_FOUND", "The wallpaper was not found");
         }
@@ -58,15 +60,15 @@ public class PublicWallpaperViewReader {
         return new PublicWallpaperSummary(
                 Long.toString(row.id()), row.title(), row.slug(), row.accessType(), root, child,
                 new PublicMedia(Long.toString(row.assetId()),
-                        "/api/v1/public/assets/" + row.assetId() + "/content", row.mimeType(),
+                        "/api/v1/wallpapers/" + row.id() + "/cover?revision="+row.previewRevision(), row.mimeType(),
                         row.widthPx(), row.heightPx()),
-                row.featuredRank() != null, row.sortOrder(), List.copyOf(availableCapabilities));
+                row.featuredRank() != null, row.sortOrder(), List.copyOf(availableCapabilities),row.previewRevision(),row.previewGenerationStatus());
     }
 
     private record WallpaperRow(
             long id, String title, String slug, WallpaperAccessType accessType, Integer featuredRank,
             int sortOrder, long selectedId, String selectedName, String selectedSlug, int selectedLevel,
             Long parentId, String parentName, String parentSlug, long assetId, String mimeType,
-            Integer widthPx, Integer heightPx) {
+            Integer widthPx, Integer heightPx,long previewRevision,String previewGenerationStatus) {
     }
 }

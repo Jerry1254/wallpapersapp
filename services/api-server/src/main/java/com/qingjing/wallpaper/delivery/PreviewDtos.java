@@ -11,5 +11,5 @@ public final class PreviewDtos {
     public record CreatePreviewTicketRequest(@NotNull DeliveryPlatform deliveryPlatform,@NotNull ResourceType resourceType) { }
     public record PreviewDescriptor(String deliveryMode,String purpose,int durationSeconds,String wallpaperId,String ticket,String downloadUrl,
             Instant expiresAt,DeliveryDtos.DownloadResourceVersion resourceVersion,@JsonProperty("package") DeliveryDtos.SecurePackageMetadata packageMetadata,
-            DeliveryDtos.DeliveryFile video) { }
+            DeliveryDtos.DeliveryFile video,long previewRevision) { }
 }

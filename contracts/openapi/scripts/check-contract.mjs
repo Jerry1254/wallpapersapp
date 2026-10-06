@@ -94,6 +94,16 @@ assert.deepEqual(
   'redemption result enum drifted from DM-001'
 );
 assert.deepEqual(document.components.schemas.WallpaperAccessType.enum, ['REDEEM', 'FREE']);
+assert.equal(document.components.schemas.WallpaperWriteRequest.properties.offlinePromotionOnly.default, false);
+assert.ok(document.components.schemas.AdminWallpaperSummary.required.includes('offlinePromotionOnly'));
+assert.equal(document.components.schemas.AdminWallpaperSummary.properties.offlinePromotionOnly.type, 'boolean');
+assert.ok(applicationConfiguration.includes('offline-android-enabled: ${QJ_DEVICE_OFFLINE_ANDROID_ENABLED:false}'));
+assert.ok(document.paths['/wallpapers/{wallpaperId}/cover'].get.security.some(requirement => 'deviceBearer' in requirement));
+assert.ok(document.paths['/public/assets/{assetId}/content'].get.security.some(requirement => 'deviceBearer' in requirement));
+const releaseAppSelector = document.paths['/admin/app-releases'].get.parameters.find(parameter => parameter.name === 'packageName');
+assert.deepEqual(releaseAppSelector.schema.enum, ['com.qingjing.bizhi', 'com.jiyi.wallpaper']);
+assert.deepEqual(document.paths['/admin/app-releases/android'].post.requestBody.content['multipart/form-data'].schema.properties.packageName.enum,
+  ['com.qingjing.bizhi', 'com.jiyi.wallpaper']);
 for (const [path, schema] of [
   ['/public/wallpapers', 'PublicWallpaperSummary'],
   ['/admin/wallpapers', 'AdminWallpaperSummary']
@@ -288,3 +298,91 @@ assert.ok(document.paths['/device/wallpapers/{wallpaperId}/download-tickets'].po
 
 console.log(`Contract coverage checks passed for ${operations.length} operations and ${Object.keys(document.components.schemas).length} schemas.`);
 console.log(`ErrorCode coverage passed for ${checkedErrorLiterals} direct Java ApiException literals.`);
+
+for (const [path, method] of [
+  ['/app-updates/check', 'get'],
+  ['/app-updates/packages/{releaseId}', 'get'],
+  ['/admin/app-releases', 'get'],
+  ['/admin/app-releases', 'post'],
+  ['/admin/app-releases/android', 'post'],
+  ['/admin/app-releases/{releaseId}', 'put'],
+  ['/admin/app-releases/{releaseId}/publish', 'post'],
+  ['/admin/app-releases/{releaseId}/deprecate', 'post']
+]) assert.ok(document.paths[path]?.[method], `missing App release operation ${method} ${path}`);
+assert.deepEqual(document.paths['/app-updates/check'].get.security, []);
+assert.deepEqual(document.paths['/app-updates/packages/{releaseId}'].get.security, []);
+assert.deepEqual(document.components.schemas.AppReleasePlatform.enum, ['android', 'ios', 'harmony']);
+assert.deepEqual(document.components.schemas.AppReleaseView.properties.status.enum, ['DRAFT', 'PUBLISHED', 'DEPRECATED']);
+for (const path of [
+  '/device/redemptions', '/device/wallpapers/{wallpaperId}/download-tickets',
+  '/device/ios/acquisition/free-claims', '/device/ios/acquisition/credit-orders'
+]) {
+  assert.equal(document.paths[path].post.responses['426'].$ref, '#/components/responses/AppUpdateRequired');
+  const headerNames = document.paths[path].post.parameters.map(parameterName);
+  assert.ok(headerNames.includes('AppVersionName') && headerNames.includes('AppVersionCode'));
+}
+assert.ok(!document.paths['/device/ios/acquisition/purchases'].post.responses['426'], 'paid transaction confirmation must remain available to old versions');
+assert.ok(!document.paths['/device/ios/acquisition/credit-restores'].post.responses['426'], 'transaction recovery must remain available to old versions');
+console.log('App release policy and forced-update recovery contract checks passed.');
+
+// Preview metadata must bind catalog, ticket, and cached media to one policy revision.
+const previewStatus = document.components.schemas.PreviewGenerationStatus;
+assert.deepEqual(previewStatus.enum, ['PENDING', 'PROCESSING', 'READY', 'FAILED']);
+for (const schemaName of ['PublicWallpaperSummary', 'AdminWallpaperSummary']) {
+  const schema = document.components.schemas[schemaName];
+  for (const field of ['previewRevision', 'previewGenerationStatus']) {
+    assert.ok(schema.required.includes(field), `${schemaName} must require ${field}`);
+  }
+  assert.equal(schema.properties.previewRevision.type, 'integer');
+  assert.equal(schema.properties.previewRevision.format, 'int64');
+  assert.equal(schema.properties.previewGenerationStatus.$ref, '#/components/schemas/PreviewGenerationStatus');
+}
+const adminWallpaper = document.components.schemas.AdminWallpaperSummary;
+for (const field of ['previewWatermarkEnabled', 'previewGenerationError']) {
+  assert.ok(adminWallpaper.required.includes(field), `admin wallpaper must require ${field}`);
+}
+assert.equal(adminWallpaper.properties.previewGenerationError.nullable, true);
+const watermarkWrite = document.components.schemas.WallpaperWriteRequest;
+assert.equal(watermarkWrite.properties.previewWatermarkEnabled.type, 'boolean');
+assert.equal(watermarkWrite.properties.previewWatermarkEnabled.default, true);
+assert.ok(!watermarkWrite.required.includes('previewWatermarkEnabled'), 'legacy PATCH must retain an omitted watermark setting');
+assert.match(watermarkWrite.properties.previewWatermarkEnabled.description, /PATCH.*保留原开关/);
+assert.ok(document.components.schemas.PreviewDescriptor.required.includes('previewRevision'));
+assert.equal(document.components.schemas.PreviewDescriptor.properties.previewRevision.format, 'int64');
+
+const previewCover = document.paths['/wallpapers/{wallpaperId}/cover'].get;
+assert.ok(previewCover.security.some(requirement => Object.keys(requirement).length === 0),
+  'ONLINE preview covers must remain readable by image loaders without a device session');
+assert.equal(previewCover.parameters.find(parameter => parameter.name === 'revision').required, false);
+assert.deepEqual(previewCover.responses['200'].headers['Cache-Control'].schema.enum, ['no-store']);
+assert.equal(previewCover.responses['503'].$ref, '#/components/responses/PreviewUnavailable');
+assert.ok(previewCover.responses['200'].content['image/png']);
+assert.match(document.paths['/public/assets/{assetId}/content'].get.description, /禁止回源原图/);
+assert.match(document.paths['/public/assets/{assetId}/content'].get.description, /不同预览策略.*拒绝请求/);
+assert.equal(document.paths['/device/wallpapers/{wallpaperId}/preview-tickets'].post.responses['503'].$ref,
+  '#/components/responses/PreviewUnavailable');
+for (const code of ['PREVIEW_PROCESSING', 'PREVIEW_GENERATION_FAILED', 'PREVIEW_WATERMARK_FAILED']) {
+  assert.ok(knownErrors.has(code), `preview failure must document ${code}`);
+}
+
+for (const [path, method] of [
+  ['/admin/wallpaper-previews/rebuild-plan', 'get'],
+  ['/admin/wallpaper-previews/rebuild', 'post'],
+  ['/admin/wallpapers/{wallpaperId}/preview-rebuild', 'post']
+]) {
+  const operation = document.paths[path]?.[method];
+  assert.ok(operation, `missing preview rebuild operation ${method} ${path}`);
+  assert.ok(operation.security.some(requirement => requirement.adminCookie), 'preview administration must require an admin session');
+  if (method === 'post') {
+    assert.ok(operation.security.some(requirement => requirement.adminCsrf), 'rebuild mutations must require CSRF');
+    assert.ok(!operation.requestBody, 'preview rebuild operations must not require invented request bodies');
+  }
+}
+const rebuildPlan = document.components.schemas.PreviewRebuildPlan;
+assert.deepEqual(rebuildPlan.required,
+  ['wallpaperCount', 'resourceVersionCount', 'watermarkedWallpaperCount', 'cleanWallpaperCount']);
+for (const field of rebuildPlan.required) {
+  assert.equal(rebuildPlan.properties[field].type, 'integer');
+  assert.equal(rebuildPlan.properties[field].format, 'int64');
+}
+console.log('Preview watermark policy, cache revision, fail-closed cover and rebuild contract checks passed.');

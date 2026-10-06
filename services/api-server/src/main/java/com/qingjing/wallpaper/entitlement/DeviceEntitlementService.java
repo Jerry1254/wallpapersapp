@@ -38,7 +38,7 @@ public class DeviceEntitlementService {
         if (page < 1 || pageSize < 1 || pageSize > 100) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "page and pageSize are outside the accepted range");
         }
-        var visible = publishedResources.resolve(principal.platform());
+        var visible = publishedResources.resolve(principal);
         if (visible.wallpaperIds().isEmpty()) {
             return new EntitlementPage(List.of(), new PageMetadata(page, pageSize, 0, 0));
         }
@@ -75,7 +75,7 @@ public class DeviceEntitlementService {
     public EntitlementSummary summary(long deviceId, long entitlementId, long wallpaperId, Instant grantedAt) {
         DevicePlatform platform = DevicePlatform.valueOf(jdbc.queryForObject(
                 "SELECT platform FROM anonymous_device WHERE id=?", String.class, deviceId));
-        var visible = publishedResources.resolve(platform);
+        var visible = publishedResources.resolve(platform,deviceId);
         if (!visible.contains(wallpaperId)) {
             throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_FOUND",
                     "The wallpaper was not found");

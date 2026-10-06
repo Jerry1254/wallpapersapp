@@ -52,6 +52,7 @@ public class DownloadTicketService {
             throw new ApiException(HttpStatus.BAD_REQUEST,"RESOURCE_PLATFORM_MISMATCH",
                     "The requested resource does not belong to the authenticated App platform");
         }
+        new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).requireVisible(wallpaperId,principal.deviceId());
         Access access=access(wallpaperId);
         Authorization authorization=access.type()==WallpaperAccessType.FREE?Authorization.FREE:Authorization.ENTITLEMENT;
         var wallpaper=wallpapers.summary(wallpaperId);
@@ -229,6 +230,7 @@ public class DownloadTicketService {
         } finally { reads.release(); }
     }
     private PackageRow validateSecurePackage(Ticket state) {
+        new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).requireVisible(state.wallpaperId(),state.deviceId());
         if (!devices.isAndroidEnabled() || state.authorization()==null ||
                 state.platform()!=DevicePlatform.ANDROID || state.deliveryMode()!=DeliveryMode.SECURE_PACKAGE ||
                 !PlatformResourceScope.visibleTo(state.platform(),state.resourcePlatform(),state.resourceType()) ||
@@ -322,6 +324,7 @@ public class DownloadTicketService {
                 new DeliveryFile("/api/v1/delivery/static-image",selected.hash(),selected.size(),selected.mimeType()));
     }
     private MovingPhotoRow validateMovingPhoto(Ticket state) {
+        new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).requireVisible(state.wallpaperId(),state.deviceId());
         if(state.authorization()==null || state.platform()!=DevicePlatform.HARMONYOS
                 || state.resourcePlatform()!=DeliveryPlatform.HARMONYOS || state.resourceType()!=ResourceType.MOVING_PHOTO
                 || state.deliveryMode()!=DeliveryMode.MOVING_PHOTO ||
@@ -340,6 +343,7 @@ public class DownloadTicketService {
         return rows.get(0);
     }
     private StaticImageRow validateStaticImage(Ticket state) {
+        new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).requireVisible(state.wallpaperId(),state.deviceId());
         if(state.authorization()==null || state.platform()==DevicePlatform.ANDROID
                 || state.resourcePlatform()!=DeliveryPlatform.UNIVERSAL || state.resourceType()!=ResourceType.STATIC_IMAGE
                 || state.deliveryMode()!=DeliveryMode.STATIC_IMAGE
@@ -361,6 +365,7 @@ public class DownloadTicketService {
         return rows.get(0);
     }
     private LivePhotoRow validateLivePhoto(Ticket state) {
+        new com.qingjing.wallpaper.catalog.WallpaperChannelAccess(jdbc).requireVisible(state.wallpaperId(),state.deviceId());
         if(state.authorization()==null || state.platform()!=DevicePlatform.IOS
                 || state.resourcePlatform()!=DeliveryPlatform.IOS || state.resourceType()!=ResourceType.LIVE_PHOTO
                 || state.deliveryMode()!=DeliveryMode.LIVE_PHOTO

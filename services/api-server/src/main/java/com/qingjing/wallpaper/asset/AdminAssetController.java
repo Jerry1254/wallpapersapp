@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
@@ -27,17 +28,26 @@ import org.springframework.web.multipart.MultipartFile;
 public class AdminAssetController {
 
     private final AdminAssetService assets;
+    private final com.qingjing.wallpaper.creator.CreatorAssetUploads creatorUploads;
 
-    public AdminAssetController(AdminAssetService assets) {
+    public AdminAssetController(AdminAssetService assets,com.qingjing.wallpaper.creator.CreatorAssetUploads creatorUploads) {
         this.assets = assets;
+        this.creatorUploads=creatorUploads;
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     ResponseEntity<AdminAssetView> upload(
             @RequestParam("purpose") AssetPurpose purpose,
             @RequestPart("file") MultipartFile file,
+            @RequestHeader(value="Idempotency-Key",required=false) String idempotencyKey,
             HttpServletRequest request) throws IOException {
         AdminPrincipal admin = (AdminPrincipal) request.getAttribute(RequestAttributes.ADMIN_PRINCIPAL);
+        if(idempotencyKey!=null) {
+            try(var input=file.getInputStream()) {
+                var result=creatorUploads.upload(input,file.getOriginalFilename(),file.getContentType(),purpose,admin.id(),idempotencyKey);
+                return ResponseEntity.status(result.created()?201:200).body(result.asset());
+            }
+        }
         AdminAssetView created = assets.upload(
                 file.getInputStream(),
                 file.getOriginalFilename(),

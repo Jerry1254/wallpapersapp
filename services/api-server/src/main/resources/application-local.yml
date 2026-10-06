@@ -24,6 +24,7 @@ management:
 
 qingjing:
   device:
+    offline-android-enabled: true
     android-enabled: true
     allowed-android-scopes:
       - com.qingjing.bizhi.local

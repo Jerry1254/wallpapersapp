@@ -43,7 +43,7 @@ class RedemptionOpenApiCoverageTest {
                 DeviceIosAcquisitionController.class));
 
         assertThat(controllerOperations).containsExactlyInAnyOrderElementsOf(contractOperations);
-        assertThat(contractOperations).hasSize(39);
+        assertThat(contractOperations).hasSize(43);
     }
 
     @SuppressWarnings("unchecked")

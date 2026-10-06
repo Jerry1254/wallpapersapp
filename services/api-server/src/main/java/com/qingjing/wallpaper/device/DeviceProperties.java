@@ -11,6 +11,9 @@ public class DeviceProperties {
     private boolean androidEnabled;
     private List<String> allowedAndroidScopes = new ArrayList<>();
     private List<String> onlineTestAndroidScopes = new ArrayList<>();
+    private boolean offlineAndroidEnabled;
+    public boolean isOfflineAndroidEnabled() { return offlineAndroidEnabled; }
+    public void setOfflineAndroidEnabled(boolean value) { offlineAndroidEnabled = value; }
     public boolean isAndroidEnabled() { return androidEnabled; }
     public void setAndroidEnabled(boolean value) { androidEnabled = value; }
     public List<String> getAllowedAndroidScopes() { return List.copyOf(allowedAndroidScopes); }
@@ -18,6 +21,7 @@ public class DeviceProperties {
     public List<String> getOnlineTestAndroidScopes() { return List.copyOf(onlineTestAndroidScopes); }
     public void setOnlineTestAndroidScopes(List<String> value) { onlineTestAndroidScopes = new ArrayList<>(value); }
     public boolean isAndroidScopeAllowed(String scope) {
+        if ("com.jiyi.wallpaper".equals(scope)) return offlineAndroidEnabled;
         return allowedAndroidScopes.contains(scope) || onlineTestAndroidScopes.contains(scope);
     }
 

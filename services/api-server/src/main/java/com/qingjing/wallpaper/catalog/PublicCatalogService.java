@@ -47,13 +47,20 @@ public class PublicCatalogService {
     }
 
     @Transactional(readOnly = true)
-    public PublicCategoryList categories(DevicePlatform appPlatform) {
-        PublishedCatalog visible = publishedResources.resolve(appPlatform);
+    public PublicCategoryList categories(DevicePlatform appPlatform) { return categories(appPlatform,0); }
+
+    @Transactional(readOnly = true)
+    public PublicCategoryList categories(DevicePlatform appPlatform,long deviceId) {
+        PublishedCatalog visible = publishedResources.resolve(appPlatform,deviceId);
         if (visible.wallpaperIds().isEmpty()) return new PublicCategoryList(List.of());
+        boolean offline = appPlatform == DevicePlatform.ANDROID
+                && new WallpaperChannelAccess(jdbc).isOfflineDevice(deviceId);
         Map<Long, Long> rootCounts = new HashMap<>();
         Map<Long, Long> childCounts = new HashMap<>();
+        Map<Long, Long> rootCoverWallpapers = new HashMap<>();
         namedJdbc.query("""
-                SELECT selected.id, selected.level, selected.parent_id, COUNT(w.id) AS wallpaper_count
+                SELECT selected.id, selected.level, selected.parent_id, COUNT(w.id) AS wallpaper_count,
+                       MIN(w.id) AS cover_wallpaper_id
                 FROM wallpaper w
                 JOIN category selected ON selected.id = w.category_id
                 WHERE w.status = 'PUBLISHED' AND w.id IN (:wallpaperIds)
@@ -62,16 +69,28 @@ public class PublicCatalogService {
             long count = resultSet.getLong("wallpaper_count");
             if (resultSet.getInt("level") == 1) {
                 rootCounts.merge(resultSet.getLong("id"), count, Long::sum);
+                rootCoverWallpapers.merge(resultSet.getLong("id"), resultSet.getLong("cover_wallpaper_id"), Math::min);
             } else {
                 long childId = resultSet.getLong("id");
                 long rootId = resultSet.getLong("parent_id");
                 childCounts.put(childId, count);
                 rootCounts.merge(rootId, count, Long::sum);
+                rootCoverWallpapers.merge(rootId, resultSet.getLong("cover_wallpaper_id"), Math::min);
             }
         });
         List<RootRow> roots = jdbc.query("""
                 SELECT root.id, root.name, root.slug, root.sort_order,
-                       asset.id AS asset_id, asset.mime_type, asset.width_px, asset.height_px
+                       asset.id AS asset_id, asset.mime_type, asset.width_px, asset.height_px,
+                       EXISTS (
+                           SELECT 1 FROM wallpaper restricted
+                           WHERE restricted.status='PUBLISHED' AND restricted.offline_promotion_only=TRUE
+                             AND (restricted.cover_asset_id=asset.id OR EXISTS (
+                                 SELECT 1 FROM wallpaper_variant v
+                                 JOIN resource_version rv ON rv.variant_id=v.id
+                                 JOIN resource_binding rb ON rb.resource_version_id=rv.id
+                                 WHERE v.wallpaper_id=restricted.id AND rb.asset_id=asset.id
+                             ))
+                       ) AS restricted_icon
                 FROM category root
                 JOIN asset ON asset.id = root.icon_asset_id
                     AND asset.deleted_at IS NULL AND asset.validation_status = 'READY'
@@ -80,12 +99,16 @@ public class PublicCatalogService {
                 """, (rs, rowNumber) -> new RootRow(
                 rs.getLong("id"), rs.getString("name"), rs.getString("slug"), rs.getInt("sort_order"),
                 rs.getLong("asset_id"), rs.getString("mime_type"),
-                rs.getObject("width_px", Integer.class), rs.getObject("height_px", Integer.class)));
+                rs.getObject("width_px", Integer.class), rs.getObject("height_px", Integer.class),
+                rs.getBoolean("restricted_icon")));
         List<PublicRootCategory> items = roots.stream()
                 .filter(root -> rootCounts.getOrDefault(root.id(), 0L) > 0)
                 .map(root -> new PublicRootCategory(
                         Long.toString(root.id()), root.name(), root.slug(),
-                        media(root.assetId(), root.mimeType(), root.widthPx(), root.heightPx()), root.sortOrder(),
+                        !offline && root.restrictedIcon()
+                                ? views.summary(rootCoverWallpapers.get(root.id()),
+                                        visible.capabilities(rootCoverWallpapers.get(root.id()))).cover()
+                                : media(root.assetId(), root.mimeType(), root.widthPx(), root.heightPx()), root.sortOrder(),
                         rootCounts.get(root.id()), children(root.id(), childCounts)))
                 .toList();
         return new PublicCategoryList(items);
@@ -104,11 +127,19 @@ public class PublicCatalogService {
             WallpaperAccessType accessType,
             String query,
             CatalogSort sort) {
+        return wallpapers(appPlatform,page,pageSize,rootCategoryId,childCategoryId,deliveryPlatform,
+                resourceType,view,accessType,query,sort,0);
+    }
+
+    @Transactional(readOnly = true)
+    public PublicWallpaperPage wallpapers(DevicePlatform appPlatform,int page,int pageSize,
+            Long rootCategoryId,Long childCategoryId,DeliveryPlatform deliveryPlatform,ResourceType resourceType,
+            CatalogView view,WallpaperAccessType accessType,String query,CatalogSort sort,long deviceId) {
         validatePage(page, pageSize);
         validateCategories(rootCategoryId, childCategoryId);
         validateCapabilityFilter(deliveryPlatform, resourceType);
         String normalizedQuery = normalizeQuery(query);
-        PublishedCatalog visible = publishedResources.resolve(appPlatform);
+        PublishedCatalog visible = publishedResources.resolve(appPlatform,deviceId);
         if (deliveryPlatform != null
                 && !PlatformResourceScope.visibleTo(appPlatform, deliveryPlatform, resourceType)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "RESOURCE_PLATFORM_MISMATCH",
@@ -171,7 +202,11 @@ public class PublicCatalogService {
     }
 
     @Transactional(readOnly = true)
-    public PublicWallpaperDetail wallpaper(DevicePlatform appPlatform, long wallpaperId) {
+    public PublicWallpaperDetail wallpaper(DevicePlatform appPlatform, long wallpaperId) { return wallpaper(appPlatform,wallpaperId,0); }
+
+    @Transactional(readOnly = true)
+    public PublicWallpaperDetail wallpaper(DevicePlatform appPlatform,long wallpaperId,long deviceId) {
+        new WallpaperChannelAccess(jdbc).requireVisible(wallpaperId,deviceId);
         List<DetailRow> rows = jdbc.query("""
                 SELECT copyright_note, published_at FROM wallpaper
                 WHERE id = ? AND status = 'PUBLISHED'
@@ -180,7 +215,7 @@ public class PublicCatalogService {
         if (rows.isEmpty()) {
             throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_FOUND", "The wallpaper was not found");
         }
-        PublishedCatalog visible = publishedResources.resolve(appPlatform);
+        PublishedCatalog visible = publishedResources.resolve(appPlatform,deviceId);
         if (!visible.contains(wallpaperId)) {
             throw new ApiException(HttpStatus.NOT_FOUND, "WALLPAPER_NOT_AVAILABLE_FOR_PLATFORM",
                     "The wallpaper is not available for this App platform");
@@ -263,7 +298,7 @@ public class PublicCatalogService {
 
     private record RootRow(
             long id, String name, String slug, int sortOrder, long assetId, String mimeType,
-            Integer widthPx, Integer heightPx) {
+            Integer widthPx, Integer heightPx, boolean restrictedIcon) {
     }
 
     private record DetailRow(String copyrightNote, Timestamp publishedAt) {

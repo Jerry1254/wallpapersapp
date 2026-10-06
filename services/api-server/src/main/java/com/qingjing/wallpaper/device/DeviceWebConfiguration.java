@@ -24,6 +24,6 @@ public class DeviceWebConfiguration implements WebMvcConfigurer {
                 "/api/v1/device/wallpapers/**",
                 "/api/v1/public/categories",
                 "/api/v1/public/wallpapers",
-                "/api/v1/public/wallpapers/**");
+                "/api/v1/public/wallpapers/**").order(10);
     }
 }

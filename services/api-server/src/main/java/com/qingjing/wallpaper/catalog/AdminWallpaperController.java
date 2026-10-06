@@ -36,6 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminWallpaperController {
 
     private final AdminWallpaperService wallpapers;
+    private final WallpaperPublicationChecks publicationChecks;
 
     private final com.qingjing.wallpaper.delivery.SecurePackagePublisher packages;
     private final com.qingjing.wallpaper.delivery.MovingPhotoPublisher movingPhotos;
@@ -44,7 +45,9 @@ public class AdminWallpaperController {
     public AdminWallpaperController(AdminWallpaperService wallpapers,
             com.qingjing.wallpaper.delivery.SecurePackagePublisher packages,
             com.qingjing.wallpaper.delivery.MovingPhotoPublisher movingPhotos,
-            com.qingjing.wallpaper.delivery.LivePhotoPublisher livePhotos) {
+            com.qingjing.wallpaper.delivery.LivePhotoPublisher livePhotos,
+            WallpaperPublicationChecks publicationChecks) {
+        this.publicationChecks=publicationChecks;
         this.packages = packages;
         this.movingPhotos = movingPhotos;
         this.livePhotos = livePhotos;
@@ -87,10 +90,10 @@ public class AdminWallpaperController {
     }
 
     @DeleteMapping("/wallpapers/{wallpaperId}")
-    ResponseEntity<Void> deleteDraft(
+    ResponseEntity<Void> delete(
             @PathVariable String wallpaperId,
             @RequestHeader("If-Match") String ifMatch) {
-        wallpapers.deleteDraft(
+        wallpapers.archive(
                 Ids.parse(wallpaperId, "wallpaperId"),
                 EntityTags.parseRequired(ifMatch));
         return ResponseEntity.noContent().build();
@@ -112,6 +115,12 @@ public class AdminWallpaperController {
                 EntityTags.parseRequired(ifMatch),
                 request);
         return withEtag(200, wallpaper, wallpaper.version());
+    }
+
+    @PostMapping("/wallpapers/{wallpaperId}/publication-check")
+    WallpaperPublicationChecks.Result publicationCheck(@PathVariable String wallpaperId,
+            @Valid @RequestBody PublishWallpaperRequest request) {
+        return publicationChecks.check(Ids.parse(wallpaperId,"wallpaperId"),request.resourceVersionIds());
     }
 
     @PostMapping("/wallpapers/{wallpaperId}/offline")
