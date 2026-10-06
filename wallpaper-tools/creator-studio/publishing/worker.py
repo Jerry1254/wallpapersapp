@@ -9,6 +9,7 @@ import re
 import sys
 import tempfile
 import uuid
+from identity import IdentityError, read_identity
 
 os.umask(0o077)
 OUTPUT = sys.stdout
@@ -67,14 +68,29 @@ async def login(request):
         image_path = Path(info['image_path'])
         if image_path.exists() and image_path.stat().st_size <= 1024 * 1024:
             emit('qr', qr='data:image/png;base64,' + base64.b64encode(image_path.read_bytes()).decode())
+    emit('progress',message='正在检查登录；如出现短信或身份验证，请在平台窗口完成')
     with tempfile.TemporaryDirectory(dir=request['runtime'], prefix='login-') as folder:
         path = Path(folder) / 'state.json'
         if request['mode'] == 'check':
             path.write_text(json.dumps(vault.read()))
         value = await setup(str(path), handle=request['mode'] == 'login', return_detail=True, qrcode_callback=qr, headless=request['mode'] != 'login')
         if value.get('success') and path.exists():
-            vault.save(json.loads(path.read_text()))
-            return {'status': 'ready', 'message': '登录完成；请确认本次扫码的是目标账号'}
+            from patchright.async_api import async_playwright
+            emit('progress',message='登录已完成，正在核对平台账号身份…')
+            async with async_playwright() as runtime:
+                browser=await runtime.chromium.launch(headless=True,channel='chromium')
+                try:
+                    context=await browser.new_context(storage_state=json.loads(path.read_text()))
+                    identity=await read_identity(await context.new_page(),account['platform'],account.get('platformUserId'))
+                    # The backend checks duplicate/mismatched identities before any
+                    # replacement credentials are committed to the encrypted vault.
+                    emit('identity',identity=identity)
+                    if (await asyncio.to_thread(sys.stdin.readline)).strip()!='ok':
+                        raise NeedsInput('账号身份未通过核对，原登录信息未被覆盖')
+                    vault.save(await context.storage_state())
+                finally:
+                    await browser.close()
+            return {'status':'ready','identity':identity,'message':'登录完成，已核对平台账号：'+(identity['nickname'] or identity['platformUserId'].split(':',1)[1])}
         return {'status': 'expired', 'message': '登录未完成或已过期，请重新扫码；如有验证，请在浏览器窗口完成'}
 
 
@@ -172,6 +188,11 @@ async def publish(request):
             context = await browser.new_context(storage_state=saved_state)
             page = await context.new_page()
             page.set_default_timeout(30000)
+            phase='核对发布账号'
+            emit('progress',message=phase)
+            if not job.get('platformUserId'):
+                raise NeedsInput('请先在账号管理检查平台身份')
+            await read_identity(page,platform,job['platformUserId'])
             files = [paths[item] for item in post['mediaIds']]
             emit('progress', message=phase)
             if platform == 'douyin':
@@ -244,8 +265,8 @@ async def publish(request):
             return {'status': 'submitted', 'message': '平台已接收提交，请在平台确认审核结果', 'url': result_url}
     except Exception as error:
         # Never retry after the final click, regardless of a timeout or challenge.
-        return {'status': 'uncertain' if submitted else 'needs_input' if isinstance(error, NeedsInput) else 'failed',
-                'message': ('已点击发布，结果尚未确认，请到平台核对' if submitted else str(error) if isinstance(error, NeedsInput) else f'{phase}未完成；可能需要登录验证或平台页面已变化，请在账号管理重新登录后重试')}
+        return {'status': 'uncertain' if submitted else 'needs_input' if isinstance(error, (NeedsInput,IdentityError)) else 'failed',
+                'message': ('已点击发布，结果尚未确认，请到平台核对' if submitted else str(error) if isinstance(error, (NeedsInput,IdentityError)) else f'{phase}未完成；可能需要登录验证或平台页面已变化，请在账号管理重新登录后重试')}
     finally:
         if browser:
             with contextlib.suppress(Exception):
@@ -269,8 +290,9 @@ async def analytics(request):
         try:
             context = await browser.new_context(storage_state=vault.read())
             page = await context.new_page()
-            await page.goto(source, wait_until='domcontentloaded', timeout=90000)
-            await page.wait_for_timeout(4000)
+            if not account.get('platformUserId'):
+                raise NeedsInput('请先检查平台账号身份，再同步数据')
+            await read_identity(page,account['platform'],account['platformUserId'])
             if '/login' in page.url:
                 raise NeedsInput('登录已过期，请重新扫码后同步数据')
             for key, alternatives in labels.items():
@@ -302,7 +324,7 @@ async def main(request):
     try:
         operation = publish(request) if request['mode'] == 'publish' else analytics(request) if request['mode'] == 'analytics' else login(request)
         result = await asyncio.wait_for(operation, timeout=1800 if request['mode'] == 'publish' else 420)
-    except NeedsInput as error:
+    except (NeedsInput,IdentityError) as error:
         result = {'status': 'needs_input', 'message': str(error)}
     except asyncio.TimeoutError:
         # Parent tracks the submitting state and upgrades this on a late timeout.

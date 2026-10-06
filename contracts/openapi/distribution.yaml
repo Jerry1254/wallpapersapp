@@ -181,12 +181,16 @@
                   "enum": [
                     "ready",
                     "expired",
-                    "disconnected"
+                    "disconnected",
+                    "unverified"
                   ]
                 },
                 "runnerId": {
                   "type": "string",
                   "format": "uuid"
+                },
+                "identity": {
+                  "$ref": "#/schemas/Identity"
                 }
               },
               "additionalProperties": false
@@ -194,7 +198,8 @@
           }
         }
       },
-      "operationId": "creatorDistributionAccountPut"
+      "operationId": "creatorDistributionAccountPut",
+      "description": "本机助手读取账号卡片后提交 identity；ready 必须携带 identity。首次绑定后不得更换平台账号，同平台重复身份返回 409。身份核对通过后助手才替换本机加密登录信息。旧账号先处于 unverified，检查通过后可发布。浏览器侧仅可编辑备注与分组。"
     },
     "delete": {
       "tags": [
@@ -506,7 +511,7 @@
           }
         }
       },
-      "description": "同一 id 与同一内容重试返回原任务；同一 id 内容变化返回 409。逐账号保存内容快照。小红书标题最多 20 字、图文最多 18 张；抖音图文标题最多 20 字、35 张，视频标题最多 30 字；正文与话题合计当前支持 1000 字，话题最多 10 个。不静默截断内容。",
+      "description": "同一 id 与同一内容重试返回原任务；同一 id 内容变化返回 409。逐账号保存内容快照。小红书标题最多 20 字、图文最多 18 张；抖音图文标题最多 20 字、35 张，视频标题最多 30 字；正文与话题合计当前支持 1000 字，话题最多 10 个。不静默截断内容。 source 为当前项目和有序素材标识；后台核对项目归属及文件引用，并固化作品名称与生成任务标识。不同账号可使用独立 post；不创建发布草稿。",
       "operationId": "creatorDistributionBatchesPost"
     }
   },
@@ -611,6 +616,15 @@
                           ],
                           "additionalProperties": false
                         }
+                      },
+                      "platformUserId": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "绑定的账号身份，执行上传前再次核对"
+                      },
+                      "batchId": {
+                        "type": "string",
+                        "format": "uuid"
                       }
                     },
                     "required": [
@@ -1016,10 +1030,30 @@
           "enum": [
             "ready",
             "expired",
-            "disconnected"
+            "disconnected",
+            "unverified"
           ]
         },
         "checkedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        },
+        "platformUserId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^(profile|handle):[A-Za-z0-9_.-]+$",
+          "nullable": true
+        },
+        "nickname": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "avatarUrl": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "identityCheckedAt": {
           "type": "string",
           "format": "date-time",
           "nullable": true
@@ -1083,6 +1117,9 @@
             "内容由AI生成",
             "内容为个人观点或见解"
           ]
+        },
+        "source": {
+          "$ref": "#/schemas/PublicationSource"
         }
       },
       "required": [
@@ -1147,6 +1184,15 @@
           "type": "string",
           "format": "uri",
           "nullable": true
+        },
+        "platformUserId": {
+          "type": "string",
+          "nullable": true,
+          "description": "绑定的账号身份，执行上传前再次核对"
+        },
+        "batchId": {
+          "type": "string",
+          "format": "uuid"
         }
       },
       "required": [
@@ -1204,6 +1250,176 @@
         "ok"
       ],
       "additionalProperties": false
+    },
+    "Identity": {
+      "type": "object",
+      "properties": {
+        "platformUserId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^(profile|handle):[A-Za-z0-9_.-]+$"
+        },
+        "nickname": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "avatarUrl": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "platformUserId"
+      ],
+      "additionalProperties": false
+    },
+    "PublicationSource": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "assetIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "minItems": 1,
+          "maxItems": 35
+        },
+        "projectName": {
+          "type": "string",
+          "readOnly": true
+        },
+        "assets": {
+          "type": "array",
+          "readOnly": true,
+          "items": {
+            "type": "object",
+            "properties": {
+              "assetId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "workId": {
+                "type": "string"
+              },
+              "workName": {
+                "type": "string"
+              },
+              "generationTaskId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "assetId",
+              "name"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "projectId",
+        "assetIds"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "mediaReuse": {
+    "post": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "复用本地创作作品文件用于分发",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "filename": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "image",
+                      "video"
+                    ]
+                  },
+                  "size": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "extension": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "filename",
+                  "type",
+                  "size",
+                  "extension"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "description": "按不可变 workspaceMediaId 复用已保存文件，不再次上传或复制。校验类型和大小，同一文件返回同一发布素材 ID。",
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "workspaceMediaId": {
+                  "type": "string",
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "workspaceMediaId"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "parameters": [],
+      "operationId": "creatorDistributionMediaReusePost"
     }
   }
 }

@@ -177,7 +177,7 @@ class PublishingBridge:
                     self.operations[op] = {'status': 'running', 'message': '正在打开登录窗口，请扫码并确认账号'}
                 threading.Thread(target=self.login, args=(op, account, parts[2]), daemon=True).start()
                 return self.respond(h, {'operationId': op}) or True
-            allowed = (route in ('/accounts', '/jobs', '/batches', '/media', '/metrics') or
+            allowed = (route in ('/accounts', '/jobs', '/batches', '/media', '/media/reuse', '/metrics') or
                        (len(parts) == 2 and parts[0] == 'accounts') or
                        (len(parts) == 3 and parts[0] == 'jobs' and parts[2] == 'action'))
             if not allowed:
@@ -243,7 +243,7 @@ class PublishingBridge:
                     continue
                 event = json.loads(line[len('CREATOR_EVENT '):])
                 on_event(event)
-                if event.get('event') == 'commit':
+                if event.get('event') in ('commit','identity'):
                     proc.stdin.write('ok\n')
                     proc.stdin.flush()
                 if event.get('event') == 'result':
@@ -267,6 +267,11 @@ class PublishingBridge:
             def event(value):
                 if value.get('event') == 'qr':
                     self.operations[op] = {'status': 'running', 'message': '请用对应平台 App 扫码', 'qr': value['qr']}
+                elif value.get('event') == 'progress':
+                    self.operations[op] = {'status':'running','message':value['message']}
+                elif value.get('event') == 'identity':
+                    self.api('PUT','distribution/accounts/'+account['id'],{'status':'unverified','runnerId':self.runner,'identity':value['identity']})
+                    self.operations[op] = {'status':'running','message':'平台身份已通过核对，正在保存本机登录信息…'}
             result = self.execute({'mode': mode, 'account': account, 'runtime': str(RUNTIME)}, event)
             if mode == 'analytics':
                 if result.get('status') == 'ready':
@@ -274,7 +279,10 @@ class PublishingBridge:
                 self.operations[op] = {'status': result['status'], 'message': result['message']}
                 return
             ready = result.get('status') == 'ready'
-            self.api('PUT', 'distribution/accounts/' + account['id'], {'status': 'ready' if ready else 'expired', 'runnerId': self.runner})
+            update={'status':'ready' if ready else 'unverified' if result.get('status')=='needs_input' else 'expired','runnerId':self.runner}
+            if ready:
+                update['identity']=result['identity']
+            self.api('PUT', 'distribution/accounts/' + account['id'], update)
             self.operations[op] = {'status': 'ready' if ready else 'failed', 'message': result.get('message', '登录未完成')}
         except Exception as error:
             self.operations[op] = {'status': 'failed', 'message': str(error)}

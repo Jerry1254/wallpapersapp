@@ -2,6 +2,7 @@ package com.qingjing.wallpaper.distribution;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.qingjing.wallpaper.asset.application.*;
 import com.qingjing.wallpaper.shared.web.ApiException;
 import java.io.InputStream;
@@ -14,6 +15,7 @@ import java.time.Instant;
 import java.util.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,6 +46,8 @@ public class DistributionService {
         v.put("id", r.getString("id")); v.put("platform", r.getString("platform"));
         v.put("name", r.getString("display_name")); v.put("group", r.getString("group_name"));
         v.put("runnerId", r.getString("runner_id")); v.put("status", r.getString("login_status"));
+        v.put("platformUserId",r.getString("platform_user_id"));v.put("nickname",r.getString("nickname"));
+        v.put("avatarUrl",r.getString("avatar_url"));v.put("identityCheckedAt",r.getTimestamp("identity_checked_at"));
         v.put("checkedAt", r.getTimestamp("checked_at")); return v;
     }
     public List<Map<String,Object>> accounts() { return db.query("SELECT * FROM creator_social_account WHERE archived=FALSE ORDER BY created_at", this::account); }
@@ -75,14 +79,33 @@ public class DistributionService {
     }
     @Transactional
     public Map<String,Object> updateAccount(String id, JsonNode n) {
-        requireAccount(id);
+        db.queryForList("SELECT id FROM creator_social_account WHERE id=? FOR UPDATE",uuid(id));
+        var account=requireAccount(id);
         if (n.has("name")) db.update("UPDATE creator_social_account SET display_name=?, group_name=? WHERE id=?",text(n,"name",80,true),text(n,"group",80,false),id);
         if (n.has("status")) {
             String status=text(n,"status",24,true);
-            if (!Set.of("ready","expired","disconnected").contains(status)) throw bad("无效的登录状态");
+            if (!Set.of("ready","expired","disconnected","unverified").contains(status)) throw bad("无效的登录状态");
+            if(!account.get("runnerId").equals(uuid(n.path("runnerId").asText()))) throw conflict("请在账号原来登录的电脑检查身份");
+            if(n.has("identity")) {
+                JsonNode identity=n.path("identity");
+                String userId=identityId(identity,account.get("platformUserId"));
+                String nickname=text(identity,"nickname",160,false),avatar=text(identity,"avatarUrl",2000,false);
+                if(!avatar.isEmpty()) {
+                    try {var uri=java.net.URI.create(avatar);if(!"https".equals(uri.getScheme())||uri.getHost()==null||uri.getUserInfo()!=null)throw new IllegalArgumentException();}
+                    catch(IllegalArgumentException e){throw bad("头像地址无效");}
+                }
+                try {db.update("UPDATE creator_social_account SET platform_user_id=?,nickname=?,avatar_url=?,identity_checked_at=CURRENT_TIMESTAMP(3) WHERE id=?",userId,nickname,avatar,id);}
+                catch(DuplicateKeyException e){throw conflict("这个平台账号已经添加，请使用已有账号");}
+            } else if(status.equals("ready")) throw bad("请先读取并核对平台账号身份");
             db.update("UPDATE creator_social_account SET login_status=?,checked_at=CURRENT_TIMESTAMP(3) WHERE id=? AND runner_id=?",status,id,uuid(n.path("runnerId").asText()));
         }
         return requireAccount(id);
+    }
+    static String identityId(JsonNode identity,Object existing) {
+        String userId=text(identity,"platformUserId",128,true);
+        if(!userId.matches("(?:profile|handle):[A-Za-z0-9_.-]+"))throw bad("未读取到可核对的平台账号标识");
+        if(existing!=null&&!existing.equals(userId))throw conflict("本次登录与原平台账号不一致，请重新登录原账号；其他账号请单独添加");
+        return userId;
     }
     @Transactional
     public void archiveAccount(String id) {
@@ -111,6 +134,46 @@ public class DistributionService {
         return db.queryForList("SELECT id,media_type,extension,storage_key,size_bytes FROM creator_publish_media WHERE id=?",uuid(id)).stream().findFirst().orElseThrow(()->bad("素材不存在，请重新上传"));
     }
     public StoredContent content(String id) { return storage.open(new StorageKey((String)media(id).get("storage_key"))); }
+    @Transactional
+    public Map<String,Object> reuseMedia(JsonNode n) {
+        String workspaceId=text(n,"workspaceMediaId",128,true);
+        var rows=db.queryForList("SELECT * FROM creator_workspace_media WHERE id=?",workspaceId);
+        if(rows.isEmpty())throw bad("作品文件尚未同步到本地后台，请先保存项目");
+        var source=rows.get(0);String type=(String)source.get("media_type"),filename=(String)source.get("filename");
+        String ext=filename.substring(filename.lastIndexOf('.')+1).toLowerCase(Locale.ROOT);
+        if(!(type.equals("image")&&Set.of("jpg","jpeg","png","webp").contains(ext))&&!(type.equals("video")&&Set.of("mp4","mov","webm").contains(ext)))throw bad("该作品格式暂不支持发布");
+        long size=((Number)source.get("size_bytes")).longValue();
+        if(size<=0||size>(type.equals("image")?32L:2048L)*1024*1024)throw bad("作品文件大小超过发布范围");
+        db.update("INSERT IGNORE INTO creator_publish_media(id,filename,media_type,extension,storage_key,size_bytes,sha256,workspace_media_id) VALUES(?,?,?,?,?,?,?,?)",UUID.randomUUID().toString(),filename,type,ext,source.get("storage_key"),size,source.get("sha256"),workspaceId);
+        return db.queryForList("SELECT id,filename,media_type AS type,size_bytes AS size,extension FROM creator_publish_media WHERE workspace_media_id=?",workspaceId).get(0);
+    }
+    // Resolve source names and generation IDs from the saved project, never from client labels.
+    ObjectNode sourceSnapshot(JsonNode source,JsonNode post) {
+        String projectId=text(source,"projectId",128,true);
+        var rows=db.queryForList("SELECT payload FROM creator_workspace_record WHERE collection_name='projects' AND id=? AND deleted_at IS NULL",projectId);
+        if(rows.isEmpty())throw bad("来源项目不存在，请先保存项目");
+        JsonNode project=decode(rows.get(0).get("payload").toString());
+        if(!project.path("deletedAt").asText("").isEmpty())throw bad("来源项目已移入回收站");
+        JsonNode ids=source.path("assetIds");
+        if(!ids.isArray()||ids.size()!=post.path("mediaIds").size())throw bad("来源素材与发布文件不一致");
+        ObjectNode snapshot=json.createObjectNode();snapshot.put("projectId",projectId);snapshot.put("projectName",project.path("name").asText("未命名项目"));
+        snapshot.set("assetIds",ids.deepCopy());var assets=snapshot.putArray("assets");
+        for(int i=0;i<ids.size();i++) {
+            JsonNode asset=null;for(JsonNode item:project.path("media"))if(item.path("id").asText().equals(ids.get(i).asText())){asset=item;break;}
+            if(asset==null)throw bad("来源素材不属于这个项目");
+            String workspaceId=asset.path("file").path("$creatorFile").asText();
+            var linked=db.queryForList("SELECT workspace_media_id FROM creator_publish_media WHERE id=?",uuid(post.path("mediaIds").get(i).asText()));
+            if(linked.isEmpty()||!workspaceId.equals(linked.get(0).get("workspace_media_id")))throw bad("来源素材内容已变化，请重新预览发布");
+            ObjectNode row=assets.addObject();row.put("assetId",ids.get(i).asText());row.put("name",asset.path("name").asText());
+            String workId=asset.path("contentItemId").asText("");
+            if(!workId.isEmpty()) {
+                JsonNode work=null;for(JsonNode item:project.path("data").path("content").path("items"))if(item.path("id").asText().equals(workId)){work=item;break;}
+                if(work==null||!work.path("deletedAt").asText("").isEmpty())throw bad("来源作品已移入回收站，请先恢复作品");
+                row.put("workId",workId);row.put("workName",work.path("name").asText());row.put("generationTaskId",work.path("taskId").asText(""));
+            }
+        }
+        return snapshot;
+    }
     private void validatePost(String platform,JsonNode n) {
         String type=text(n,"type",8,true);
         if (!Set.of("image","video").contains(type)) throw bad("请选择图文或视频");
@@ -156,9 +219,11 @@ public class DistributionService {
             if(!seen.add(accountId)) throw bad("账号不能重复");
             db.queryForList("SELECT id FROM creator_social_account WHERE id=? FOR UPDATE",accountId);
             Map<String,Object> account=requireAccount(accountId);
-            if(!"ready".equals(account.get("status"))) throw bad("请先完成账号登录");
+            if(!"ready".equals(account.get("status"))||account.get("platformUserId")==null) throw bad("请先完成账号登录和身份检查");
             validatePost((String)account.get("platform"),entry.path("post"));
-            db.update("INSERT INTO creator_publish_job(id,batch_id,account_id,payload,due_at,scheduled) VALUES(?,?,?,?,?,?)",UUID.randomUUID().toString(),batch,accountId,entry.path("post").toString(),Timestamp.from(due),!n.path("scheduledAt").asText("").isEmpty());
+            ObjectNode post=(ObjectNode)entry.path("post").deepCopy();
+            if(post.has("source"))post.set("source",sourceSnapshot(post.path("source"),post));
+            db.update("INSERT INTO creator_publish_job(id,batch_id,account_id,payload,due_at,scheduled) VALUES(?,?,?,?,?,?)",UUID.randomUUID().toString(),batch,accountId,post.toString(),Timestamp.from(due),!n.path("scheduledAt").asText("").isEmpty());
         }
         return jobsForBatch(batch);
     }
@@ -166,10 +231,11 @@ public class DistributionService {
         Map<String,Object> v=new LinkedHashMap<>();
         for(String key:List.of("id","status","message")) v.put(key,r.getString(key));
         v.put("accountId",r.getString("account_id"));v.put("accountName",r.getString("display_name"));v.put("platform",r.getString("platform"));
+        v.put("platformUserId",r.getString("platform_user_id"));v.put("batchId",r.getString("batch_id"));
         v.put("post",decode(r.getString("payload")));v.put("dueAt",r.getTimestamp("due_at"));v.put("updatedAt",r.getTimestamp("updated_at"));v.put("resultUrl",r.getString("result_url"));
         return v;
     }
-    private static final String JOB_QUERY="SELECT j.*,a.display_name,a.platform FROM creator_publish_job j JOIN creator_social_account a ON a.id=j.account_id ";
+    private static final String JOB_QUERY="SELECT j.*,a.display_name,a.platform,a.platform_user_id FROM creator_publish_job j JOIN creator_social_account a ON a.id=j.account_id ";
     public List<Map<String,Object>> jobs() { return db.query(JOB_QUERY+"ORDER BY j.created_at DESC LIMIT 200",this::job); }
     List<Map<String,Object>> jobsForBatch(String batch) { return db.query(JOB_QUERY+"WHERE j.batch_id=? ORDER BY j.created_at",this::job,batch); }
     @Transactional

@@ -78,6 +78,8 @@ paths:
     $ref: './distribution.yaml#/account'
   /admin/distribution/media:
     $ref: './distribution.yaml#/media'
+  /admin/distribution/media/reuse:
+    $ref: './distribution.yaml#/mediaReuse'
   /admin/distribution/media/{id}:
     $ref: './distribution.yaml#/mediaContent'
   /admin/distribution/jobs:
@@ -4047,6 +4049,12 @@ components:
       type: string
       description: V1 稳定错误码；message 可本地化，客户端分支只依赖 code。
       enum:
+        - CREATOR_INVALID
+        - MEDIA_MISSING
+        - MEDIA_ID_CONFLICT
+        - TASK_LEASE_EXPIRED
+        - DISTRIBUTION_INVALID
+        - DISTRIBUTION_CONFLICT
         - CREATOR_RULES_CHANGED
         - CREATOR_ENVIRONMENT_MISMATCH
         - CREATOR_WALLPAPER_LINK_CONFLICT

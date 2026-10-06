@@ -143,7 +143,7 @@
   }
   function works(){
     clearPreview();H.stop();
-    H.modal('作品库'+(worksTrash?' · 回收站':''),'<div class="template-manager content-works"><div class="template-manager-toolbar"><div class="segmented"><button data-works-filter="all">全部作品</button><button data-works-filter="gallery">图片作品</button><button data-works-filter="video">视频作品</button></div><input id="works-search" type="search" placeholder="搜索作品名称" aria-label="搜索作品名称"><button id="works-trash">'+(worksTrash?'返回作品':'回收站')+'</button></div><p class="content-slot-help">'+(worksTrash?'回收站保留成品文件，恢复后可继续使用。已有发布草稿和发布任务会保留。':'当前项目已生成并保存的成品，可下载到本地，或带入下一步。双击作品名称可以改名，右键可查看生成信息或移入回收站。')+'</p><div id="works-card-list"></div></div>',[{label:'返回编辑',run:H.close}]);
+    H.modal('作品库'+(worksTrash?' · 回收站':''),'<div class="template-manager content-works"><div class="template-manager-toolbar"><div class="segmented"><button data-works-filter="all">全部作品</button><button data-works-filter="gallery">图片作品</button><button data-works-filter="video">视频作品</button></div><input id="works-search" type="search" placeholder="搜索作品名称" aria-label="搜索作品名称"><button id="works-trash">'+(worksTrash?'返回作品':'回收站')+'</button></div><p class="content-slot-help">'+(worksTrash?'回收站保留成品文件，恢复后可继续使用。已有发布设置和发布任务会保留。':'当前项目已生成并保存的成品，可下载到本地，或带入下一步。双击作品名称可以改名，右键可查看生成信息或移入回收站。')+'</p><div id="works-card-list"></div></div>',[{label:'返回编辑',run:H.close}]);
     document.querySelectorAll('[data-works-filter]').forEach(button=>button.onclick=()=>{worksFilter=button.dataset.worksFilter;renderWorks();});$('works-search').oninput=renderWorks;$('works-trash').onclick=()=>{worksTrash=!worksTrash;works();};renderWorks();
   }
   function renderWorks(){
