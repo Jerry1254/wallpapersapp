@@ -11,7 +11,7 @@ import tempfile
 import threading
 import time
 import uuid
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs, urlencode
 from http.cookies import SimpleCookie
 from .setup import REVISION
 
@@ -57,6 +57,17 @@ class PublishingBridge:
     def ready(self):
         marker = RUNTIME / 'revision'
         return (RUNTIME / 'venv/bin/python').exists() and marker.exists() and marker.read_text().strip() == REVISION and not self.preparing
+
+    def connect_from_creator(self, session, backend):
+        # Called only after the creator bridge validates its own scoped HttpOnly cookie.
+        if backend != self.backend:
+            raise BridgeError('创作与发布必须使用同一个本地后台', 409)
+        with self.lock:
+            if self.active:
+                raise BridgeError('发布助手正在执行任务，完成后再连接', 409)
+            token = secrets.token_urlsafe(32)
+            self.session = {'cookie': session['cookie'], 'csrf': session['csrf'], 'token': token, 'borrowed': True}
+        return f'CREATOR_PUBLISH_SESSION={token}; HttpOnly; SameSite=Strict; Path={PREFIX}'
 
     def api(self, method, path, data=None, stream=None, size=0, filename=None, download=None, session=None):
         current = session or self.session
@@ -149,7 +160,8 @@ class PublishingBridge:
             if route == '/disconnect' and h.command == 'POST':
                 if self.active:
                     raise BridgeError('任务正在执行，暂时不能断开', 409)
-                self.api('DELETE', 'sessions')
+                if not self.session.get('borrowed'):
+                    self.api('DELETE', 'sessions')
                 self.session = None
                 return self.respond(h, {'ok': True}) or True
             if route == '/prepare' and h.command == 'POST':
@@ -165,6 +177,25 @@ class PublishingBridge:
                     raise BridgeError('登录会话已结束', 404)
                 return self.respond(h, self.operations[op]) or True
             parts = route.strip('/').split('/')
+            if route == '/accounts/operations' and h.command == 'POST':
+                mode = n.get('mode')
+                ids = n.get('accountIds')
+                if mode not in ('check', 'analytics') or not isinstance(ids, list) or not 1 <= len(ids) <= 50 or not all(isinstance(value,str) for value in ids) or len(set(ids)) != len(ids):
+                    raise BridgeError('请选择 1–50 个账号和检查或同步操作', 422)
+                known = {a['id']: a for a in self.api('GET', 'distribution/accounts')}
+                selected = [known.get(str(account_id)) for account_id in ids]
+                if any(not a or a['runnerId'] != self.runner for a in selected):
+                    raise BridgeError('请选择在本机登录的账号', 422)
+                if mode == 'analytics' and any(a['status'] != 'ready' for a in selected):
+                    raise BridgeError('同步数据前请先检查账号登录状态', 422)
+                with self.lock:
+                    if self.active or not self.ready():
+                        raise BridgeError('请先准备助手，并等待当前任务结束', 409)
+                    op = str(uuid.uuid4())
+                    self.active = op
+                    self.operations[op] = {'status': 'running', 'message': '正在按顺序处理账号', 'total': len(selected), 'completed': 0, 'results': []}
+                threading.Thread(target=self.bulk, args=(op, selected, mode), daemon=True).start()
+                return self.respond(h, {'operationId': op}) or True
             if len(parts) == 3 and parts[0] == 'accounts' and parts[2] in ('login', 'check', 'analytics') and h.command == 'POST':
                 account = next((a for a in self.api('GET', 'distribution/accounts') if a['id'] == parts[1]), None)
                 if not account or account['runnerId'] != self.runner:
@@ -177,7 +208,7 @@ class PublishingBridge:
                     self.operations[op] = {'status': 'running', 'message': '正在打开登录窗口，请扫码并确认账号'}
                 threading.Thread(target=self.login, args=(op, account, parts[2]), daemon=True).start()
                 return self.respond(h, {'operationId': op}) or True
-            allowed = (route in ('/accounts', '/jobs', '/batches', '/media', '/media/reuse', '/metrics') or
+            allowed = (route in ('/accounts', '/jobs', '/jobs/page', '/overview', '/batches', '/media', '/media/reuse', '/metrics') or
                        (len(parts) == 2 and parts[0] == 'accounts') or
                        (len(parts) == 3 and parts[0] == 'jobs' and parts[2] == 'action'))
             if not allowed:
@@ -205,7 +236,13 @@ class PublishingBridge:
                     body.seek(0)
                     value = self.api('POST', 'distribution/media', stream=body, size=size, filename=h.headers.get('X-Filename', ''))
             else:
-                value = self.api(h.command, 'distribution' + route, n if h.command in ('POST', 'PUT') else None)
+                query = ''
+                if h.command == 'GET' and route in ('/jobs/page', '/overview'):
+                    params = parse_qs(urlsplit(h.path).query, keep_blank_values=True)
+                    if any(len(values) != 1 for values in params.values()):
+                        raise BridgeError('查询条件不能重复', 422)
+                    query = '?' + urlencode(params, doseq=True)
+                value = self.api(h.command, 'distribution' + route + query, n if h.command in ('POST', 'PUT') else None)
                 if h.command == 'DELETE' and len(parts) == 2 and parts[0] == 'accounts':
                     (RUNTIME / 'sessions' / (str(uuid.UUID(parts[1])) + '.enc')).unlink(missing_ok=True)
             self.respond(h, value)
@@ -262,35 +299,60 @@ class PublishingBridge:
             proc.stdin.close()
             proc.stdout.close()
 
+    def account_operation(self, account, mode, progress):
+        def event(value):
+            kind = value.get('event')
+            if kind == 'identity':
+                self.api('PUT', 'distribution/accounts/' + account['id'], {'status': 'unverified', 'runnerId': self.runner, 'identity': value['identity']})
+            if kind in ('qr', 'progress', 'identity'):
+                progress(value)
+        result = self.execute({'mode': mode, 'account': account, 'runtime': str(RUNTIME)}, event)
+        if mode == 'analytics':
+            if result.get('status') == 'ready':
+                self.api('PUT', 'distribution/accounts/' + account['id'] + '/metrics', {'metrics': result['metrics'], 'sourceUrl': result['sourceUrl']})
+            elif result.get('status') == 'needs_input':
+                self.api('PUT', 'distribution/accounts/' + account['id'], {'status': 'unverified', 'runnerId': self.runner})
+        else:
+            update = {'status': 'ready' if result.get('status') == 'ready' else 'unverified' if result.get('status') == 'needs_input' else 'expired', 'runnerId': self.runner}
+            if result.get('status') == 'ready':
+                update['identity'] = result['identity']
+            self.api('PUT', 'distribution/accounts/' + account['id'], update)
+        return {'status': 'ready' if result.get('status') == 'ready' else 'failed', 'message': result.get('message', '操作未完成')}
+
+    def finish_operation(self):
+        with self.lock:
+            self.active = None
+            while len(self.operations) > 20:
+                self.operations.pop(next(iter(self.operations)))
+
     def login(self, op, account, mode):
         try:
-            def event(value):
-                if value.get('event') == 'qr':
-                    self.operations[op] = {'status': 'running', 'message': '请用对应平台 App 扫码', 'qr': value['qr']}
-                elif value.get('event') == 'progress':
-                    self.operations[op] = {'status':'running','message':value['message']}
-                elif value.get('event') == 'identity':
-                    self.api('PUT','distribution/accounts/'+account['id'],{'status':'unverified','runnerId':self.runner,'identity':value['identity']})
-                    self.operations[op] = {'status':'running','message':'平台身份已通过核对，正在保存本机登录信息…'}
-            result = self.execute({'mode': mode, 'account': account, 'runtime': str(RUNTIME)}, event)
-            if mode == 'analytics':
-                if result.get('status') == 'ready':
-                    self.api('PUT', 'distribution/accounts/' + account['id'] + '/metrics', {'metrics': result['metrics'], 'sourceUrl': result['sourceUrl']})
-                self.operations[op] = {'status': result['status'], 'message': result['message']}
-                return
-            ready = result.get('status') == 'ready'
-            update={'status':'ready' if ready else 'unverified' if result.get('status')=='needs_input' else 'expired','runnerId':self.runner}
-            if ready:
-                update['identity']=result['identity']
-            self.api('PUT', 'distribution/accounts/' + account['id'], update)
-            self.operations[op] = {'status': 'ready' if ready else 'failed', 'message': result.get('message', '登录未完成')}
+            def progress(value):
+                self.operations[op] = {'status': 'running', 'message': value.get('message') or ('请用对应平台 App 扫码' if value.get('event') == 'qr' else '平台身份已核对，正在保存本机登录信息…')}
+                if value.get('qr'):
+                    self.operations[op]['qr'] = value['qr']
+            self.operations[op] = self.account_operation(account, mode, progress)
         except Exception as error:
             self.operations[op] = {'status': 'failed', 'message': str(error)}
         finally:
-            self.active = None
-            # Bound transient QR/login data retained in memory.
-            while len(self.operations) > 20:
-                self.operations.pop(next(iter(self.operations)))
+            self.finish_operation()
+
+    def bulk(self, op, accounts, mode):
+        results = []
+        try:
+            for account in accounts:
+                def progress(value):
+                    self.operations[op] = {'status': 'running', 'message': '正在处理：' + account['name'] + ' · ' + (value.get('message') or '正在检查账号'), 'total': len(accounts), 'completed': len(results), 'results': list(results)}
+                progress({})
+                try:
+                    result = self.account_operation(account, mode, progress)
+                except Exception as error:
+                    result = {'status': 'failed', 'message': str(error)}
+                results.append({'accountId': account['id'], 'name': account['name'], **result})
+            success = sum(row['status'] == 'ready' for row in results)
+            self.operations[op] = {'status': 'ready' if success == len(accounts) else 'failed', 'message': f'已完成 {len(results)} 个账号，成功 {success} 个；其余账号请按提示处理', 'total': len(accounts), 'completed': len(results), 'results': results}
+        finally:
+            self.finish_operation()
 
     def loop(self):
         while True:

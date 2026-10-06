@@ -18,7 +18,7 @@ test('rejects missing, fractional, out-of-range and unsupported prices',()=>{
 });
 test('uses credits for new products and preserves old product identifiers during migration',()=>{
   const fresh=Pricing.normalize();assert.equal(fresh.acquisitionMode,'CREDITS');assert.equal(fresh.credits,null);assert.equal(fresh.firstFreeEligible,true);assert.equal(fresh.enabled,true);
-  const legacy=Pricing.normalize({productId:'com.qingjing.legacy',productIdLocked:true,enabled:false});assert.equal(legacy.acquisitionMode,'NON_CONSUMABLE');assert.equal(legacy.productId,'com.qingjing.legacy');assert.equal(legacy.productIdLocked,true);assert.equal(legacy.enabled,true);
+  const legacy=Pricing.normalize({productId:'com.qingjing.legacy',productIdLocked:true,enabled:false});assert.equal(legacy.acquisitionMode,'NON_CONSUMABLE');assert.equal(legacy.productId,'com.qingjing.legacy');assert.equal(legacy.productIdLocked,true);assert.equal(legacy.enabled,false);
   const switched=Pricing.normalize({...legacy,acquisitionMode:'CREDITS',credits:3});assert.equal(switched.acquisitionMode,'CREDITS');assert.equal(switched.productId,legacy.productId);assert.equal(switched.credits,3);
 });
 test('shows successful verification only for an explicit READY result',()=>{

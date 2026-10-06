@@ -15,7 +15,8 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 @RequestMapping("/api/v1/admin/distribution")
 public class DistributionController {
     private final DistributionService service;
-    DistributionController(DistributionService service) { this.service=service; }
+    private final DistributionQueries queries;
+    DistributionController(DistributionService service,DistributionQueries queries) { this.service=service;this.queries=queries; }
     @GetMapping("/accounts") public Object accounts() { return service.accounts(); }
     @GetMapping("/metrics") public Object metrics() { return service.metrics(); }
     @PutMapping("/accounts/{id}/metrics") public Object metrics(@PathVariable String id,@RequestBody JsonNode n) {service.saveMetrics(id,n);return Map.of("ok",true);}
@@ -31,6 +32,8 @@ public class DistributionController {
     }
     @PostMapping("/media/reuse") public Object reuse(@RequestBody JsonNode n) {return service.reuseMedia(n);}
     @GetMapping("/jobs") public Object jobs() { return service.jobs(); }
+    @GetMapping("/jobs/page") public Object jobsPage(@RequestParam Map<String,String> q) { return queries.jobs(q); }
+    @GetMapping("/overview") public Object overview(@RequestParam Map<String,String> q) { return queries.overview(q); }
     @PostMapping("/batches") public Object batch(@RequestBody JsonNode n) { return service.createBatch(n); }
     @PostMapping("/claim") public Object claim(@RequestBody JsonNode n) { return service.claim(n.path("runnerId").asText()); }
     @PostMapping("/jobs/{id}/report") public Object report(@PathVariable String id,@RequestBody JsonNode n) { service.report(id,n);return Map.of("ok",true); }

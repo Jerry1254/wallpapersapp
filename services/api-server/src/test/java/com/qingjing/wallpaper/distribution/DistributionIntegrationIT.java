@@ -25,8 +25,9 @@ class DistributionIntegrationIT {
     static final String RUNNER=UUID.randomUUID().toString(),LEGACY=UUID.randomUUID().toString(),LEGACY_SECOND=UUID.randomUUID().toString(),LEGACY_BATCH=UUID.randomUUID().toString();
     DistributionService service;
     FileStorage storage;
+    DistributionQueries queries;
     @BeforeAll static void database(){
-        var ds=new DriverManagerDataSource(MYSQL.getJdbcUrl(),MYSQL.getUsername(),MYSQL.getPassword());
+        var ds=new DriverManagerDataSource(MYSQL.getJdbcUrl()+(MYSQL.getJdbcUrl().contains("?")?"&":"?")+"serverTimezone=UTC",MYSQL.getUsername(),MYSQL.getPassword());
         Flyway.configure().dataSource(ds).target("25").load().migrate();
         db=new JdbcTemplate(ds);tx=new TransactionTemplate(new DataSourceTransactionManager(ds));
         db.update("INSERT INTO creator_social_account(id,platform,display_name,runner_id,login_status) VALUES(?,'xhs','已有账号',?,'ready')",LEGACY,RUNNER);
@@ -35,7 +36,7 @@ class DistributionIntegrationIT {
         for(String account:new String[]{LEGACY,LEGACY_SECOND})db.update("INSERT INTO creator_publish_job(id,batch_id,account_id,payload,status,due_at) VALUES(?,?,?,'{}','cancelled',CURRENT_TIMESTAMP(3))",UUID.randomUUID().toString(),LEGACY_BATCH,account);
         Flyway.configure().dataSource(ds).load().migrate();
     }
-    @BeforeEach void setup(){storage=mock(FileStorage.class);service=new DistributionService(db,JSON,storage);}
+    @BeforeEach void setup(){storage=mock(FileStorage.class);service=new DistributionService(db,JSON,storage);queries=new DistributionQueries(db,JSON,service);}
     ObjectNode obj(){return JSON.createObjectNode();}
     String account(){return (String)service.createAccount(obj().put("platform","xhs").put("name","备注").put("runnerId",RUNNER)).get("id");}
     ObjectNode identity(String value){return obj().put("platformUserId","handle:"+value).put("nickname","真实昵称").put("avatarUrl","");}
@@ -59,6 +60,31 @@ class DistributionIntegrationIT {
     }
     @Test void aReadyStatusWithoutFreshIdentityIsRejected(){
         String a=account();assertThatThrownBy(()->tx.execute(s->service.updateAccount(a,obj().put("status","ready").put("runnerId",RUNNER)))).isInstanceOf(ApiException.class);
+    }
+    @Test void completeHistoryPaginatesBeyondTwoHundredAndKeepsArchivedAccounts(){
+        String a=account(),batch=UUID.randomUUID().toString();
+        db.update("INSERT INTO creator_publish_batch(id,request_hash) VALUES(?,?)",batch,"e".repeat(64));
+        for(int i=0;i<205;i++)db.update("INSERT INTO creator_publish_job(id,batch_id,account_id,payload,status,due_at,created_at,batch_position) VALUES(?,?,?,?,'published','2026-10-01 00:00:00','2026-10-01 00:00:00',?)",UUID.randomUUID().toString(),batch,a,obj().put("title","字面%_"+i).put("type","image").toString(),i);
+        service.archiveAccount(a);
+        var q=Map.of("accountId",a,"keyword","%_","page","11","pageSize","20","from","2026-10-01T00:00:00Z","to","2026-10-02T00:00:00Z");
+        var page=queries.jobs(q);assertThat(page.get("total")).isEqualTo(205L);assertThat((List<?>)page.get("items")).hasSize(5);
+        var overview=queries.overview(Map.of("accountId",a,"from",q.get("from"),"to",q.get("to")));
+        assertThat(overview.get("total")).isEqualTo(205L);assertThat(((Map<?,?>)overview.get("statuses")).get("published")).isEqualTo(205L);
+        assertThat((List<?>)overview.get("accounts")).hasSize(1);
+        assertThat(queries.jobs(Map.of("accountId",a,"type","video")).get("total")).isEqualTo(0L);
+    }
+    @Test void metricsCompareDatedSnapshotsAndDoNotTurnMissingValuesIntoZero(){
+        String a=account();
+        db.update("INSERT INTO creator_account_metrics(account_id,metrics,source_url,collected_at) VALUES(?,?,'https://creator.xiaohongshu.com/new/home',?)",a,"{\"followers\":100,\"likes\":5}","2026-09-30 00:00:00");
+        db.update("INSERT INTO creator_account_metrics(account_id,metrics,source_url,collected_at) VALUES(?,?,'https://creator.xiaohongshu.com/new/home',?)",a,"{\"followers\":90,\"plays\":200}","2026-10-02 00:00:00");
+        db.update("INSERT INTO creator_account_metrics(account_id,metrics,source_url,collected_at) VALUES(?,?,'https://creator.xiaohongshu.com/new/home',?)",a,"{\"followers\":999}","2026-10-05 00:00:00");
+        var overview=queries.overview(Map.of("accountId",a,"from","2026-10-01T00:00:00Z","to","2026-10-03T00:00:00Z"));
+        var metric=(Map<?,?>)((List<?>)overview.get("metrics")).get(0);
+        assertThat((Map<?,?>)metric.get("delta")).hasSize(1);assertThat(((Map<?,?>)metric.get("delta")).get("followers")).isEqualTo(-10L);
+        assertThat(((JsonNode)metric.get("metrics")).path("followers").longValue()).isEqualTo(90);
+        assertThat(((JsonNode)metric.get("metrics")).has("likes")).isFalse();
+        var withoutBaseline=queries.overview(Map.of("accountId",a,"from","2026-09-01T00:00:00Z","to","2026-10-03T00:00:00Z"));
+        assertThat((Map<?,?>)((Map<?,?>)((List<?>)withoutBaseline.get("metrics")).get(0)).get("delta")).isEmpty();
     }
     record Source(String project,String file,String media,ObjectNode payload){}
     Source source(){

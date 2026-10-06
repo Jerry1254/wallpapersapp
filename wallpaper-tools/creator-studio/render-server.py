@@ -4,6 +4,7 @@ Start with: python3 wallpaper-tools/creator-studio/render-server.py
 Temporary encoding inputs are removed after each task; durable files use the admin storage adapter.
 """
 import argparse
+import hashlib
 import ctypes
 import functools
 import sys
@@ -28,6 +29,8 @@ _creator_spec = importlib.util.spec_from_file_location("creator_bridge", Path(__
 _creator_module = importlib.util.module_from_spec(_creator_spec)
 _creator_spec.loader.exec_module(_creator_module)
 creator_bridge = _creator_module.bridge
+creator_bridge.publishing = publishing_bridge
+SERVER_CODE_HASH = hashlib.sha256(b''.join(path.read_bytes() for path in [Path(__file__), Path(__file__).with_name('creator-bridge.py'), Path(__file__).parent / 'publishing/bridge.py'])).hexdigest()
 
 
 ROOT = Path(__file__).resolve().parent
@@ -448,6 +451,17 @@ class Handler(SimpleHTTPRequestHandler):
             self.error('接口不存在', 404)
 
     def do_GET(self):
+        if urlsplit(self.path).path == '/creator-studio/api/local-status':
+            if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}' or self.headers.get('X-Creator-Request') != '1':
+                return self.error('请从本地创作台操作', 403)
+            data = json.dumps({'name': 'qingjing-creator-studio', 'version': '0.13.0', 'pid': os.getpid(), 'codeHash': SERVER_CODE_HASH, 'rendering': RENDER_LOCK.locked()}).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if creator_bridge.handle(self) or publishing_bridge.handle(self):
             return
         if urlsplit(self.path).path != '/creator-studio/api/fonts':

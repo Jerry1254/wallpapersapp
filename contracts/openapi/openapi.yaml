@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.21.0
+  version: 2.22.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -82,6 +82,10 @@ paths:
     $ref: './distribution.yaml#/mediaReuse'
   /admin/distribution/media/{id}:
     $ref: './distribution.yaml#/mediaContent'
+  /admin/distribution/jobs/page:
+    $ref: './distribution.yaml#/jobsPage'
+  /admin/distribution/overview:
+    $ref: './distribution.yaml#/overview'
   /admin/distribution/jobs:
     $ref: './distribution.yaml#/jobs'
   /admin/distribution/batches:

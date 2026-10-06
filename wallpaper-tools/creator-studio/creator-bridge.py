@@ -26,6 +26,7 @@ class CreatorBridge:
         if self.backend.scheme != 'http' or self.backend.hostname not in ('127.0.0.1', 'localhost'):
             raise ValueError('CREATOR_DATA_API must point to the loopback admin API')
         self.session = None
+        self.publishing = None
         self.runner = str(uuid.uuid4())
         self.active = None
         self.renderers = {}
@@ -153,6 +154,15 @@ class CreatorBridge:
                 return self.respond(h, {'connected': True}, cookie=f'CREATOR_DATA_SESSION={token}; HttpOnly; SameSite=Strict; Path={PREFIX}')
             if not authenticated:
                 raise BridgeError('请先连接创作数据后台；当前修改仅保留在浏览器草稿中', 401)
+            if route == '/publish-session' and h.command == 'POST':
+                if self.publishing is None:
+                    raise BridgeError('发布助手未启动', 503)
+                self.api('GET', 'creator/records/meta?limit=1')
+                try:
+                    cookie = self.publishing.connect_from_creator(self.session, self.backend)
+                except Exception as error:
+                    raise BridgeError(str(error), getattr(error, 'status', 500)) from error
+                return self.respond(h, {'connected': True}, cookie=cookie)
             if route == '/wallpaper-categories' and h.command == 'GET':
                 return self.respond(h, self.api('GET', 'categories'))
             import re

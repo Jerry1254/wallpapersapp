@@ -244,12 +244,12 @@ public class DistributionService {
         }
         return jobsForBatch(batch);
     }
-    private Map<String,Object> job(ResultSet r,int row) throws SQLException {
+    Map<String,Object> job(ResultSet r,int row) throws SQLException {
         Map<String,Object> v=new LinkedHashMap<>();
         for(String key:List.of("id","status","message")) v.put(key,r.getString(key));
         v.put("accountId",r.getString("account_id"));v.put("accountName",r.getString("display_name"));v.put("platform",r.getString("platform"));
         v.put("platformUserId",r.getString("platform_user_id"));v.put("batchId",r.getString("batch_id"));v.put("batchPosition",r.getObject("batch_position"));
-        v.put("post",decode(r.getString("payload")));v.put("dueAt",r.getTimestamp("due_at"));v.put("updatedAt",r.getTimestamp("updated_at"));v.put("resultUrl",r.getString("result_url"));
+        v.put("post",decode(r.getString("payload")));v.put("createdAt",r.getTimestamp("created_at"));v.put("dueAt",r.getTimestamp("due_at"));v.put("updatedAt",r.getTimestamp("updated_at"));v.put("resultUrl",r.getString("result_url"));
         return v;
     }
     private static final String JOB_QUERY="SELECT j.*,a.display_name,a.platform,a.platform_user_id FROM creator_publish_job j JOIN creator_social_account a ON a.id=j.account_id ";

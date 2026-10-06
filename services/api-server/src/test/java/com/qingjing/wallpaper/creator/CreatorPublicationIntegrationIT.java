@@ -50,7 +50,6 @@ class CreatorPublicationIntegrationIT {
         Flyway.configure().dataSource(datasource).locations("classpath:db/migration").load().migrate();
         jdbc=new JdbcTemplate(datasource);transactions=new DataSourceTransactionManager(datasource);
         jdbc.update("INSERT INTO admin_account(id,singleton_key,username,password_hash,password_changed_at) VALUES(1,1,'creator-fixture','not-a-login-password',UTC_TIMESTAMP(6))");
-        jdbc.update("INSERT INTO category(id,level,name,slug,sort_order) VALUES(1,1,'创作台测试','creator-test',0)");
     }
     @BeforeEach void services()throws Exception {
         storage=new LocalFileStorage(temporary);
@@ -63,6 +62,8 @@ class CreatorPublicationIntegrationIT {
             return new ValidatedAsset(object.storageKey(),call.getArgument(1),"image/png","png",object.sizeBytes(),object.sha256(),8,8,null);
         });
         var assets=new AdminAssetService(jdbc,assetUploads,storage);
+        String icon=assets.upload(new ByteArrayInputStream(image),"category.png","image/png",AssetPurpose.CATEGORY_ICON,1).id();
+        jdbc.update("INSERT INTO category(id,level,name,slug,sort_order,icon_asset_id) VALUES(1,1,'创作台测试','creator-test',0,?) ON DUPLICATE KEY UPDATE icon_asset_id=?",Long.parseLong(icon),Long.parseLong(icon));
         cover=assets.upload(new ByteArrayInputStream(image),"cover.png","image/png",AssetPurpose.WALLPAPER_COVER,1).id();
         source=assets.upload(new ByteArrayInputStream(image),"source.png","image/png",AssetPurpose.STATIC_IMAGE,1).id();
         var ios=mock(IosProductService.class);

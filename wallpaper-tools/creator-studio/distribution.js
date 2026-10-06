@@ -3,7 +3,7 @@
   'use strict';
   const $=id=>document.getElementById(id), esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const names={xhs:'小红书',douyin:'抖音'}, labels={queued:'等待执行',running:'处理中',submitting:'正在提交',submitted:'已提交 · 待确认',published:'已确认发布',failed:'未完成',uncertain:'结果待核对',needs_input:'需要处理',cancelled:'已取消',ready:'已登录',expired:'登录失效',disconnected:'未登录'};
-  let hooks, status={}, accounts=[], jobs=[], metrics=[], view='compose', poll, fetching=false, submitting=false, loginEpoch=0;
+  let hooks, status={}, accounts=[], view='compose', poll, fetching=false, submitting=false, loginEpoch=0, autoLink=true;
   const uploads=new Map();
   const Core=window.DistributionCore;
   labels.unverified='待核对身份';
@@ -31,14 +31,16 @@
     const target=document.createElement('div');target.id='distribution-edit-target';target.className='distribution-edit-target';document.querySelector('.post-form .section-title').after(target);
     poll=setInterval(()=>{if(hooks.state().workspace==='publish')refresh();},6000);
     window.DistributionBatch.init({state:hooks.state,projectId:hooks.projectId,accounts:()=>accounts,status:()=>status,modal:hooks.modal,close:hooks.close,toast:hooks.toast,save:hooks.save,validate,preview,render:()=>{renderAccounts();renderPane();}});
+    window.DistributionConsole.init({accounts:()=>accounts,status:()=>status,request,newAccount,login,bulk,refresh,isView:next=>view===next,openSource:hooks.openSource,modal:hooks.modal,close:hooks.close,toast:hooks.toast});
     renderAccounts();
   }
   async function refresh(){
     if(fetching)return;fetching=true;
     try {
       status=await request('/status');
-      if(status.connected){[accounts,jobs,metrics]=await Promise.all([request('/accounts'),request('/jobs'),request('/metrics')]);}
-      else {accounts=[];jobs=[];metrics=[];uploads.clear();}
+      if(!status.connected&&autoLink&&window.CreatorBackend?.connected){await window.CreatorBackend.request('/publish-session',{method:'POST',data:{}});status=await request('/status');}
+      if(status.connected)accounts=await request('/accounts');
+      else {accounts=[];uploads.clear();}
       const previous=Core.currentPost(hooks.state());hooks.state().accounts=accounts;
       $('distribution-status').textContent=status.connected?(status.preparing?'正在准备助手…':status.ready?'发布助手在线':'助手尚未准备'): '尚未连接后台';
       $('distribution-connect').textContent=status.connected?'连接设置':'连接后台';
@@ -84,8 +86,9 @@
     $('distribution-fields').querySelectorAll('[data-order]').forEach(b=>b.onclick=()=>{const i=Number(b.dataset.order),j=i+Number(b.dataset.step);[post.assetIds[i],post.assetIds[j]]=[post.assetIds[j],post.assetIds[i]];hooks.save();hooks.render();});
   }
   function connection(){
+    if(!status.connected&&window.CreatorBackend?.connected){safe(async()=>{autoLink=true;await window.CreatorBackend.request('/publish-session',{method:'POST',data:{}});await refresh();if(status.connected)connection();})();return;}
     if(status.connected){
-      hooks.modal('发布助手',`<p>后台已连接，账号登录信息只保存在这台电脑。</p><p id="distribution-setup-state">${esc(status.message||(status.ready?'助手已准备好':'首次使用需要准备独立浏览器环境'))}</p><p class="hint">定时任务到点开始上传。请保持本地后台、创作台服务和电脑在线；关闭网页不会取消已创建的任务。</p>`,[{label:'关闭',run:hooks.close},{label:'断开连接',run:safe(async()=>{await request('/disconnect',{method:'POST'});hooks.close();await refresh();})},{label:status.ready?'重新准备助手':'准备发布助手',primary:true,run:safe(async()=>{await request('/prepare',{method:'POST'});hooks.close();hooks.toast('正在准备发布环境，可稍后从连接设置查看进度');await refresh();})}]);return;
+      hooks.modal('发布助手',`<p>后台已连接，账号登录信息只保存在这台电脑。</p><p id="distribution-setup-state">${esc(status.message||(status.ready?'助手已准备好':'首次使用需要准备独立浏览器环境'))}</p><p class="hint">定时任务到点开始上传。请保持本地后台、创作台服务和电脑在线；关闭网页不会取消已创建的任务。</p>`,[{label:'关闭',run:hooks.close},{label:'断开连接',run:safe(async()=>{await request('/disconnect',{method:'POST'});autoLink=false;hooks.close();await refresh();})},{label:status.ready?'重新准备助手':'准备发布助手',primary:true,run:safe(async()=>{await request('/prepare',{method:'POST'});hooks.close();hooks.toast('正在准备发布环境，可稍后从连接设置查看进度');await refresh();})}]);return;
     }
     hooks.modal('连接本地管理后台',`<p class="dialog-intro">使用本项目管理后台账号。连接后即可添加抖音、小红书账号；无需蚁小二 API。</p><form id="distribution-auth"><div class="field"><label for="distribution-user">管理员用户名</label><input id="distribution-user" autocomplete="username" required></div><div class="field"><label for="distribution-password">管理员密码</label><input id="distribution-password" type="password" autocomplete="current-password" required></div><p id="distribution-auth-error" class="distribution-error" role="alert"></p></form>`,[{label:'取消',run:hooks.close},{label:'连接',primary:true,run:connect}]);
     $('distribution-auth').onsubmit=e=>{e.preventDefault();connect();};
@@ -93,7 +96,7 @@
   async function connect(){
     const error=$('distribution-auth-error');if(!error)return;
     error.textContent='正在连接…';
-    try{await request('/connect',{method:'POST',body:{username:$('distribution-user').value.trim(),password:$('distribution-password').value}});hooks.close();await refresh();if(!status.ready)connection();}
+    try{autoLink=true;await request('/connect',{method:'POST',body:{username:$('distribution-user').value.trim(),password:$('distribution-password').value}});hooks.close();await refresh();if(!status.ready)connection();}
     catch(e){error.textContent=e.message;}
   }
   function newAccount(existing){
@@ -104,13 +107,23 @@
     })}]);if(existing)$('distribution-account-platform').value=existing.platform;
   }
   async function login(account,mode){
-    const result=await request(`/accounts/${account.id}/${mode}`,{method:'POST'}),epoch=++loginEpoch;
-    hooks.modal(mode==='login'?`登录${names[account.platform]} · ${account.name}`:mode==='analytics'?'同步平台累计指标':'检查登录状态',`<div class="distribution-login"><p id="distribution-login-message">正在打开浏览器…</p><img id="distribution-qr" alt="平台登录二维码" hidden><p class="hint">如平台要求验证，请在打开的浏览器窗口完成。</p></div>`,[{label:'关闭',run:()=>{loginEpoch++;hooks.close();}}]);
+    const result=await request(`/accounts/${account.id}/${mode}`,{method:'POST'});
+    monitorOperation(result,mode==='login'?`登录${names[account.platform]} · ${account.name}`:mode==='analytics'?'同步平台累计指标':'检查登录状态');
+  }
+  async function bulk(ids,mode){
+    const result=await request('/accounts/operations',{method:'POST',body:{accountIds:ids,mode}});
+    monitorOperation(result,mode==='analytics'?'批量同步账号数据':'批量检查账号');
+  }
+  function monitorOperation(result,title){
+    const epoch=++loginEpoch;
+    hooks.modal(title,`<div class="distribution-login"><p id="distribution-login-message">正在处理账号…</p><img id="distribution-qr" alt="平台登录二维码" hidden><p class="hint">如平台要求验证，请在打开的浏览器窗口完成。关闭此弹窗后，当前操作仍会继续。</p><ol id="distribution-operation-results" class="console-operation-results"></ol></div>`,[{label:'关闭',run:()=>{loginEpoch++;hooks.close();}}]);
     const check=async()=>{
       if(epoch!==loginEpoch||!$('distribution-login-message'))return;
       try{
-        const op=await request('/operations/'+result.operationId);$('distribution-login-message').textContent=op.message;
+        const op=await request('/operations/'+result.operationId);if(epoch!==loginEpoch||!$('distribution-login-message'))return;
+        $('distribution-login-message').textContent=op.message;
         $('distribution-qr').hidden=!op.qr;if(op.qr)$('distribution-qr').src=op.qr;
+        $('distribution-operation-results').innerHTML=(op.results||[]).map(r=>`<li><strong>${esc(r.name)}</strong><span class="distribution-state ${r.status}">${r.status==='ready'?'完成':'需要处理'}</span><p>${esc(r.message)}</p></li>`).join('');
         if(op.status==='running')setTimeout(check,1500);else{$('distribution-qr').hidden=true;await refresh();hooks.toast(op.message);}
       }catch(e){hooks.toast(e.message);}
     };check();
@@ -119,34 +132,7 @@
     const pane=$('distribution-pane');if(view==='compose')return;
     if(!status.connected){pane.innerHTML='<div class="distribution-empty"><h2>连接后台后开始分发</h2><p>账号、发布任务和结果集中保存在本地后台。</p><button id="distribution-pane-connect" class="primary">连接后台</button></div>';$('distribution-pane-connect').onclick=connection;return;}
     if(view==='batch'){window.DistributionBatch.render(pane);return;}
-    if(view==='accounts'){
-      const oldSearch=$('distribution-search')?.value||'',oldPlatform=$('distribution-filter')?.value||'';
-      pane.innerHTML=`<div class="distribution-heading"><div><h2>账号管理</h2><p>账号独立登录，按平台和分组管理。</p></div><button id="distribution-add" class="primary">＋ 添加账号</button></div><div class="distribution-filters"><input id="distribution-search" placeholder="搜索账号或分组" value="${esc(oldSearch)}"><select id="distribution-filter"><option value="">全部平台</option value="xhs">小红书</option><option value="douyin">抖音</option></select></div><div id="distribution-account-grid" class="distribution-account-grid"></div>`;
-      $('distribution-filter').value=oldPlatform;$('distribution-add').onclick=()=>newAccount();
-      const list=()=>{
-        const keyword=$('distribution-search').value.trim().toLowerCase(),platform=$('distribution-filter').value;
-        $('distribution-account-grid').innerHTML=accounts.filter(a=>(!platform||a.platform===platform)&&(!keyword||`${a.name} ${a.nickname||''} ${a.platformUserId||''} ${a.group}`.toLowerCase().includes(keyword))).map(a=>`<article class="distribution-account-card"><div><span class="distribution-platform ${a.platform}">${names[a.platform]}</span><span class="distribution-state ${a.status}">${labels[a.status]}</span></div><h3>${avatar(a)} ${esc(accountName(a))}</h3><p>备注：${esc(a.name)}<br>${esc(identityText(a))}</p><p>${esc(a.group||'未分组')} · ${a.runnerId===status.runnerId?'本机账号':'其他电脑'}</p><small>最近检查：${date(a.checkedAt)}<br>身份核对：${date(a.identityCheckedAt)}</small><div class="distribution-card-actions"><button data-edit="${a.id}">编辑</button><button data-login="${a.id}" ${a.runnerId!==status.runnerId?'disabled':''}>${a.status==='ready'?'重新登录':'登录'}</button><button data-check="${a.id}" ${a.runnerId!==status.runnerId?'disabled':''}>检查状态</button><button data-remove="${a.id}">移除</button></div></article>`).join('')||'<p class="distribution-empty">暂无账号，点击“添加账号”开始。</p>';
-        pane.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>newAccount(accounts.find(a=>a.id===b.dataset.edit)));
-        for(const action of ['login','check'])pane.querySelectorAll(`[data-${action}]`).forEach(b=>b.onclick=safe(()=>login(accounts.find(a=>a.id===b.dataset[action]),action)));
-        pane.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{const a=accounts.find(a=>a.id===b.dataset.remove);hooks.modal('移除账号',`<p>移除 ${esc(a.name)} 的本机登录关联，并取消尚未执行的任务。历史发布记录会保留。</p>`,[{label:'取消',run:hooks.close},{label:'移除',primary:true,run:safe(async()=>{await request('/accounts/'+a.id,{method:'DELETE'});hooks.close();refresh();})}]);});
-      };$('distribution-search').oninput=list;$('distribution-filter').onchange=list;list();return;
-    }
-    if(view==='jobs'){
-      pane.innerHTML=`<div class="distribution-heading"><div><h2>发布任务</h2><p>每个账号单独执行。已提交与已发布分别记录；结果待核对的任务不会自动重发。</p></div><button id="distribution-refresh">刷新</button></div><div class="distribution-job-list">${jobs.map(j=>`<article class="distribution-job"><div><span class="distribution-state ${j.status}">${labels[j.status]||j.status}</span><strong>${esc(j.post.title)}</strong><small>${names[j.platform]} · ${esc(j.accountName)} · ${j.post.type==='video'?'视频':'图文'}</small><p>${esc(j.message||'等待助手到点开始上传')}</p>${j.post.source?`<p>来源：${esc(j.post.source.projectName)} · ${[...new Set(j.post.source.assets.map(a=>a.workName||a.name))].map(esc).join('、')}</p>`:''}<small>计划开始 ${date(j.dueAt)} · 最近更新 ${date(j.updatedAt)}</small></div><div class="distribution-job-actions">${j.resultUrl?`<a href="${esc(j.resultUrl)}" target="_blank" rel="noopener noreferrer">查看平台</a>`:`<a href="${j.platform==='xhs'?'https://creator.xiaohongshu.com/new/note-manager':'https://creator.douyin.com/creator-micro/content/manage'}" target="_blank" rel="noopener noreferrer">打开平台</a>`}${j.status==='queued'?`<button data-job="${j.id}" data-action="cancel">取消</button>`:''}${['failed','needs_input'].includes(j.status)?`<button data-job="${j.id}" data-action="retry">重试</button>`:''}${['submitted','uncertain'].includes(j.status)?`<button data-job="${j.id}" data-action="resolve">核对结果</button>`:''}${j.post.source?`<button data-source="${j.id}">查看来源作品</button>`:''}<button data-details="${j.id}">查看内容</button></div></article>`).join('')||'<p class="distribution-empty">暂无任务。完成内容并预览发布清单后创建。</p>'}</div>`;
-      $('distribution-refresh').onclick=refresh;
-      pane.querySelectorAll('[data-source]').forEach(b=>b.onclick=safe(()=>hooks.openSource(jobs.find(j=>j.id===b.dataset.source).post.source)));
-      pane.querySelectorAll('[data-details]').forEach(b=>b.onclick=()=>{const j=jobs.find(x=>x.id===b.dataset.details);hooks.modal('任务内容快照',`<p>${names[j.platform]} · ${esc(j.accountName)}</p><h3>${esc(j.post.title)}</h3><p class="distribution-body">${esc(j.post.body)}</p><p>${j.post.tags.map(t=>'#'+esc(t)).join(' ')}</p><p>${j.post.mediaIds.length} 个素材 · ${esc(Core.settingsSummary(j.platform,j.post))}</p>`,[{label:'关闭',run:hooks.close}]);});
-      pane.querySelectorAll('[data-job]').forEach(b=>b.onclick=safe(async()=>{
-        if(b.dataset.action==='resolve'){
-          hooks.modal('核对平台结果','<p>请先在平台作品管理中确认这条内容的结果，再选择对应状态。</p>',[{label:'稍后核对',run:hooks.close},{label:'确认未发布',run:safe(async()=>{await request(`/jobs/${b.dataset.job}/action`,{method:'POST',body:{action:'resolve',result:'failed'}});hooks.close();refresh();})},{label:'确认已发布',primary:true,run:safe(async()=>{await request(`/jobs/${b.dataset.job}/action`,{method:'POST',body:{action:'resolve',result:'published'}});hooks.close();refresh();})}]);
-        }else{await request(`/jobs/${b.dataset.job}/action`,{method:'POST',body:{action:b.dataset.action}});refresh();}
-      }));return;
-    }
-    const count=s=>jobs.filter(j=>s.includes(j.status)).length;
-    const metric=(a,key)=>{const m=metrics.find(m=>m.accountId===a.id);return m?.metrics?.[key]===undefined?'—':Number(m.metrics[key]).toLocaleString('zh-CN');};
-    pane.innerHTML=`<div class="distribution-heading"><div><h2>数据概览</h2><p>发布统计来自最近 200 条任务。“已发布”以平台核对结果为准。</p></div><button id="distribution-refresh">刷新</button></div><div class="distribution-metrics">${[['已确认发布',count(['published'])],['待平台确认',count(['submitted','uncertain'])],['等待 / 执行中',count(['queued','running','submitting'])],['需要处理',count(['failed','needs_input'])]].map(([label,value])=>`<article><span>${label}</span><strong>${value}</strong></article>`).join('')}</div><div class="distribution-table"><h3>账号累计指标</h3><p class="hint">点击“同步”读取平台首页明确展示的累计值。— 表示未读取到；平台缩略值、区间值和累计值不会混合统计。</p><table><thead><tr><th>账号</th><th>粉丝</th><th>播放 / 阅读</th><th>点赞</th><th>评论</th><th>收藏</th><th>最近同步</th><th></th></tr></thead><tbody>${accounts.map(a=>`<tr><td>${esc(a.name)}<br><small>${names[a.platform]}</small></td>${['followers','plays','likes','comments','favorites'].map(key=>`<td>${metric(a,key)}</td>`).join('')}<td>${date(metrics.find(m=>m.accountId===a.id)?.collectedAt)}</td><td><button data-sync-metrics="${a.id}" ${a.runnerId!==status.runnerId||a.status!=='ready'?'disabled':''}>同步</button> <a target="_blank" rel="noopener noreferrer" href="${a.platform==='xhs'?'https://creator.xiaohongshu.com/new/home':'https://creator.douyin.com/creator-micro/home'}">平台数据</a></td></tr>`).join('')}</tbody></table></div>`;
-    $('distribution-refresh').onclick=refresh;
-    pane.querySelectorAll('[data-sync-metrics]').forEach(b=>b.onclick=safe(()=>login(accounts.find(a=>a.id===b.dataset.syncMetrics),'analytics')));
+    window.DistributionConsole.render(pane,view);
   }
   function validate(platform,post,state){
     const title=post.title.trim(),body=post.body.trim(),tags=post.tags.split(/[\s#]+/u).filter(Boolean),assets=post.assetIds.map(id=>state.postAssets.find(a=>a.id===id));

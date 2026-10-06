@@ -48,10 +48,12 @@ class BatchUITests(unittest.IsolatedAsyncioTestCase):
           window.fakeBatches=batches||{};window.failOnce=!batches;window.batchRequests=[];window.savedPending=false;
           window.CreatorBackend={hash:async file=>await file.text()};
           window.fetch=async (url,options={})=>{
-            const route=url.split('/distribution')[1],body=options.body?JSON.parse(options.body):{};
+            const route=url.split('/distribution')[1],body=options.body?JSON.parse(options.body):{};window.consoleRequests??=[];consoleRequests.push({route,body});
             let data;
             if(route==='/status')data={connected:true,ready:true,runnerId:'runner'};
             else if(route==='/accounts')data=fakeAccounts;
+            else if(route.startsWith('/jobs/page'))data={items:window.fakeJobs||[],total:window.fakeTotal||0,page:1,pageSize:20};
+            else if(route.startsWith('/overview'))data=window.fakeOverview||{statuses:{},total:0,daily:[],accounts:[],metrics:[]};
             else if(route==='/jobs'||route==='/metrics')data=[];
             else if(route==='/media/reuse')data={id:'media-'+body.workspaceMediaId};
             else if(route==='/batches'){
@@ -71,7 +73,7 @@ class BatchUITests(unittest.IsolatedAsyncioTestCase):
             document.getElementById('dialog-close').onclick=testHooks.close;
           }};
         }''', {'saved': saved, 'batches': batches})
-        for name in ('distribution-core.js', 'distribution-batch.js', 'distribution.js'):
+        for name in ('distribution-core.js', 'distribution-batch.js', 'distribution-console.js', 'distribution.js'):
             await self.page.evaluate((ROOT/name).read_text())
         await self.page.evaluate('Distribution.init(testHooks);Distribution.open("batch")')
         await self.page.get_by_role('button', name='选择作品和账号', exact=True).wait_for()

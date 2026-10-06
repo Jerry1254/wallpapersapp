@@ -1233,6 +1233,10 @@
           "minimum": 0,
           "nullable": true,
           "description": "批次内从 0 开始的清单顺序；旧版本创建的任务允许为空。"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
         }
       },
       "required": [
@@ -1460,6 +1464,506 @@
       },
       "parameters": [],
       "operationId": "creatorDistributionMediaReusePost"
+    }
+  },
+  "jobsPage": {
+    "get": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "分页查询完整任务历史；from 包含、to 不包含，按创建时间筛选；保留已移除账号的历史任务",
+      "security": [
+        {
+          "adminCookie": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/schemas/Job"
+                    }
+                  },
+                  "total": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "page": {
+                    "type": "integer"
+                  },
+                  "pageSize": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "items",
+                  "total",
+                  "page",
+                  "pageSize"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "operationId": "creatorDistributionJobsPageGet",
+      "parameters": [
+        {
+          "name": "platform",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "xhs",
+              "douyin"
+            ]
+          }
+        },
+        {
+          "name": "accountId",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "from",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        {
+          "name": "to",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        {
+          "name": "status",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "submitting",
+              "submitted",
+              "published",
+              "failed",
+              "uncertain",
+              "needs_input",
+              "cancelled"
+            ]
+          }
+        },
+        {
+          "name": "type",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video"
+            ]
+          }
+        },
+        {
+          "name": "keyword",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "batchId",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000,
+            "default": 1
+          }
+        },
+        {
+          "name": "pageSize",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20
+          }
+        }
+      ]
+    }
+  },
+  "overview": {
+    "get": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "完整任务统计与累计指标快照；默认近30天，最多366天；北京时间分日。变化仅在开始前基准和结束前最新快照均含该指标时计算，缺失不按零处理",
+      "security": [
+        {
+          "adminCookie": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "to": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "timeZone": {
+                    "type": "string",
+                    "enum": [
+                      "Asia/Shanghai"
+                    ]
+                  },
+                  "total": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "statuses": {
+                    "type": "object",
+                    "properties": {
+                      "queued": {
+                        "type": "integer",
+                        "format": "int64",
+                        "minimum": 0
+                      },
+                      "running": {
+                        "type": "integer",
+                        "format": "int64",
+                        "minimum": 0
+                      },
+                      "submitting": {
+                        "type": "integer",
+                        "format": "int64",
+                        "minimum": 0
+                      },
+                      "submitted": {
+                        "type": "integer",
+                        "format": "int64",
+                        "minimum": 0
+                      },
+                      "published": {
+                        "type": "integer",
+                        "format": "int64",
+                        "minimum": 0
+                      },
+                      "failed": {
+                        "type": "integer",
+                        "format": "int64",
+                        "minimum": 0
+                      },
+                      "uncertain": {
+                        "type": "integer",
+                        "format": "int64",
+                        "minimum": 0
+                      },
+                      "needs_input": {
+                        "type": "integer",
+                        "format": "int64",
+                        "minimum": 0
+                      },
+                      "cancelled": {
+                        "type": "integer",
+                        "format": "int64",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "queued",
+                      "running",
+                      "submitting",
+                      "submitted",
+                      "published",
+                      "failed",
+                      "uncertain",
+                      "needs_input",
+                      "cancelled"
+                    ],
+                    "additionalProperties": {
+                      "type": "integer",
+                      "format": "int64",
+                      "minimum": 0
+                    }
+                  },
+                  "daily": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "date": {
+                          "type": "string",
+                          "format": "date"
+                        },
+                        "total": {
+                          "type": "integer",
+                          "format": "int64",
+                          "minimum": 0
+                        },
+                        "published": {
+                          "type": "integer",
+                          "format": "int64",
+                          "minimum": 0
+                        },
+                        "needsAttention": {
+                          "type": "integer",
+                          "format": "int64",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "date",
+                        "total",
+                        "published",
+                        "needsAttention"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "accounts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "accountId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "platform": {
+                          "type": "string",
+                          "enum": [
+                            "xhs",
+                            "douyin"
+                          ]
+                        },
+                        "archived": {
+                          "type": "boolean"
+                        },
+                        "total": {
+                          "type": "integer",
+                          "format": "int64",
+                          "minimum": 0
+                        },
+                        "published": {
+                          "type": "integer",
+                          "format": "int64",
+                          "minimum": 0
+                        },
+                        "awaiting": {
+                          "type": "integer",
+                          "format": "int64",
+                          "minimum": 0
+                        },
+                        "needsAttention": {
+                          "type": "integer",
+                          "format": "int64",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "accountId",
+                        "name",
+                        "platform",
+                        "archived",
+                        "total",
+                        "published",
+                        "awaiting",
+                        "needsAttention"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "metrics": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "accountId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "platform": {
+                          "type": "string",
+                          "enum": [
+                            "xhs",
+                            "douyin"
+                          ]
+                        },
+                        "metrics": {
+                          "$ref": "#/schemas/Metrics"
+                        },
+                        "delta": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer",
+                            "format": "int64"
+                          }
+                        },
+                        "sourceUrl": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "collectedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        },
+                        "baselineAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "accountId",
+                        "name",
+                        "platform",
+                        "metrics",
+                        "delta",
+                        "sourceUrl",
+                        "collectedAt",
+                        "baselineAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "from",
+                  "to",
+                  "timeZone",
+                  "total",
+                  "statuses",
+                  "daily",
+                  "accounts",
+                  "metrics"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "operationId": "creatorDistributionOverviewGet",
+      "parameters": [
+        {
+          "name": "platform",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "xhs",
+              "douyin"
+            ]
+          }
+        },
+        {
+          "name": "accountId",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "from",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        {
+          "name": "to",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      ]
     }
   }
 }
