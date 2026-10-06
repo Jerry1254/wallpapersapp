@@ -21,6 +21,17 @@
     const ratio=Math.max(w/iw,h/ih)*(c.scale||1),dw=iw*ratio,dh=ih*ratio;
     ctx.drawImage(image,x+(w-dw)/2+(c.panX||0)/100*w,y+(h-dh)/2+(c.panY||0)/100*h,dw,dh);
   }
+  function pick(w,time,x,y){
+    const sx=w.width/100,sy=w.height/100;
+    for(const c of C.active(w,time).slice().reverse()){
+      if(c.opacity<=0)continue;const angle=-c.rotation*Math.PI/180,dx=x-c.x*sx,dy=y-c.y*sy;let px=dx*Math.cos(angle)-dy*Math.sin(angle),py=dx*Math.sin(angle)+dy*Math.cos(angle);
+      const progress=C.clamp((time-c.start)/Math.max(.1,c.duration),0,1);
+      if(c.animation==='float')py-=Math.sin(progress*Math.PI*2)*sy*1.2;
+      if(c.animation==='push'){const scale=1+progress*.06;px/=scale;py/=scale;}
+      let width=c.w*sx,height=c.h*sy;if(c.presentation==='phone'){width=Math.min(width,height*.46)+sx;height=(width-sx)/.46+sx;}
+      if(Math.abs(px)<=width/2&&Math.abs(py)<=height/2)return c;
+    }return null;
+  }
   async function paint(canvas,w,time,resolve,signal,placeholders=false){
     const ctx=canvas.getContext('2d'),sx=canvas.width/100,sy=canvas.height/100;
     ctx.clearRect(0,0,canvas.width,canvas.height);ctx.fillStyle=w.background;ctx.fillRect(0,0,canvas.width,canvas.height);
@@ -29,7 +40,7 @@
       let data=null,asset=null;
       if(c.presentation!=='text'){
         asset=resolve(C.resolve(w,c));
-        if(asset){data=await load(asset);if(data.video){const t=C.sourceTime(c,time,asset);if(Math.abs(data.video.currentTime-t)>.008){const promise=ready(data.video,'seeked');data.video.currentTime=t;await promise;}}}
+        if(asset){data=await load(asset);if(data.video){const t=C.sourceTime(c,time,asset,w);if(Math.abs(data.video.currentTime-t)>.008){const promise=ready(data.video,'seeked');data.video.currentTime=t;await promise;}}}
         else if(!placeholders)throw new Error('有画面尚未绑定素材，请替换后生成');
       }
       const elapsed=time-c.start,progress=C.clamp(elapsed/Math.max(.1,c.duration),0,1);
@@ -51,7 +62,7 @@
         round(ctx,mx,my,mw,mh,mw*.115);ctx.fillStyle='#080a0d';ctx.fill();const border=mw*.025;mx+=border;my+=border;mw-=border*2;mh-=border*2;
       }
       ctx.save();round(ctx,mx,my,mw,mh,c.presentation==='phone'?mw*.1:c.presentation==='full'&&c.w===100?0:mw*.02);ctx.clip();
-      if(data?.demo){data.images.forEach((image,i)=>{ctx.save();ctx.globalAlpha*=i===3?.25:1;if(i===3)ctx.globalCompositeOperation='screen';const t=asset.type==='video'?C.sourceTime(c,time,asset):0,dx=Math.sin(t*Math.PI*.4)*(i===2?3:i===4?5:1);cover(ctx,image,mx,my,mw,mh,{...c,scale:(c.scale||1)*1.18,panX:(c.panX||0)+dx});ctx.restore();});}
+      if(data?.demo){data.images.forEach((image,i)=>{ctx.save();ctx.globalAlpha*=i===3?.25:1;if(i===3)ctx.globalCompositeOperation='screen';const t=asset.type==='video'?C.sourceTime(c,time,asset,w):0,dx=Math.sin(t*Math.PI*.4)*(i===2?3:i===4?5:1);cover(ctx,image,mx,my,mw,mh,{...c,scale:(c.scale||1)*1.18,panX:(c.panX||0)+dx});ctx.restore();});}
       else if(data)cover(ctx,data.video||data.image,mx,my,mw,mh,c);
       else{ctx.fillStyle='#34435b';ctx.fillRect(mx,my,mw,mh);ctx.fillStyle='#a6b9d8';ctx.font=`${canvas.width*.03}px sans-serif`;ctx.textAlign='center';ctx.fillText('替换壁纸素材',0,0);}
       if(c.lock){ctx.fillStyle='#fff';ctx.font=`300 ${mw*.2}px sans-serif`;ctx.textAlign='center';ctx.fillText('09:41',0,my+mh*.22);}
@@ -64,5 +75,5 @@
   }
   function clear(){for(const finish of [...waits])finish(new DOMException('已取消','AbortError'));for(const p of cache.values())p.then(data=>{if(data.video){data.video.pause();data.video.removeAttribute('src');data.video.load();}}).catch(()=>{});cache.clear();}
   const blob=(canvas,type='image/png',quality=.9)=>new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('画面导出失败')),type,quality));
-  window.ContentRenderer={paint,clear,blob,load};
+  window.ContentRenderer={paint,pick,clear,blob,load};
 })();

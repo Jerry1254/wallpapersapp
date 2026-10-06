@@ -226,18 +226,26 @@ def render_content(payload, folder, cancelled=None):
     try:
         archive = zipfile.ZipFile(io.BytesIO(payload))
         entries = archive.infolist()
-        if len(entries) > 940 or sum(info.file_size for info in entries) > MAX_EXPANDED:
+        if len(entries) > 1840 or sum(info.file_size for info in entries) > MAX_EXPANDED:
             raise ValueError('内容数据过大，请缩短视频')
         if archive.getinfo('content.json').file_size > 1024 * 1024:
             raise ValueError('内容配置过大')
         job = json.loads(archive.read('content.json'))
-        if job.get('version') != 1 or job.get('fps') != FPS:
+        if job.get('version') != 1:
             raise ValueError('内容版本不兼容，请刷新页面')
-        width = number(job.get('width'), 64, 1920, '内容宽度')
-        height = number(job.get('height'), 64, 1920, '内容高度')
-        frames = number(job.get('frames'), 1, 900, '内容帧数')
+        fps = number(job.get('fps'), 24, 60, '内容帧率')
+        if fps not in [24, 25, 30, 50, 60]:
+            raise ValueError('内容帧率无效')
+        fps = int(fps)
+        width = number(job.get('width'), 64, 4096, '内容宽度')
+        height = number(job.get('height'), 64, 4096, '内容高度')
+        frames = number(job.get('frames'), 1, 30 * fps, '内容帧数')
         if any(int(v) != v for v in [width, height, frames]) or width % 2 or height % 2:
             raise ValueError('内容尺寸和帧数无效')
+        quality = job.get('quality', 'standard')
+        if quality not in ['standard', 'high', 'custom']:
+            raise ValueError('输出画质无效')
+        bitrate = number(job.get('bitrate', 8), .5, 100, '视频码率')
         for index in range(int(frames)):
             if cancelled and cancelled():
                 raise ExportCancelled()
@@ -250,15 +258,15 @@ def render_content(payload, folder, cancelled=None):
         if not isinstance(audio, list) or len(audio) > 20:
             raise ValueError('音乐片段数量无效')
         args = [executable('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-y',
-                '-framerate', str(FPS), '-i', str(folder / '%05d.jpg')]
+                '-framerate', str(fps), '-i', str(folder / '%05d.jpg')]
         filters = []
-        total = frames / FPS
+        total = frames / fps
         for index, clip in enumerate(audio):
             path = clip['path']
             if path not in {f'audio/{index}.{ext}' for ext in ['mp3', 'm4a', 'wav']}:
                 raise ValueError('音乐路径无效')
             start = number(clip.get('start'), 0, total, '音乐开始时间')
-            duration = number(clip.get('duration'), 1 / FPS, total, '音乐持续时间')
+            duration = number(clip.get('duration'), 1e-7, total, '音乐持续时间')
             source_in = number(clip.get('sourceIn'), 0, 36000, '音乐源起点')
             loop_in = number(clip.get('loopIn', source_in), 0, source_in, '音乐循环起点')
             speed = number(clip.get('speed'), .25, 4, '音乐速度')
@@ -301,9 +309,14 @@ def render_content(payload, folder, cancelled=None):
             args += ['-an']
         output = folder / 'content.mp4'
         args += ['-vf', f'scale={int(width)}:{int(height)},setsar=1', '-frames:v', str(int(frames)),
-                 '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
-                 '-movflags', '+faststart', '-t', str(total), str(output)]
-        run(args, cancelled=cancelled)
+                 '-r', str(fps), '-fps_mode', 'cfr', '-c:v', 'libx264', '-preset', 'veryfast']
+        if quality == 'custom':
+            bits = round(bitrate * 1000000)
+            args += ['-b:v', str(bits), '-maxrate', str(bits), '-bufsize', str(bits * 2)]
+        else:
+            args += ['-crf', '17' if quality == 'high' else '20']
+        args += ['-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-t', str(total), str(output)]
+        run(args, timeout=600, cancelled=cancelled)
         return output
     except (KeyError, TypeError, zipfile.BadZipFile, json.JSONDecodeError) as error:
         raise ValueError('内容素材包不完整，请重新生成') from error
