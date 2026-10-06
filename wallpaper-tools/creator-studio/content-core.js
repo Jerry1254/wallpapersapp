@@ -16,7 +16,18 @@
     w.output={name:typeof o.name==='string'?o.name:'',followCanvas:o.followCanvas!==false,lockAspect:o.lockAspect!==false,
       width:Math.round(clamp(Number(o.width)||w.width,64,4096)/2)*2,height:Math.round(clamp(Number(o.height)||w.height,64,4096)/2)*2,
       quality:['standard','high','custom'].includes(o.quality)?o.quality:'standard',bitrate:clamp(Number(o.bitrate)||8,.5,100)};
+    for(const c of w.tracks.flatMap(t=>t.clips))clipStyle(w,c);
     syncDuration(w);
+  }
+  function clipStyle(w,c){
+    c.opacity=clamp(Number.isFinite(c.opacity)?c.opacity:1,0,1);c.blendMode=c.blendMode||'source-over';
+    if(c.radius!=null)c.radius=Math.max(0,Number(c.radius)||0);
+    if(c.presentation==='text'){
+      c.fontFamily=c.fontFamily||'system-ui';c.fontSize=clamp(Number(c.fontSize)||w.width*(c.text==='$title'?.045:.028),1,1000);
+      c.fontWeight=Number(c.fontWeight)||600;c.lineHeight=clamp(Number(c.lineHeight)||1.3,.5,5);c.letterSpacing=Number(c.letterSpacing)||0;
+      c.align=c.align||'center';c.verticalAlign=c.verticalAlign||'center';c.textResize=c.textResize||'fixed';
+    }
+    return c;
   }
   function syncDuration(w){
     if(w.type!=='video')return;
@@ -46,7 +57,7 @@
     if(!track.clips.includes(c))track.clips.push(c);c.start=time;syncDuration(w);w.selectedClipId=c.id;pruneTracks(w);return track;
   }
   function clip(presentation,slot,start,duration,extra={}){
-    return {id:id(),presentation,slot,assetId:null,start,duration,sourceIn:0,speed:1,fill:'loop',x:50,y:51,w:presentation==='phone'?52:100,h:presentation==='phone'?75:100,scale:1,panX:0,panY:0,rotation:0,opacity:1,animation:'none',text:'',...extra};
+    return {id:id(),presentation,slot,assetId:null,start,duration,sourceIn:0,speed:1,fill:'loop',x:50,y:51,w:presentation==='phone'?52:100,h:presentation==='phone'?75:100,scale:1,panX:0,panY:0,rotation:0,opacity:1,blendMode:'source-over',radius:null,animation:'none',text:'',...extra};
   }
   function create(type='gallery',style='showcase'){
     const w={id:id(),name:type==='gallery'?'壁纸展示图集':'动态样机视频',type,width:type==='gallery'?1080:720,height:type==='gallery'?1440:1280,duration:12,title:'把喜欢，留在屏幕里',subtitle:'倾境 · 每日壁纸',background:'#18202c',accent:'#bdd4ff',slots:{wallpaper:null,motion:null},pages:[],tracks:[],pageIndex:0,cursor:0,selectedClipId:null};
@@ -104,5 +115,5 @@
     if(!value.drafts.some(w=>w.id===value.activeId))value.activeId=value.drafts[0]?.id||null;
     return value;
   }
-  const api={id,copy,clamp,maxDuration,frameRates,fps,frame,videoSettings,syncDuration,outputSize,outputFrames,end,extent,trackOf,addTrack,pruneTracks,freeStart,place,clip,create,all,selected,active,resolve,sourceTime,replace,split,trim,template,instantiate,normalize};root.ContentCore=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
+  const api={id,copy,clamp,maxDuration,frameRates,fps,frame,videoSettings,clipStyle,syncDuration,outputSize,outputFrames,end,extent,trackOf,addTrack,pruneTracks,freeStart,place,clip,create,all,selected,active,resolve,sourceTime,replace,split,trim,template,instantiate,normalize};root.ContentCore=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);
