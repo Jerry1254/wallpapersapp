@@ -210,19 +210,12 @@
         const frames=w.gallery.frames;if(frames.reduce((sum,f)=>sum+f.width*f.height,0)>100000000)throw new Error('图集总像素过大，请减少画框或尺寸');
         for(let i=0;i<frames.length;i++){const f=frames[i];await window.GalleryRenderer.paint(canvas,w,f,resolve,{signal});files.push(new File([await R.blob(canvas)],window.ResourceExport.filename(w.name)+'-'+String(i+1).padStart(2,'0')+'.png',{type:'image/png'}));progress((i+1)/frames.length*95,'已生成 '+(i+1)+' / '+frames.length+' 张');}
       }else{
-        C.videoSettings(w);const output=C.outputSize(w),rate=C.fps(w),frames=C.outputFrames(w),total=frames/rate,zip=new JSZip(),audio=[],outputCanvas=output.width===canvas.width&&output.height===canvas.height?canvas:document.createElement('canvas');outputCanvas.width=output.width;outputCanvas.height=output.height;const outputContext=outputCanvas.getContext('2d');let audioIndex=0,frameBytes=0;
-        for(const track of w.tracks.filter(t=>!t.hidden&&!t.muted))for(const c of track.clips){
-          if(c.start>=total||c.duration<=0||c.presentation==='text')continue;const asset=resolve(C.resolve(w,c)),videoSource=track.kind==='visual'&&asset?.type==='video'&&!asset.demo;
-          if(track.kind!=='audio'&&!videoSource)continue;if(!asset?.file)throw new Error('声音素材已丢失，请重新导入');
-          const path=`audio/${audioIndex++}.${asset.file.name.split('.').pop().toLowerCase()}`;zip.file(path,asset.file);audio.push({path,videoSource,start:c.start,duration:Math.min(c.duration,total-c.start),sourceIn:c.sourceIn,loopIn:c.loopIn??c.sourceIn,speed:c.speed,volume:c.volume??(videoSource?1:.5),fadeIn:c.fadeIn??(videoSource?0:.4),fadeOut:c.fadeOut??(videoSource?0:.6),fill:c.fill});
-        }
-        zip.file('content.json',JSON.stringify({version:1,width:output.width,height:output.height,fps:rate,frames,quality:w.output.quality,bitrate:w.output.bitrate,audio}));
-        for(let f=0;f<frames;f++){if(signal.aborted)throw new DOMException('已取消','AbortError');await R.paint(canvas,w,f/rate,resolve,signal);if(outputCanvas!==canvas)outputContext.drawImage(canvas,0,0,output.width,output.height);const frameBlob=await R.blob(outputCanvas,'image/jpeg',w.output.quality==='standard'?.92:.97);frameBytes+=frameBlob.size;if(frameBytes>500*1048576)throw new Error('画面数据过大，请降低输出尺寸、帧率或缩短视频');zip.file(`frames/${String(f).padStart(5,'0')}.jpg`,frameBlob);progress((f+1)/frames*85,`生成视频画面 ${Math.round((f+1)/frames*100)}%`);if(f%10===0)await new Promise(requestAnimationFrame);}
-        progress(88,'编码视频和音乐…');const payload=await zip.generateAsync({type:'blob',compression:'STORE'});if(signal.aborted)throw new DOMException('已取消','AbortError');if(payload.size>512*1048576)throw new Error('成片数据超过 512 MB，请缩短视频');const response=await fetch('api/render-content',{method:'POST',headers:{'Content-Type':'application/zip','X-Creator-Export':'1'},body:payload,signal});if(!response.ok){const error=await response.json().catch(()=>null);throw new Error(error?.error||'本地视频生成服务不可用');}if(!response.headers.get('Content-Type')?.includes('video/mp4'))throw new Error('没有收到视频文件');files.push(new File([await response.blob()],`${window.ResourceExport.filename(w.output.name||w.name)}.mp4`,{type:'video/mp4'}));
+        const blob=await window.ContentVideoExport.render(canvas,w,resolve,signal,progress);
+        files.push(new File([blob],`${window.ResourceExport.filename(w.output.name||w.name)}.mp4`,{type:'video/mp4'}));
       }
       if(signal.aborted||project!==B.projectId()||work()!==original)return;
       job=null;B.close();if(local){B.download(files[0].name,files[0]);B.toast('视频已下载到本地');}else{Lib.confirm(files,w);renderLibrary();}
-    }catch(error){if(error.name!=='AbortError'&&project===B.projectId()){job=null;B.close();B.toast(`${local?'导出':'生成'}未完成：${error.message}`);}}finally{if(job===controller)job=null;if(work()?.type==='gallery')GE.refresh();else requestPaint();}
+    }catch(error){if(error.name!=='AbortError'&&project===B.projectId()){job=null;B.close();B.toast(`${local?'导出':'生成'}未完成：${error.message}`);}}finally{R.clearExport();if(job===controller)job=null;if(work()?.type==='gallery')GE.refresh();else requestPaint();}
   }
   function enter(){ensure();render();}
   function reset(){stop();V.reset();T.reset();GE.reset();Lib.clearPreview();ML.clearPreview();job?.abort();job=null;paintAgain=false;R.clear();selectedSource=null;clipboard=null;}

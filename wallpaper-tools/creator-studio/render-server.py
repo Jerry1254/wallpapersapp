@@ -222,7 +222,7 @@ def render(payload, folder, cancelled=None):
 
 
 def render_content(payload, folder, cancelled=None):
-    """Encode the same canvas frames used by the content preview, with one audio track."""
+    """Mux directly encoded canvas video, or encode archived frames, and mix composition audio."""
     try:
         archive = zipfile.ZipFile(io.BytesIO(payload))
         entries = archive.infolist()
@@ -246,19 +246,41 @@ def render_content(payload, folder, cancelled=None):
         if quality not in ['standard', 'high', 'custom']:
             raise ValueError('输出画质无效')
         bitrate = number(job.get('bitrate', 8), .5, 100, '视频码率')
-        for index in range(int(frames)):
-            if cancelled and cancelled():
-                raise ExportCancelled()
-            name = f'frames/{index:05d}.jpg'
-            info = archive.getinfo(name)
-            if not 0 < info.file_size < 16 * 1024 * 1024:
-                raise ValueError('视频画面文件无效')
-            (folder / f'{index:05d}.jpg').write_bytes(archive.read(info))
+        video = job.get('video')
+        direct = video is not None
+        if direct:
+            if not isinstance(video, dict) or video.get('path') != 'video.h264' or video.get('codec') != 'h264':
+                raise ValueError('视频编码数据无效')
+            info = archive.getinfo('video.h264')
+            if not 0 < info.file_size <= MAX_UPLOAD:
+                raise ValueError('视频编码文件大小无效')
+            encoded = folder / 'video.h264'
+            encoded.write_bytes(archive.read(info))
+            metadata = json.loads(run([executable('ffprobe'), '-v', 'error', '-f', 'h264', '-select_streams', 'v:0',
+                                       '-show_entries', 'stream=codec_name,width,height,has_b_frames,pix_fmt',
+                                       '-of', 'json', str(encoded)], cancelled=cancelled))
+            streams = metadata.get('streams', [])
+            if not streams or streams[0].get('codec_name') != 'h264' or streams[0].get('width') != width or streams[0].get('height') != height:
+                raise ValueError('视频编码尺寸不匹配')
+            if streams[0].get('has_b_frames', 0) or streams[0].get('pix_fmt') not in ['yuv420p', 'yuvj420p']:
+                raise ValueError('当前视频编码格式需要切换兼容生成方式')
+        else:
+            for index in range(int(frames)):
+                if cancelled and cancelled():
+                    raise ExportCancelled()
+                name = f'frames/{index:05d}.jpg'
+                info = archive.getinfo(name)
+                if not 0 < info.file_size < 16 * 1024 * 1024:
+                    raise ValueError('视频画面文件无效')
+                (folder / f'{index:05d}.jpg').write_bytes(archive.read(info))
         audio = job.get('audio', [])
         if not isinstance(audio, list) or len(audio) > 100:
             raise ValueError('声音片段数量无效')
-        args = [executable('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-y',
-                '-framerate', str(fps), '-i', str(folder / '%05d.jpg')]
+        args = [executable('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-y']
+        if direct:
+            args += ['-fflags', '+genpts', '-r', str(fps), '-f', 'h264', '-i', str(encoded)]
+        else:
+            args += ['-framerate', str(fps), '-i', str(folder / '%05d.jpg')]
         filters = []
         mixed_audio = []
         total = frames / fps
@@ -281,7 +303,7 @@ def render_content(payload, folder, cancelled=None):
             target = folder / f'audio-{index}{Path(path).suffix}'
             target.write_bytes(archive.read(info))
             metadata = json.loads(run([executable('ffprobe'), '-v', 'error', '-select_streams', 'a:0',
-                                       '-show_entries', 'stream=sample_rate:format=duration', '-of', 'json', str(target)]))
+                                       '-show_entries', 'stream=sample_rate:format=duration', '-of', 'json', str(target)], cancelled=cancelled))
             if not metadata.get('streams'):
                 if clip.get('videoSource') is True:
                     continue
@@ -315,14 +337,18 @@ def render_content(payload, folder, cancelled=None):
         else:
             args += ['-an']
         output = folder / 'content.mp4'
-        args += ['-vf', f'scale={int(width)}:{int(height)},setsar=1', '-frames:v', str(int(frames)),
-                 '-r', str(fps), '-fps_mode', 'cfr', '-c:v', 'libx264', '-preset', 'veryfast']
-        if quality == 'custom':
-            bits = round(bitrate * 1000000)
-            args += ['-b:v', str(bits), '-maxrate', str(bits), '-bufsize', str(bits * 2)]
+        if direct:
+            args += ['-frames:v', str(int(frames)), '-c:v', 'copy']
         else:
-            args += ['-crf', '17' if quality == 'high' else '20']
-        args += ['-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-t', str(total), str(output)]
+            args += ['-vf', f'scale={int(width)}:{int(height)},setsar=1', '-frames:v', str(int(frames)),
+                     '-r', str(fps), '-fps_mode', 'cfr', '-c:v', 'libx264', '-preset', 'veryfast']
+            if quality == 'custom':
+                bits = round(bitrate * 1000000)
+                args += ['-b:v', str(bits), '-maxrate', str(bits), '-bufsize', str(bits * 2)]
+            else:
+                args += ['-crf', '17' if quality == 'high' else '20']
+            args += ['-pix_fmt', 'yuv420p']
+        args += ['-movflags', '+faststart', '-t', str(total), str(output)]
         run(args, timeout=600, cancelled=cancelled)
         return output
     except (KeyError, TypeError, zipfile.BadZipFile, json.JSONDecodeError) as error:

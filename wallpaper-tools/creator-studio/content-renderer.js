@@ -5,16 +5,16 @@
   let editingId=null,previewPlaying=false;
   const demoNames=['background.jpg','buildings.png','character.png','light.png','debris.png'];
   function ready(element,event){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>finish(new Error('素材读取超时，请重试')),15000);function finish(error){waits.delete(finish);clearTimeout(timer);element.removeEventListener(event,ok);element.removeEventListener('error',bad);error?reject(error):resolve(element);}const ok=()=>finish(),bad=()=>finish(new Error('素材无法读取'));waits.add(finish);element.addEventListener(event,ok,{once:true});element.addEventListener('error',bad,{once:true});});}
-  async function load(asset){
+  async function load(asset,key=asset?.id){
     if(!asset)throw new Error('请先替换壁纸素材');
-    if(!cache.has(asset.id)){
+    if(!cache.has(key)){
       const pending=(async()=>{
         if(asset.demo){const images=[];for(const name of demoNames){const image=new Image();const promise=ready(image,'load');image.src=`assets/${name}`;images.push(await promise);}return {images,demo:true};}
         if(asset.type==='image'){const image=new Image(),promise=ready(image,'load');image.src=asset.url;return {image:await promise};}
         if(asset.type==='video'){const video=document.createElement('video');video.muted=true;video.playsInline=true;video.preload='auto';const promise=ready(video,'loadeddata');video.src=asset.url;return {video:await promise};}
         throw new Error('请选择图片或视频');
-      })().catch(error=>{cache.delete(asset.id);throw error;});cache.set(asset.id,pending);
-    }return cache.get(asset.id);
+      })().catch(error=>{cache.delete(key);throw error;});cache.set(key,pending);
+    }return cache.get(key);
   }
   function playPreview(entry){
     if(!previewPlaying||!entry.active||entry.hold||entry.playPromise||!entry.video.paused||entry.video.ended&&!entry.video.loop)return;
@@ -113,7 +113,8 @@
         if(asset){
           const live=options.playback&&asset.type==='video'&&!asset.demo;
           const entry=live?previewVideos.get(w.id+':'+c.id):null;
-          data=await (entry&&entry.asset.id===asset.id?entry.promise:load(asset));
+          const exportKey=options.export&&asset.type==='video'&&!asset.demo?'export:'+w.id+':'+c.id+':'+asset.id:asset.id;
+          data=await (entry&&entry.asset.id===asset.id?entry.promise:load(asset,exportKey));
           // Native playback decodes sequentially. Precise seeking is reserved for paused frames and export.
           if(data.video&&!live){const t=C.sourceTime(c,time,asset,w);if(Math.abs(data.video.currentTime-t)>.008){const promise=ready(data.video,'seeked');data.video.currentTime=t;await promise;}}
         }
@@ -143,7 +144,8 @@
       ctx.restore();output.save();output.globalAlpha=c.opacity*fade;output.globalCompositeOperation=c.blendMode==='pass-through'?'source-over':c.blendMode||'source-over';output.drawImage(layer,0,0);output.restore();
     }
   }
+  function clearExport(){for(const [key,pending] of cache){if(!String(key).startsWith('export:'))continue;cache.delete(key);pending.then(data=>{if(data.video){data.video.pause();data.video.removeAttribute('src');data.video.load();}}).catch(()=>{});}}
   function clear(){editingId=null;stopPlayback();layer.width=layer.height=1;for(const finish of [...waits])finish(new DOMException('已取消','AbortError'));for(const entry of previewVideos.values()){entry.video.removeAttribute('src');entry.video.load();}previewVideos.clear();for(const p of cache.values())p.then(data=>{if(data.video){data.video.pause();data.video.removeAttribute('src');data.video.load();}}).catch(()=>{});cache.clear();}
   const blob=(canvas,type='image/png',quality=.9)=>new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('画面导出失败')),type,quality));
-  window.ContentRenderer={paint,pick,geometry,point,local,radius,font,textValue,syncText,setEditing:id=>{editingId=id;},startPlayback,syncPlayback,stopPlayback,clear,blob,load};
+  window.ContentRenderer={paint,pick,geometry,point,local,radius,font,textValue,syncText,setEditing:id=>{editingId=id;},startPlayback,syncPlayback,stopPlayback,clearExport,clear,blob,load};
 })();
