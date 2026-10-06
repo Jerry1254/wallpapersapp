@@ -6,6 +6,7 @@
 .content-track-name{z-index:4;gap:2px;padding:0 5px}.content-track-name .content-track-kind{flex:0;width:14px;color:#899aae;font-size:12px}
 .content-track-name .content-track-title{flex:1;min-width:0;width:auto;padding:3px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:#c3cbd8}
 .content-track-name>button:not(.content-track-title){width:17px;min-width:17px;font-size:11px}.content-track-name>button[data-content-hide]{display:flex;justify-content:center;align-items:center}
+.content-track-name>button[data-content-mute]{display:flex;justify-content:center;align-items:center;color:#a8c4e2}.content-track-name>button[data-content-mute][aria-pressed=false]{color:#718094}
 .track-hidden .content-track-lane{opacity:.4}.content-track-lane.drop-ready{background-color:#30444c;box-shadow:inset 0 0 0 1px #6fcbdc}
 .content-track-clip{top:4px;height:59px;display:block;padding:0;border-radius:4px;background:#153c43;border-color:#327783;color:#d7f1f3;min-width:7px;touch-action:none}
 .content-track-clip.selected{background:#1b5159;border-color:#73dce3;box-shadow:inset 0 0 0 1px #64c9d1}.content-track-clip.audio{background:#274c41;border-color:#4f8b71;color:#d3eadf}.content-track-clip.text-clip{background:#413b62;border-color:#686099}

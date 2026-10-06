@@ -26,7 +26,7 @@
   }
   function draw(){
     if(!board)return;board.hidden=!active();if(!active())return;const rect=area.getBoundingClientRect();if(rect.width<1||rect.height<1)return;
-    const dpr=Math.min(devicePixelRatio||1,2);board.width=Math.round(rect.width*dpr);board.height=Math.round(rect.height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,rect.width,rect.height);
+    const dpr=Math.min(devicePixelRatio||1,2),width=Math.round(rect.width*dpr),height=Math.round(rect.height*dpr);if(board.width!==width)board.width=width;if(board.height!==height)board.height=height;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,rect.width,rect.height);
     const o=outline();if(!o)return;ctx.strokeStyle='#92b8ff';ctx.lineWidth=1;ctx.beginPath();o.corners.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.stroke();
     ctx.beginPath();ctx.moveTo(o.top.x,o.top.y);ctx.lineTo(o.rotate.x,o.rotate.y);ctx.stroke();ctx.fillStyle='#edf4ff';ctx.beginPath();ctx.arc(o.rotate.x,o.rotate.y,4,0,Math.PI*2);ctx.fill();ctx.stroke();
     for(const p of o.handles){ctx.fillRect(p.x-3,p.y-3,6,6);ctx.strokeRect(p.x-3,p.y-3,6,6);}

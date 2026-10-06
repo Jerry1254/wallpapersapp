@@ -16,7 +16,7 @@
     w.output={name:typeof o.name==='string'?o.name:'',followCanvas:o.followCanvas!==false,lockAspect:o.lockAspect!==false,
       width:Math.round(clamp(Number(o.width)||w.width,64,4096)/2)*2,height:Math.round(clamp(Number(o.height)||w.height,64,4096)/2)*2,
       quality:['standard','high','custom'].includes(o.quality)?o.quality:'standard',bitrate:clamp(Number(o.bitrate)||8,.5,100)};
-    for(const c of w.tracks.flatMap(t=>t.clips))clipStyle(w,c);
+    for(const track of w.tracks){track.muted=!!track.muted;for(const c of track.clips)clipStyle(w,c);}
     syncDuration(w);
   }
   function clipStyle(w,c){
@@ -39,7 +39,7 @@
   const trackOf=(w,c)=>w.tracks.find(t=>t.clips.includes(c));
   function addTrack(w,kind='visual',index=0,keepEmpty=false){
     if(kind==='audio'&&w.tracks.some(t=>t.kind==='audio'))return w.tracks.find(t=>t.kind==='audio');
-    const audio=w.tracks.findIndex(t=>t.kind==='audio'),track={id:id(),name:kind==='audio'?'音乐':'画面 '+(Math.max(0,...w.tracks.map(t=>Number(/^画面 (\d+)$/.exec(t.name)?.[1])||0))+1),kind,hidden:false,keepEmpty,clips:[]};
+    const audio=w.tracks.findIndex(t=>t.kind==='audio'),track={id:id(),name:kind==='audio'?'音乐':'画面 '+(Math.max(0,...w.tracks.map(t=>Number(/^画面 (\d+)$/.exec(t.name)?.[1])||0))+1),kind,hidden:false,muted:false,keepEmpty,clips:[]};
     w.tracks.splice(kind==='audio'?w.tracks.length:clamp(index,0,audio<0?w.tracks.length:audio),0,track);return track;
   }
   function pruneTracks(w){w.tracks=w.tracks.filter(t=>t.clips.length||t.keepEmpty);}

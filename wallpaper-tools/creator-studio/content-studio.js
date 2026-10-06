@@ -3,7 +3,7 @@
   'use strict';
   const C=window.ContentCore,R=window.ContentRenderer,G=window.GalleryCore,GE=window.GalleryEditor,T=window.ContentTimeline,S=window.ContentSettings,V=window.ContentCanvasEditor,P=window.GalleryProperties,Lib=window.ContentLibrary,ML=window.ContentMediaLibrary,$=id=>document.getElementById(id),esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),icon=name=>`<svg><use href="#i-${name}"/></svg>`;
   const previewCanvas=document.createElement('canvas');
-  let B,libraryTab='assets',selectedSource=null,playing=false,raf,previous=0,painting=false,paintAgain=false,paintPromise=Promise.resolve(),previewRevision=0,job=null,clipboard=null;
+  let B,libraryTab='assets',selectedSource=null,playing=false,raf,previous=0,previousPaint=0,painting=false,paintAgain=false,paintPromise=Promise.resolve(),previewRevision=0,job=null,clipboard=null;
   const work=()=>B.data().drafts.find(w=>w.id===B.data().activeId);
   const current=()=>C.selected(work());
   const resolve=id=>B.media(id);
@@ -105,6 +105,7 @@
   }
   function requestPaint(){
     V.draw();if(!work()||work().type==='gallery'||B.workspace()!=='create'||job)return;
+    if(playing)R.syncPlayback(work(),work().cursor,resolve);
     if(!playing)previewRevision++;paintAgain=true;if(painting)return;
     paintPromise=(async()=>{
       painting=true;
@@ -112,25 +113,28 @@
         while(paintAgain&&!job){
           paintAgain=false;const target=work(),project=B.projectId(),revision=previewRevision;
           if(!target||target.type!=='video'||B.workspace()!=='create')break;
-          const w=C.copy(target),canvas=$('content-canvas');
-          if(previewCanvas.width!==w.width)previewCanvas.width=w.width;
-          if(previewCanvas.height!==w.height)previewCanvas.height=w.height;
+          const active=new Set(C.active(target,target.cursor).map(c=>c.id)),w={...target,slots:{...target.slots},tracks:target.tracks.map(track=>({...track,clips:track.clips.filter(c=>active.has(c.id)).map(c=>C.copy(c))}))},canvas=$('content-canvas'),dpr=Math.min(devicePixelRatio||1,2),scale=Math.min(1,(parseFloat(canvas.style.width)||w.width)*dpr/w.width,(parseFloat(canvas.style.height)||w.height)*dpr/w.height,1600/Math.max(w.width,w.height)),width=Math.max(1,Math.round(w.width*scale)),height=Math.max(1,Math.round(w.height*scale));
+          if(previewCanvas.width!==width)previewCanvas.width=width;
+          if(previewCanvas.height!==height)previewCanvas.height=height;
           // Decode and compose offscreen so a pending video seek cannot erase the visible frame.
-          await R.paint(previewCanvas,w,w.cursor,resolve,null,true);
+          await R.paint(previewCanvas,w,w.cursor,resolve,null,true,{playback:playing});
           if(job||work()!==target||B.projectId()!==project||B.workspace()!=='create'||revision!==previewRevision)continue;
-          if(canvas.width!==w.width)canvas.width=w.width;
-          if(canvas.height!==w.height)canvas.height=w.height;
+          if(canvas.width!==width)canvas.width=width;
+          if(canvas.height!==height)canvas.height=height;
           const ctx=canvas.getContext('2d');ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=1;ctx.globalCompositeOperation='copy';ctx.drawImage(previewCanvas,0,0);ctx.restore();
         }
       }catch(error){if(error.name!=='AbortError')B.toast(`预览未完成：${error.message}`);}
       finally{painting=false;if(paintAgain&&!job)requestPaint();}
     })();
   }
-  function stop(){playing=false;previewRevision++;cancelAnimationFrame(raf);previous=0;document.querySelectorAll('#content-workspace audio').forEach(a=>a.pause());}
-  function tick(now){const w=work();if(!playing||!w)return;if(previous)w.cursor=(w.cursor+Math.min((now-previous)/1000,.1))%w.duration;previous=now;updatePosition();requestPaint();syncAudio();raf=requestAnimationFrame(tick);}
+  function stop(){playing=false;R.stopPlayback();previewRevision++;cancelAnimationFrame(raf);previous=previousPaint=0;document.querySelectorAll('#content-workspace audio').forEach(a=>a.pause());}
+  function tick(now){
+    const w=work();if(!playing||!w)return;if(previous)w.cursor=(w.cursor+Math.min((now-previous)/1000,.1))%w.duration;previous=now;R.syncPlayback(w,w.cursor,resolve);
+    const interval=1000/C.fps(w);if(!previousPaint||now-previousPaint>=interval-.5){previousPaint=previousPaint?previousPaint+Math.floor((now-previousPaint+.5)/interval)*interval:now;updatePosition();requestPaint();syncAudio();}raf=requestAnimationFrame(tick);
+  }
   function syncAudio(){
-    const w=work(),track=w.tracks.find(t=>t.kind==='audio'),active=new Set();
-    for(const clip of track?.hidden?[]:track?.clips||[]){
+    const w=work(),clips=w.tracks.filter(track=>track.kind==='audio'&&!track.hidden&&!track.muted).flatMap(track=>track.clips),active=new Set();
+    for(const clip of clips){
       if(w.cursor<clip.start||w.cursor>=clip.start+clip.duration)continue;
       const asset=resolve(clip.assetId);if(!asset?.url)continue;
       if(clip.fill==='hold'&&(w.cursor-clip.start)*clip.speed+clip.sourceIn>=asset.duration)continue;
@@ -140,7 +144,7 @@
       const t=C.sourceTime(clip,w.cursor,asset,w);if(Number.isFinite(audio.duration)&&Math.abs(audio.currentTime-t)>.2)audio.currentTime=t;
       audio.playbackRate=clip.speed;const local=w.cursor-clip.start;
       audio.volume=C.clamp((clip.volume??.5)*Math.min(1,local/Math.max(.01,clip.fadeIn||0),(clip.duration-local)/Math.max(.01,clip.fadeOut||0)),0,1);
-      audio.play().catch(()=>{});
+      if(audio.paused)audio.play().catch(()=>{});
     }
     document.querySelectorAll('#content-workspace audio').forEach(audio=>{if(!active.has(audio.id))audio.pause();});
   }
@@ -174,7 +178,7 @@
     if(c&&c.presentation!=='audio')items.push(item('移到新轨道',()=>{const index=w.tracks.indexOf(C.trackOf(w,c));if(C.place(w,c,{index},c.start))change('移动片段到新轨道');}));
     if(timeline)items.push(item('播放头移到这里',()=>{stop();w.cursor=Math.min(time,w.duration-C.frame(w));updatePosition();requestPaint();B.save();}));
     items.push(item(lane?'在此处剪断':'在播放头剪断',()=>{stop();if(C.split(w,time))change('剪断片段');},!c||time<=c.start||time>=c.start+c.duration,key('⌘ B','Ctrl+B')));
-    if(track){items.push(null,item(track.hidden?'显示轨道':'隐藏轨道',()=>{track.hidden=!track.hidden;change('切换轨道显示');}));if(track.kind==='visual'){const visual=w.tracks.filter(t=>t.kind==='visual'),index=visual.indexOf(track);items.push(item('轨道上移',()=>document.querySelector('[data-content-track-up="'+track.id+'"]')?.click(),index<=0),item('轨道下移',()=>document.querySelector('[data-content-track-down="'+track.id+'"]')?.click(),index>=visual.length-1));}}
+    if(track){items.push(null,item(track.hidden?'显示轨道':'隐藏轨道',()=>{track.hidden=!track.hidden;change('切换轨道显示');}),item(track.muted?'开启轨道声音':'静音轨道',()=>{track.muted=!track.muted;change('切换轨道声音');}));if(track.kind==='visual'){const visual=w.tracks.filter(t=>t.kind==='visual'),index=visual.indexOf(track);items.push(item('轨道上移',()=>document.querySelector('[data-content-track-up="'+track.id+'"]')?.click(),index<=0),item('轨道下移',()=>document.querySelector('[data-content-track-down="'+track.id+'"]')?.click(),index>=visual.length-1));}}
     items.push(null,button('添加文字','content-add-text'),button('添加画面轨道','content-add-track'),button('导入素材 / 音乐…','content-import'),null,{...item('删除片段',remove,!c,'Delete'),danger:true});return items;
   }
   function bind(){
@@ -183,7 +187,7 @@
     $('content-add-source').onclick=()=>addSource();$('content-import').onclick=$('content-import-foot').onclick=()=>$('content-input').click();$('content-add-music').onclick=()=>ML.open('audio');$('content-input').onchange=async e=>{const list=await importFiles([...e.target.files]);e.target.value='';if(list[0]?.type==='audio'&&work()?.type==='video')await addSource(list[0].id);};
     for(const [id,key] of [['content-title','title'],['content-subtitle','subtitle'],['content-accent','accent']])$(id).onchange=e=>{work()[key]=e.target.value;change('调整模板内容');};
     $('content-open-settings').onclick=()=>clearSelection();
-    $('content-play').onclick=()=>{if(playing){stop();updatePosition();requestPaint();}else{playing=true;previous=0;raf=requestAnimationFrame(tick);}};
+    $('content-play').onclick=()=>{if(playing){stop();updatePosition();requestPaint();}else{playing=true;previous=previousPaint=0;R.startPlayback(work(),work().cursor,resolve);syncAudio();updatePosition();raf=requestAnimationFrame(tick);}};
     for(const [id,delta] of [['content-prev',-1],['content-next',1]])$(id).onclick=()=>{const w=work();w.pageIndex=(w.pageIndex+delta+w.pages.length)%w.pages.length;w.selectedClipId=C.all(w)[0]?.id;render();B.save();};
     $('content-split').onclick=()=>{stop();if(C.split(work(),work().cursor))change('剪断片段');else B.toast('把播放头移到选中片段中间再剪断');};$('content-duplicate').onclick=duplicate;$('content-delete').onclick=remove;$('content-undo').onclick=()=>B.undo();$('content-redo').onclick=()=>B.undo(true);
     $('content-add-text').onclick=()=>{const w=work(),c=C.clip('text',null,w.type==='gallery'?0:w.cursor,w.type==='gallery'?1:Math.min(3,w.duration-w.cursor),{text:'双击编辑文字',x:50,y:15,w:70,h:48*1.3/w.height*100,fontFamily:'system-ui',fontSize:48,fontWeight:400,lineHeight:1.3,letterSpacing:0,align:'left',verticalAlign:'top',textResize:'auto-height',color:w.accent});if(w.type==='gallery')w.pages[w.pageIndex].clips.push(c);else{if(!C.place(w,c,{index:0},w.cursor))return B.toast('请把播放头移到视频结束之前');}w.selectedClipId=c.id;change('新增文字');};$('content-delete-page').onclick=()=>{const w=work();if(w.pages.length<=1)return;w.pages.splice(w.pageIndex,1);w.pageIndex=Math.min(w.pageIndex,w.pages.length-1);w.selectedClipId=C.all(w)[0]?.id;change('删除页面');};$('content-add-track').onclick=()=>{C.addTrack(work(),'visual',0,true);change('新增画面轨道');};$('content-add-page').onclick=()=>{const w=work(),page=C.copy(w.pages[w.pageIndex]);page.id=C.id();page.name='新页面';for(const c of page.clips)c.id=C.id();w.pages.push(page);w.pageIndex=w.pages.length-1;w.selectedClipId=C.all(w)[0]?.id;change('新增页面');};
@@ -201,8 +205,12 @@
         const frames=w.gallery.frames;if(frames.reduce((sum,f)=>sum+f.width*f.height,0)>100000000)throw new Error('图集总像素过大，请减少画框或尺寸');
         for(let i=0;i<frames.length;i++){const f=frames[i];await window.GalleryRenderer.paint(canvas,w,f,resolve,{signal});files.push(new File([await R.blob(canvas)],window.ResourceExport.filename(w.name)+'-'+String(i+1).padStart(2,'0')+'.png',{type:'image/png'}));progress((i+1)/frames.length*95,'已生成 '+(i+1)+' / '+frames.length+' 张');}
       }else{
-        C.videoSettings(w);const output=C.outputSize(w),rate=C.fps(w),frames=C.outputFrames(w),total=frames/rate,zip=new JSZip(),audioTrack=w.tracks.find(t=>t.kind==='audio'),audio=[],outputCanvas=output.width===canvas.width&&output.height===canvas.height?canvas:document.createElement('canvas');outputCanvas.width=output.width;outputCanvas.height=output.height;const outputContext=outputCanvas.getContext('2d');let audioIndex=0,frameBytes=0;
-        for(const c of audioTrack?.hidden?[]:audioTrack?.clips||[]){if(c.start>=total||c.duration<=0)continue;const asset=resolve(c.assetId);if(!asset?.file)throw new Error('音乐素材已丢失，请重新导入');const path=`audio/${audioIndex++}.${asset.file.name.split('.').pop().toLowerCase()}`;zip.file(path,asset.file);audio.push({path,start:c.start,duration:Math.min(c.duration,total-c.start),sourceIn:c.sourceIn,loopIn:c.loopIn??c.sourceIn,speed:c.speed,volume:c.volume??.5,fadeIn:c.fadeIn??.4,fadeOut:c.fadeOut??.6,fill:c.fill});}
+        C.videoSettings(w);const output=C.outputSize(w),rate=C.fps(w),frames=C.outputFrames(w),total=frames/rate,zip=new JSZip(),audio=[],outputCanvas=output.width===canvas.width&&output.height===canvas.height?canvas:document.createElement('canvas');outputCanvas.width=output.width;outputCanvas.height=output.height;const outputContext=outputCanvas.getContext('2d');let audioIndex=0,frameBytes=0;
+        for(const track of w.tracks.filter(t=>!t.hidden&&!t.muted))for(const c of track.clips){
+          if(c.start>=total||c.duration<=0||c.presentation==='text')continue;const asset=resolve(C.resolve(w,c)),videoSource=track.kind==='visual'&&asset?.type==='video'&&!asset.demo;
+          if(track.kind!=='audio'&&!videoSource)continue;if(!asset?.file)throw new Error('声音素材已丢失，请重新导入');
+          const path=`audio/${audioIndex++}.${asset.file.name.split('.').pop().toLowerCase()}`;zip.file(path,asset.file);audio.push({path,videoSource,start:c.start,duration:Math.min(c.duration,total-c.start),sourceIn:c.sourceIn,loopIn:c.loopIn??c.sourceIn,speed:c.speed,volume:c.volume??(videoSource?1:.5),fadeIn:c.fadeIn??(videoSource?0:.4),fadeOut:c.fadeOut??(videoSource?0:.6),fill:c.fill});
+        }
         zip.file('content.json',JSON.stringify({version:1,width:output.width,height:output.height,fps:rate,frames,quality:w.output.quality,bitrate:w.output.bitrate,audio}));
         for(let f=0;f<frames;f++){if(signal.aborted)throw new DOMException('已取消','AbortError');await R.paint(canvas,w,f/rate,resolve,signal);if(outputCanvas!==canvas)outputContext.drawImage(canvas,0,0,output.width,output.height);const frameBlob=await R.blob(outputCanvas,'image/jpeg',w.output.quality==='standard'?.92:.97);frameBytes+=frameBlob.size;if(frameBytes>500*1048576)throw new Error('画面数据过大，请降低输出尺寸、帧率或缩短视频');zip.file(`frames/${String(f).padStart(5,'0')}.jpg`,frameBlob);progress((f+1)/frames*85,`生成视频画面 ${Math.round((f+1)/frames*100)}%`);if(f%10===0)await new Promise(requestAnimationFrame);}
         progress(88,'编码视频和音乐…');const payload=await zip.generateAsync({type:'blob',compression:'STORE'});if(signal.aborted)throw new DOMException('已取消','AbortError');if(payload.size>512*1048576)throw new Error('成片数据超过 512 MB，请缩短视频');const response=await fetch('api/render-content',{method:'POST',headers:{'Content-Type':'application/zip','X-Creator-Export':'1'},body:payload,signal});if(!response.ok){const error=await response.json().catch(()=>null);throw new Error(error?.error||'本地视频生成服务不可用');}if(!response.headers.get('Content-Type')?.includes('video/mp4'))throw new Error('没有收到视频文件');files.push(new File([await response.blob()],`${window.ResourceExport.filename(w.output.name||w.name)}.mp4`,{type:'video/mp4'}));

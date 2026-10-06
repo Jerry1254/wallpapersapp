@@ -226,7 +226,7 @@ def render_content(payload, folder, cancelled=None):
     try:
         archive = zipfile.ZipFile(io.BytesIO(payload))
         entries = archive.infolist()
-        if len(entries) > 1840 or sum(info.file_size for info in entries) > MAX_EXPANDED:
+        if len(entries) > 2000 or sum(info.file_size for info in entries) > MAX_EXPANDED:
             raise ValueError('内容数据过大，请缩短视频')
         if archive.getinfo('content.json').file_size > 1024 * 1024:
             raise ValueError('内容配置过大')
@@ -255,15 +255,17 @@ def render_content(payload, folder, cancelled=None):
                 raise ValueError('视频画面文件无效')
             (folder / f'{index:05d}.jpg').write_bytes(archive.read(info))
         audio = job.get('audio', [])
-        if not isinstance(audio, list) or len(audio) > 20:
-            raise ValueError('音乐片段数量无效')
+        if not isinstance(audio, list) or len(audio) > 100:
+            raise ValueError('声音片段数量无效')
         args = [executable('ffmpeg'), '-hide_banner', '-loglevel', 'error', '-y',
                 '-framerate', str(fps), '-i', str(folder / '%05d.jpg')]
         filters = []
+        mixed_audio = []
         total = frames / fps
         for index, clip in enumerate(audio):
             path = clip['path']
-            if path not in {f'audio/{index}.{ext}' for ext in ['mp3', 'm4a', 'wav']}:
+            extensions = ['mp4', 'mov', 'webm'] if clip.get('videoSource') is True else ['mp3', 'm4a', 'wav', 'aac', 'ogg', 'flac', 'mp4', 'webm']
+            if path not in {f'audio/{index}.{ext}' for ext in extensions}:
                 raise ValueError('音乐路径无效')
             start = number(clip.get('start'), 0, total, '音乐开始时间')
             duration = number(clip.get('duration'), 1e-7, total, '音乐持续时间')
@@ -280,6 +282,10 @@ def render_content(payload, folder, cancelled=None):
             target.write_bytes(archive.read(info))
             metadata = json.loads(run([executable('ffprobe'), '-v', 'error', '-select_streams', 'a:0',
                                        '-show_entries', 'stream=sample_rate:format=duration', '-of', 'json', str(target)]))
+            if not metadata.get('streams'):
+                if clip.get('videoSource') is True:
+                    continue
+                raise ValueError('音频素材中没有可读取的声音')
             sample_rate = int(metadata['streams'][0]['sample_rate'])
             source_duration = float(metadata['format']['duration'])
             if loop_in >= source_duration:
@@ -297,13 +303,14 @@ def render_content(payload, folder, cancelled=None):
                 tempo.append('atempo=0.5')
                 speed *= 2
             tempo.append(f'atempo={speed}')
-            filters.append(f'[{index + 1}:a]{head},{",".join(tempo)},apad,atrim=duration={duration},'
+            filters.append(f'[{len(mixed_audio) + 1}:a]{head},{",".join(tempo)},apad,atrim=duration={duration},'
                            f'asetpts=PTS-STARTPTS,volume={volume},afade=t=in:d={min(fade_in, duration)},'
                            f'afade=t=out:st={max(0, duration - fade_out)}:d={min(fade_out, duration)},'
                            f'adelay={round(start * 1000)}:all=1[a{index}]')
-        if audio:
-            filters.append(''.join(f'[a{i}]' for i in range(len(audio))) +
-                           f'amix=inputs={len(audio)}:normalize=0,apad,atrim=duration={total}[music]')
+            mixed_audio.append(f'[a{index}]')
+        if mixed_audio:
+            filters.append(''.join(mixed_audio) +
+                           f'amix=inputs={len(mixed_audio)}:normalize=0,apad,atrim=duration={total}[music]')
             args += ['-filter_complex', ';'.join(filters), '-map', '0:v:0', '-map', '[music]', '-c:a', 'aac']
         else:
             args += ['-an']
