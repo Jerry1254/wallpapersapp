@@ -202,7 +202,7 @@
   function exportVideo(){if(work()?.type==='video')return generate('download');}
   async function generate(destination='work'){
     if(job)return;stop();const original=work();if(!original)return;if(original.type==='gallery'){G.ensure(original);if(!original.gallery.frames.length)return B.toast('请先新建画框并放入组件，再生成图片作品');}const w=C.copy(original),project=B.projectId(),controller=new AbortController(),local=destination==='download';job=controller;const signal=controller.signal;R.clear();
-    B.modal(local?'导出视频':'生成作品','<div class="content-generation"><strong id="content-progress-title">准备画面…</strong><progress id="content-progress" value="0" max="100"></progress><small id="content-progress-note">'+(local?'完成后将下载 MP4 到本地。':'完成后可预览并保存到作品库，带入下一步的素材列表。')+'</small></div>',[{label:'取消',run:()=>{controller.abort();B.close();}}]);
+    B.modal(local?'导出视频':'生成作品','<div class="content-generation"><strong id="content-progress-title">准备画面…</strong><progress id="content-progress" value="0" max="100"></progress><small id="content-progress-note">'+(local?'完成后将下载 MP4 到本地。':'完成后可预览作品，并保存至发布内容。')+'</small></div>',[{label:'取消',run:()=>{controller.abort();B.close();}}]);
     const progress=(value,text)=>{if($('content-progress'))$('content-progress').value=value;if($('content-progress-title'))$('content-progress-title').textContent=text;};
     try{
       await paintPromise;if(signal.aborted)throw new DOMException('已取消','AbortError');const canvas=document.createElement('canvas');canvas.width=w.width;canvas.height=w.height;const files=[];
