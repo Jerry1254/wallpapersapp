@@ -14,10 +14,89 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 class PackageMediaInspectorTest {
     private final String ffmpeg = System.getenv().getOrDefault("QJ_FFMPEG", "ffmpeg");
     private final String ffprobe = System.getenv().getOrDefault("QJ_FFPROBE", "ffprobe");
+
+    @ParameterizedTest
+    @CsvSource({
+            "64,96,240,240,true", "64,96,241,241,false",
+            "4096,64,30,30,true", "4098,64,30,30,false",
+            "64,96,30,900,true", "64,96,30,901,false"
+    })
+    void checksAndroidSourceRateDimensionsAndDurationBoundaries(
+            int width, int height, int rate, int frames, boolean accepted) throws Exception {
+        byte[] source = boundaryVideo(width, height, rate, frames);
+        var inspector = new PackageMediaInspector(new ObjectMapper(), ffprobe, ffmpeg);
+        if (accepted) {
+            assertThat(inspector.inspect(inspector.androidVideo(source, true), true))
+                    .isNotNull();
+        } else {
+            assertThatThrownBy(() -> inspector.androidVideo(source, true))
+                    .isInstanceOf(ApiException.class);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "64,96,60,120,true", "64,96,61,122,false",
+            "4096,64,30,60,true", "4098,64,30,60,false",
+            "64,96,30,60,true", "64,96,30,59,false"
+    })
+    void checksMovingPhotoSourceRateDimensionsAndDurationBoundaries(
+            int width, int height, int rate, int frames, boolean accepted) throws Exception {
+        byte[] source = boundaryVideo(width, height, rate, frames);
+        var processor = new DynamicPhotoMediaProcessor(new ObjectMapper(), ffprobe, ffmpeg,
+                "missing-MP4Box", "missing-heif-enc", "missing-exiftool");
+        if (accepted) {
+            var result = processor.movingPhoto(source);
+            assertThat(result.durationMs()).isEqualTo(2000L);
+            assertThat(result.width()).isEqualTo(width);
+            assertThat(result.height()).isEqualTo(height);
+        } else {
+            assertThatThrownBy(() -> processor.movingPhoto(source))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code())
+                            .isIn("DYNAMIC_SOURCE_FORMAT_INVALID", "DYNAMIC_SOURCE_DURATION_INVALID"));
+        }
+    }
+
+    @Test
+    void acceptsExactlySixtyIosDisplayFrames() throws Exception {
+        Assumptions.assumeTrue(supportsEncoder("libx265"), "libx265 is required");
+        byte[] source = boundaryVideo(64, 96, 30, 60);
+        Path input = Files.createTempFile("qj-ios-exact-boundary-", ".mp4");
+        Path output = Files.createTempFile("qj-ios-exact-result-", ".mov");
+        try {
+            Files.write(input, source);
+            new DynamicPhotoMediaProcessor(new ObjectMapper(), ffprobe, ffmpeg,
+                    "missing-MP4Box", "missing-heif-enc", "missing-exiftool")
+                    .createLivePhotoVideo(input, output, 64, 96);
+            var facts = probeVideoFacts(Files.readAllBytes(output));
+            assertThat(facts.path("nb_read_frames").asInt()).isEqualTo(60);
+            assertThat(facts.path("avg_frame_rate").asText()).isEqualTo("60/1");
+            assertThat(probeDuration(Files.readAllBytes(output))).isBetween(0.998d, 1.002d);
+        } finally { Files.deleteIfExists(input); Files.deleteIfExists(output); }
+    }
+
+    private byte[] boundaryVideo(int width, int height, int rate, int frames) throws Exception {
+        Assumptions.assumeTrue(canRun(ffmpeg, "-version") && canRun(ffprobe, "-version"),
+                "FFmpeg and FFprobe are required");
+        Path source = Files.createTempFile("qj-media-boundary-", ".mp4");
+        try {
+            Process process = new ProcessBuilder(List.of(ffmpeg, "-v", "error", "-y", "-nostdin",
+                    "-f", "lavfi", "-i", "color=black:size=" + width + "x" + height + ":rate=" + rate,
+                    "-frames:v", Integer.toString(frames), "-c:v", "libx264", "-preset", "ultrafast",
+                    "-pix_fmt", "yuv420p", "-threads", "1", source.toString()))
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            assertThat(process.waitFor(30, TimeUnit.SECONDS)).isTrue();
+            assertThat(process.exitValue()).isZero();
+            return Files.readAllBytes(source);
+        } finally { Files.deleteIfExists(source); }
+    }
 
     @Test
     void normalizesHevcVideoWithAudioForAndroidPlayback() throws Exception {

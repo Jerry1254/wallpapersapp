@@ -86,6 +86,26 @@ class ParallaxPackageParserTest {
         files=files(2);for(int i=0;i<65;i++)files.put("__MACOSX/"+i,new byte[0]);reject(files);
         files=files(2);files.put("__MACOSX/large",new byte[86*1024*1024]);reject(files);
     }
+    @Test void acceptsExactConfigByteLimitAndRejectsOneByteMore() throws Exception {
+        var source=files(2);
+        byte[] original=source.get("config.json"), padded=Arrays.copyOf(original,65536);
+        Arrays.fill(padded,original.length,padded.length,(byte)' ');
+        source.put("config.json",padded);
+        assertThat(parser.parse(zip(source)).configBytes()).containsExactly(padded);
+        byte[] oversized=Arrays.copyOf(padded,65537);oversized[65536]=' ';
+        source.put("config.json",oversized);reject(source);
+    }
+    @Test void acceptsMaximumCanvasAndRejectsOnePixelMore() throws Exception {
+        var source=files(2);
+        String config=new String(source.get("config.json"),StandardCharsets.UTF_8)
+                .replace("\"width\":512","\"width\":4096").replace("\"height\":512","\"height\":4096");
+        source.put("config.json",config.getBytes(StandardCharsets.UTF_8));
+        source.put("layers/01.png",image("png",true,4096));
+        source.put("layers/02.png",image("png",false,4096));
+        assertThat(parser.parse(zip(source)).layers()).hasSize(2);
+        source.put("config.json",config.replace("\"width\":4096","\"width\":4097").getBytes(StandardCharsets.UTF_8));
+        reject(source);
+    }
     @Test void rejectsSymlinkEncryptedCrcMismatchAndTruncation() throws Exception {
         byte[] good=zip(files(2),true);
         int central=-1;var b=ByteBuffer.wrap(good).order(ByteOrder.LITTLE_ENDIAN);
