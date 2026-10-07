@@ -2,10 +2,39 @@ import unittest
 import json
 import shutil
 import subprocess
-from identity import ACCOUNT_CARD, ACCOUNT_CARD_READY, choose_identity, IdentityError
+from identity import ACCOUNT_CARD, ACCOUNT_CARD_READY, choose_account_metrics, choose_identity, IdentityError
 
 
 class IdentityTests(unittest.TestCase):
+    def test_account_metrics_require_same_identity_and_unambiguous_exact_counts(self):
+        rows=[{'handle':'known','metrics':{'followers':14,'likes':0}}]
+        self.assertEqual(choose_account_metrics(rows,'handle:known'),{'followers':14,'likes':0})
+        with self.assertRaises(IdentityError):choose_account_metrics(rows,'handle:other')
+        rows.append({'handle':'known','metrics':{'followers':15,'favorites':True}})
+        self.assertEqual(choose_account_metrics(rows,'handle:known'),{'likes':0})
+
+    @unittest.skipUnless(shutil.which('node'), 'Requires Node for the actual card extractor')
+    def test_account_card_counts_omit_abbreviations_combined_metrics_and_daily_deltas(self):
+        script=r'''
+          const cardJS=JSON.parse(process.argv[1]);
+          const visible={getClientRects:()=>[{}]};
+          for(const [count,metricLabel,expected] of [['14','粉丝',14],['1,234','粉丝',1234],['1.2万','粉丝',null],['14\n+2','粉丝',null],['0','获赞与收藏',null]]) {
+            const label={...visible,innerText:metricLabel,children:[]};
+            const metric={...visible,innerText:count+'\n'+metricLabel,children:[label]};label.parentElement=metric;
+            const leaf={...visible,innerText:'小红书账号：679084946',children:[]};
+            const document={body:{innerText:leaf.innerText,querySelectorAll:()=>[leaf]}};
+            const avatar={...visible,className:'avatar',alt:'',currentSrc:'https://example.com/a.jpg'};
+            const card={...visible,innerText:leaf.innerText+'\n'+metric.innerText,parentElement:document.body,
+              querySelector:s=>s==='img'?avatar:null,querySelectorAll:s=>s==='img'?[avatar]:s==='*'?[label,metric]:[]};
+            metric.parentElement=card;leaf.parentElement=card;
+            const extract=new Function('document','getComputedStyle','return ('+cardJS+')');
+            const row=extract(document,()=>({visibility:'visible'}))('xhs')[0];
+            if(expected===null&&Object.keys(row.metrics).length)throw Error('ambiguous metric accepted');
+            if(expected!==null&&row.metrics.followers!==expected)throw Error('exact count missing');
+          }
+        '''
+        subprocess.run(['node','-e',script,json.dumps(ACCOUNT_CARD)],check=True,capture_output=True,text=True)
+
     @unittest.skipUnless(shutil.which('node'), 'Requires Node for the actual page predicate')
     def test_real_account_label_variants_match_both_wait_and_extractor(self):
         # Execute the shipped JS, rather than mocking wait_for_function. The

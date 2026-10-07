@@ -8,9 +8,10 @@ from pathlib import Path
 import re
 import sys
 import tempfile
+import traceback
 import uuid
-from identity import IdentityError, read_identity
-from settings import SettingsError, apply_settings, validate_settings
+from identity import ACCOUNT_CARD, IdentityError, choose_account_metrics, read_identity
+from settings import SettingsError, apply_settings, unique, validate_settings
 
 os.umask(0o077)
 OUTPUT = sys.stdout
@@ -23,6 +24,14 @@ def emit(event, **values):
 
 class NeedsInput(Exception):
     pass
+
+
+IMAGE_UPLOAD_SELECTOR = ','.join('input[type=file][accept*="' + value + '" i]'
+    for value in ('image', '.jpg', '.jpeg', '.png', '.webp', '.heic', '.avif'))
+
+
+def douyin_title_selector(kind):
+    return 'input[placeholder="添加作品标题"]' if kind == 'image' else 'input[placeholder*="填写作品标题"]'
 
 
 class SessionVault:
@@ -168,9 +177,11 @@ async def cover_douyin(page, portrait, landscape):
 async def fill_xhs(page, post):
     title = page.locator('input[placeholder*="填写标题"]').first
     await title.fill(post['title'])
-    editor = page.locator('[contenteditable=true]').filter(has=page.locator('p[data-placeholder*="输入正文描述"]')).first
-    if not await editor.count():
-        editor = page.locator('[contenteditable=true]').first
+    # Tiptap removes the empty paragraph's placeholder after the first input.
+    # Keep a stable editor locator for filling, topics, and final readback.
+    editor = await unique(page.locator('[contenteditable=true]'))
+    if editor is None:
+        raise NeedsInput('平台没有可编辑的正文区域，已停止提交')
     await editor.fill(post.get('body', ''))
     await editor.press('End')
     for tag in post['tags']:
@@ -185,7 +196,7 @@ async def fill_xhs(page, post):
 
 
 async def fill_douyin(page, post):
-    title = page.locator('input[placeholder*="填写作品标题"]').first
+    title = page.locator(douyin_title_selector(post['type'])).first
     await title.fill(post['title'])
     editor = page.locator('div.zone-container[contenteditable=true]').first
     await editor.fill(post.get('body', ''))
@@ -195,6 +206,60 @@ async def fill_douyin(page, post):
         await page.keyboard.press('Space')
     await page.keyboard.press('Escape')
     return title, editor
+
+
+async def dismiss_publish_hints(page):
+    # The observed cover-PK onboarding notice blocks the title/editor. This is
+    # only an informational acknowledgement, never a terms or verification step.
+    notices = [item for item in await page.get_by_role('button', name='我知道了', exact=True)
+               .and_(page.locator('button.pk-cover-guide-confirm')).all()
+               if await item.is_visible()]
+    if len(notices) > 1:
+        raise NeedsInput('平台出现多个提示窗口，请先在平台关闭提示后重试')
+    if notices:
+        await notices[0].click()
+
+
+async def save_publish_diagnostic(page, request, phase, submitted, error=None):
+    """Keep one bounded troubleshooting screenshot locally, outside business payloads."""
+    try:
+        job_id = str(uuid.UUID(request['job']['id']))
+        picture = await page.screenshot(type='jpeg', quality=65, full_page=True, timeout=5000)
+        if not picture or len(picture) > 1024 * 1024:
+            return
+        folder = Path(request['runtime']) / 'diagnostics'
+        folder.mkdir(exist_ok=True, mode=0o700)
+        (folder / (job_id + '.jpg')).write_bytes(picture)
+        controls = []
+        if hasattr(page, 'evaluate'):
+            with contextlib.suppress(Exception):
+                controls = await page.evaluate('''() => Array.from(document.querySelectorAll('input,textarea,[contenteditable=true],button,select,label,[role=combobox],[role=radio],[role=radiogroup]'))
+                    .filter(e=>e.type==='file'||e.getClientRects().length).slice(0,80)
+                    .map(e=>({tag:e.tagName,type:e.type||'',placeholder:e.getAttribute('placeholder')||'',
+                        accept:e.getAttribute('accept')||'',role:e.getAttribute('role')||'',
+                        editable:e.getAttribute('contenteditable')||'',classes:String(e.className||'').slice(0,200),
+                        label:['BUTTON','LABEL','SELECT'].includes(e.tagName)||e.hasAttribute('role')?(e.innerText||'').slice(0,100):'',
+                        parent:e.type==='checkbox'?{tag:e.parentElement.tagName,classes:String(e.parentElement.className||''),text:(e.parentElement.innerText||'').slice(0,100)}:null}))''')
+        diagnostic = {'phase': phase, 'submitted': submitted, 'controls': controls}
+        if hasattr(page, 'evaluate'):
+            with contextlib.suppress(Exception):
+                diagnostic['visibilityControls'] = await page.evaluate('''() => Array.from(document.querySelectorAll('*'))
+                    .filter(e=>e.getClientRects().length&&/^(公开可见|公开|仅自己可见|仅自己|私密|好友可见|更多设置)$/.test((e.innerText||'').trim())
+                        &&!Array.from(e.children).some(c=>/^(公开可见|公开|仅自己可见|仅自己|私密|好友可见|更多设置)$/.test((c.innerText||'').trim())))
+                    .slice(0,20).map(e=>({text:e.innerText,html:e.parentElement.outerHTML.slice(0,2400)}))''')
+            with contextlib.suppress(Exception):
+                diagnostic['navigation'] = await page.evaluate('''() => Array.from(document.querySelectorAll('a[href]'))
+                    .filter(e=>e.getClientRects().length&&/^(笔记管理|内容管理)$/.test((e.innerText||'').trim()))
+                    .map(e=>({label:e.innerText.trim(),path:new URL(e.href).pathname}))''')
+        if error is not None:
+            diagnostic['failure'] = {'type': type(error).__name__, 'frames': [
+                {'file': Path(frame.filename).name, 'line': frame.lineno, 'function': frame.name}
+                for frame in traceback.extract_tb(error.__traceback__)[-6:]]}
+        (folder / (job_id + '.json')).write_text(json.dumps(
+            diagnostic, ensure_ascii=False), encoding='utf-8')
+    except Exception:
+        # Diagnostics must not alter submission/retry classification.
+        pass
 
 
 async def publish(request):
@@ -208,87 +273,108 @@ async def publish(request):
     submitted = False
     phase = '打开发布页'
     browser = None
+    page = None
+    runtime = None
     try:
         validate_settings(platform, post)
-        async with async_playwright() as runtime:
-            browser = await runtime.chromium.launch(headless=False, channel='chrome')
-            context = await browser.new_context(storage_state=saved_state)
-            page = await context.new_page()
-            page.set_default_timeout(30000)
-            phase='核对发布账号'
-            emit('progress',message=phase)
-            if not job.get('platformUserId'):
-                raise NeedsInput('请先在账号管理检查平台身份')
-            await read_identity(page,platform,job['platformUserId'])
-            files = [paths[item] for item in post['mediaIds']]
+        runtime = await async_playwright().start()
+        browser = await runtime.chromium.launch(headless=False, channel='chrome')
+        context = await browser.new_context(storage_state=saved_state)
+        page = await context.new_page()
+        page.set_default_timeout(30000)
+        phase='核对发布账号'
+        emit('progress',message=phase)
+        if not job.get('platformUserId'):
+            raise NeedsInput('请先在账号管理检查平台身份')
+        await read_identity(page,platform,job['platformUserId'])
+        files = [paths[item] for item in post['mediaIds']]
+        emit('progress', message=phase)
+        if platform == 'douyin':
+            await page.goto('https://creator.douyin.com/creator-micro/content/upload', wait_until='domcontentloaded', timeout=90000)
+            if post['type'] == 'image':
+                await page.get_by_text('发布图文', exact=True).click()
+            selector = IMAGE_UPLOAD_SELECTOR if post['type'] == 'image' else 'input[type=file]'
+            upload = page.locator(selector).first
+            title_selector = douyin_title_selector(post['type'])
+        else:
+            await page.goto('https://creator.xiaohongshu.com/publish/publish?from=homepage&target=' + post['type'], wait_until='domcontentloaded', timeout=90000)
+            upload = page.locator(IMAGE_UPLOAD_SELECTOR).first if post['type'] == 'image' else page.locator('input.upload-input').first
+            title_selector = 'input[placeholder*="填写标题"]'
+        if '/login' in page.url:
+            raise NeedsInput('账号登录已失效，请重新扫码')
+        phase = '上传素材'
+        emit('progress', message=phase)
+        await save_publish_diagnostic(page, request, phase, submitted)
+        await upload.set_input_files(files, timeout=120000)
+        phase = '等待平台处理素材'
+        emit('progress', message=phase)
+        await save_publish_diagnostic(page, request, phase, submitted)
+        await page.locator(title_selector).first.wait_for(state='visible', timeout=600000)
+        if post['type'] == 'video':
+            uploaded = page.get_by_text(re.compile('重新上传|上传成功')).first
+            await uploaded.wait_for(state='visible', timeout=600000)
+        phase = '填写标题、正文和话题'
+        emit('progress', message=phase)
+        await dismiss_publish_hints(page)
+        title, editor = await (fill_douyin(page, post) if platform == 'douyin' else fill_xhs(page, post))
+        phase = '设置并核对发布选项'
+        emit('progress', message=phase)
+        verify_settings = await apply_settings(page, platform, post)
+        portrait = paths.get(post.get('coverId'))
+        landscape = paths.get(post.get('landscapeCoverId'))
+        if portrait or landscape:
+            phase = '设置封面'
             emit('progress', message=phase)
             if platform == 'douyin':
-                await page.goto('https://creator.douyin.com/creator-micro/content/upload', wait_until='domcontentloaded', timeout=90000)
-                if post['type'] == 'image':
-                    await page.get_by_text('发布图文', exact=True).click()
-                selector = 'input[type=file][accept*="image"]' if post['type'] == 'image' else 'input[type=file]'
-                upload = page.locator(selector).first
-                title_selector = 'input[placeholder*="填写作品标题"]'
+                await cover_douyin(page, portrait, landscape)
             else:
-                await page.goto('https://creator.xiaohongshu.com/publish/publish?from=homepage&target=' + post['type'], wait_until='domcontentloaded', timeout=90000)
-                upload = page.locator('input[type=file][accept*="image"]').first if post['type'] == 'image' else page.locator('input.upload-input').first
-                title_selector = 'input[placeholder*="填写标题"]'
-            if '/login' in page.url:
-                raise NeedsInput('账号登录已失效，请重新扫码')
-            phase = '上传素材'
-            emit('progress', message=phase)
-            await upload.set_input_files(files, timeout=120000)
-            await page.locator(title_selector).first.wait_for(state='visible', timeout=600000)
-            if post['type'] == 'video':
-                uploaded = page.get_by_text(re.compile('重新上传|上传成功')).first
-                await uploaded.wait_for(state='visible', timeout=600000)
-            phase = '填写标题、正文和话题'
-            emit('progress', message=phase)
-            title, editor = await (fill_douyin(page, post) if platform == 'douyin' else fill_xhs(page, post))
-            phase = '设置并核对发布选项'
-            emit('progress', message=phase)
-            verify_settings = await apply_settings(page, platform, post)
-            portrait = paths.get(post.get('coverId'))
-            landscape = paths.get(post.get('landscapeCoverId'))
-            if portrait or landscape:
-                phase = '设置封面'
-                emit('progress', message=phase)
-                if platform == 'douyin':
-                    await cover_douyin(page, portrait, landscape)
-                else:
-                    await cover_xhs(page, portrait)
-            phase = '检查待提交内容'
-            if await title.input_value() != post['title']:
-                raise NeedsInput('平台未完整保留标题，已停止提交，请调整后重试')
-            rendered = await editor.inner_text()
-            if post.get('body') and re.sub(r'\s+', '', post['body']) not in re.sub(r'\s+', '', rendered):
-                raise NeedsInput('平台未完整保留正文，已停止提交')
-            for tag in post['tags']:
-                if tag not in rendered:
-                    raise NeedsInput('平台未完整保留话题：' + tag)
-            await verify_settings()
-            button = page.get_by_role('button', name='发布', exact=True)
-            await button.wait_for(state='visible')
-            if not await button.is_enabled():
-                raise NeedsInput('平台尚未允许发布，请检查素材或必填项')
-            # Persist the submission intent before a single click. Loss of the lease
-            # prevents the click; a crash afterwards becomes an uncertain result.
-            emit('commit')
-            if (await asyncio.to_thread(sys.stdin.readline)).strip() != 'ok':
-                raise RuntimeError('发布任务已停止')
-            submitted = True
-            await button.click()
-            if platform == 'douyin':
-                await page.wait_for_url('**/creator-micro/content/manage**', timeout=45000)
-            else:
-                await page.wait_for_url(re.compile(r'creator\.xiaohongshu\.com/(publish/success|publish/publish-success|new/note-manager)'), timeout=45000)
-            vault.save(await context.storage_state())
-            result_url = page.url
-            await context.close()
-            await browser.close()
-            browser = None
-            return {'status': 'submitted', 'message': '平台已接收提交，请在平台确认审核结果', 'url': result_url}
+                await cover_xhs(page, portrait)
+        phase = '检查待提交内容'
+        if await title.input_value() != post['title']:
+            raise NeedsInput('平台未完整保留标题，已停止提交，请调整后重试')
+        rendered = await editor.inner_text()
+        if post.get('body') and re.sub(r'\s+', '', post['body']) not in re.sub(r'\s+', '', rendered):
+            raise NeedsInput('平台未完整保留正文，已停止提交')
+        for tag in post['tags']:
+            if tag not in rendered:
+                raise NeedsInput('平台未完整保留话题：' + tag)
+        await verify_settings()
+        button = page.get_by_role('button', name='发布', exact=True)
+        await button.wait_for(state='visible')
+        if not await button.is_enabled():
+            raise NeedsInput('平台尚未允许发布，请检查素材或必填项')
+        # Persist the submission intent before a single click. Loss of the lease
+        # prevents the click; a crash afterwards becomes an uncertain result.
+        emit('commit')
+        if (await asyncio.to_thread(sys.stdin.readline)).strip() != 'ok':
+            raise RuntimeError('发布任务已停止')
+        submitted = True
+        await button.click()
+        if platform == 'douyin':
+            await page.wait_for_url('**/creator-micro/content/manage**', timeout=45000)
+        else:
+            await page.wait_for_url(re.compile(r'creator\.xiaohongshu\.com/(publish/success|publish/publish-success|new/note-manager)'), timeout=45000)
+        # Preserve the platform's actual receipt/result page for local acceptance
+        # checks. A receipt still does not mean an approved/published work.
+        phase = '平台已接收提交，待核对审核结果'
+        if platform == 'xhs':
+            with contextlib.suppress(Exception):
+                management = await unique(page.get_by_text('笔记管理', exact=True))
+                if management is not None:
+                    await management.click()
+        with contextlib.suppress(Exception):
+            await page.get_by_text(post['title'], exact=True).first.wait_for(state='visible', timeout=10000)
+        await save_publish_diagnostic(page, request, phase, submitted)
+        vault.save(await context.storage_state())
+        # XHS redirects its receipt to the upload page; that is not a work link.
+        result_url = 'https://creator.xiaohongshu.com/new/note-manager' if platform == 'xhs' else page.url
+        await context.close()
+        await browser.close()
+        browser = None
+        return {'status': 'submitted', 'message': '平台已接收提交，请在平台确认审核结果', 'url': result_url}
     except Exception as error:
+        if page:
+            await save_publish_diagnostic(page, request, phase, submitted, error)
         # Never retry after the final click, regardless of a timeout or challenge.
         return {'status': 'uncertain' if submitted else 'needs_input' if isinstance(error, (NeedsInput,IdentityError,SettingsError)) else 'failed',
                 'message': ('已点击发布，结果尚未确认，请到平台核对' if submitted else str(error) if isinstance(error, (NeedsInput,IdentityError,SettingsError)) else f'{phase}未完成；可能需要登录验证或平台页面已变化，请在账号管理重新登录后重试')}
@@ -297,6 +383,9 @@ async def publish(request):
             with contextlib.suppress(Exception):
                 await browser.close()
 
+        if runtime:
+            with contextlib.suppress(Exception):
+                await runtime.stop()
 
 async def analytics(request):
     from patchright.async_api import async_playwright
@@ -318,6 +407,7 @@ async def analytics(request):
             if not account.get('platformUserId'):
                 raise NeedsInput('请先检查平台账号身份，再同步数据')
             await read_identity(page,account['platform'],account['platformUserId'])
+            values.update(choose_account_metrics(await page.evaluate(ACCOUNT_CARD, account['platform']), account['platformUserId']))
             if '/login' in page.url:
                 raise NeedsInput('登录已过期，请重新扫码后同步数据')
             for key, alternatives in labels.items():

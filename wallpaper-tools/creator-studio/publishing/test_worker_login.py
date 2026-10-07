@@ -120,4 +120,128 @@ class LoginTests(unittest.IsolatedAsyncioTestCase):
         self.vault.save.assert_not_called()
 
 
+class AnalyticsTests(unittest.IsolatedAsyncioTestCase):
+    setUp = LoginTests.setUp
+
+    async def test_real_account_card_counts_are_saved_without_filling_missing_metrics(self):
+        self.request['mode']='analytics'
+        self.request['account'].update(platform='xhs', platformUserId='handle:qa-account')
+        self.page.url='https://creator.xiaohongshu.com/new/home'
+        self.page.evaluate=AsyncMock(return_value=[{'handle':'qa-account','metrics':{'followers':14}}])
+        self.page.get_by_text=Mock(return_value=SimpleNamespace(count=AsyncMock(return_value=0)))
+        result=await worker.analytics(self.request)
+        self.assertEqual(result['metrics'],{'followers':14})
+        self.vault.save.assert_called_once_with(self.state)
+
+    async def test_account_change_between_identity_and_sampling_stops_sync(self):
+        self.request['account']['platformUserId']='handle:qa-account'
+        self.page.evaluate=AsyncMock(return_value=[{'handle':'another-account','metrics':{'followers':900}}])
+        with self.assertRaises(worker.IdentityError):await worker.analytics(self.request)
+        self.vault.save.assert_not_called()
+        self.browser.close.assert_awaited_once()
+
+
+class PublishLifetimeTests(unittest.IsolatedAsyncioTestCase):
+    setUp = LoginTests.setUp
+
+    async def prepare_publish(self):
+        self.request.update(mode='publish', job={'id':'8c1ea09a-b84c-4b9f-b605-acec12c9f2d1',
+            'platform':'xhs','accountId':'test-id','platformUserId':'handle:qa-account',
+            'post':{'type':'image','title':'测试标题','body':'测试正文','tags':[],
+                    'mediaIds':['file'],'visibility':'private'}}, paths={'file':'test.png'})
+        self.runtime.stop=AsyncMock()
+        patch.dict(sys.modules,{'patchright.async_api':SimpleNamespace(async_playwright=lambda:
+            SimpleNamespace(start=AsyncMock(return_value=self.runtime)))}).start()
+        self.page.set_default_timeout=Mock()
+        self.page.url='https://creator.xiaohongshu.com/publish/publish'
+
+    async def test_failure_is_captured_before_browser_runtime_stops(self):
+        await self.prepare_publish()
+        self.page.locator=Mock(side_effect=RuntimeError('missing upload control'))
+        async def capture(*args):
+            self.browser.close.assert_not_awaited()
+            self.runtime.stop.assert_not_awaited()
+        with patch.object(worker,'save_publish_diagnostic',new=AsyncMock(side_effect=capture)) as diagnostic:
+            result=await worker.publish(self.request)
+        self.assertEqual(result['status'],'failed')
+        diagnostic.assert_awaited_once()
+        self.browser.close.assert_awaited_once()
+        self.runtime.stop.assert_awaited_once()
+
+    async def test_error_after_final_click_is_uncertain_and_never_reclicks(self):
+        await self.prepare_publish()
+        control=SimpleNamespace(set_input_files=AsyncMock(),wait_for=AsyncMock(),
+            input_value=AsyncMock(return_value='测试标题'),inner_text=AsyncMock(return_value='测试正文'))
+        control.first=control
+        self.page.locator=Mock(return_value=control)
+        button=SimpleNamespace(wait_for=AsyncMock(),is_enabled=AsyncMock(return_value=True),
+            click=AsyncMock(side_effect=RuntimeError('connection lost')),all=AsyncMock(return_value=[]))
+        button.and_=Mock(return_value=button)
+        self.page.get_by_role=Mock(return_value=button)
+        with patch.object(worker,'fill_xhs',new=AsyncMock(return_value=(control,control))), \
+             patch.object(worker,'apply_settings',new=AsyncMock(return_value=AsyncMock())), \
+             patch.object(worker,'save_publish_diagnostic',new=AsyncMock()) as diagnostic:
+            result=await worker.publish(self.request)
+        self.assertEqual(result['status'],'uncertain')
+        button.click.assert_awaited_once()
+        self.assertTrue(diagnostic.call_args.args[3])
+        self.vault.save.assert_not_called()
+        self.runtime.stop.assert_awaited_once()
+
+    async def test_platform_receipt_remains_submitted_pending_verification(self):
+        await self.prepare_publish()
+        control=SimpleNamespace(set_input_files=AsyncMock(),wait_for=AsyncMock(),
+            input_value=AsyncMock(return_value='测试标题'),inner_text=AsyncMock(return_value='测试正文'))
+        control.first=control
+        self.page.locator=Mock(return_value=control)
+        self.page.get_by_text=Mock(return_value=control)
+        self.page.wait_for_url=AsyncMock()
+        self.context.close=AsyncMock()
+        button=SimpleNamespace(wait_for=AsyncMock(),is_enabled=AsyncMock(return_value=True),
+            click=AsyncMock(),all=AsyncMock(return_value=[]))
+        button.and_=Mock(return_value=button)
+        self.page.get_by_role=Mock(return_value=button)
+        with patch.object(worker,'fill_xhs',new=AsyncMock(return_value=(control,control))), \
+             patch.object(worker,'apply_settings',new=AsyncMock(return_value=AsyncMock())), \
+             patch.object(worker,'save_publish_diagnostic',new=AsyncMock()) as diagnostic:
+            result=await worker.publish(self.request)
+        self.assertEqual(result['status'],'submitted')
+        self.assertEqual(result['url'],'https://creator.xiaohongshu.com/new/note-manager')
+        self.assertIn('确认审核结果',result['message'])
+        self.assertEqual(diagnostic.call_args.args[2],'平台已接收提交，待核对审核结果')
+        self.assertTrue(diagnostic.call_args.args[3])
+        button.click.assert_awaited_once()
+        self.context.close.assert_awaited_once()
+        self.browser.close.assert_awaited_once()
+        self.runtime.stop.assert_awaited_once()
+
+
+class PublishDiagnosticTests(unittest.IsolatedAsyncioTestCase):
+    async def test_failure_picture_is_local_bounded_and_private(self):
+        import json
+        import stat
+        with tempfile.TemporaryDirectory() as folder:
+            job_id = '8c1ea09a-b84c-4b9f-b605-acec12c9f2d1'
+            page = SimpleNamespace(screenshot=AsyncMock(return_value=b'jpeg'))
+            request = {'runtime': folder, 'job': {'id': job_id}}
+            await worker.save_publish_diagnostic(page, request, '上传素材', False)
+            image = Path(folder) / 'diagnostics' / (job_id + '.jpg')
+            self.assertEqual(image.read_bytes(), b'jpeg')
+            self.assertEqual(stat.S_IMODE(image.stat().st_mode), 0o600)
+            self.assertEqual(json.loads(image.with_suffix('.json').read_text()),
+                             {'phase': '上传素材', 'submitted': False, 'controls': []})
+
+    async def test_missing_invalid_or_oversized_diagnostics_do_not_change_result(self):
+        with tempfile.TemporaryDirectory() as folder:
+            page = SimpleNamespace(screenshot=AsyncMock(return_value=b'x' * (1024 * 1024 + 1)))
+            request = {'runtime': folder, 'job': {'id': '8c1ea09a-b84c-4b9f-b605-acec12c9f2d1'}}
+            await worker.save_publish_diagnostic(page, request, '提交后', True)
+            request['job']['id'] = '../unsafe'
+            await worker.save_publish_diagnostic(page, request, '上传', False)
+            request['job']['id'] = '8c1ea09a-b84c-4b9f-b605-acec12c9f2d1'
+            page.screenshot.side_effect = RuntimeError('closed page')
+            await worker.save_publish_diagnostic(page, request, '提交后', True)
+            self.assertEqual(list(Path(folder).iterdir()), [])
+
+
 if __name__ == '__main__': unittest.main()

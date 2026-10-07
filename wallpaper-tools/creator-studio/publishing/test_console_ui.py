@@ -13,15 +13,21 @@ class ConsoleUITests(unittest.IsolatedAsyncioTestCase):
 
     async def test_history_pagination_and_filters_are_sent_to_backend(self):
         await self.mount()
-        await self.page.evaluate('''fakeTotal=205;fakeJobs=[{id:'job',batchId:'batch',batchPosition:0,status:'published',platform:'xhs',accountName:'账号甲',post:{type:'image',title:'真实历史内容',body:'正文',tags:[],mediaIds:['file']},createdAt:'2026-10-01T00:00:00Z',dueAt:'2026-10-01T00:00:00Z'}];Distribution.open('jobs')''')
+        await self.page.evaluate('''fakeTotal=205;fakeJobs=[{id:'job',batchId:'batch',batchPosition:0,status:'published',platform:'xhs',accountName:'账号甲',resultUrl:'https://creator.xiaohongshu.com/publish/publish?published=true',post:{type:'image',title:'真实历史内容',body:'正文',tags:[],mediaIds:['file']},createdAt:'2026-10-01T00:00:00Z',dueAt:'2026-10-01T00:00:00Z'}];Distribution.open('jobs')''')
         await self.wait_for('document.getElementById("console-next")!=null')
         self.assertIn('205', await self.page.locator('#console-jobs-results').inner_text())
+        self.assertEqual(await self.page.get_by_role('link',name='查看平台作品').get_attribute('href'),
+                         'https://creator.xiaohongshu.com/new/note-manager')
         await self.page.locator('#console-next').click()
         await self.wait_for('consoleRequests.some(r=>r.route.includes("page=2"))')
         await self.page.locator('[data-filter="keyword"]').fill('%_测试')
+        # A data refresh must retain typing before the input has emitted change.
+        await self.page.evaluate("Distribution.open('jobs')")
+        self.assertEqual(await self.page.locator('[data-filter="keyword"]').input_value(), '%_测试')
         await self.page.locator('[data-filter="status"]').select_option('published')
         await self.page.get_by_role('button', name='查询', exact=True).click()
         await self.wait_for('consoleRequests.some(r=>r.route.includes("status=published")&&r.route.includes("page=1"))')
+        self.assertTrue(await self.page.evaluate('consoleRequests.some(r=>r.route.includes("keyword=%25_%E6%B5%8B%E8%AF%95"))'))
         await self.page.get_by_role('button', name='查看内容', exact=True).click()
         self.assertIn('真实历史内容', await self.page.locator('#dialog-body').inner_text())
 

@@ -35,7 +35,18 @@ ACCOUNT_CARD = r'''(platform) => {
     const names=[...card.querySelectorAll('.name,[class*="name"],[class*="Name"]')].filter(visible).map(e=>(e.innerText||'').trim()).filter(v=>v&&v.length<=160&&!label.test(v));
     const images=[...card.querySelectorAll('img')].filter(visible);
     const avatar=images.find(e=>/avatar|头像/i.test(e.className+' '+e.alt))||(images.length===1?images[0]:null);
-    rows.push({handle:match[1],profiles:[...new Set(profiles)],nickname:[...new Set(names)].length===1?names[0]:'',avatarUrl:avatar?.currentSrc||''});
+    const metrics={};
+    for(const [key,labels] of Object.entries({followers:['粉丝','粉丝数','粉丝总数','总粉丝数'],likes:['获赞','获赞数'],favorites:['收藏数']})) {
+      const labelsFound=[...card.querySelectorAll('*')].filter(e=>visible(e)&&labels.includes((e.innerText||'').trim())&&!Array.from(e.children||[]).some(c=>visible(c)&&labels.includes((c.innerText||'').trim())));
+      if(labelsFound.length!==1)continue;
+      const label=labelsFound[0].innerText.trim();let metric=labelsFound[0];
+      for(let depth=0;depth<2&&metric.parentElement;depth++) {
+        metric=metric.parentElement;
+        const clean=(metric.innerText||'').trim().replace(label,'').trim();
+        if(/^[\d,，]+$/.test(clean)) {const value=Number(clean.replace(/[,，]/g,''));if(Number.isSafeInteger(value))metrics[key]=value;break;}
+      }
+    }
+    rows.push({handle:match[1],profiles:[...new Set(profiles)],nickname:[...new Set(names)].length===1?names[0]:'',avatarUrl:avatar?.currentSrc||'',metrics});
   }
   return rows;
 }'''
@@ -65,6 +76,20 @@ def choose_identity(rows, expected=None):
     avatars=[row.get('avatarUrl','') for row in rows]
     avatar=next((url for url in avatars if urlsplit(url).scheme=='https' and urlsplit(url).hostname and not urlsplit(url).username),'')
     return {'platformUserId':user_id,'nickname':nickname[:160],'avatarUrl':avatar[:2000]}
+
+
+def choose_account_metrics(rows, expected):
+    # The same labelled account card must still match the account being sampled.
+    choose_identity(rows, expected)
+    rows = [row for row in rows if re.fullmatch(r'[A-Za-z0-9_.-]{1,110}', row.get('handle', ''))]
+    result = {}
+    for key in ('followers', 'likes', 'favorites'):
+        values = {row.get('metrics', {}).get(key) for row in rows
+                  if type(row.get('metrics', {}).get(key)) is int
+                  and 0 <= row['metrics'][key] <= 9007199254740991}
+        if len(values) == 1:
+            result[key] = next(iter(values))
+    return result
 
 
 async def read_identity(page, platform, expected=None, timeout=20000):

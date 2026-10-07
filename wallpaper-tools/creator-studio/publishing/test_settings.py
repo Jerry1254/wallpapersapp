@@ -87,6 +87,33 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await self.page.locator('#original').is_checked())
         self.assertFalse(await self.page.locator('#repost').is_checked())
 
+    async def test_xhs_native_visibility_dropdown_retains_exact_choice(self):
+        await self.page.set_content('''<div class="d-select-description"
+            onclick="document.getElementById('menu').style.display='block'">公开可见</div>
+            <div id="menu" style="display:none">
+              <div class="group-info"><div class="name" onclick="document.querySelector('.d-select-description').innerText=this.innerText;document.getElementById('menu').style.display='none'">仅自己可见</div></div>
+              <div class="group-info"><div class="name">只给谁看</div></div></div>''')
+        verify = await apply_settings(self.page, 'xhs', {'type':'image','visibility':'private'})
+        self.assertEqual(await self.page.locator('.d-select-description').inner_text(),'仅自己可见')
+        await verify()
+        await self.page.locator('.d-select-description').evaluate('(e)=>e.innerText="公开可见"')
+        with self.assertRaisesRegex(SettingsError,'未保留'):
+            await verify()
+
+    async def test_douyin_checkbox_single_choice_is_read_back(self):
+        await self.page.set_content('''<div><span>谁可以看</span><div>
+            <div onclick="document.querySelectorAll('.choice').forEach(e=>e.checked=false);this.querySelector('input').checked=true">
+              <span><input class="choice" type="checkbox" checked></span><span>公开</span></div>
+            <div onclick="document.querySelectorAll('.choice').forEach(e=>e.checked=false);this.querySelector('input').checked=true">
+              <span><input id="private" class="choice" type="checkbox"></span><span>仅自己可见</span></div>
+            </div></div>''')
+        verify = await apply_settings(self.page, 'douyin', {'type':'video','visibility':'private'})
+        self.assertTrue(await self.page.locator('#private').is_checked())
+        await verify()
+        await self.page.locator('.choice').first.evaluate('(e)=>e.checked=true')
+        with self.assertRaisesRegex(SettingsError,'多个选中项'):
+            await verify()
+
     async def test_missing_ambiguous_or_draft_only_visibility_stops(self):
         for html in ('<button>保存草稿</button>', VISIBILITY * 2,
                      '<fieldset><legend>谁可以看</legend><label><input type="radio">私密/草稿</label></fieldset>'):

@@ -72,6 +72,21 @@ async def radio(scope, labels):
     return node
 
 
+async def checkbox_choice(scope, labels):
+    # Douyin renders its single-choice rows as native checkboxes. Match the
+    # exact visible option next to that checkbox within the identified field.
+    candidates = []
+    for control in await scope.locator('input[type=checkbox]').all():
+        for depth in (1, 2):
+            parent = control.locator('/'.join(['..'] * depth))
+            if await parent.is_visible() and (await parent.inner_text()).strip() in labels:
+                candidates.append((parent, control))
+                break
+    if len(candidates) > 1:
+        raise SettingsError('平台出现多处同名设置，无法确认目标，已停止提交')
+    return candidates[0] if candidates else None
+
+
 async def field(page, labels):
     for role in ('radiogroup', 'group'):
         node = await unique(page.get_by_role(role, name=exact(labels)))
@@ -120,6 +135,24 @@ async def select_choice(page, headings, labels):
         await verify()
         return verify
     choice = await radio(scope, labels)
+    native = await checkbox_choice(scope, labels) if choice is None else None
+    if native is not None:
+        choice, control = native
+        if await checked(control) is not True:
+            await choice.click()
+
+        async def verify():
+            current = await field(page, headings)
+            target = await checkbox_choice(current, labels)
+            if target is None or await checked(target[1]) is not True:
+                raise SettingsError(headings[0] + '未保留所选设置，已停止提交')
+            # A single-choice field must not retain another visibility at once.
+            selected = sum([await checked(peer) is True
+                            for peer in await current.locator('input[type=checkbox]').all()])
+            if selected != 1:
+                raise SettingsError(headings[0] + '出现多个选中项，已停止提交')
+        await verify()
+        return verify
     if choice is None:
         # Accessible custom selects: select only an exact named option.
         combo = await unique(scope.get_by_role('combobox'))
@@ -168,6 +201,34 @@ async def toggle_or_choice(page, headings, labels, enabled, toggle_labels):
         target = await unique(page.get_by_role(role, name=exact(toggle_labels)))
         if target is None or await checked(target) != enabled:
             raise SettingsError(headings[0] + '未保留所选设置，已停止提交')
+    await verify()
+    return verify
+
+
+async def xhs_visibility(page, value):
+    # Observed XHS dropdown: its description is the retained selection, and
+    # the opened menu uses group-info/name entries without ARIA option roles.
+    options = {'public': ('公开可见',), 'private': ('仅自己可见',),
+               'friends': ('仅互关好友可见',)}
+    all_labels = tuple(label for labels in options.values() for label in labels)
+
+    async def entry():
+        return await unique(page.locator('.d-select-description').filter(has_text=exact(all_labels)))
+
+    control = await entry()
+    if control is None:
+        return await select_choice(page, ('谁可以看', '可见范围', '可见性设置'), VISIBILITY[value])
+    if (await control.inner_text()).strip() not in options[value]:
+        await control.click()
+        option = await unique(page.locator('.group-info .name').filter(has_text=exact(options[value])))
+        if option is None:
+            raise SettingsError('小红书没有所选可见范围，已停止提交')
+        await option.click()
+
+    async def verify():
+        current = await entry()
+        if current is None or (await current.inner_text()).strip() not in options[value]:
+            raise SettingsError('谁可以看未保留所选设置，已停止提交')
     await verify()
     return verify
 
@@ -234,7 +295,8 @@ async def apply_settings(page, platform, post):
             checks.append((label, await toggle_or_choice(page, ('保存权限', '允许保存视频', '允许下载'), DOWNLOAD[post['downloadPermission']], post['downloadPermission'] == 'allow', ('允许保存视频', '允许他人保存视频', '允许下载'))))
         if post.get('visibility'):
             label = '谁可以看'
-            checks.append((label, await select_choice(page, ('谁可以看', '可见范围', '可见性设置'), VISIBILITY[post['visibility']])))
+            checks.append((label, await xhs_visibility(page, post['visibility']) if platform == 'xhs'
+                           else await select_choice(page, ('谁可以看', '可见范围', '可见性设置'), VISIBILITY[post['visibility']])))
     except SettingsError:
         raise
     except Exception as error:
