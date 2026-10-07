@@ -103,7 +103,7 @@
     T.render();
   }
 
-  function updatePosition(){const w=work();if(!w)return;$('content-position').textContent=w.type==='gallery'?`第 ${w.pageIndex+1} / ${w.pages.length} 页`:`${T.clock(w.cursor)} / ${T.clock(w.duration)} · ${C.fps(w)} fps`;const play=$('content-play'),playState=playing?'pause':'play';if(play.dataset.state!==playState){play.innerHTML=icon(playState);play.dataset.state=playState;}T.updatePosition();}
+  function updatePosition(){const w=work();if(!w)return;$('content-position').textContent=w.type==='gallery'?`第 ${w.pageIndex+1} / ${w.pages.length} 页`:`${T.clock(w.cursor)} / ${T.clock(w.duration)} · ${C.fps(w)} fps`;const play=$('content-play'),playState=playing?'pause':'play';if(play.dataset.state!==playState){play.innerHTML=icon(playState);play.dataset.state=playState;play.setAttribute('aria-label',playing?'暂停内容视频':'播放内容视频');}T.updatePosition();}
   function sizeCanvas(){const w=work();if(!w||w.type!=='video'||B.workspace()!=='create')return;const area=$('content-canvas-area'),scale=Math.min(Math.max(1,area.clientWidth-28)/w.width,Math.max(1,area.clientHeight-28)/w.height),canvas=$('content-canvas');canvas.style.width=Math.round(w.width*scale)+'px';canvas.style.height=Math.round(w.height*scale)+'px';V.draw();}
   function clearSelection(updateTimeline=true){
     const w=work();if(!w||w.type!=='video'||job)return;w.selectedClipId=null;renderInspector();if(updateTimeline)renderTimeline();else document.querySelectorAll('[data-content-clip]').forEach(el=>el.classList.remove('selected'));requestPaint();B.save();
