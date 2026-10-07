@@ -380,7 +380,9 @@ public final class DynamicPhotoMediaProcessor {
         runQuietly(List.of(mp4Box, "-rem", "1", output.toString()), PHOTO_TIMEOUT, output.getParent());
         runQuietly(List.of(mp4Box, "-add", source + "#video:ID=1:tkidx=1", output.toString()),
                 VIDEO_TIMEOUT, output.getParent());
-        runQuietly(List.of(exifTool, "-overwrite_original", "-Keys:ContentIdentifier=" + identifier,
+        // GPAC 2 can leave a minor QuickTime meta terminator when replacing the template's track.
+        // This applies only to our generated movie; identifiers, metadata tracks and frames are verified below.
+        runQuietly(List.of(exifTool, "-m", "-overwrite_original", "-Keys:ContentIdentifier=" + identifier,
                 output.toString()), PHOTO_TIMEOUT);
     }
 
