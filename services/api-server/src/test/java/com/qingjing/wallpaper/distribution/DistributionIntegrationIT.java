@@ -146,4 +146,77 @@ class DistributionIntegrationIT {
         assertThat(db.queryForObject("SELECT COUNT(*) FROM creator_publish_job WHERE batch_id=?",Integer.class,batch.path("id").asText())).isZero();
         assertThat(db.queryForObject("SELECT COUNT(*) FROM creator_publish_batch WHERE id=?",Integer.class,batch.path("id").asText())).isZero();
     }
+
+    String readyAccount(String platform){
+        String id=(String)service.createAccount(obj().put("platform",platform).put("name","边界测试").put("runnerId",RUNNER)).get("id");
+        bind(id,UUID.randomUUID().toString());return id;
+    }
+    String publicationMedia(String type){
+        String id=UUID.randomUUID().toString();
+        db.update("INSERT INTO creator_publish_media(id,filename,media_type,extension,storage_key,size_bytes,sha256) VALUES(?,?,?,?,?,100,?)",id,type.equals("image")?"test.png":"test.mp4",type,type.equals("image")?"png":"mp4","test/"+id,"a".repeat(64));
+        return id;
+    }
+    ObjectNode validationPost(String type,String media,int titleLength){
+        ObjectNode p=obj().put("type",type).put("title","字".repeat(titleLength)).put("body","");
+        p.putArray("tags");p.putArray("mediaIds").add(media);return p;
+    }
+    ObjectNode validationBatch(String account,JsonNode post){
+        ObjectNode batch=obj().put("id",UUID.randomUUID().toString());
+        batch.putArray("entries").addObject().put("accountId",account).set("post",post);return batch;
+    }
+    void rejectsBatchWithoutPartialRows(ObjectNode batch){
+        assertThatThrownBy(()->tx.execute(s->service.createBatch(batch))).isInstanceOf(ApiException.class);
+        String id=batch.path("id").asText();
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM creator_publish_batch WHERE id=?",Integer.class,id)).isZero();
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM creator_publish_job WHERE batch_id=?",Integer.class,id)).isZero();
+    }
+    @Test void fourFormsEnforceTitleTopicAndCombinedBodyBoundaries(){
+        for(String platform:List.of("douyin","xhs"))for(String type:List.of("image","video")){
+            String account=readyAccount(platform),media=publicationMedia(type);
+            int limit=platform.equals("douyin")&&type.equals("video")?30:20;
+            ObjectNode post=validationPost(type,media,limit);
+            assertThat(tx.<List<Map<String,Object>>>execute(s->service.createBatch(validationBatch(account,post)))).hasSize(1);
+            rejectsBatchWithoutPartialRows(validationBatch(account,post.deepCopy().put("title","字".repeat(limit+1))));
+            post.put("body","文".repeat(1000));
+            assertThat(tx.<List<Map<String,Object>>>execute(s->service.createBatch(validationBatch(account,post)))).hasSize(1);
+            rejectsBatchWithoutPartialRows(validationBatch(account,post.deepCopy().put("body","文".repeat(1001))));
+            post.put("body","");for(int i=0;i<10;i++)post.withArray("tags").add("标签"+i);
+            assertThat(tx.<List<Map<String,Object>>>execute(s->service.createBatch(validationBatch(account,post)))).hasSize(1);
+            ObjectNode eleven=post.deepCopy();eleven.withArray("tags").add("标签10");
+            rejectsBatchWithoutPartialRows(validationBatch(account,eleven));
+            post.withArray("tags").removeAll().add("壁纸");post.put("body","文".repeat(995));
+            assertThat(tx.<List<Map<String,Object>>>execute(s->service.createBatch(validationBatch(account,post)))).hasSize(1);
+            rejectsBatchWithoutPartialRows(validationBatch(account,post.deepCopy().put("body","文".repeat(996))));
+        }
+    }
+    @Test void rejectsEveryDraftParameterEvenWhenItsValueIsFalse(){
+        String account=readyAccount("xhs"),media=publicationMedia("image");
+        for(String key:List.of("draft","saveAsDraft","publishMode")){
+            ObjectNode post=validationPost("image",media,1).put(key,false);
+            rejectsBatchWithoutPartialRows(validationBatch(account,post));
+        }
+    }
+    @Test void storedMediaSizeLimitsRejectOversizeWithoutCreatingPublicationMedia(){
+        for(String type:List.of("image","video")){
+            long limit=(type.equals("image")?32L:2048L)*1024*1024;
+            String workspace="file-"+UUID.randomUUID();
+            db.update("INSERT INTO creator_workspace_media(id,filename,media_type,mime_type,storage_key,size_bytes,sha256,metadata) VALUES(?,?,?,?,?,?,?,'{}')",workspace,type.equals("image")?"test.png":"test.mp4",type,type.equals("image")?"image/png":"video/mp4","test/"+workspace,limit,"b".repeat(64));
+            assertThat(service.reuseMedia(obj().put("workspaceMediaId",workspace)).get("size")).isEqualTo(limit);
+            String tooLarge="file-"+UUID.randomUUID();
+            db.update("INSERT INTO creator_workspace_media(id,filename,media_type,mime_type,storage_key,size_bytes,sha256,metadata) VALUES(?,?,?,?,?,?,?,'{}')",tooLarge,type.equals("image")?"test.png":"test.mp4",type,type.equals("image")?"image/png":"video/mp4","test/"+tooLarge,limit+1,"c".repeat(64));
+            assertThatThrownBy(()->service.reuseMedia(obj().put("workspaceMediaId",tooLarge))).isInstanceOf(ApiException.class).hasMessageContaining("大小");
+            assertThat(db.queryForObject("SELECT COUNT(*) FROM creator_publish_media WHERE workspace_media_id=?",Integer.class,tooLarge)).isZero();
+        }
+        assertThatThrownBy(()->service.reuseMedia(obj().put("workspaceMediaId","file-missing"))).isInstanceOf(ApiException.class);
+        verifyNoInteractions(storage);
+    }
+    @Test void fiftyJobsAreAcceptedButFiftyOneLeaveNoPartialBatch(){
+        String account=readyAccount("xhs");ObjectNode batch=obj().put("id",UUID.randomUUID().toString());
+        ArrayNode rows=batch.putArray("entries");
+        for(int i=0;i<50;i++)rows.addObject().put("accountId",account).set("post",validationPost("image",publicationMedia("image"),1));
+        assertThat(tx.<List<Map<String,Object>>>execute(s->service.createBatch(batch))).hasSize(50);
+        ObjectNode over=batch.deepCopy().put("id",UUID.randomUUID().toString());over.withArray("entries").add(rows.get(0).deepCopy());
+        rejectsBatchWithoutPartialRows(over);over.withArray("entries").remove(50);
+        assertThat(tx.<List<Map<String,Object>>>execute(s->service.createBatch(over))).hasSize(50);
+    }
 }
