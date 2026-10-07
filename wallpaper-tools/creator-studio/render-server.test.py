@@ -69,6 +69,29 @@ class RendererTests(unittest.TestCase):
             self.assertTrue(pixel(10)[2] > 240 and pixel(10)[0] < 10, pixel(10))
             self.assertTrue(pixel(25)[1] > 110 and pixel(25)[0] < 10 and pixel(25)[2] < 10, pixel(25))
 
+    def test_image_and_video_parts_keep_one_color_range_after_concat(self):
+        colorful = self.folder / 'colorful.mp4'
+        server.run([server.executable('ffmpeg'), '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                    'color=yellow:size=256x144:rate=30:duration=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(colorful)])
+        jpeg = self.folder / 'full-range-still.jpg'
+        server.run([server.executable('ffmpeg'), '-v', 'error', '-y', '-i', str(self.image), '-frames:v', '1', str(jpeg)])
+        mixed = copy.deepcopy(self.job)
+        mixed['sources'][0]['path'] = 'media/0.jpg'
+        mixed['profile']['scale'] = 2
+        mixed['clips'] = [{'source': 0, 'kind': 'image', 'start': 0, 'end': 1, 'speed': 1},
+                          {'source': 1, 'kind': 'video', 'start': 0, 'end': 1, 'speed': 1}]
+        files = {'media/0.jpg': jpeg, 'media/1.mp4': colorful}
+        with tempfile.TemporaryDirectory(dir=self.folder) as temporary:
+            together = server.render(payload(mixed, files), Path(temporary))
+            frame_size = 160 * 240 * 3
+            actual = self.rgb_frames(together)[45 * frame_size:46 * frame_size]
+            reference = server.run([server.executable('ffmpeg'), '-v', 'error', '-i', str(colorful),
+                                    '-vf', 'scale=854:480,crop=160:240', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'])
+            expected = reference[15 * frame_size:16 * frame_size]
+            differences = [sum(abs(a-b) for a, b in zip(actual[channel::3], expected[channel::3])) / (160 * 240)
+                           for channel in range(3)]
+            self.assertLess(max(differences), 3, differences)
+
     def test_crop_zoom_and_pan_match_the_selected_viewport(self):
         image = self.folder / 'half.png'
         server.run([server.executable('ffmpeg'), '-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=red:s=256x128',

@@ -4,14 +4,14 @@ const vm=require('node:vm');
 const fs=require('node:fs');
 const crypto=require('node:crypto');
 
-async function fixture(){
+async function fixture(capabilityOverrides={}){
   const storedHash='b'.repeat(64),calls=[];
   let asset={id:'17',sha256:storedHash,validationStatus:'READY',mimeType:'image/webp',widthPx:320,heightPx:640};
   const B={connected:true,requireConnection:async()=>{},get:async()=>null,put:async()=>{},canonical:JSON.stringify,
     hash:async blob=>'file-'+crypto.createHash('sha256').update(Buffer.from(await blob.arrayBuffer())).digest('hex'),
     request:async(path,options={})=>{
       calls.push({path,method:options.method||'GET'});
-      if(path==='/wallpaper/capabilities')return {environment:{id:'LOCAL_DEV'},supportedOperations:{wallpaperPublication:true},coverMaximumBytes:1048576,coverMimeTypes:['image/png']};
+      if(path==='/wallpaper/capabilities')return {environment:{id:'LOCAL_DEV'},supportedOperations:{wallpaperPublication:true},coverMaximumBytes:1048576,coverMimeTypes:['image/png'],...capabilityOverrides};
       if(path.startsWith('/wallpaper/publications?'))return {items:[]};
       if(path==='/wallpaper/assets'||path==='/wallpaper/assets/17')return {...asset};
       throw Error('Unexpected request: '+path);
@@ -20,6 +20,11 @@ async function fixture(){
   vm.runInContext(fs.readFileSync(__dirname+'/wallpaper-publication.js','utf8'),context);
   return {session:await context.window.WallpaperPublication.open('qa'),B,calls,setAsset:value=>{asset={...asset,...value};}};
 }
+
+test('refuses unconfigured environments and unavailable publication capability',async()=>{
+  await assert.rejects(fixture({environment:{id:'UNCONFIGURED'}}),/壁纸后台尚未配置上传与上架能力/);
+  await assert.rejects(fixture({supportedOperations:{wallpaperPublication:false}}),/壁纸后台尚未配置上传与上架能力/);
+});
 
 test('accepts backend-optimized WebP covers and reuses their stored hash',async()=>{
   const f=await fixture(),file=new Blob(['original PNG bytes'],{type:'image/png'});

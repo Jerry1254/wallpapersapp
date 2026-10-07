@@ -25,7 +25,7 @@
   async function render(prepared,JSZip,signal,projectId=root.CreatorBackend.projectId){
     if(signal?.aborted)throw new DOMException('已取消','AbortError');
     const sources=[];for(const entry of prepared.files)sources.push({path:entry.path,hash:await root.CreatorBackend.hash(entry.file)});
-    return root.CreatorJobs.video('WALLPAPER_RENDER',{rendererVersion:2,plan:prepared.job,sources},async()=>{
+    return root.CreatorJobs.video('WALLPAPER_RENDER',{rendererVersion:3,plan:prepared.job,sources},async()=>{
       const zip=new JSZip();zip.file('timeline.json',JSON.stringify(prepared.job));
       for(const entry of prepared.files)zip.file(entry.path,entry.file);
       const payload=await zip.generateAsync({type:'blob',compression:'STORE'});

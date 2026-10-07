@@ -178,7 +178,7 @@ def encode_clip(clip, source, path, profile, frames, output, cancelled=None):
             else:
                 filters.append(f'[{previous}][layer{index}]overlay=x=\'{x}\':y=\'{y}\':shortest=1:format=auto[scene{index}]')
             previous = f'scene{index}'
-        filters.append(f'[{previous}]format=yuv420p[out]')
+        filters.append(f'[{previous}]scale=out_range=tv,format=yuv420p,setparams=range=limited[out]')
     else:
         metadata = inspect_media(path, cancelled)
         if clip['kind'] == 'image':
@@ -193,9 +193,11 @@ def encode_clip(clip, source, path, profile, frames, output, cancelled=None):
         fit = f'max({w}/iw,{h}/ih)*{scale:.10f}'
         tail = f'loop=loop=-1:size=1:start=0,setpts=N/({FPS}*TB)' if clip['kind'] == 'image' else f'tpad=stop_mode=clone:stop_duration={duration:.10f}'
         filters += [f"[0:v]{timing},fps={FPS},scale=w='ceil(iw*{fit}/2)*2':h='ceil(ih*{fit}/2)*2',setsar=1,{tail}[media]",
-                    f"[base][media]overlay=x='(W-w)/2+{pan_x:.8f}':y='(H-h)/2+{pan_y:.8f}':shortest=1:format=auto,format=yuv420p[out]"]
+                    f"[base][media]overlay=x='(W-w)/2+{pan_x:.8f}':y='(H-h)/2+{pan_y:.8f}':shortest=1:format=auto,scale=out_range=tv,format=yuv420p,setparams=range=limited[out]"]
+    # Concat copies the first clip's color metadata. Normalize JPEG, video and
+    # demo frames to limited range so later clips keep their original colors.
     args += ['-filter_complex', ';'.join(filters), '-map', '[out]', '-an', '-map_metadata', '-1',
-             '-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-threads', '2', '-r', str(FPS),
+             '-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-threads', '2', '-color_range', 'tv', '-r', str(FPS),
              '-frames:v', str(frames), '-fps_mode', 'cfr', '-video_track_timescale', '15360',
              '-movflags', '+faststart', str(output)]
     run(args, cancelled=cancelled)
