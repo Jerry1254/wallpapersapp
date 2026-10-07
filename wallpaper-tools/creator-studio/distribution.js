@@ -4,6 +4,9 @@
   const $=id=>document.getElementById(id), esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const names={xhs:'小红书',douyin:'抖音'}, labels={queued:'等待执行',running:'处理中',submitting:'正在提交',submitted:'已提交 · 待确认',published:'已确认发布',failed:'未完成',uncertain:'结果待核对',needs_input:'需要处理',cancelled:'已取消',ready:'已登录',expired:'登录失效',disconnected:'未登录'};
   let hooks, status={}, accounts=[], view='compose', poll, fetching=false, submitting=false, loginEpoch=0, autoLink=true;
+  const connectionPreference='qingjing-publish-autolink';
+  try{autoLink=localStorage.getItem(connectionPreference)!=='off';}catch{}
+  function setAutoLink(enabled){autoLink=enabled;try{localStorage.setItem(connectionPreference,enabled?'on':'off');}catch{}}
   const uploads=new Map();
   const Core=window.DistributionCore;
   labels.unverified='待核对身份';
@@ -86,9 +89,9 @@
     $('distribution-fields').querySelectorAll('[data-order]').forEach(b=>b.onclick=()=>{const i=Number(b.dataset.order),j=i+Number(b.dataset.step);[post.assetIds[i],post.assetIds[j]]=[post.assetIds[j],post.assetIds[i]];hooks.save();hooks.render();});
   }
   function connection(){
-    if(!status.connected&&window.CreatorBackend?.connected){safe(async()=>{autoLink=true;await window.CreatorBackend.request('/publish-session',{method:'POST',data:{}});await refresh();if(status.connected)connection();})();return;}
+    if(!status.connected&&window.CreatorBackend?.connected){safe(async()=>{await window.CreatorBackend.request('/publish-session',{method:'POST',data:{}});setAutoLink(true);await refresh();if(status.connected)connection();})();return;}
     if(status.connected){
-      hooks.modal('发布助手',`<p>后台已连接，账号登录信息只保存在这台电脑。</p><p id="distribution-setup-state">${esc(status.message||(status.ready?'助手已准备好':'首次使用需要准备独立浏览器环境'))}</p><p class="hint">定时任务到点开始上传。请保持本地后台、创作台服务和电脑在线；关闭网页不会取消已创建的任务。</p>`,[{label:'关闭',run:hooks.close},{label:'断开连接',run:safe(async()=>{await request('/disconnect',{method:'POST'});autoLink=false;hooks.close();await refresh();})},{label:status.ready?'重新准备助手':'准备发布助手',primary:true,run:safe(async()=>{await request('/prepare',{method:'POST'});hooks.close();hooks.toast('正在准备发布环境，可稍后从连接设置查看进度');await refresh();})}]);return;
+      hooks.modal('发布助手',`<p>后台已连接，账号登录信息只保存在这台电脑。</p><p id="distribution-setup-state">${esc(status.message||(status.ready?'助手已准备好':'首次使用需要准备独立浏览器环境'))}</p><p class="hint">定时任务到点开始上传。请保持本地后台、创作台服务和电脑在线；关闭网页不会取消已创建的任务。</p>`,[{label:'关闭',run:hooks.close},{label:'断开连接',run:safe(async()=>{setAutoLink(false);await request('/disconnect',{method:'POST'});hooks.close();await refresh();})},{label:status.ready?'重新准备助手':'准备发布助手',primary:true,run:safe(async()=>{await request('/prepare',{method:'POST'});hooks.close();hooks.toast('正在准备发布环境，可稍后从连接设置查看进度');await refresh();})}]);return;
     }
     hooks.modal('连接本地管理后台',`<p class="dialog-intro">使用本项目管理后台账号。连接后即可添加抖音、小红书账号；无需蚁小二 API。</p><form id="distribution-auth"><div class="field"><label for="distribution-user">管理员用户名</label><input id="distribution-user" autocomplete="username" required></div><div class="field"><label for="distribution-password">管理员密码</label><input id="distribution-password" type="password" autocomplete="current-password" required></div><p id="distribution-auth-error" class="distribution-error" role="alert"></p></form>`,[{label:'取消',run:hooks.close},{label:'连接',primary:true,run:connect}]);
     $('distribution-auth').onsubmit=e=>{e.preventDefault();connect();};
@@ -96,7 +99,7 @@
   async function connect(){
     const error=$('distribution-auth-error');if(!error)return;
     error.textContent='正在连接…';
-    try{autoLink=true;await request('/connect',{method:'POST',body:{username:$('distribution-user').value.trim(),password:$('distribution-password').value}});hooks.close();await refresh();if(!status.ready)connection();}
+    try{await request('/connect',{method:'POST',body:{username:$('distribution-user').value.trim(),password:$('distribution-password').value}});setAutoLink(true);hooks.close();await refresh();if(!status.ready)connection();}
     catch(e){error.textContent=e.message;}
   }
   function newAccount(existing){
