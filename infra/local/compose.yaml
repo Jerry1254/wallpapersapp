@@ -48,6 +48,9 @@ services:
       dockerfile: Dockerfile
     environment:
       SPRING_PROFILES_ACTIVE: local
+      QJ_ENVIRONMENT_ID: LOCAL_DEV
+      QJ_ENVIRONMENT_LABEL: 倾境壁纸本地开发
+      QJ_DEPLOYMENT_STAGE: LOCAL
       QJ_MYSQL_URL: jdbc:mysql://mysql:3306/${QJ_MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&connectionCollation=utf8mb4_0900_ai_ci&serverTimezone=UTC
       QJ_MYSQL_USER: ${QJ_MYSQL_USER}
       QJ_MYSQL_PASSWORD: ${QJ_MYSQL_PASSWORD}
