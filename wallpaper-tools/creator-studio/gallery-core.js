@@ -69,7 +69,10 @@
       const canonical=(child,depth)=>{const out=copy(child);delete out.sourceId;for(const key of Object.keys(out))if(!ignored.has(key))out[key]=normalize(key,out[key],child,depth);if(child.children)out.children=child.children.map(c=>canonical(c,depth+1));return out;};
       const compare=(current,prior,depth=0,parentId=null)=>{
         for(const old of prior)if(!current.some(c=>c.id===old.id)){(n.overrides||={})[old.sourceId]||={};n.overrides[old.sourceId]._removed=true;}
-        for(const child of current){const old=prior.find(b=>b.id===child.id);if(!old){const local=canonical(child,depth);local.localParentId=parentId;(n.localNodes||=[]).push(local);continue;}if(!child.sourceId)continue;
+        for(const child of current){const old=prior.find(b=>b.id===child.id);if(!old){const local=canonical(child,depth);local.localParentId=parentId;(n.localNodes||=[]).push(local);
+          // Newly added children receive scoped proxy IDs on the next refresh.
+          // Preserve selection so the duplicate remains available for immediate edits.
+          walk([local],added=>{g.selection=(g.selection||[]).map(key=>key===added.id?n.id+'::'+added.id:key);});continue;}if(!child.sourceId)continue;
           const original=find([...def.nodes,...(n.localNodes||[])],child.sourceId)?.node;
           for(const key of new Set([...Object.keys(old),...Object.keys(child)])){if(ignored.has(key)||JSON.stringify(old[key])===JSON.stringify(child[key]))continue;const value=normalize(key,copy(child[key]??null),child,depth);(n.overrides||={})[child.sourceId]||={};if(original&&(typeof original[key]==='number'&&typeof value==='number'?Math.abs(original[key]-value)<1e-7:JSON.stringify(original[key])===JSON.stringify(value)))delete n.overrides[child.sourceId][key];else n.overrides[child.sourceId][key]=value;if(!Object.keys(n.overrides[child.sourceId]).length)delete n.overrides[child.sourceId];}
           if(child.children&&old.children)compare(child.children,old.children,depth+1,child.sourceId);
