@@ -90,7 +90,9 @@
   function resolve(w,c){return c.slot?w.slots[c.slot]:c.assetId;}
   function sourceTime(c,time,asset,w){
     const step=frame(w),duration=Math.max(step,asset?.duration||1),begin=clamp(c.loopIn??c.sourceIn??0,0,Math.max(0,duration-step)),elapsed=Math.max(0,time-c.start)*(c.speed||1)+Math.max(0,(c.sourceIn||0)-begin),span=duration-begin;
-    return c.fill==='loop'?begin+elapsed%span:Math.min(duration-step,begin+elapsed);
+    // Seek inside the final source frame, independent of the project's frame rate.
+    // Seeking exactly on its boundary can decode the preceding frame in browsers.
+    return c.fill==='loop'?begin+elapsed%span:Math.min(duration-Math.min(.001,duration/2),begin+elapsed);
   }
   function replace(w,slot,assetId){if(!(slot in w.slots))return false;w.slots[slot]=assetId;return true;}
   function split(w,time){
