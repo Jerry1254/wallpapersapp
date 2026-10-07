@@ -102,7 +102,8 @@ class PreviewGenerationIntegrationIT {
     }
 
     @Test void migrationAndBulkPlanQueueAllNonArchivedWallpapers() {
-        assertThat(migratedVersion).isEqualTo("23");
+        // Initialization applies all current migrations, including those following preview policy V23.
+        assertThat(Integer.parseInt(migratedVersion)).isGreaterThanOrEqualTo(23);
         assertThat(migratedWallpaperIds).containsExactly(10L, 11L);
         createWallpaper(101, "PUBLISHED", "REDEEM", null);
         createWallpaper(102, "DRAFT", "FREE", null);
