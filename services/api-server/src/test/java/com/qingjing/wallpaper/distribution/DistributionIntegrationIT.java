@@ -147,6 +147,41 @@ class DistributionIntegrationIT {
         assertThat(db.queryForObject("SELECT COUNT(*) FROM creator_publish_batch WHERE id=?",Integer.class,batch.path("id").asText())).isZero();
     }
 
+    JsonNode storedRequest(ObjectNode request) throws Exception {
+        return JSON.readTree(db.queryForObject("SELECT request_snapshot FROM creator_publish_batch WHERE id=?",String.class,request.path("id").asText()));
+    }
+    @Test void restoringMysqlJsonKeyOrderReusesTheBatchButChangedValuesAndArrayOrderConflict() throws Exception {
+        String a=readyAccount("xhs");Source first=source(),second=source();
+        ObjectNode batch=obj().put("id",UUID.randomUUID().toString()).put("scheduledAt","2030-01-01T04:00:00Z");
+        var entries=batch.putArray("entries");
+        entries.addObject().put("accountId",a).set("post",post(first,"第一份").put("visibility","private"));
+        entries.addObject().put("accountId",a).set("post",post(second,"第二份"));
+        var initial=tx.execute(s->service.createBatch(batch));JsonNode restored=storedRequest(batch);
+        assertThat(restored.toString()).isNotEqualTo(batch.toString());
+        var retry=tx.execute(s->service.createBatch(restored));
+        assertThat(retry.stream().map(j->j.get("id"))).containsExactlyElementsOf(initial.stream().map(j->j.get("id")).toList());
+        ObjectNode title=restored.deepCopy();((ObjectNode)title.path("entries").get(0).path("post")).put("title","已改变");
+        ObjectNode time=restored.deepCopy();time.put("scheduledAt","2030-01-02T04:00:00Z");
+        ObjectNode order=restored.deepCopy();ArrayNode list=order.withArray("entries");JsonNode head=list.remove(0);list.add(head);
+        ObjectNode settings=restored.deepCopy();((ObjectNode)settings.path("entries").get(0).path("post")).put("visibility","public");
+        for(JsonNode changed:List.of(title,time,order,settings))assertThatThrownBy(()->tx.execute(s->service.createBatch(changed))).isInstanceOf(ApiException.class).hasMessageContaining("内容发生变化");
+        assertThat(service.jobsForBatch(batch.path("id").asText())).hasSize(2);
+    }
+    @Test void preSnapshotBatchesRecoverAfterKeyReorderingWithoutChangingFrozenSources() throws Exception {
+        String a=readyAccount("xhs");Source source=source();
+        ObjectNode batch=validationBatch(a,post(source,"原清单")).put("scheduledAt","2030-01-01T04:00:00Z");
+        var initial=tx.execute(s->service.createBatch(batch));JsonNode restored=storedRequest(batch);
+        String id=batch.path("id").asText();db.update("UPDATE creator_publish_batch SET request_snapshot=NULL WHERE id=?",id);
+        ObjectNode changed=restored.deepCopy();((ObjectNode)changed.path("entries").get(0).path("post")).put("title","不应接受");
+        assertThatThrownBy(()->tx.execute(s->service.createBatch(changed))).isInstanceOf(ApiException.class);
+        assertThat(db.queryForObject("SELECT request_snapshot FROM creator_publish_batch WHERE id=?",String.class,id)).isNull();
+        source.payload.put("name","来源已改名");db.update("UPDATE creator_workspace_record SET payload=? WHERE collection_name='projects' AND id=?",source.payload.toString(),source.project);
+        var retry=tx.execute(s->service.createBatch(restored));
+        assertThat(retry.get(0).get("id")).isEqualTo(initial.get(0).get("id"));
+        assertThat(((JsonNode)retry.get(0).get("post")).path("source").path("projectName").asText()).isEqualTo("原项目名称");
+        assertThat(storedRequest(batch)).isEqualTo(restored);
+    }
+
     String readyAccount(String platform){
         String id=(String)service.createAccount(obj().put("platform",platform).put("name","边界测试").put("runnerId",RUNNER)).get("id");
         bind(id,UUID.randomUUID().toString());return id;

@@ -212,14 +212,49 @@ public class DistributionService {
     private static void setting(JsonNode n,String key,Set<String> allowed) {
         if(n.has(key)&&(!n.path(key).isTextual()||!allowed.contains(n.path(key).asText())))throw bad("发布设置无效："+key);
     }
+    // MySQL JSON storage can reorder object keys when a pending request is restored.
+    // Compare the request tree, keeping array order and every submitted value significant.
+    private boolean matchesLegacyBatch(String batch,JsonNode request) {
+        Set<String> keys=new HashSet<>();request.fieldNames().forEachRemaining(keys::add);
+        if(!Set.of("id","scheduledAt","entries").containsAll(keys))return false;
+        JsonNode entries=request.path("entries");
+        var jobs=db.queryForList("SELECT account_id,payload,due_at,scheduled FROM creator_publish_job WHERE batch_id=? ORDER BY batch_position,id",batch);
+        if(!entries.isArray()||entries.isEmpty()||entries.size()!=jobs.size())return false;
+        String scheduled=request.path("scheduledAt").asText("");
+        for(int i=0;i<jobs.size();i++) {
+            var job=jobs.get(i);JsonNode entry=entries.get(i);
+            Set<String> entryKeys=new HashSet<>();entry.fieldNames().forEachRemaining(entryKeys::add);
+            if(!entryKeys.equals(Set.of("accountId","post"))||!entry.path("accountId").asText().equals(job.get("account_id")))return false;
+            boolean wasScheduled=Boolean.TRUE.equals(job.get("scheduled"))||Integer.valueOf(1).equals(job.get("scheduled"));
+            if(wasScheduled!=!scheduled.isEmpty())return false;
+            if(wasScheduled)try {
+                if(!Instant.parse(scheduled).equals(((Timestamp)job.get("due_at")).toInstant()))return false;
+            }catch(RuntimeException invalid){return false;}
+            if(!originalPost(entry.path("post")).equals(originalPost(decode((String)job.get("payload")))))return false;
+        }
+        return true;
+    }
+    private JsonNode originalPost(JsonNode value) {
+        if(!value.isObject()||!value.has("source"))return value;
+        ObjectNode result=value.deepCopy(),source=json.createObjectNode();
+        // These are the submitted source identifiers; names are resolved by the server.
+        source.set("projectId",value.path("source").path("projectId"));
+        source.set("assetIds",value.path("source").path("assetIds"));
+        result.set("source",source);return result;
+    }
     @Transactional
     public List<Map<String,Object>> createBatch(JsonNode n) {
         String batch=uuid(n.path("id").asText());
         String hash;
         try { hash=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(n.toString().getBytes(StandardCharsets.UTF_8))); } catch(Exception e) { throw new IllegalStateException(e); }
-        db.update("INSERT IGNORE INTO creator_publish_batch(id,request_hash) VALUES(?,?)",batch,hash);
-        String old=db.queryForObject("SELECT request_hash FROM creator_publish_batch WHERE id=? FOR UPDATE",String.class,batch);
-        if (!hash.equals(old)) throw conflict("同一批次的发布内容发生变化，请重新预览");
+        db.update("INSERT IGNORE INTO creator_publish_batch(id,request_hash,request_snapshot) VALUES(?,?,?)",batch,hash,n.toString());
+        var old=db.queryForMap("SELECT request_hash,request_snapshot FROM creator_publish_batch WHERE id=? FOR UPDATE",batch);
+        if(old.get("request_snapshot")!=null) {
+            if(!decode((String)old.get("request_snapshot")).equals(n))throw conflict("同一批次的发布内容发生变化，请重新预览");
+        } else {
+            if(!hash.equals(old.get("request_hash"))&&!matchesLegacyBatch(batch,n))throw conflict("同一批次的发布内容发生变化，请重新预览");
+            db.update("UPDATE creator_publish_batch SET request_snapshot=? WHERE id=?",n.toString(),batch);
+        }
         if (db.queryForObject("SELECT COUNT(*) FROM creator_publish_job WHERE batch_id=?",Long.class,batch)>0) return jobsForBatch(batch);
         JsonNode entries=n.path("entries");
         if (!entries.isArray() || entries.isEmpty() || entries.size()>50) throw bad("每批请选择 1–50 条发布任务");
