@@ -21,7 +21,7 @@ class LoginTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
-        self.page = SimpleNamespace(goto=AsyncMock())
+        self.page = SimpleNamespace(goto=AsyncMock(), screenshot=AsyncMock(return_value=b'test-jpeg'))
         self.state = {'cookies': [{'name': 'test-session', 'value': 'test-only'}], 'origins': []}
         self.context = SimpleNamespace(new_page=AsyncMock(return_value=self.page), storage_state=AsyncMock(return_value=self.state))
         self.browser = SimpleNamespace(new_context=AsyncMock(return_value=self.context), close=AsyncMock())
@@ -54,7 +54,7 @@ class LoginTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['status'], 'ready')
         self.runtime.chromium.launch.assert_awaited_once_with(headless=False, channel='chrome')
         self.browser.new_context.assert_awaited_once_with()
-        self.read_identity.assert_awaited_once_with(self.page, 'douyin', None)
+        self.read_identity.assert_awaited_once_with(self.page, 'douyin', None, timeout=120000)
         self.assertEqual(self.upstream._wait_for_douyin_login.call_args.kwargs['max_checks'], 300)
         self.assertEqual(self.upstream._wait_for_douyin_login.call_args.kwargs['poll_interval'], 2)
         self.vault.save.assert_called_once_with(self.state)
@@ -64,7 +64,10 @@ class LoginTests(unittest.IsolatedAsyncioTestCase):
     async def test_identity_mismatch_never_replaces_existing_session(self):
         self.request['account']['platformUserId'] = 'handle:original'
         self.read_identity.side_effect = worker.IdentityError('账号不一致')
-        with self.assertRaises(worker.IdentityError): await worker.login(self.request)
+        result = await worker.login(self.request)
+        self.assertEqual(result['status'], 'needs_input')
+        self.assertEqual(result['message'], '账号不一致')
+        self.assertTrue(result['diagnostic'].startswith('data:image/jpeg;base64,'))
         self.vault.save.assert_not_called()
         self.context.storage_state.assert_not_awaited()
         self.browser.close.assert_awaited_once()
@@ -89,14 +92,29 @@ class LoginTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.chromium.launch.assert_awaited_once_with(headless=True, channel='chrome')
         self.browser.new_context.assert_awaited_once_with(storage_state=self.state)
         self.upstream._wait_for_douyin_login.assert_not_awaited()
+        self.read_identity.assert_awaited_once_with(self.page, 'douyin', None, timeout=20000)
 
     async def test_xhs_identity_uses_scanned_window_without_hidden_relogin(self):
         self.request['account']['platform'] = 'xhs'
         result = await worker.login(self.request)
         self.assertEqual(result['status'], 'ready')
         self.upstream._save_xhs_qrcode.assert_awaited_once()
-        self.read_identity.assert_awaited_once_with(self.page, 'xhs', None)
+        self.read_identity.assert_awaited_once_with(self.page, 'xhs', None, timeout=120000)
         self.runtime.chromium.launch.assert_awaited_once_with(headless=False, channel='chrome')
+
+    async def test_failed_diagnostic_does_not_hide_identity_failure_or_save_credentials(self):
+        self.read_identity.side_effect = worker.IdentityError('身份未确认')
+        self.page.screenshot.side_effect = RuntimeError('closed')
+        result = await worker.login(self.request)
+        self.assertEqual(result, {'status': 'needs_input', 'message': '身份未确认', 'diagnostic': None})
+        self.vault.save.assert_not_called()
+
+    async def test_oversized_diagnostic_is_not_returned(self):
+        self.read_identity.side_effect = worker.IdentityError('身份未确认')
+        self.page.screenshot.return_value = b'x' * (1024 * 1024 + 1)
+        result = await worker.login(self.request)
+        self.assertIsNone(result['diagnostic'])
+        self.vault.save.assert_not_called()
 
 
 if __name__ == '__main__': unittest.main()

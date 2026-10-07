@@ -93,8 +93,22 @@ async def login(request):
                             await asyncio.sleep(2)
                         else:
                             return {'status':'expired','message':'等待小红书扫码登录超时，请重新打开登录'}
-                emit('progress',message='登录已完成，正在同一 Chrome 窗口核对平台账号身份…')
-                identity=await read_identity(page,account['platform'],account.get('platformUserId'))
+                emit('progress',message='登录已完成，正在核对账号身份；如首页未显示账号号码，请在 Chrome 中展开自己的账号卡片。窗口保留两分钟供操作。'
+                    if request['mode']=='login' else '正在检查保存的登录状态和平台账号身份…')
+                try:
+                    identity=await read_identity(page,account['platform'],account.get('platformUserId'),
+                        timeout=120000 if request['mode']=='login' else 20000)
+                except IdentityError as error:
+                    # Keep only a viewport diagnostic, in the authenticated local
+                    # operation response. Never capture cookies or storage state.
+                    diagnostic=None
+                    try:
+                        picture=await page.screenshot(type='jpeg',quality=65)
+                        if len(picture)<=1024*1024:
+                            diagnostic='data:image/jpeg;base64,'+base64.b64encode(picture).decode()
+                    except Exception:
+                        pass
+                    return {'status':'needs_input','message':str(error),'diagnostic':diagnostic}
                 # Identity must be accepted by the backend before credentials replace
                 # the encrypted account session. No plaintext storage-state file.
                 emit('identity',identity=identity)

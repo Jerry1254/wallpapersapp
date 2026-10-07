@@ -320,7 +320,11 @@ class PublishingBridge:
             if result.get('status') == 'ready':
                 update['identity'] = result['identity']
             self.api('PUT', 'distribution/accounts/' + account['id'], update)
-        return {'status': 'ready' if result.get('status') == 'ready' else 'failed', 'message': result.get('message', '操作未完成')}
+        response = {'status': 'ready' if result.get('status') == 'ready' else 'failed', 'message': result.get('message', '操作未完成')}
+        diagnostic = result.get('diagnostic')
+        if isinstance(diagnostic, str) and diagnostic.startswith('data:image/jpeg;base64,') and len(diagnostic) <= 1400000:
+            response['diagnostic'] = diagnostic
+        return response
 
     def finish_operation(self):
         with self.lock:

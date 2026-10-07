@@ -119,13 +119,15 @@
   }
   function monitorOperation(result,title){
     const epoch=++loginEpoch;
-    hooks.modal(title,`<div class="distribution-login"><p id="distribution-login-message">正在处理账号…</p><img id="distribution-qr" alt="平台登录二维码" hidden><p class="hint">如平台要求验证，请在打开的浏览器窗口完成。关闭此弹窗后，当前操作仍会继续。</p><ol id="distribution-operation-results" class="console-operation-results"></ol></div>`,[{label:'关闭',run:()=>{loginEpoch++;hooks.close();}}]);
+    hooks.modal(title,`<div class="distribution-login"><p id="distribution-login-message">正在处理账号…</p><img id="distribution-qr" alt="平台登录二维码" hidden><img id="distribution-login-diagnostic" alt="账号身份核对失败时的平台页面" hidden style="width:100%;max-height:65vh;object-fit:contain"><p class="hint">如平台要求验证，请在打开的浏览器窗口完成。关闭此弹窗后，当前操作仍会继续。</p><ol id="distribution-operation-results" class="console-operation-results"></ol></div>`,[{label:'关闭',run:()=>{loginEpoch++;hooks.close();}}]);
     const check=async()=>{
       if(epoch!==loginEpoch||!$('distribution-login-message'))return;
       try{
         const op=await request('/operations/'+result.operationId);if(epoch!==loginEpoch||!$('distribution-login-message'))return;
         $('distribution-login-message').textContent=op.message;
         $('distribution-qr').hidden=!op.qr;if(op.qr)$('distribution-qr').src=op.qr;
+        const diagnostic=$('distribution-login-diagnostic'),image=op.diagnostic;
+        diagnostic.hidden=!(typeof image==='string'&&image.startsWith('data:image/jpeg;base64,'));if(!diagnostic.hidden)diagnostic.src=image;
         $('distribution-operation-results').innerHTML=(op.results||[]).map(r=>`<li><strong>${esc(r.name)}</strong><span class="distribution-state ${r.status}">${r.status==='ready'?'完成':'需要处理'}</span><p>${esc(r.message)}</p></li>`).join('');
         if(op.status==='running')setTimeout(check,1500);else{$('distribution-qr').hidden=true;await refresh();hooks.toast(op.message);}
       }catch(e){hooks.toast(e.message);}

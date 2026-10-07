@@ -60,11 +60,11 @@ def choose_identity(rows, expected=None):
     return {'platformUserId':user_id,'nickname':nickname[:160],'avatarUrl':avatar[:2000]}
 
 
-async def read_identity(page, platform, expected=None):
+async def read_identity(page, platform, expected=None, timeout=20000):
     await page.goto(HOME[platform], wait_until='domcontentloaded', timeout=90000)
     try:
         # The home page hydrates after navigation; wait for its labelled account card.
-        await page.wait_for_function(r'''platform => new RegExp((platform==='douyin'?'抖音号':'小红书号')+'\\s*[：:]\\s*[A-Za-z0-9_.-]+').test(document.body.innerText)''',arg=platform,timeout=20000)
+        await page.wait_for_function(r'''platform => new RegExp((platform==='douyin'?'抖音号':'小红书号')+'\\s*[：:]\\s*[A-Za-z0-9_.-]+').test(document.body.innerText)''',arg=platform,timeout=timeout)
     except Exception:
         raise IdentityError('尚未读取到平台账号身份；登录可能已失效或页面需要验证，请重新登录后检查') from None
     return choose_identity(await page.evaluate(ACCOUNT_CARD, platform), expected)

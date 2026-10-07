@@ -97,6 +97,16 @@ class OperationsTests(unittest.TestCase):
         self.bridge.handle(bad)
         self.assertEqual(bad.status, 422)
 
+    def test_identity_diagnostic_is_local_operation_only_and_cannot_mark_account_ready(self):
+        account = {'id': 'one', 'name': '账号一'}
+        for image, accepted in [('data:image/jpeg;base64,dGVzdA==', True), ('https://example.com/private.jpg', False), ('data:image/jpeg;base64,'+'x'*1400000, False)]:
+            self.bridge.execute = Mock(return_value={'status':'needs_input','message':'身份未确认','diagnostic':image})
+            result = self.bridge.account_operation(account, 'login', lambda event: None)
+            self.assertEqual(result['status'], 'failed')
+            self.assertEqual('diagnostic' in result, accepted)
+            self.assertEqual(self.bridge.api.call_args.args[2]['status'], 'unverified')
+            self.assertNotIn('diagnostic', self.bridge.api.call_args.args[2])
+
     def test_backend_validation_errors_keep_the_reason_and_status(self):
         bridge = PublishingBridge()
         for body, message in (
