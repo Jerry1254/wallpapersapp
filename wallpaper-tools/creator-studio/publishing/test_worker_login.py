@@ -52,6 +52,7 @@ class LoginTests(unittest.IsolatedAsyncioTestCase):
     async def test_scan_and_identity_use_one_chrome_context_before_encrypted_save(self):
         result = await worker.login(self.request)
         self.assertEqual(result['status'], 'ready')
+        self.assertIn('扫码窗口会自动关闭', result['message'])
         self.runtime.chromium.launch.assert_awaited_once_with(headless=False, channel='chrome')
         self.browser.new_context.assert_awaited_once_with()
         self.read_identity.assert_awaited_once_with(self.page, 'douyin', None, timeout=120000)
@@ -88,7 +89,9 @@ class LoginTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_check_restores_only_this_accounts_encrypted_state(self):
         self.request['mode'] = 'check'
-        await worker.login(self.request)
+        result = await worker.login(self.request)
+        self.assertIn('保存的登录状态有效', result['message'])
+        self.assertNotIn('扫码窗口', result['message'])
         self.runtime.chromium.launch.assert_awaited_once_with(headless=True, channel='chrome')
         self.browser.new_context.assert_awaited_once_with(storage_state=self.state)
         self.upstream._wait_for_douyin_login.assert_not_awaited()

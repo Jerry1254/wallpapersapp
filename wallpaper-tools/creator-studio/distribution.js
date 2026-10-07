@@ -162,7 +162,7 @@
     const value=await request('/media/reuse',{method:'POST',body:{workspaceMediaId}});uploads.set(key,value.id);return value.id;
   }
   function reviewHTML(cards){
-    return cards.map(c=>`<div class="distribution-preview"><strong>${esc(c.accountName)} · ${names[c.platform]} · ${c.post.type==='video'?'视频':'图文'}</strong><small>${esc(c.identity)} · ${esc(c.editing)}</small><p>来源：${c.sourceNames.map(esc).join('、')}</p><h3>${esc(c.post.title)}</h3><p class="distribution-body">${esc(c.post.body)}</p><p>${c.post.tags.map(t=>'#'+esc(t)).join(' ')}</p><small>${c.assetCount} 个素材 · ${c.coverName?'自定义封面：'+esc(c.coverName):c.post.type==='image'?'首图为封面':'平台选取封面'}${c.landscapeName?' · 横封面：'+esc(c.landscapeName):''} · ${esc(Core.settingsSummary(c.platform,c.post))}</small></div>`).join('');
+    return cards.map(c=>`<div class="distribution-preview"><strong>${esc(c.accountName)} · ${names[c.platform]} · ${c.post.type==='video'?'视频':'图文'}</strong><small>${esc(c.identity)} · ${esc(c.editing)}</small><p>来源：${c.sourceNames.map(esc).join('、')}</p>${c.assetNames?.length?`<ol>${c.assetNames.map((name,i)=>`<li>${esc(name)}${c.post.type==='image'&&i===0?' · 首图封面':''}</li>`).join('')}</ol>`:''}<h3>${esc(c.post.title)}</h3><p class="distribution-body">${esc(c.post.body)}</p><p>${c.post.tags.map(t=>'#'+esc(t)).join(' ')}</p><small>${c.assetCount} 个素材 · ${c.coverName?'自定义封面：'+esc(c.coverName):c.post.type==='image'?'首图为封面':'平台选取封面'}${c.landscapeName?' · 横封面：'+esc(c.landscapeName):''} · ${esc(Core.settingsSummary(c.platform,c.post))}</small></div>`).join('');
   }
   async function preview(rows){
     if(submitting)return;
@@ -177,7 +177,7 @@
         if(!inputs.length||inputs.length>50)throw new Error('请选择 1–50 条发布内容');
         if(inputs.some(({account:a})=>!a||a.status!=='ready'||!a.platformUserId||a.runnerId!==status.runnerId))throw new Error('所选账号需要在本机重新登录并核对身份');
         targets=inputs.map(({account,row,post})=>({account,row,post:validate(account.platform,post,state),source:Core.source(state,projectId,post)}));
-        cards=targets.map(({account:a,row,post:p,source})=>({accountId:a.id,accountName:accountName(a),platform:a.platform,identity:identityText(a),editing:row?'清单独立设置':state.accountPosts?.[a.id]?'独立设置':'统一设置',sourceNames:source.names,assetCount:p.assets.length,coverName:p.cover?.name,landscapeName:p.landscape?.name,post:{title:p.title,body:p.body,tags:p.tags,type:p.type,...Core.settings(a.platform,p)}}));
+        cards=targets.map(({account:a,row,post:p,source})=>({accountId:a.id,accountName:accountName(a),platform:a.platform,identity:identityText(a),editing:row?'清单独立设置':state.accountPosts?.[a.id]?'独立设置':'统一设置',sourceNames:source.names,assetNames:p.assets.map(asset=>asset.name),assetCount:p.assets.length,coverName:p.cover?.name,landscapeName:p.landscape?.name,post:{title:p.title,body:p.body,tags:p.tags,type:p.type,...Core.settings(a.platform,p)}}));
         if(state.timing==='scheduled'){const value=new Date(state.scheduledAt);if(!Number.isFinite(value.getTime())||value.getTime()<=Date.now())throw new Error('请选择未来的定时开始时间');scheduledAt=value.toISOString();}
       }
       const batchId=payload?.id||crypto.randomUUID();

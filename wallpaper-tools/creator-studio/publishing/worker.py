@@ -65,7 +65,8 @@ async def login(request):
         image_path = Path(info['image_path'])
         if image_path.exists() and image_path.stat().st_size <= 1024 * 1024:
             emit('qr', qr='data:image/png;base64,' + base64.b64encode(image_path.read_bytes()).decode())
-    emit('progress',message='正在打开本机 Chrome；扫码窗口等待最多10分钟，如有短信或身份验证，请在平台窗口完成')
+    emit('progress',message='正在打开本机 Chrome；扫码窗口等待最多10分钟，如有短信或身份验证，请在平台窗口完成'
+        if request['mode']=='login' else '正在用本机已保存的登录信息检查账号，无需扫码…')
     from patchright.async_api import async_playwright
     with tempfile.TemporaryDirectory(dir=request['runtime'], prefix='login-') as folder:
         path = Path(folder) / 'state.json'
@@ -115,7 +116,10 @@ async def login(request):
                 if (await asyncio.to_thread(sys.stdin.readline)).strip()!='ok':
                     raise NeedsInput('账号身份未通过核对，原登录信息未被覆盖')
                 vault.save(await context.storage_state())
-                return {'status':'ready','identity':identity,'message':'登录完成，已核对平台账号：'+(identity['nickname'] or identity['platformUserId'].split(':',1)[1])}
+                name=identity['nickname'] or identity['platformUserId'].split(':',1)[1]
+                message=('登录信息已保存，已核对平台账号：'+name+'。扫码窗口会自动关闭，后续发布可复用登录。'
+                    if request['mode']=='login' else '保存的登录状态有效，已核对平台账号：'+name)
+                return {'status':'ready','identity':identity,'message':message}
             finally:
                 await browser.close()
 

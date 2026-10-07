@@ -109,6 +109,8 @@ class BatchUITests(unittest.IsolatedAsyncioTestCase):
     async def test_response_loss_and_page_reload_reuse_one_batch_and_freeze_review(self):
         await self.mount();await self.build()
         await self.page.locator('#batch-preview').click()
+        review_order = ['第二张 · 首图封面', '第一张']
+        self.assertEqual(await self.page.locator('.distribution-preview').first.locator('li').all_text_contents(), review_order)
         await self.page.get_by_role('button', name='确认发布', exact=True).click()
         await self.wait_for('document.getElementById("distribution-submit-status").textContent.includes("连接暂时中断")')
         saved=await self.page.evaluate('JSON.parse(JSON.stringify(testState))')
@@ -118,8 +120,11 @@ class BatchUITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(original['entries']),4)
         # Simulate a new page with only the persisted project and remote batch.
         await self.mount(saved,batches)
+        # Renaming the current source must not change a previously confirmed review.
+        await self.page.evaluate('testState.postAssets[1].name="后续改名"')
         self.assertTrue(await self.page.locator('#batch-select').is_disabled())
         await self.page.locator('#batch-preview').click()
+        self.assertEqual(await self.page.locator('.distribution-preview').first.locator('li').all_text_contents(), review_order)
         await self.page.get_by_role('button', name='继续创建同一批次', exact=True).click()
         await self.wait_for('testState.submissionPending===null')
         self.assertEqual(await self.page.evaluate('batchRequests[0]'), original)
