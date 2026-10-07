@@ -114,7 +114,8 @@ const requiredResources = (value: Wallpaper) => {
 };
 const resourceSummary = (value: Wallpaper) => {
   const all = requiredResources(value);
-  return { ready: all.filter(Boolean).length, total: all.length };
+  const ready = all.filter(Boolean).length;
+  return { ready, total: all.length, publishable: all.length > 0 && ready === all.length };
 };
 const statusLabel = (value: Wallpaper['status']) => statusLabels[value];
 const statusType = (value: Wallpaper['status']) => ({ draft: 'info', published: 'success', offline: 'warning', archived: 'info' }[value] as 'info' | 'success' | 'warning');
@@ -170,7 +171,7 @@ onMounted(load);
         <ElTableColumn label="状态" width="95"><template #default="{ row }"><ElTag :type="statusType(row.status)">{{ statusLabel(row.status) }}</ElTag></template></ElTableColumn>
         <ElTableColumn label="资源" min-width="125">
           <template #default="{ row }">
-            <div class="resource-status"><strong :class="resourceSummary(row).ready === resourceSummary(row).total ? 'success-text' : 'warning-text'">{{ resourceSummary(row).ready }}/{{ resourceSummary(row).total }} 已就绪</strong><small>{{ resourceSummary(row).ready === resourceSummary(row).total ? '可发布' : '需要补充资源' }}</small></div>
+            <div class="resource-status"><strong :class="resourceSummary(row).publishable ? 'success-text' : 'warning-text'">{{ resourceSummary(row).ready }}/{{ resourceSummary(row).total }} 已就绪</strong><small>{{ resourceSummary(row).publishable ? '可发布' : '需要补充资源' }}</small></div>
           </template>
         </ElTableColumn>
         <ElTableColumn label="设置能力" min-width="250">
