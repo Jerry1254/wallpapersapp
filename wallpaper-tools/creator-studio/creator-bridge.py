@@ -41,7 +41,13 @@ class CreatorBridge:
                     continue
                 previous = self.task_states.get(task['id'])
                 stamp = task.get('updatedAt') or ''
-                if previous and stamp < previous[0]:
+                # These final states cannot be retried with the same task ID.
+                # A delayed response or a server clock correction must not keep
+                # a completed task active or reactivate it during restart checks.
+                final = {'SUCCEEDED', 'CANCELLED'}
+                if previous and previous[1] in final:
+                    continue
+                if previous and task['state'] not in final and stamp < previous[0]:
                     continue
                 self.task_states[task['id']] = (stamp, task['state'])
 

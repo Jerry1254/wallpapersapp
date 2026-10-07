@@ -17,6 +17,22 @@ class PendingGenerationTests(unittest.TestCase):
         bridge.observe_tasks({'id': 'task-a', 'state': 'CANCELLED', 'updatedAt': '5'})
         self.assertFalse(bridge.has_pending_generation())
 
+    def test_final_state_wins_after_clock_correction_and_cannot_reactivate(self):
+        for final in ['SUCCEEDED', 'CANCELLED']:
+            bridge = module.CreatorBridge()
+            bridge.observe_tasks({'id': 'task-a', 'state': 'RUNNING', 'updatedAt': '9'})
+            bridge.observe_tasks({'id': 'task-a', 'state': final, 'updatedAt': '8'})
+            self.assertFalse(bridge.has_pending_generation(), final)
+            bridge.observe_tasks({'id': 'task-a', 'state': 'RUNNING', 'updatedAt': '10'})
+            self.assertFalse(bridge.has_pending_generation(), final)
+
+    def test_failed_task_can_still_be_explicitly_retried(self):
+        bridge = module.CreatorBridge()
+        bridge.observe_tasks({'id': 'task-a', 'state': 'FAILED', 'updatedAt': '1'})
+        self.assertFalse(bridge.has_pending_generation())
+        bridge.observe_tasks({'id': 'task-a', 'state': 'QUEUED', 'updatedAt': '2'})
+        self.assertTrue(bridge.has_pending_generation())
+
     def test_older_response_cannot_reactivate_completed_task(self):
         bridge = module.CreatorBridge()
         bridge.observe_tasks({'id': 'task-a', 'state': 'SUCCEEDED', 'updatedAt': '2'})
