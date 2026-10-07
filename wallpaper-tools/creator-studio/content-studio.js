@@ -218,7 +218,7 @@
         files.push(new File([blob],`${window.ResourceExport.filename(w.output.name||w.name)}.mp4`,{type:'video/mp4'}));
       }
       if(signal.aborted||project!==B.projectId()||work()!==original)return;
-      job=null;B.close();if(local){B.download(files[0].name,files[0]);B.toast('视频已下载到本地');}else{Lib.confirm(files,w,task?.id);renderLibrary();}
+      job=null;B.close();if(local){B.download(`${window.ResourceExport.filename(w.output.name||w.name)}.mp4`,files[0]);B.toast('视频已下载到本地');}else{Lib.confirm(files,w,task?.id);renderLibrary();}
     }catch(error){if(task)await window.CreatorJobs.action(task.id,error.name==='AbortError'?'cancel':'fail',{message:error.message}).catch(()=>{});if(error.name!=='AbortError'&&project===B.projectId()){job=null;B.close();B.toast(`${local?'导出':'生成'}未完成：${error.message}`);}}finally{R.clearExport();if(job===controller)job=null;if(work()?.type==='gallery')GE.refresh();else requestPaint();}
   }
   function enter(){ensure();render();}
