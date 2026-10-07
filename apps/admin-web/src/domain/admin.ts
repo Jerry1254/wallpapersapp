@@ -129,6 +129,9 @@ export interface Wallpaper {
   version: number;
   variants: WallpaperVariant[];
   iosAcquisition?: IosAcquisitionConfiguration;
+  previewGenerationStatus?: string;
+  previewGenerationError?: string | null;
+  previewRevision?: number;
 }
 
 export interface IosAcquisitionConfiguration {

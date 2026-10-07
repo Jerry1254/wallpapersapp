@@ -140,6 +140,36 @@ class PreviewWatermarkRendererTest {
     }
 
     @Test
+    void preservesFullRangeContrastOutsideTheWatermark() throws Exception {
+        Path sourceFile = directory.resolve("full-range.mp4");
+        run(List.of(ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i",
+                "testsrc=size=240x420:rate=5", "-frames:v", "5", "-vf", "scale=out_range=pc",
+                "-c:v", "libx264", "-crf", "0", "-pix_fmt", "yuvj420p", sourceFile.toString()), null);
+        Path result = directory.resolve("full-range-preview.mp4");
+        Files.write(result, renderer.video(Files.readAllBytes(sourceFile), false));
+        Path before = directory.resolve("before.rgb");
+        Path after = directory.resolve("after.rgb");
+        for (var pair : List.of(List.of(sourceFile, before), List.of(result, after))) {
+            run(List.of(ffmpeg, "-v", "error", "-y", "-i", pair.get(0).toString(),
+                    "-frames:v", "1", "-pix_fmt", "rgb24", "-f", "rawvideo", pair.get(1).toString()), null);
+        }
+        byte[] original = Files.readAllBytes(before);
+        byte[] preview = Files.readAllBytes(after);
+        assertThat(preview.length).isEqualTo(original.length);
+        long difference = 0;
+        int samples = 0;
+        for (int y = 0; y < 420; y++) {
+            if (y > 150 && y < 250) continue;
+            for (int x = 0; x < 240 * 3; x++) {
+                int index = y * 240 * 3 + x;
+                difference += Math.abs((original[index] & 255) - (preview[index] & 255));
+                samples++;
+            }
+        }
+        assertThat((double) difference / samples).isLessThan(3d);
+    }
+
+    @Test
     void refusesMalformedMediaInsteadOfSilentlyReturningAnUnwatermarkedSource() {
         assertThatThrownBy(() -> renderer.image(new byte[] {1, 2, 3})).isInstanceOf(ApiException.class);
         assertThatThrownBy(() -> renderer.video(new byte[] {1, 2, 3}, false)).isInstanceOf(ApiException.class);

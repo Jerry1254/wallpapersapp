@@ -175,6 +175,26 @@ const iosVersion = computed(() => nativeVersion('IOS', 'LIVE_PHOTO'));
 const iosStatus = computed(() => iosVersion.value?.livePhoto);
 const rebuildingLivePhoto = ref(false);
 const rebuildingMovingPhoto = ref(false);
+const loadingPreview = ref(false);
+const previewStatusLabel = computed(() => ({ READY: '已就绪', FAILED: '生成失败', PENDING: '等待生成', PROCESSING: '正在生成', RUNNING: '正在生成' }[form.previewGenerationStatus || ''] || form.previewGenerationStatus || '未生成'));
+const refreshPreview = async (retry = false) => {
+  if (!form.id || loadingPreview.value) return;
+  loadingPreview.value = true;
+  const id = form.id;
+  try {
+    const latest = retry ? await adminRepository.rebuildPreview(id) : await adminRepository.previewStatus(id);
+    if (!visible.value || form.id !== id) return;
+    // Keep unsaved metadata and selected uploads intact while refreshing only preview state.
+    form.previewGenerationStatus = latest.previewGenerationStatus;
+    form.previewGenerationError = latest.previewGenerationError;
+    form.previewRevision = latest.previewRevision;
+    if (retry) ElMessage.success('已提交预览重新生成，稍后刷新状态');
+  } catch (cause) {
+    ElMessage.error(readableApiError(cause, '获取预览状态失败'));
+  } finally {
+    loadingPreview.value = false;
+  }
+};
 const rebuildLivePhoto = async () => {
   if (!iosVersion.value) return;
   rebuildingLivePhoto.value = true;
@@ -226,6 +246,14 @@ const rebuildMovingPhoto = async () => {
               <ElFormItem label="获取方式" :error="errors.accessType"><ElRadioGroup v-model="form.accessType"><ElRadio value="REDEEM">需要兑换</ElRadio><ElRadio value="FREE">免费</ElRadio></ElRadioGroup></ElFormItem>
             </div>
           </ElForm>
+        </section>
+
+        <section v-if="isEditing" class="editor-section">
+          <div class="editor-section__heading"><h3>App 预览生成</h3><p>仅生成展示预览，正式下载资源保持原样。</p></div>
+          <p role="status">预览状态：{{ previewStatusLabel }} · 版本 {{ form.previewRevision ?? 0 }}</p>
+          <p v-if="form.previewGenerationError" class="warning-text">{{ form.previewGenerationError }}</p>
+          <ElButton :loading="loadingPreview" @click="refreshPreview()">刷新预览状态</ElButton>
+          <ElButton v-if="form.previewGenerationStatus === 'FAILED'" :loading="loadingPreview" @click="refreshPreview(true)">重试预览</ElButton>
         </section>
 
         <section v-if="hasCapability('ios_live_photo') || form.iosAcquisition.productId" class="editor-section">

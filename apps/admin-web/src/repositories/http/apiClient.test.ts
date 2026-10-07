@@ -53,6 +53,23 @@ afterEach(() => {
   setCsrfToken('');
 });
 
+it('重试预览使用受保护的独立接口，并保留正式发布状态', async () => {
+  setCsrfToken('csrf-token');
+  const fetchMock = vi.fn().mockResolvedValue(json({
+    ...detail('PUBLISHED', 24, []), previewGenerationStatus: 'PENDING',
+    previewGenerationError: null, previewRevision: 13
+  }));
+  vi.stubGlobal('fetch', fetchMock);
+  const result = await adminRepository.rebuildPreview('30');
+  expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/v1/admin/wallpapers/30/preview-rebuild');
+  const options = fetchMock.mock.calls[0]?.[1] as RequestInit;
+  expect(options.method).toBe('POST');
+  expect(options.credentials).toBe('include');
+  expect(new Headers(options.headers).get('X-CSRF-Token')).toBe('csrf-token');
+  expect(result).toMatchObject({ status: 'published', version: 24,
+    previewGenerationStatus: 'PENDING', previewGenerationError: null, previewRevision: 13 });
+});
+
 describe('apiRequest', () => {
   it('网络失败提供中文恢复提示，下载也遵循相同错误处理', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));

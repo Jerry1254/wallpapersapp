@@ -130,20 +130,41 @@ public final class PreviewWatermarkRenderer {
             String pixelFormat = tenBit ? "yuv420p10le"
                     : ((before.width() & 1) != 0 || (before.height() & 1) != 0) ? "yuv444p" : "yuv420p";
             String overlayFormat = tenBit ? "yuv420p10" : pixelFormat.equals("yuv444p") ? "yuv444" : "yuv420";
+            boolean fullRange = before.colorRange().equals("pc") || before.pixelFormat().startsWith("yuvj");
+            String filter = "[0:v:0][1:v:0]overlay=x=0:y=0:format=" + overlayFormat
+                    + ":eof_action=repeat:repeatlast=1[v]";
+            if (fullRange) {
+                // Overlay works in limited-range YUV. Explicitly convert both ways rather than
+                // merely tagging its limited-range samples as full-range (which changes contrast).
+                filter = "[0:v:0]scale=in_range=pc:out_range=tv,format=" + pixelFormat + "[base];"
+                        + "[base][1:v:0]overlay=x=0:y=0:format=" + overlayFormat
+                        + ":eof_action=repeat:repeatlast=1,scale=in_range=tv:out_range=pc[v]";
+                if (!tenBit) pixelFormat = pixelFormat.equals("yuv444p") ? "yuvj444p" : "yuvj420p";
+            }
             List<String> command = new ArrayList<>(List.of(
                     ffmpeg, "-v", "error", "-xerror", "-y", "-nostdin", "-noautorotate",
                     "-filter_complex_threads", "1",
                     "-protocol_whitelist", "file,pipe", "-i", input.toString(),
                     "-protocol_whitelist", "file,pipe", "-i", overlay.toString(),
-                    "-filter_complex", "[0:v:0][1:v:0]overlay=x=0:y=0:format=" + overlayFormat
-                            + ":eof_action=repeat:repeatlast=1[v]",
+                    "-filter_complex", filter,
                     "-map", "[v]", "-map", "0:a?", "-map_metadata", "0", "-sn", "-dn",
                     "-c:v", tenBit ? "libx265" : "libx264", "-threads", "2", "-preset", "medium", "-crf", "12",
                     "-pix_fmt", pixelFormat, "-fps_mode", "passthrough", "-c:a", "copy",
                     "-movflags", "+faststart"));
+            if (fullRange) command.addAll(List.of("-color_range", "pc"));
             if (tenBit) command.addAll(List.of("-tag:v", "hvc1", "-x265-params", "pools=2:frame-threads=2:log-level=error"));
             command.addAll(List.of("-f", quickTime ? "mov" : "mp4", output.toString()));
-            run(command, directory, VIDEO_TIMEOUT, null);
+            try {
+                run(command, directory, VIDEO_TIMEOUT, null);
+            } catch (IOException unsupported) {
+                // Jammy's FFmpeg 4.4 predates fps_mode; recent FFmpeg removed vsync.
+                // Only retry this specific option error, using the equivalent timestamp mode.
+                if (!unsupported.getMessage().contains("Unrecognized option 'fps_mode'")) throw unsupported;
+                int mode = command.indexOf("-fps_mode");
+                command.set(mode, "-vsync");
+                command.set(mode + 1, "0");
+                run(command, directory, VIDEO_TIMEOUT, null);
+            }
             VideoInfo after = probe(output, directory);
             if (before.width() != after.width() || before.height() != after.height()
                     || Math.abs(before.durationSeconds() - after.durationSeconds()) > 0.05
@@ -192,7 +213,7 @@ public final class PreviewWatermarkRenderer {
     private VideoInfo probe(Path input, Path directory) throws Exception {
         Path output = Files.createTempFile(directory, "probe-", ".json");
         run(List.of(ffprobe, "-v", "error", "-protocol_whitelist", "file,pipe", "-select_streams", "v:0",
-                "-show_entries", "stream=width,height,pix_fmt,avg_frame_rate,nb_frames,duration:format=duration",
+                "-show_entries", "stream=width,height,pix_fmt,color_range,avg_frame_rate,nb_frames,duration:format=duration",
                 "-of", "json", input.toString()), directory, PROBE_TIMEOUT, output);
         if (Files.size(output) > 128 * 1024) throw new IOException("Unexpected probe output size");
         JsonNode root = mapper.readTree(Files.readAllBytes(output));
@@ -207,7 +228,7 @@ public final class PreviewWatermarkRenderer {
         String expression = stream.path("avg_frame_rate").asText("0/1");
         double duration = number(stream.path("duration").asText());
         if (!Double.isFinite(duration)) duration = number(root.path("format").path("duration").asText());
-        return new VideoInfo(width, height, stream.path("pix_fmt").asText(), rate(expression),
+        return new VideoInfo(width, height, stream.path("pix_fmt").asText(), stream.path("color_range").asText(), rate(expression),
                 duration, stream.path("nb_frames").asLong(-1));
     }
 
@@ -265,6 +286,6 @@ public final class PreviewWatermarkRenderer {
         } catch (IOException ignored) { }
     }
 
-    private record VideoInfo(int width, int height, String pixelFormat, double frameRate,
+    private record VideoInfo(int width, int height, String pixelFormat, String colorRange, double frameRate,
             double durationSeconds, long frames) { }
 }

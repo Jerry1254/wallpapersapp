@@ -158,6 +158,9 @@ interface ApiWallpaperDetail extends ApiWallpaperSummary {
   copyrightNote: string;
   variants: ApiWallpaperVariant[];
   iosAcquisition?: IosAcquisitionConfiguration;
+  previewGenerationStatus?: string;
+  previewGenerationError?: string | null;
+  previewRevision?: number;
 }
 
 interface ApiWallpaperPage {
@@ -303,6 +306,9 @@ const wallpaperFromApi = (value: ApiWallpaperDetail): Wallpaper => {
     copyrightNote: value.copyrightNote,
     updatedAt: formatDate(value.updatedAt),
     version: value.version,
+    previewGenerationStatus: value.previewGenerationStatus,
+    previewGenerationError: value.previewGenerationError,
+    previewRevision: value.previewRevision,
     variants: value.variants.map((item) => ({
       id: item.id,
       platform: item.platform,
@@ -673,6 +679,17 @@ export const adminRepository = {
       method: 'POST', headers: { 'If-Match': ifMatch(detail.version) }, body: jsonBody({ resourceVersionIds }), csrf: true
     })).data;
     return wallpaperFromApi(published);
+  },
+
+  async previewStatus(id: string) {
+    return wallpaperFromApi(await fetchWallpaper(id));
+  },
+
+  async rebuildPreview(id: string) {
+    const { data } = await apiRequest<ApiWallpaperDetail>(`/admin/wallpapers/${id}/preview-rebuild`, {
+      method: 'POST', csrf: true
+    });
+    return wallpaperFromApi(data);
   },
 
   async rebuildLivePhoto(versionId: string) {
