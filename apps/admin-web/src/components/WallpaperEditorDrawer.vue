@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus';
 import { computed, reactive, ref, toRaw, watch } from 'vue';
 
 import ResourceFileField from '@/components/ResourceFileField.vue';
+import { iosAcquisitionMode, iosCreditPrices } from '@/utils/iosAcquisition';
 import {
   wallpaperCapabilityLabels,
   type Category,
@@ -32,6 +33,7 @@ const blank = (): WallpaperForm => ({
   accessType: 'REDEEM', capabilities: [], status: 'draft', sort: 1,
   coverUrl: '', featuredRank: null, resources: {}, copyrightNote: '', updatedAt: '', version: 0,
   variants: [], iosAcquisition: {
+    acquisitionMode: 'CREDITS', credits: 1,
     productId: '', firstFreeEligible: false, enabled: false, productIdLocked: false, verifiedTransactionAt: null
   }
 });
@@ -90,7 +92,9 @@ const previewHasContent = computed(() => Boolean(dynamicPreviewSrc.value || cove
 const cloneIntoForm = (value?: Wallpaper) => {
   const next = value ? structuredClone(toRaw(value)) : blank();
   Object.assign(form, blank(), next, {
-    iosAcquisition: next.iosAcquisition || blank().iosAcquisition
+    iosAcquisition: next.iosAcquisition
+      ? { ...next.iosAcquisition, acquisitionMode: iosAcquisitionMode(next.iosAcquisition) }
+      : blank().iosAcquisition
   });
   errors.value = {};
 };
@@ -128,10 +132,16 @@ const validate = () => {
     next.staticImage = '请上传高清静态原图';
   }
   if (!form.resources.cover && !form.coverUrl) next.cover = '请单独上传列表封面';
-  if ((form.iosAcquisition.enabled || form.iosAcquisition.firstFreeEligible) && !form.iosAcquisition.productId.trim()) {
+  if (iosAcquisitionMode(form.iosAcquisition) === 'CREDITS'
+      && hasCapability('ios_live_photo') && !iosCreditPrices.includes(form.iosAcquisition.credits ?? 0)) {
+    next.iosCredits = '请选择支持的壁纸整数售价';
+  }
+  if (iosAcquisitionMode(form.iosAcquisition) === 'NON_CONSUMABLE'
+      && (form.iosAcquisition.enabled || form.iosAcquisition.firstFreeEligible) && !form.iosAcquisition.productId.trim()) {
     next.iosProductId = '请先填写 App Store Connect 中已创建的非消耗型 Product ID';
   }
-  if (form.iosAcquisition.productId && !/^[A-Za-z0-9._-]+$/.test(form.iosAcquisition.productId)) {
+  if (iosAcquisitionMode(form.iosAcquisition) === 'NON_CONSUMABLE'
+      && form.iosAcquisition.productId && !/^[A-Za-z0-9._-]+$/.test(form.iosAcquisition.productId)) {
     next.iosProductId = 'Product ID 只能包含字母、数字、点、下划线和连字符';
   }
   errors.value = next;
@@ -219,10 +229,22 @@ const rebuildMovingPhoto = async () => {
         </section>
 
         <section v-if="hasCapability('ios_live_photo') || form.iosAcquisition.productId" class="editor-section">
-          <div class="editor-section__heading"><h3>iOS 首免与内购</h3><p>Product ID 在 App Store Connect 创建；价格由 Apple 返回，后台不填价格。</p></div>
+          <div class="editor-section__heading"><h3>iOS 首免与内购</h3><p>壁纸售价使用下载积分，1 积分＝1 元。旧非消耗型商品仍可恢复已有交易。</p></div>
           <ElForm label-position="top">
             <div class="form-grid">
-              <ElFormItem label="非消耗型 Product ID" :error="errors.iosProductId">
+              <ElFormItem label="购买方式">
+                <ElSelect v-model="form.iosAcquisition.acquisitionMode">
+                  <ElOption label="下载积分（推荐）" value="CREDITS" />
+                  <ElOption v-if="form.iosAcquisition.acquisitionMode === 'NON_CONSUMABLE'" label="旧非消耗型商品" value="NON_CONSUMABLE" />
+                </ElSelect>
+              </ElFormItem>
+              <ElFormItem v-if="form.iosAcquisition.acquisitionMode === 'CREDITS'" label="iOS 售价（元）" :error="errors.iosCredits">
+                <ElSelect v-model="form.iosAcquisition.credits">
+                  <ElOption v-for="price in iosCreditPrices" :key="price" :label="`${price} 元 / ${price} 积分`" :value="price" />
+                </ElSelect>
+                <small>按所选整数售价兑换，积分商品价格由 Apple 核验。</small>
+              </ElFormItem>
+              <ElFormItem v-else label="非消耗型 Product ID" :error="errors.iosProductId">
                 <ElInput v-model="form.iosAcquisition.productId" :disabled="form.iosAcquisition.productIdLocked" placeholder="例如 com.qingjing.bizhi.wallpaper.123" />
                 <small v-if="form.iosAcquisition.productIdLocked">已有 Apple 验证交易，Product ID 已锁定。</small>
               </ElFormItem>
@@ -263,7 +285,7 @@ const rebuildMovingPhoto = async () => {
               <p v-if="errors.androidVideo" class="field-error">{{ errors.androidVideo }}</p>
             </div>
             <div class="resource-grid__item span-2">
-              <ResourceFileField :model-value="form.resources.iosVideo" label="iOS 实况原始视频" hint="MP4 / MOV，至少 1 秒；保存后自动生成 1 秒 HEIC + MOV Live Photo" accept="video/mp4,video/quicktime,.mp4,.mov" @update:model-value="setResource('iosVideo', $event)" />
+              <ResourceFileField :model-value="form.resources.iosVideo" label="iOS 实况原始视频" hint="建议原始 MP4，至少 60 帧；正式源与后台生成的 1 秒实况预览分别保留" accept="video/mp4,video/quicktime,.mp4,.mov" @update:model-value="setResource('iosVideo', $event)" />
               <p v-if="errors.iosVideo" class="field-error">{{ errors.iosVideo }}</p>
               <small v-if="iosStatus" :class="iosStatus.publishable ? 'success-text' : 'warning-text'">
                 生成状态：{{ iosStatus.status }} · HEIC {{ iosStatus.photo ? '已生成' : '未生成' }} · MOV {{ iosStatus.video ? '已生成' : '未生成' }}

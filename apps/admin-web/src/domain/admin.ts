@@ -132,6 +132,8 @@ export interface Wallpaper {
 }
 
 export interface IosAcquisitionConfiguration {
+  acquisitionMode?: 'CREDITS' | 'NON_CONSUMABLE';
+  credits?: number | null;
   productId: string;
   firstFreeEligible: boolean;
   enabled: boolean;

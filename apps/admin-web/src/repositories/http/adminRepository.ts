@@ -1,4 +1,5 @@
 import dayjs from 'dayjs';
+import { iosAcquisitionMode, iosAcquisitionPayload } from '@/utils/iosAcquisition';
 
 import type {
   AdminDashboard,
@@ -542,14 +543,11 @@ export const adminRepository = {
           })).data
         : (await apiRequest<ApiWallpaperDetail>('/admin/wallpapers', { method: 'POST', body: payload, csrf: true })).data;
 
-      if (iosAcquisition.productId.trim()) {
+      if (iosAcquisition.productId.trim()
+          || (iosAcquisitionMode(iosAcquisition) === 'CREDITS' && input.capabilities.includes('ios_live_photo'))) {
         await apiRequest<IosAcquisitionConfiguration>(`/admin/wallpapers/${detail.id}/ios-acquisition`, {
           method: 'PUT',
-          body: jsonBody({
-            productId: iosAcquisition.productId.trim(),
-            firstFreeEligible: iosAcquisition.firstFreeEligible,
-            enabled: iosAcquisition.enabled
-          }),
+          body: jsonBody(iosAcquisitionPayload(iosAcquisition)),
           csrf: true
         });
       }
