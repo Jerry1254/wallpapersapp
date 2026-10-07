@@ -134,9 +134,42 @@ class CreatorPublicationIntegrationIT {
         doThrow(new ApiException(HttpStatus.TOO_MANY_REQUESTS,"RATE_LIMITED","fixture busy")).when(packages).prepareForPublication(anyLong());
         var queued=service.submit(input("PUBLISH"),UUID.randomUUID().toString(),1);service.runNext();var failed=service.get(Long.parseLong(queued.taskId()));
         jdbc.update("UPDATE wallpaper SET title='外部修改',lock_version=lock_version+1 WHERE id=?",Long.parseLong(failed.wallpaperId()));
+        clearInvocations(packages);
         doNothing().when(packages).prepareForPublication(anyLong());service.retry(Long.parseLong(queued.taskId()));service.runNext();
         assertThat(service.get(Long.parseLong(queued.taskId())).state()).isEqualTo("NEEDS_INPUT");
         assertThat(wallpapers.get(Long.parseLong(failed.wallpaperId())).title()).isEqualTo("外部修改");
+        verifyNoInteractions(packages);
+    }
+    ObjectNode updateInput(ObjectNode request,CreatorPublicationDtos.Task completed) {
+        var update=request.deepCopy();update.put("wallpaperId",completed.wallpaperId());
+        update.put("expectedWallpaperVersion",completed.result().version());
+        ((ObjectNode)update.path("metadata")).put("title","仅修改商品资料");
+        return update;
+    }
+    @Test void metadataOnlyUpdateReusesThePublishedVersionAndPackage()throws Exception {
+        var request=input("PUBLISH");var first=service.submit(request,UUID.randomUUID().toString(),1);service.runNext();
+        var published=service.get(Long.parseLong(first.taskId()));assertThat(published.state()).isEqualTo("SUCCEEDED");
+        long version=Long.parseLong(published.result().resourceVersionIds().get(0));
+        String packageKey=jdbc.queryForObject("SELECT storage_key FROM secure_resource_package WHERE resource_version_id=?",String.class,version);
+        var second=service.submit(updateInput(request,published),UUID.randomUUID().toString(),1);service.runNext();
+        var updated=service.get(Long.parseLong(second.taskId()));assertThat(updated.state()).isEqualTo("SUCCEEDED");
+        assertThat(updated.wallpaperId()).isEqualTo(published.wallpaperId());
+        assertThat(updated.result().resourceVersionIds()).isEqualTo(published.result().resourceVersionIds());
+        assertThat(wallpapers.get(Long.parseLong(updated.wallpaperId())).title()).isEqualTo("仅修改商品资料");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM resource_version WHERE variant_id=(SELECT variant_id FROM resource_version WHERE id=?)",Integer.class,version)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT storage_key FROM secure_resource_package WHERE resource_version_id=?",String.class,version)).isEqualTo(packageKey);
+    }
+    @Test void changedAssetCreatesANewVersionAndRetiresThePreviousPublishedVersion()throws Exception {
+        var request=input("PUBLISH");var first=service.submit(request,UUID.randomUUID().toString(),1);service.runNext();
+        var published=service.get(Long.parseLong(first.taskId()));assertThat(published.state()).isEqualTo("SUCCEEDED");
+        var replacement=uploads.upload(new ByteArrayInputStream(new byte[]{2,3}),"replacement.png","image/png",AssetPurpose.STATIC_IMAGE,1,UUID.randomUUID().toString());
+        var update=updateInput(request,published);((ObjectNode)update.path("resources").get(0)).put("assetId",replacement.asset().id());
+        var second=service.submit(update,UUID.randomUUID().toString(),1);service.runNext();
+        var updated=service.get(Long.parseLong(second.taskId()));assertThat(updated.state()).isEqualTo("SUCCEEDED");
+        assertThat(updated.result().resourceVersionIds()).doesNotContainAnyElementsOf(published.result().resourceVersionIds());
+        long old=Long.parseLong(published.result().resourceVersionIds().get(0));
+        assertThat(wallpapers.getResourceVersion(old).status().name()).isEqualTo("RETIRED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM resource_version WHERE variant_id=(SELECT variant_id FROM resource_version WHERE id=?)",Integer.class,old)).isEqualTo(2);
     }
     @Test void idempotentUploadsReturnTheOriginalAssetAndRejectDifferentFileContent() {
         String key=UUID.randomUUID().toString();byte[] content={1,2,3,4,5};

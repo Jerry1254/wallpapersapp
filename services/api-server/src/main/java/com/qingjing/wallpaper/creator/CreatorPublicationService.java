@@ -185,6 +185,9 @@ public class CreatorPublicationService {
             jdbc.update("UPDATE creator_wallpaper_publication SET wallpaper_id=?,wallpaper_version=? WHERE id=?",id,wallpaper.version(),taskId);
             return wallpaper.id();
         });
+        // A resumed task may have completed every business step before an external edit.
+        // Check its persisted version before any expensive media preparation.
+        transaction(()->lockTarget(taskId));
         if(request.iosAcquisition()!=null)step(taskId,"IOS_CONFIGURATION",()->{
             long wallpaperId=lockTarget(taskId);ios.update(wallpaperId,request.iosAcquisition());return Long.toString(wallpaperId);
         });
@@ -206,6 +209,8 @@ public class CreatorPublicationService {
             String versionId=step(taskId,"RESOURCE_"+i,()->{
                 long wallpaperId=lockTarget(taskId);
                 long variant=Ids.parse(variantId,"variantId");
+                var published=matchingPublishedVersion(variant,resource);
+                if(!published.isEmpty())return Long.toString(published.get(0));
                 int next=jdbc.queryForObject("SELECT COALESCE(MAX(version_no),0)+1 FROM resource_version WHERE variant_id=?",Integer.class,variant);
                 long admin=number(row(taskId,false),"created_by_admin_id");
                 AdminResourceVersion version;
@@ -238,6 +243,20 @@ public class CreatorPublicationService {
             jdbc.update("UPDATE creator_wallpaper_publication SET state='SUCCEEDED',stage='COMPLETED',wallpaper_version=?,result=CAST(? AS JSON),error_code=NULL,error_message=NULL,retryable=FALSE WHERE id=?",wallpaper.version(),write(result),taskId);
             return null;
         });
+    }
+
+    private List<Long> matchingPublishedVersion(long variant,Resource resource) {
+        if(resource.resourceType()==ResourceType.LAYER_PARALLAX)return jdbc.queryForList("""
+                SELECT id FROM resource_version
+                WHERE variant_id=? AND status='PUBLISHED' AND source_package_id=?
+                """,Long.class,variant,Ids.parse(resource.sourcePackageId(),"sourcePackageId"));
+        return jdbc.queryForList("""
+                SELECT r.id FROM resource_version r
+                WHERE r.variant_id=? AND r.status='PUBLISHED' AND r.source_package_id IS NULL
+                  AND (SELECT COUNT(*) FROM resource_binding b WHERE b.resource_version_id=r.id)=1
+                  AND EXISTS (SELECT 1 FROM resource_binding b WHERE b.resource_version_id=r.id
+                              AND b.asset_id=? AND b.role=? AND b.ordinal=0)
+                """,Long.class,variant,Ids.parse(resource.assetId(),"assetId"),role(resource.resourceType()));
     }
 
     private String step(long id,String key,Supplier<String> action) {
