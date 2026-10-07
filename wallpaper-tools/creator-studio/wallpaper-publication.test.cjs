@@ -18,7 +18,7 @@ async function fixture(){
     }};
   const context=vm.createContext({window:{CreatorBackend:B},Blob,FormData,crypto:crypto.webcrypto,setTimeout,clearTimeout});
   vm.runInContext(fs.readFileSync(__dirname+'/wallpaper-publication.js','utf8'),context);
-  return {session:await context.window.WallpaperPublication.open('qa'),calls,setAsset:value=>{asset={...asset,...value};}};
+  return {session:await context.window.WallpaperPublication.open('qa'),B,calls,setAsset:value=>{asset={...asset,...value};}};
 }
 
 test('accepts backend-optimized WebP covers and reuses their stored hash',async()=>{
@@ -49,4 +49,26 @@ test('rejects unready or malformed optimized cover responses',async()=>{
     const f=await fixture();f.setAsset(changed);
     await assert.rejects(f.session.upload(new Blob(['PNG'],{type:'image/png'}),'WALLPAPER_COVER'),/后台未返回可用的正式文件/);
   }
+});
+
+test('requires persisted duration on uploaded and cached Android video assets',async()=>{
+  const f=await fixture(),file=new Blob(['video bytes'],{type:'video/mp4'}),rule={maximumBytes:1048576,acceptedMimeTypes:['video/mp4']};
+  f.setAsset({sha256:crypto.createHash('sha256').update('video bytes').digest('hex'),mimeType:'video/mp4'});
+  await assert.rejects(f.session.upload(file,'VIDEO',rule),/后台未返回可用的正式文件/);
+  f.setAsset({durationMs:5000});
+  assert.equal((await f.session.upload(file,'VIDEO',rule)).durationMs,5000);
+  f.setAsset({durationMs:null});
+  await assert.rejects(f.session.upload(file,'VIDEO',rule),/已上传的文件未就绪或已失效/);
+});
+
+test('re-uploads legacy video cache entries without deleting their original assets',async()=>{
+  const f=await fixture(),file=new Blob(['video bytes'],{type:'video/mp4'});
+  const sha256=(await f.B.hash(file)).slice(5);
+  const oldKey=await f.B.hash(new Blob([f.B.canonical({environment:'LOCAL_DEV',purpose:'VIDEO',sha256,filename:'wallpaper.zip',mime:'video/mp4'})]));
+  f.session.record.uploads[oldKey]={key:crypto.randomUUID(),result:{id:'9',sha256,validationStatus:'READY',durationMs:null}};
+  f.setAsset({sha256,mimeType:'video/mp4',durationMs:5000});
+  const result=await f.session.upload(file,'VIDEO',{maximumBytes:1048576,acceptedMimeTypes:['video/mp4']});
+  assert.equal(result.id,'17');
+  assert.equal(f.calls.filter(c=>c.method==='POST').length,1);
+  assert.equal(f.session.record.uploads[oldKey].result.id,'9');
 });

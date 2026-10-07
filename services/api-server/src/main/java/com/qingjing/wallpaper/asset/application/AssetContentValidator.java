@@ -73,8 +73,8 @@ public final class AssetContentValidator {
             case WEBP -> validateWebp(stagedObject);
             case JSON -> validateJson(stagedObject);
             case ZIP -> validateArchive(stagedObject);
-            case MP4, QUICKTIME -> purpose == AssetPurpose.TUTORIAL_VIDEO
-                    ? validateTutorialVideo(stagedObject)
+            case MP4, QUICKTIME -> purpose == AssetPurpose.TUTORIAL_VIDEO || purpose == AssetPurpose.VIDEO
+                    ? validateTimedVideo(stagedObject, detectedType, purpose)
                     : new AssetMetadata(detectedType, null, null, null);
         };
     }
@@ -220,7 +220,7 @@ public final class AssetContentValidator {
         return new AssetMetadata(DetectedAssetType.WEBP, width, height, null);
     }
 
-    private AssetMetadata validateTutorialVideo(StagedObject stagedObject) {
+    private AssetMetadata validateTimedVideo(StagedObject stagedObject, DetectedAssetType detectedType, AssetPurpose purpose) {
         boolean hasFtyp = false;
         boolean hasMdat = false;
         boolean hasTrack = false;
@@ -257,10 +257,10 @@ public final class AssetContentValidator {
         if (!hasFtyp || !hasMdat || !hasTrack || durationMs == null || durationMs <= 0) {
             throw new AssetValidationException(INVALID_VIDEO, "The MP4 must contain a movie track and duration metadata");
         }
-        if (durationMs > MAX_TUTORIAL_DURATION_MS) {
+        if (purpose == AssetPurpose.TUTORIAL_VIDEO && durationMs > MAX_TUTORIAL_DURATION_MS) {
             throw new AssetValidationException(VIDEO_DURATION_EXCEEDED, "The tutorial video duration exceeds 15 minutes");
         }
-        return new AssetMetadata(DetectedAssetType.MP4, null, null, durationMs);
+        return new AssetMetadata(detectedType, null, null, durationMs);
     }
 
     private MovieMetadata readMovieMetadata(DataInputStream input, long payloadSize) throws IOException {

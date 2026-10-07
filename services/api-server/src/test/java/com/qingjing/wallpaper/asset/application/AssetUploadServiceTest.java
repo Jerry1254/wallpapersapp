@@ -172,6 +172,25 @@ class AssetUploadServiceTest {
     }
 
     @Test
+    void recordsWallpaperVideoDurationForPublicationChecks() throws Exception {
+        var video = service.upload(new ByteArrayInputStream(mp4(5_000)), "wallpaper.mp4", "video/mp4", AssetPurpose.VIDEO);
+        assertThat(video.durationMs()).isEqualTo(5_000);
+        assertThat(video.mimeType()).isEqualTo("video/mp4");
+        byte[] mov = mp4(7_000);
+        System.arraycopy("qt  ".getBytes(StandardCharsets.US_ASCII), 0, mov, 8, 4);
+        var quicktime = service.upload(new ByteArrayInputStream(mov), "wallpaper.mov", "video/quicktime", AssetPurpose.VIDEO);
+        assertThat(quicktime.durationMs()).isEqualTo(7_000);
+        assertThat(quicktime.mimeType()).isEqualTo("video/quicktime");
+    }
+
+    @Test
+    void rejectsWallpaperVideoWithoutTracksAndDuration() throws Exception {
+        assertThatThrownBy(() -> service.upload(new ByteArrayInputStream(quickTime()), "fake.mov", "video/quicktime", AssetPurpose.VIDEO))
+            .isInstanceOfSatisfying(AssetValidationException.class, exception -> assertThat(exception.code()).isEqualTo(INVALID_VIDEO));
+        assertStorageEmpty();
+    }
+
+    @Test
     void acceptsQuickTimeBrandedMp4AsLivePhotoSource() throws Exception {
         ValidatedAsset stored = service.upload(
                 new ByteArrayInputStream(quickTime()),

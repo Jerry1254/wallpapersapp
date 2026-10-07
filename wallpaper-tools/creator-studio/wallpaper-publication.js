@@ -99,11 +99,12 @@
       if(file.size>maximum)throw new Error(`${file.name} 超过后台允许的 ${(maximum/1048576).toFixed(0)} MB`);
       if(purpose!=='PARALLAX_ZIP'&&!mimes.includes(file.type))throw new Error(`${file.name} 的格式不符合后台要求`);
       const sha256=(await B.hash(file)).slice(5),filename=file.name||'wallpaper.zip';
-      const cacheKey=await B.hash(new Blob([B.canonical({environment:this.record.environmentId,purpose,sha256,filename,mime:file.type})]));
+      // Re-upload legacy VIDEO assets whose backend did not persist duration.
+      const cacheKey=await B.hash(new Blob([B.canonical({environment:this.record.environmentId,purpose,sha256,filename,mime:file.type,...(purpose==='VIDEO'?{durationRequired:true}:{})})]));
       let uploaded=this.record.uploads[cacheKey];
       if(uploaded?.result&&purpose!=='PARALLAX_ZIP'){
         const current=await api('/assets/'+uploaded.result.id);
-        if(current.validationStatus!=='READY'||current.sha256!==uploaded.result.sha256)throw new Error('已上传的文件未就绪或已失效，请重新导入资源');
+        if(current.validationStatus!=='READY'||current.sha256!==uploaded.result.sha256||(purpose==='VIDEO'&&!(current.durationMs>0)))throw new Error('已上传的文件未就绪或已失效，请重新导入资源');
         return current;
       }
       if(uploaded?.result&&purpose==='PARALLAX_ZIP')return uploaded.result;
@@ -115,7 +116,7 @@
       const validHash=purpose==='WALLPAPER_COVER'
         ?/^[a-f0-9]{64}$/.test(result.sha256)&&result.mimeType==='image/webp'&&result.widthPx>0&&result.heightPx>0
         :result.sha256===sha256;
-      if(!/^[1-9][0-9]*$/.test(result.id)||!validHash||result.validationStatus!=='READY')throw new Error('后台未返回可用的正式文件，请检查素材后重试');
+      if(!/^[1-9][0-9]*$/.test(result.id)||!validHash||result.validationStatus!=='READY'||(purpose==='VIDEO'&&!(result.durationMs>0)))throw new Error('后台未返回可用的正式文件，请检查素材后重试');
       uploaded.result=result;await this.save();return result;
     }
     async submit(action,form,cover,resources){
