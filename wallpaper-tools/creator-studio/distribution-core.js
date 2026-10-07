@@ -26,7 +26,7 @@
       {key:'visibility',label:'谁可以看',fallback:'public',options:[['public','公开'],['private','仅自己可见'],['friends','好友可见']]},
       {key:'declaration',label:'内容声明',fallback:'',options:[['','不预设声明'],...declarations[platform].map(v=>[v,v])]}
     ];
-    if(platform==='xhs')fields.push({key:'originality',label:'原创设置',fallback:'',options:[['','不预设原创声明'],['original','声明原创'],['not_original','不声明原创']]});
+    if(platform==='xhs')fields.push({key:'originality',label:'原创设置',fallback:'original',options:[['original','声明原创'],['not_original','不声明原创'],['','不预设原创声明']]});
     if(platform==='douyin'&&type==='video')fields.push({key:'downloadPermission',label:'允许保存视频',fallback:'',options:[['','跟随平台默认'],['allow','允许'],['deny','不允许']]});
     return fields;
   }

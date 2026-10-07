@@ -33,6 +33,11 @@ test('four forms expose only applicable publication settings and retain account 
   assert.match(Core.settingsSummary('xhs',snapshot),/好友可见.*笔记含AI合成内容.*声明原创/);
 });
 test('unsupported declaration or draft visibility cannot silently become a default',()=>{
+  assert.equal(Core.settings('xhs',{type:'image'}).originality,'original');
+  assert.equal(Core.settings('xhs',{type:'video'}).originality,'original');
+  // Historical tasks retain their actual unset/nonoriginal choice.
+  assert.match(Core.settingsSummary('xhs',{type:'image',originality:''}),/不预设原创声明/);
+  assert.equal(Core.settings('xhs',{type:'image',originality:'not_original'}).originality,'not_original');
   assert.throws(()=>Core.settings('xhs',{type:'video',declaration:'内容由AI生成'}),/重新选择/);
   assert.throws(()=>Core.settings('douyin',{type:'image',visibility:'draft'}),/重新选择/);
   // Changing video to image omits the inapplicable permission, without forgetting

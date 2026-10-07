@@ -63,6 +63,25 @@ class OperationsTests(unittest.TestCase):
         self.assertIsNone(self.bridge.session)
         self.assertIsNotNone(creator.session)
         self.bridge.api.assert_not_called()
+
+    def test_originality_approval_requires_explicit_consent_local_task_and_unsubmitted_status(self):
+        self.bridge.session={'token':'test'}
+        job={'id':'11111111-1111-4111-8111-111111111111','accountId':'account','status':'needs_input',
+             'platform':'xhs','platformUserId':'handle:example','post':{'type':'image','originality':'original'}}
+        account={'id':'account','runnerId':'runner'}
+        self.bridge.api.side_effect=lambda method,path,*args: [job] if path=='distribution/jobs' else [account]
+        def request(accepted=True,cookie='CREATOR_PUBLISH_SESSION=test'):
+            h=Handler('/creator-studio/api/distribution/jobs/'+job['id']+'/originality-approval',cookie)
+            data=json.dumps({'accepted':accepted}).encode();h.headers['Content-Length']=str(len(data));h.rfile=io.BytesIO(data)
+            self.bridge.handle(h);return h
+        with patch('publishing.bridge.issue_operator_approval') as issue:
+            self.assertEqual(request(cookie='').status,401)
+            self.assertEqual(request(False).status,422)
+            account['runnerId']='elsewhere';self.assertEqual(request().status,409)
+            account['runnerId']='runner';job['status']='submitting';self.assertEqual(request().status,409)
+            issue.assert_not_called()
+            job['status']='needs_input';self.assertEqual(request().status,200)
+            issue.assert_called_once()
     def test_bulk_keeps_exclusive_operation_and_continues_after_one_account_fails(self):
         accounts = [{'id': 'one', 'name': '账号一'}, {'id': 'two', 'name': '账号二'}]
         self.bridge.active = 'op'

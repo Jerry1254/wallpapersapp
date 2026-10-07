@@ -11,7 +11,8 @@ import tempfile
 import traceback
 import uuid
 from identity import ACCOUNT_CARD, IdentityError, choose_account_metrics, read_identity
-from settings import SettingsError, apply_settings, unique, validate_settings
+from settings import SettingsError, apply_settings, unique, validate_settings, wait_checked
+from approval import consume as consume_operator_approval
 
 os.umask(0o077)
 OUTPUT = sys.stdout
@@ -152,19 +153,28 @@ async def cover_xhs(page, path):
 
 
 async def cover_douyin(page, portrait, landscape):
-    area = page.locator('[class*="cover-"]').filter(has=page.locator('img')).first
-    await area.hover()
-    trigger = page.get_by_text(re.compile(r'^(编辑封面|选择封面|设置封面)$')).first
-    if await trigger.is_visible():
-        await trigger.click()
-    else:
-        await area.click()
-    modal = page.locator('div.dy-creator-content-modal').first
+    # The video form also contains AI recommendation images. Anchor the
+    # actual portrait control by its visible aspect-ratio label, rather than
+    # the first image with "cover" in a generated CSS class.
+    heading = await unique(page.get_by_text('竖封面3:4', exact=True))
+    if heading is None:
+        raise NeedsInput('平台没有可核对的竖封面入口，已停止提交')
+    area = heading.locator('../..')
+    trigger = await unique(area.get_by_text('选择封面', exact=True))
+    if trigger is None:
+        raise NeedsInput('平台封面入口已变化，已停止提交')
+    await trigger.click()
+    modal = page.locator('div.dy-creator-content-modal')
     await modal.wait_for(state='visible')
     for label, path in [('设置竖封面', portrait), ('设置横封面', landscape)]:
         if not path:
             continue
-        await modal.get_by_text(label, exact=True).click()
+        # The native dialog repeats "设置横封面" on its next-step button;
+        # select only the observed header step, never an ambiguous text match.
+        step = await unique(modal.locator('div[class*="step-"]').filter(has_text=re.compile('^'+label+'$')))
+        if step is None:
+            raise NeedsInput('平台没有可核对的封面切换标签，已停止提交')
+        await step.click()
         previous = await modal.locator('img').evaluate_all('(images) => images.map(img => img.src)')
         upload = modal.locator('.semi-upload:has(.semi-upload-drag-area-main-text) input.semi-upload-hidden-input').first
         await upload.set_input_files(path)
@@ -209,6 +219,9 @@ async def fill_douyin(page, post):
 
 
 async def dismiss_publish_hints(page):
+    guide = await unique(page.locator('button.feature-guide__btn').filter(has_text=re.compile(r'^我知道了$')))
+    if guide is not None:
+        await guide.click()
     # The observed cover-PK onboarding notice blocks the title/editor. This is
     # only an informational acknowledgement, never a terms or verification step.
     notices = [item for item in await page.get_by_role('button', name='我知道了', exact=True)
@@ -224,12 +237,14 @@ async def save_publish_diagnostic(page, request, phase, submitted, error=None):
     """Keep one bounded troubleshooting screenshot locally, outside business payloads."""
     try:
         job_id = str(uuid.UUID(request['job']['id']))
-        picture = await page.screenshot(type='jpeg', quality=65, full_page=True, timeout=5000)
-        if not picture or len(picture) > 1024 * 1024:
-            return
         folder = Path(request['runtime']) / 'diagnostics'
         folder.mkdir(exist_ok=True, mode=0o700)
-        (folder / (job_id + '.jpg')).write_bytes(picture)
+        # Slow/offline fonts or screenshot failure must not discard control
+        # metadata needed to diagnose a stopped, unsubmitted task.
+        with contextlib.suppress(Exception):
+            picture = await page.screenshot(type='jpeg', quality=65, full_page=False, timeout=5000)
+            if picture and len(picture) <= 1024 * 1024:
+                (folder / (job_id + '.jpg')).write_bytes(picture)
         controls = []
         if hasattr(page, 'evaluate'):
             with contextlib.suppress(Exception):
@@ -238,8 +253,12 @@ async def save_publish_diagnostic(page, request, phase, submitted, error=None):
                     .map(e=>({tag:e.tagName,type:e.type||'',placeholder:e.getAttribute('placeholder')||'',
                         accept:e.getAttribute('accept')||'',role:e.getAttribute('role')||'',
                         editable:e.getAttribute('contenteditable')||'',classes:String(e.className||'').slice(0,200),
+                        checked:['radio','checkbox'].includes(e.type)?e.checked:null,
+                        ariaChecked:e.getAttribute('aria-checked'),
                         label:['BUTTON','LABEL','SELECT'].includes(e.tagName)||e.hasAttribute('role')?(e.innerText||'').slice(0,100):'',
-                        parent:e.type==='checkbox'?{tag:e.parentElement.tagName,classes:String(e.parentElement.className||''),text:(e.parentElement.innerText||'').slice(0,100)}:null}))''')
+                        parent:e.type==='checkbox'?{tag:e.parentElement.tagName,classes:String(e.parentElement.className||''),text:(e.parentElement.innerText||'').slice(0,100)}:null,
+                        field:e.type==='checkbox'?Array.from((function*(n){for(let i=0;n&&i<4;i++,n=n.parentElement)yield n})(e.parentElement))
+                            .filter(n=>n.innerText&&n.innerText.length<500).map(n=>({classes:String(n.className||'').slice(0,200),text:n.innerText.slice(0,200)})):null}))''')
         diagnostic = {'phase': phase, 'submitted': submitted, 'controls': controls}
         if hasattr(page, 'evaluate'):
             with contextlib.suppress(Exception):
@@ -319,7 +338,28 @@ async def publish(request):
         title, editor = await (fill_douyin(page, post) if platform == 'douyin' else fill_xhs(page, post))
         phase = '设置并核对发布选项'
         emit('progress', message=phase)
-        verify_settings = await apply_settings(page, platform, post)
+        async def confirm_originality(current):
+            heading = await unique(current.get_by_text('笔记完成原创声明后，将获得以下权益', exact=True))
+            if heading is None:
+                raise NeedsInput('平台原创须知弹窗已变化，尚未提交')
+            modal = None
+            for depth in range(1, 5):
+                candidate = heading.locator('/'.join(['..'] * depth))
+                if await candidate.get_by_text('我已阅读并同意', exact=False).count():
+                    modal = candidate
+                    break
+            if modal is None:
+                raise NeedsInput('未找到可核对的原创须知，尚未提交')
+            agreement = await unique(modal.locator('.d-checkbox').filter(has=page.get_by_text('我已阅读并同意', exact=False)))
+            confirm = await unique(modal.get_by_role('button', name='声明原创', exact=True))
+            if agreement is None or confirm is None or not consume_operator_approval(request['runtime'], job):
+                raise NeedsInput('原创声明需要确认《原创声明须知》，请完成本次确认后重试；尚未提交')
+            await agreement.click()
+            if not await wait_checked(agreement):
+                raise NeedsInput('原创须知未被勾选，尚未提交')
+            await confirm.click()
+            await heading.wait_for(state='hidden', timeout=8000)
+        verify_settings = await apply_settings(page, platform, post, confirm_originality if platform == 'xhs' else None)
         portrait = paths.get(post.get('coverId'))
         landscape = paths.get(post.get('landscapeCoverId'))
         if portrait or landscape:
@@ -375,9 +415,13 @@ async def publish(request):
     except Exception as error:
         if page:
             await save_publish_diagnostic(page, request, phase, submitted, error)
+        network_failure = any(code in str(error) for code in (
+            'net::ERR_CONNECTION_CLOSED', 'net::ERR_CONNECTION_RESET',
+            'net::ERR_INTERNET_DISCONNECTED', 'net::ERR_NAME_NOT_RESOLVED',
+            'net::ERR_CONNECTION_TIMED_OUT'))
         # Never retry after the final click, regardless of a timeout or challenge.
         return {'status': 'uncertain' if submitted else 'needs_input' if isinstance(error, (NeedsInput,IdentityError,SettingsError)) else 'failed',
-                'message': ('已点击发布，结果尚未确认，请到平台核对' if submitted else str(error) if isinstance(error, (NeedsInput,IdentityError,SettingsError)) else f'{phase}未完成；可能需要登录验证或平台页面已变化，请在账号管理重新登录后重试')}
+                'message': ('已点击发布，结果尚未确认，请到平台核对' if submitted else '平台页面连接失败，请检查网络后重试；尚未提交' if network_failure else str(error) if isinstance(error, (NeedsInput,IdentityError,SettingsError)) else f'{phase}未完成；可能需要登录验证或平台页面已变化，请在账号管理重新登录后重试')}
     finally:
         if browser:
             with contextlib.suppress(Exception):

@@ -14,6 +14,7 @@ import uuid
 from urllib.parse import urlsplit, parse_qs, urlencode
 from http.cookies import SimpleCookie
 from .setup import REVISION
+from .approval import issue as issue_operator_approval
 
 HERE = Path(__file__).resolve().parent
 RUNTIME = HERE.parents[2] / '.runtime' / 'creator-publishing'
@@ -180,6 +181,18 @@ class PublishingBridge:
                     raise BridgeError('登录会话已结束', 404)
                 return self.respond(h, self.operations[op]) or True
             parts = route.strip('/').split('/')
+            if len(parts) == 3 and parts[0] == 'jobs' and parts[2] == 'originality-approval' and h.command == 'POST':
+                if n.get('accepted') is not True:
+                    raise BridgeError('请先确认本次原创声明须知', 422)
+                job = next((j for j in self.api('GET', 'distribution/jobs') if j['id'] == parts[1]), None)
+                account = None if job is None else next((a for a in self.api('GET', 'distribution/accounts') if a['id'] == job['accountId']), None)
+                if not job or not account or account['runnerId'] != self.runner or job['status'] not in ('failed', 'needs_input'):
+                    raise BridgeError('只能为本机尚未提交的任务确认原创须知', 409)
+                try:
+                    issue_operator_approval(RUNTIME, job)
+                except ValueError:
+                    raise BridgeError('该任务不需要小红书原创确认', 422)
+                return self.respond(h, {'ok': True}) or True
             if route == '/accounts/operations' and h.command == 'POST':
                 mode = n.get('mode')
                 ids = n.get('accountIds')

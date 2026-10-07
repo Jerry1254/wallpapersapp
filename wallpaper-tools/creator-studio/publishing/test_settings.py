@@ -155,6 +155,84 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
                 await verify()
                 self.assertFalse(await self.page.locator('#dialog').is_visible())
 
+    async def test_native_semi_declaration_checked_label_is_persisted_and_rechecked(self):
+        label = await self.declaration_form('douyin')
+        await self.page.evaluate("""() => {
+            const options=Array.from(document.querySelectorAll('label.semi-radio'));
+            let saved=0;
+            const render=()=>options.forEach((el,i)=>{
+                el.querySelector('input').checked=false;
+                el.classList.toggle('semi-radio-checked',i===saved);
+            });
+            options.forEach((el,i)=>el.onclick=ev=>{ev.preventDefault();saved=i;render()});
+            document.getElementById('entry').onclick=()=>{render();document.getElementById('dialog').style.display='block'};
+            document.getElementById('confirm').onclick=()=>{document.getElementById('dialog').style.display='none'};
+        }""")
+        verify = await apply_settings(self.page, 'douyin', {'type':'video','declaration':label})
+        await verify()
+        self.assertFalse(await self.page.locator('input[type=radio]:checked').count())
+        await self.page.locator('label.semi-radio').nth(1).evaluate("el=>el.classList.remove('semi-radio-checked')")
+        # The next open renders persisted platform state, so changing only the
+        # transient DOM cannot undo the committed selection.
+        await verify()
+        await self.page.evaluate("""() => {
+            document.getElementById('entry').onclick=()=>{
+                document.querySelectorAll('.semi-radio-checked').forEach(e=>e.classList.remove('semi-radio-checked'));
+                document.getElementById('dialog').style.display='block';
+            };
+        }""")
+        with self.assertRaisesRegex(SettingsError,'未保留'):
+            await verify()
+
+    async def test_douyin_declaration_prefers_placeholder_over_field_heading(self):
+        label = await self.declaration_form('douyin')
+        await self.page.evaluate('''() => {
+            document.getElementById('entry').innerText='请选择自主声明';
+            document.body.insertAdjacentHTML('afterbegin','<span>自主声明</span>');
+        }''')
+        verify = await apply_settings(self.page, 'douyin', {'type':'image','declaration':label})
+        await verify()
+
+    async def test_declaration_waits_for_native_asynchronous_radio_commit(self):
+        label = await self.declaration_form('douyin')
+        await self.page.locator('[name=d][value=chosen]').evaluate('''el=>{
+            el.onclick=e=>{e.preventDefault();setTimeout(()=>{el.checked=true},100)};
+        }''')
+        verify = await apply_settings(self.page, 'douyin', {'type':'video','declaration':label})
+        await verify()
+
+    async def test_xhs_native_declaration_reads_select_not_preview(self):
+        await self.page.set_content('''<div class="d-select-main" onclick="document.getElementById('menu').style.display='block'">
+            <div class="d-select-description">添加内容类型声明</div></div>
+            <span id="preview">虚构演绎，仅供娱乐</span>
+            <div id="menu" style="display:none"><div class="d-option-name"
+              onclick="event.stopPropagation();document.querySelector('.d-select-description').innerText=this.innerText;document.getElementById('menu').style.display='none'">虚构演绎，仅供娱乐</div></div>''')
+        verify = await apply_settings(self.page, 'xhs', {'type':'video','declaration':'虚构演绎，仅供娱乐'})
+        await verify()
+        self.assertEqual(await self.page.locator('.d-select-description').inner_text(),'虚构演绎，仅供娱乐')
+        await self.page.locator('.d-select-description').evaluate('el=>el.innerText="笔记含AI合成内容"')
+        with self.assertRaisesRegex(SettingsError,'未保留'):
+            await verify()
+
+    async def test_xhs_unlabelled_originality_switch_requires_explicit_agreement(self):
+        await self.page.set_content('''<div class="custom-switch-card"><span>原创声明</span>
+            <div class="d-switch" onclick="this.querySelector('input').checked=true;document.getElementById('agreement').hidden=false">
+            <input type="checkbox" onclick="event.preventDefault()"></div></div>
+            <div id="agreement" hidden><span>我已阅读并同意《原创声明须知》</span><button>声明原创</button></div>''')
+        with self.assertRaisesRegex(SettingsError,'原创声明须知'):
+            await apply_settings(self.page, 'xhs', {'type':'image','originality':'original'})
+        self.assertTrue(await self.page.locator('#agreement').is_visible())
+        self.assertFalse(await self.page.get_by_role('button',name='声明原创',exact=True).evaluate('el=>!!el.dataset.clicked'))
+
+    async def test_disabled_native_originality_stops_without_click_or_silent_optout(self):
+        await self.page.set_content('''<div class="custom-switch-card"><span>原创声明</span>
+            <div class="d-switch disabled" style="pointer-events:none"><input type="checkbox" disabled></div></div>''')
+        with self.assertRaisesRegex(SettingsError,'平台已禁用原创声明'):
+            await apply_settings(self.page,'xhs',{'type':'video','originality':'original'})
+        self.assertFalse(await self.page.locator('input').is_checked())
+        verify = await apply_settings(self.page,'xhs',{'type':'video','originality':'not_original'})
+        await verify()
+
     async def test_closed_modal_is_not_enough_when_platform_discarded_declaration(self):
         for platform in ('douyin', 'xhs'):
             label = await self.declaration_form(platform, retain=False)

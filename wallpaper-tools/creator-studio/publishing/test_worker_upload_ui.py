@@ -1,7 +1,10 @@
 """Offline upload-control compatibility; no platform network or publication."""
 import unittest
+import tempfile
+from pathlib import Path
+import base64
 from . import test_batch_ui as fixture
-from .worker import IMAGE_UPLOAD_SELECTOR, dismiss_publish_hints, fill_xhs, fill_douyin, douyin_title_selector
+from .worker import IMAGE_UPLOAD_SELECTOR, dismiss_publish_hints, fill_xhs, fill_douyin, douyin_title_selector, cover_douyin
 
 
 @unittest.skipIf(fixture.async_playwright is None, 'Requires local browser runtime')
@@ -38,6 +41,26 @@ class UploadSelectorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.page.locator('#notice').count(),0)
         self.assertEqual(await self.page.locator('#unrelated').count(),1)
         self.assertEqual(await self.page.locator('input').input_value(),'测试标题')
+
+    async def test_douyin_two_cover_steps_ignore_ai_images_and_duplicate_next_button(self):
+        await self.page.set_content("""<div class="cover-recommendation"><img><span>AI封面</span></div>
+          <div><div><span onclick="document.querySelector('.dy-creator-content-modal').hidden=false">选择封面</span></div>
+            <div><span>竖封面3:4</span></div></div>
+          <div class="dy-creator-content-modal" hidden>
+            <div class="step-native" onclick="window.activeCover='portrait'"><span>设置竖封面</span></div>
+            <div class="step-native" onclick="window.activeCover='landscape'"><span>设置横封面</span></div>
+            <button onclick="throw Error('incorrect next button')">设置横封面</button>
+            <div class="semi-upload"><span class="semi-upload-drag-area-main-text">点击上传文件或拖拽文件到这里</span>
+              <input class="semi-upload-hidden-input" type="file" onchange="document.querySelector('.dy-creator-content-modal').dataset[window.activeCover]=this.files[0].name;const reader=new FileReader();reader.onload=()=>document.querySelector('#preview').src=reader.result;reader.readAsDataURL(this.files[0])"></div>
+            <img id="preview"><button onclick="this.parentElement.hidden=true">完成</button></div>""")
+        with tempfile.TemporaryDirectory() as root:
+            data=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==')
+            portrait=Path(root)/'portrait.png';landscape=Path(root)/'landscape.png'
+            portrait.write_bytes(data);landscape.write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNg+M/wHwAEAQH/cetH5QAAAABJRU5ErkJggg=='))
+            await cover_douyin(self.page,str(portrait),str(landscape))
+        self.assertEqual(await self.page.locator('.dy-creator-content-modal').get_attribute('data-portrait'),'portrait.png')
+        self.assertEqual(await self.page.locator('.dy-creator-content-modal').get_attribute('data-landscape'),'landscape.png')
+        self.assertFalse(await self.page.locator('.dy-creator-content-modal').is_visible())
 
     async def test_extension_only_image_input_preserves_order_and_skips_video(self):
         for accept in ('.jpg,.jpeg,.png', '.JPG,.PNG', 'image/*'):

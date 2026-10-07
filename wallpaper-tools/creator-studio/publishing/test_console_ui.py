@@ -57,6 +57,54 @@ class ConsoleUITests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await self.page.locator('#console-check').is_disabled())
         self.assertIn('已选 1 个', await self.page.locator('#console-account-count').inner_text())
 
+    async def test_dashboard_delayed_success_and_error_cannot_replace_new_query(self):
+        await self.mount()
+        await self.page.evaluate('''const previous=fetch;window.overviewPending=[];
+          window.fetch=(url,options={})=>url.includes('/overview?')?
+            new Promise((resolve,reject)=>overviewPending.push({url,resolve,reject})):previous(url,options);
+          window.overviewResult=total=>({total,statuses:{published:total},daily:[],accounts:[],metrics:[]});
+          Distribution.open('data');''')
+        await self.wait_for('overviewPending.length===2')
+        await self.page.get_by_role('button',name='近 7 天',exact=True).click()
+        await self.wait_for('overviewPending.length===3')
+        await self.page.evaluate('overviewPending[2].resolve({ok:true,status:200,json:async()=>overviewResult(7)})')
+        await self.wait_for('document.getElementById("console-data-results").textContent.includes("共 7 条任务")')
+        await self.page.evaluate('for(const pending of overviewPending.slice(0,2))pending.resolve({ok:true,status:200,json:async()=>overviewResult(30)})')
+        await self.page.wait_for_timeout(100)
+        self.assertIn('共 7 条任务',await self.page.locator('#console-data-results').inner_text())
+        await self.page.get_by_role('button',name='近 30 天',exact=True).click()
+        await self.wait_for('overviewPending.length===4')
+        await self.page.get_by_role('button',name='近 90 天',exact=True).click()
+        await self.wait_for('overviewPending.length===5')
+        await self.page.evaluate('overviewPending[4].resolve({ok:true,status:200,json:async()=>overviewResult(90)})')
+        await self.wait_for('document.getElementById("console-data-results").textContent.includes("共 90 条任务")')
+        await self.page.evaluate('overviewPending[3].reject(Error("旧请求网络错误"))')
+        await self.page.wait_for_timeout(100)
+        self.assertIn('共 90 条任务',await self.page.locator('#console-data-results').inner_text())
+        self.assertEqual(await self.page.get_by_role('alert').count(),0)
+        await self.page.get_by_role('button',name='近 7 天',exact=True).click()
+        await self.wait_for('overviewPending.length===6')
+        await self.page.evaluate('overviewPending[5].reject(Error("本次请求失败"))')
+        await self.page.get_by_role('alert').wait_for()
+        self.assertEqual(await self.page.get_by_role('alert').inner_text(),'本次请求失败')
+        self.assertNotIn('共 90 条任务',await self.page.locator('#console-data-results').inner_text())
+
+    async def test_other_computer_account_is_excluded_and_active_operation_disables_actions(self):
+        await self.mount()
+        await self.page.evaluate("fakeAccounts[1].runnerId='other-computer';Distribution.open('accounts')")
+        await self.wait_for('document.getElementById("console-account-all")!=null')
+        self.assertTrue(await self.page.locator('[data-account-select="b"]').is_disabled())
+        self.assertTrue(await self.page.locator('[data-login="b"]').is_disabled())
+        self.assertTrue(await self.page.locator('[data-check="b"]').is_disabled())
+        await self.page.locator('#console-account-all').check()
+        self.assertIn('已选 1 个',await self.page.locator('#console-account-count').inner_text())
+        await self.page.evaluate("const previous=fetch;window.fetch=async(url,options={})=>url.endsWith('/status')?{ok:true,status:200,json:async()=>({connected:true,ready:true,runnerId:'runner',active:'active-check'})}:previous(url,options);void 0;")
+        await self.page.locator('[data-distribution-view="accounts"]').click()
+        await self.wait_for('document.getElementById("console-check").disabled')
+        self.assertTrue(await self.page.locator('#console-sync').is_disabled())
+        for selector in ('[data-login="a"]','[data-check="a"]','[data-remove="a"]'):
+            self.assertTrue(await self.page.locator(selector).is_disabled())
+
     async def test_existing_creator_connection_is_reused_once_and_disconnect_is_respected(self):
         await self.mount()
         await self.page.evaluate('''window.bound=false;window.connectRoutes=[];CreatorBackend.connected=true;CreatorBackend.request=async route=>{connectRoutes.push(route);bound=true;};const previous=fetch;window.fetch=async(url,options={})=>{if(url.endsWith('/status'))return {ok:true,status:200,json:async()=>({connected:bound,ready:true,runnerId:'runner'})};if(url.endsWith('/disconnect')){bound=false;return {ok:true,status:200,json:async()=>({})};}return previous(url,options);};Distribution.enter();''')

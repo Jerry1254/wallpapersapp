@@ -77,7 +77,16 @@
   function action(job,mode){
     const run=body=>safe(async()=>{await H.request('/jobs/'+job.id+'/action',{method:'POST',body});H.close();await H.refresh();});
     if(mode==='resolve')H.modal('核对平台结果',`<h3>${esc(job.post.title)}</h3><p>${names[job.platform]} · ${esc(job.accountName)}</p><p>请在平台作品管理中确认这条内容的结果后选择状态。</p><a href="${platformURL(job.platform)}" target="_blank" rel="noopener noreferrer">打开平台作品管理</a>`,[{label:'稍后核对',run:H.close},{label:'确认未发布',run:run({action:'resolve',result:'failed'})},{label:'确认已发布',primary:true,run:run({action:'resolve',result:'published'})}]);
-    else H.modal(mode==='retry'?'重试发布':'取消任务',`<p>${esc(job.post.title)} · ${esc(job.accountName)}</p><p>${mode==='retry'?'将使用原任务的内容重新上传和发布。':'只取消尚未开始执行的这条任务。'}</p>`,[{label:'返回',run:H.close},{label:mode==='retry'?'确认重试':'确认取消',primary:true,run:run({action:mode})}]);
+    else {
+      const originality=mode==='retry'&&job.platform==='xhs'&&job.post.originality==='original';
+      H.modal(mode==='retry'?'重试发布':'取消任务',`<p>${esc(job.post.title)} · ${esc(job.accountName)}</p><p>${mode==='retry'?'将使用原任务的内容重新上传和发布。':'只取消尚未开始执行的这条任务。'}</p>${originality?'<p class="hint">小红书声明原创时可能要求接受《原创声明须知》。如滥用声明，平台将驳回并予以相关处置。确认只对本次任务生效。</p><label><input id="console-originality-accepted" type="checkbox"> 本次同意原创声明须知，并授权在平台点击“声明原创”</label>':''}`,[{label:'返回',run:H.close},{label:mode==='retry'?'确认重试':'确认取消',primary:true,run:safe(async()=>{
+        if(originality){
+          if(!$('console-originality-accepted').checked)throw new Error('请先确认本次原创声明须知');
+          await H.request('/jobs/'+job.id+'/originality-approval',{method:'POST',body:{accepted:true}});
+        }
+        await H.request('/jobs/'+job.id+'/action',{method:'POST',body:{action:mode}});H.close();await H.refresh();
+      })}]);
+    }
   }
   async function data(pane){
     const f=fields.data,ticket=++epoch;

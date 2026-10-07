@@ -4,6 +4,7 @@ Only semantic controls and the pinned uploader's observed Semi radio markup are
 accepted. A changed or ambiguous platform form requires input, never a fallback
 to public visibility, a different declaration, or a draft submission.
 """
+import asyncio
 import re
 
 
@@ -58,10 +59,28 @@ async def checked(node):
     return await node.evaluate('''el => {
         const control = el.matches('input[type=radio],input[type=checkbox]') ? el
             : el.querySelector('input[type=radio],input[type=checkbox]');
+        // The observed Douyin video declaration dialog keeps its input radios
+        // unchecked and commits selection on Semi's enclosing label instead.
+        // Accept only this exact component state, scoped to the chosen option;
+        // declaration() still reopens the saved dialog to verify persistence.
+        const semi = el.matches('label.semi-radio') ? el : el.closest('label.semi-radio');
+        if (semi && semi.querySelectorAll('input[type=radio]').length===1
+            && semi.classList.contains('semi-radio-checked')) return true;
         if (control) return control.checked;
         const value=el.getAttribute('aria-checked') ?? el.getAttribute('aria-pressed');
         return value==='true' ? true : value==='false' ? false : null;
     }''')
+
+
+async def wait_checked(node, expected=True):
+    # Native Vue/React controls commit after the click event returns. Poll the
+    # actual retained DOM state briefly; an unchanged/rejected choice still fails.
+    for attempt in range(21):
+        if await checked(node) is expected:
+            return True
+        if attempt < 20:
+            await asyncio.sleep(0.05)
+    return False
 
 
 async def radio(scope, labels):
@@ -183,22 +202,45 @@ async def select_choice(page, headings, labels):
     return verify
 
 
-async def toggle_or_choice(page, headings, labels, enabled, toggle_labels):
+async def toggle_or_choice(page, headings, labels, enabled, toggle_labels, confirm_agreement=None):
     toggle = None
     for role in ('switch', 'checkbox'):
         toggle = await unique(page.get_by_role(role, name=exact(toggle_labels)))
         if toggle is not None:
             break
     if toggle is None:
-        return await select_choice(page, headings, labels)
+        # XHS's observed originality card has a native checkbox without an
+        # accessible name. Its exact heading scopes this one switch; never
+        # choose an unlabelled checkbox from the entire publication form.
+        scope = await unique(page.locator('.custom-switch-card').filter(has=page.get_by_text(exact(headings))))
+        wrapper = None if scope is None else await unique(scope.locator('.d-switch'))
+        if wrapper is None or await wrapper.locator('input[type=checkbox]').count() != 1:
+            return await select_choice(page, headings, labels)
+        toggle = wrapper
+        if enabled and not await wrapper.locator('input[type=checkbox]').is_enabled():
+            raise SettingsError('平台已禁用原创声明，请检查视频时长等平台限制；尚未提交')
+        role = None
     state = await checked(toggle)
     if state is None:
         raise SettingsError(headings[0] + '无法核对，已停止提交')
     if state != enabled:
-        await toggle.click()
+        if role is None:
+            # Clicking this observed XHS card's input does not change its Vue
+            # state; the enclosing switch handles the actual user action.
+            await toggle.click()
+        else:
+            await toggle.click()
+    if await visible(page.get_by_text('我已阅读并同意', exact=False)):
+        if confirm_agreement is None:
+            raise SettingsError('原创声明需要在平台确认《原创声明须知》，尚未提交')
+        await confirm_agreement(page)
 
     async def verify():
-        target = await unique(page.get_by_role(role, name=exact(toggle_labels)))
+        if role is None:
+            card = await unique(page.locator('.custom-switch-card').filter(has=page.get_by_text(exact(headings))))
+            target = None if card is None else await unique(card.locator('.d-switch'))
+        else:
+            target = await unique(page.get_by_role(role, name=exact(toggle_labels)))
         if target is None or await checked(target) != enabled:
             raise SettingsError(headings[0] + '未保留所选设置，已停止提交')
     await verify()
@@ -238,8 +280,35 @@ async def declaration(page, platform, value):
     labels = tuple(dict.fromkeys((value, value.replace('，', ','), value.replace('，', ''), value.replace('AI', 'ai'))))
     entries = ('请选择自主声明', '请选择声明类型', '添加自主声明', '自主声明', '作品声明') if platform == 'douyin' else ('添加内容类型声明', '内容类型声明')
 
+    if platform == 'xhs':
+        # Observed native XHS declaration select commits immediately. The same
+        # value also appears in the note preview, so read back only the select.
+        native = await unique(page.locator('.d-select-main').filter(
+            has=page.get_by_text(exact((*entries, *labels)))))
+        if native is not None:
+            selected = await unique(native.locator('.d-select-description'))
+            if selected is None or (await selected.inner_text()).strip() not in labels:
+                await native.click()
+                option = page.locator('.d-option-name').filter(has_text=exact(labels))
+                await option.wait_for(state='visible', timeout=8000)
+                await (await unique(option)).click()
+
+            async def verify_native():
+                control = await unique(page.locator('.d-select-main').filter(
+                    has=page.locator('.d-select-description').filter(has_text=exact(labels))))
+                if control is None:
+                    raise SettingsError('平台未保留所选声明，已停止提交')
+            await verify_native()
+            return verify_native
+
     async def open_dialog():
-        entry = await unique(page.get_by_text(exact(entries)))
+        entry = None
+        # Prefer an explicit placeholder over the neighbouring same-named
+        # field heading. Duplicates of one candidate still stop submission.
+        for candidate in entries:
+            entry = await unique(page.get_by_text(candidate, exact=True))
+            if entry is not None:
+                break
         if entry is None:
             # A saved declaration can replace the initial placeholder.
             entry = await unique(page.get_by_text(exact(labels)))
@@ -263,7 +332,7 @@ async def declaration(page, platform, value):
     if option is None:
         raise SettingsError('平台没有可核对的所选声明，已停止提交')
     await option.click()
-    if await checked(option) is not True:
+    if not await wait_checked(option):
         raise SettingsError('平台未选中所选声明，已停止提交')
     await confirm(dialog)
 
@@ -272,14 +341,14 @@ async def declaration(page, platform, value):
         # does not prove that the platform retained a declaration.
         current = await open_dialog()
         chosen = await radio(current, labels)
-        if chosen is None or await checked(chosen) is not True:
+        if chosen is None or not await wait_checked(chosen):
             raise SettingsError('平台未保留所选声明，已停止提交')
         await confirm(current)
     await verify()
     return verify
 
 
-async def apply_settings(page, platform, post):
+async def apply_settings(page, platform, post, confirm_originality=None):
     validate_settings(platform, post)
     checks = []
     label = ''
@@ -289,7 +358,7 @@ async def apply_settings(page, platform, post):
             checks.append((label, await declaration(page, platform, post['declaration'])))
         if post.get('originality'):
             label = '原创设置'
-            checks.append((label, await toggle_or_choice(page, ('原创声明', '声明原创', '类型'), ORIGINALITY[post['originality']], post['originality'] == 'original', ('声明原创', '原创声明'))))
+            checks.append((label, await toggle_or_choice(page, ('原创声明', '声明原创', '类型'), ORIGINALITY[post['originality']], post['originality'] == 'original', ('声明原创', '原创声明'), confirm_originality)))
         if post.get('downloadPermission'):
             label = '允许保存视频'
             checks.append((label, await toggle_or_choice(page, ('保存权限', '允许保存视频', '允许下载'), DOWNLOAD[post['downloadPermission']], post['downloadPermission'] == 'allow', ('允许保存视频', '允许他人保存视频', '允许下载'))))
