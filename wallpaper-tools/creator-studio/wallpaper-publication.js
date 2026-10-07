@@ -103,14 +103,19 @@
       let uploaded=this.record.uploads[cacheKey];
       if(uploaded?.result&&purpose!=='PARALLAX_ZIP'){
         const current=await api('/assets/'+uploaded.result.id);
-        if(current.validationStatus!=='READY'||current.sha256!==sha256)throw new Error('已上传的文件未就绪或已失效，请重新导入资源');
+        if(current.validationStatus!=='READY'||current.sha256!==uploaded.result.sha256)throw new Error('已上传的文件未就绪或已失效，请重新导入资源');
         return current;
       }
       if(uploaded?.result&&purpose==='PARALLAX_ZIP')return uploaded.result;
       if(!uploaded){uploaded={key:crypto.randomUUID(),purpose,sha256,filename,mimeType:file.type};this.record.uploads[cacheKey]=uploaded;await this.save();}
       const body=new FormData();body.append('file',file,filename);if(purpose!=='PARALLAX_ZIP')body.append('purpose',purpose);
       const result=await api(purpose==='PARALLAX_ZIP'?'/parallax-packages':'/assets',{method:'POST',body,headers:{'Idempotency-Key':uploaded.key}});
-      if(!/^[1-9][0-9]*$/.test(result.id)||result.sha256!==sha256||result.validationStatus!=='READY')throw new Error('后台未返回可用的正式文件，请检查素材后重试');
+      // Covers are optimized to WebP by the backend; its stored hash differs
+      // from the input hash used above for idempotency. Formal resources stay exact.
+      const validHash=purpose==='WALLPAPER_COVER'
+        ?/^[a-f0-9]{64}$/.test(result.sha256)&&result.mimeType==='image/webp'&&result.widthPx>0&&result.heightPx>0
+        :result.sha256===sha256;
+      if(!/^[1-9][0-9]*$/.test(result.id)||!validHash||result.validationStatus!=='READY')throw new Error('后台未返回可用的正式文件，请检查素材后重试');
       uploaded.result=result;await this.save();return result;
     }
     async submit(action,form,cover,resources){

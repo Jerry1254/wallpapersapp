@@ -31,7 +31,17 @@ public class CreatorWorkspaceService {
     static String collection(String value){if(!COLLECTIONS.contains(value))throw invalid("无效的数据集合");return value;}
     JsonNode decode(String value){try{return json.readTree(value);}catch(Exception e){throw new IllegalStateException("Invalid creator payload",e);}}
     static String hash(String value){try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));}catch(Exception e){throw new IllegalStateException(e);}}
-    public Map<String,Object> records(String collection,String after,int limit){if(limit<1||limit>25)throw invalid("分页数量需为 1–25");if(!after.isEmpty())id(after);var rows=db.query("SELECT * FROM creator_workspace_record WHERE collection_name=? AND id>? ORDER BY id LIMIT ?",this::record,collection(collection),after,limit);Map<String,Object> result=new LinkedHashMap<>();result.put("items",rows);result.put("nextCursor",rows.size()==limit?((JsonNode)rows.get(rows.size()-1).get("record")).path("id").asText():null);return result;}
+    public Map<String,Object> records(String collection,String after,int limit){
+        if(limit<1||limit>25)throw invalid("分页数量需为 1–25");
+        if(!after.isEmpty())id(after);
+        collection(collection);
+        // Only sort lightweight IDs. Sorting SELECT * can put multi-megabyte
+        // JSON snapshots into MySQL's sort buffer and fail even on a one-row page.
+        var ids=db.queryForList("SELECT id FROM creator_workspace_record WHERE collection_name=? AND id>? ORDER BY id LIMIT ?",String.class,collection,after,limit);
+        var rows=ids.stream().map(key->record(collection,key)).toList();
+        Map<String,Object> result=new LinkedHashMap<>();result.put("items",rows);
+        result.put("nextCursor",ids.size()==limit?ids.get(ids.size()-1):null);return result;
+    }
     private Map<String,Object> record(ResultSet r,int row)throws SQLException{return Map.of("record",decode(r.getString("payload")),"version",r.getLong("lock_version"));}
     public Map<String,Object> record(String collection,String id){return db.query("SELECT * FROM creator_workspace_record WHERE collection_name=? AND id=?",this::record,collection(collection),id(id)).stream().findFirst().orElseThrow(()->new ApiException(HttpStatus.NOT_FOUND,"RESOURCE_NOT_FOUND","创作记录不存在"));}
     @Transactional
