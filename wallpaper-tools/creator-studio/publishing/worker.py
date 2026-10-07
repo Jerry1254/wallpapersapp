@@ -54,45 +54,56 @@ async def login(request):
     vault = SessionVault(request['runtime'], account['id'])
     if account['platform'] == 'douyin':
         from uploader.douyin_uploader import main as upstream
-        setup = upstream.douyin_setup
     else:
         from uploader.xiaohongshu_uploader import main as upstream
-        setup = upstream.xiaohongshu_setup
     from loguru import logger
     logger.remove()
-    # Use the library's QR login, without injecting evasion scripts or printing QR secrets.
-    async def unchanged(context):
-        return context
-    upstream.set_init_script = unchanged
+    # Reuse SAU's QR selectors, keeping sign-in and identity verification in the
+    # same Chrome context. Do not import an unrelated user's browser profile.
     upstream.print_terminal_qrcode = lambda *a, **kw: None
     async def qr(info):
         image_path = Path(info['image_path'])
         if image_path.exists() and image_path.stat().st_size <= 1024 * 1024:
             emit('qr', qr='data:image/png;base64,' + base64.b64encode(image_path.read_bytes()).decode())
-    emit('progress',message='正在检查登录；如出现短信或身份验证，请在平台窗口完成')
+    emit('progress',message='正在打开本机 Chrome；扫码窗口等待最多10分钟，如有短信或身份验证，请在平台窗口完成')
+    from patchright.async_api import async_playwright
     with tempfile.TemporaryDirectory(dir=request['runtime'], prefix='login-') as folder:
         path = Path(folder) / 'state.json'
-        if request['mode'] == 'check':
-            path.write_text(json.dumps(vault.read()))
-        value = await setup(str(path), handle=request['mode'] == 'login', return_detail=True, qrcode_callback=qr, headless=request['mode'] != 'login')
-        if value.get('success') and path.exists():
-            from patchright.async_api import async_playwright
-            emit('progress',message='登录已完成，正在核对平台账号身份…')
-            async with async_playwright() as runtime:
-                browser=await runtime.chromium.launch(headless=True,channel='chromium')
-                try:
-                    context=await browser.new_context(storage_state=json.loads(path.read_text()))
-                    identity=await read_identity(await context.new_page(),account['platform'],account.get('platformUserId'))
-                    # The backend checks duplicate/mismatched identities before any
-                    # replacement credentials are committed to the encrypted vault.
-                    emit('identity',identity=identity)
-                    if (await asyncio.to_thread(sys.stdin.readline)).strip()!='ok':
-                        raise NeedsInput('账号身份未通过核对，原登录信息未被覆盖')
-                    vault.save(await context.storage_state())
-                finally:
-                    await browser.close()
-            return {'status':'ready','identity':identity,'message':'登录完成，已核对平台账号：'+(identity['nickname'] or identity['platformUserId'].split(':',1)[1])}
-        return {'status': 'expired', 'message': '登录未完成或已过期，请重新扫码；如有验证，请在浏览器窗口完成'}
+        async with async_playwright() as runtime:
+            try:
+                browser=await runtime.chromium.launch(headless=request['mode'] != 'login',channel='chrome')
+            except Exception as error:
+                raise NeedsInput('无法打开本机 Chrome，请确认已安装并关闭异常窗口后重新登录') from error
+            try:
+                context=await browser.new_context(**({'storage_state':vault.read()} if request['mode']=='check' else {}))
+                page=await context.new_page()
+                if request['mode']=='login':
+                    url='https://creator.douyin.com/' if account['platform']=='douyin' else 'https://creator.xiaohongshu.com/login'
+                    await page.goto(url,wait_until='domcontentloaded',timeout=90000)
+                    if account['platform']=='douyin':
+                        info=await upstream._save_douyin_qrcode(page,str(path),qrcode_callback=qr)
+                        result=await upstream._wait_for_douyin_login(page,str(path),info,qrcode_callback=qr,poll_interval=2,max_checks=300)
+                        if not result.get('success'):
+                            return {'status':'expired','message':'等待扫码登录超时，请重新打开登录；如有短信或身份验证，请在 Chrome 窗口完成'}
+                    else:
+                        await upstream._save_xhs_qrcode(page,str(path),qrcode_callback=qr)
+                        for _ in range(300):
+                            if await upstream._is_xhs_login_completed(page):
+                                break
+                            await asyncio.sleep(2)
+                        else:
+                            return {'status':'expired','message':'等待小红书扫码登录超时，请重新打开登录'}
+                emit('progress',message='登录已完成，正在同一 Chrome 窗口核对平台账号身份…')
+                identity=await read_identity(page,account['platform'],account.get('platformUserId'))
+                # Identity must be accepted by the backend before credentials replace
+                # the encrypted account session. No plaintext storage-state file.
+                emit('identity',identity=identity)
+                if (await asyncio.to_thread(sys.stdin.readline)).strip()!='ok':
+                    raise NeedsInput('账号身份未通过核对，原登录信息未被覆盖')
+                vault.save(await context.storage_state())
+                return {'status':'ready','identity':identity,'message':'登录完成，已核对平台账号：'+(identity['nickname'] or identity['platformUserId'].split(':',1)[1])}
+            finally:
+                await browser.close()
 
 
 async def wait_new_cover(page, selector, previous):
@@ -182,7 +193,7 @@ async def publish(request):
     try:
         validate_settings(platform, post)
         async with async_playwright() as runtime:
-            browser = await runtime.chromium.launch(headless=False, channel='chromium')
+            browser = await runtime.chromium.launch(headless=False, channel='chrome')
             context = await browser.new_context(storage_state=saved_state)
             page = await context.new_page()
             page.set_default_timeout(30000)
@@ -282,7 +293,7 @@ async def analytics(request):
               'comments': ['累计评论', '总评论数']}
     values = {}
     async with async_playwright() as runtime:
-        browser = await runtime.chromium.launch(headless=True, channel='chromium')
+        browser = await runtime.chromium.launch(headless=True, channel='chrome')
         try:
             context = await browser.new_context(storage_state=vault.read())
             page = await context.new_page()
@@ -319,7 +330,7 @@ async def analytics(request):
 async def main(request):
     try:
         operation = publish(request) if request['mode'] == 'publish' else analytics(request) if request['mode'] == 'analytics' else login(request)
-        result = await asyncio.wait_for(operation, timeout=1800 if request['mode'] == 'publish' else 420)
+        result = await asyncio.wait_for(operation, timeout=1800 if request['mode'] == 'publish' else 900 if request['mode'] == 'login' else 420)
     except (NeedsInput,IdentityError,SettingsError) as error:
         result = {'status': 'needs_input', 'message': str(error)}
     except asyncio.TimeoutError:
