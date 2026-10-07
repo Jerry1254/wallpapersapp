@@ -12,6 +12,7 @@ import com.qingjing.wallpaper.asset.application.StoredContent;
 import com.qingjing.wallpaper.asset.application.StoredObject;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,6 +21,8 @@ import java.util.HexFormat;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class LocalFileStorageTest {
 
@@ -62,6 +65,50 @@ class LocalFileStorageTest {
         try (var stagedFiles = Files.list(root.resolve(".staging"))) {
             assertThat(stagedFiles).isEmpty();
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {2L * 1024 * 1024, 20L * 1024 * 1024, 32L * 1024 * 1024,
+            50L * 1024 * 1024, 100L * 1024 * 1024, 200L * 1024 * 1024,
+            2L * 1024 * 1024 * 1024})
+    void mediaBoundariesStreamWithoutIntegerOverflowAndCleanUpRejectedFiles(long limit) throws Exception {
+        Path root = temporaryDirectory.resolve("media-boundary");
+        LocalFileStorage storage = new LocalFileStorage(root);
+        // Exercise full byte streams, including the 2 GiB video boundary, without allocating them in RAM.
+        StagedObject accepted = storage.stage(zeroes(limit), limit);
+        assertThat(accepted.sizeBytes()).isEqualTo(limit);
+        try (StoredContent content = storage.openStaged(accepted)) {
+            assertThat(content.sizeBytes()).isEqualTo(limit);
+            content.inputStream().skipNBytes(limit - 1);
+            assertThat(content.inputStream().read()).isZero();
+            assertThat(content.inputStream().read()).isEqualTo(-1);
+        }
+        storage.discard(accepted);
+        assertThatThrownBy(() -> storage.stage(zeroes(limit + 1), limit))
+                .isInstanceOfSatisfying(FileStorageException.class,
+                        e -> assertThat(e.code()).isEqualTo(FILE_TOO_LARGE));
+        try (var files = Files.list(root.resolve(".staging"))) {
+            assertThat(files).isEmpty();
+        }
+    }
+
+    private InputStream zeroes(long size) {
+        return new InputStream() {
+            private long remaining = size;
+            @Override public int read() {
+                if (remaining == 0) return -1;
+                remaining--;
+                return 0;
+            }
+            @Override public int read(byte[] bytes, int offset, int length) {
+                if (length == 0) return 0;
+                if (remaining == 0) return -1;
+                int count = (int) Math.min(remaining, length);
+                java.util.Arrays.fill(bytes, offset, offset + count, (byte) 0);
+                remaining -= count;
+                return count;
+            }
+        };
     }
 
     @Test
