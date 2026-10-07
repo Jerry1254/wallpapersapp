@@ -5,9 +5,9 @@
   let connected=false,projectId=null,ui={},connecting=null;
   const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   function changed(){document.dispatchEvent(new CustomEvent('creator-connection',{detail:{connected}}));const button=document.getElementById('creator-connection');if(button){button.textContent=connected?'本地后台已连接':'连接本地后台';button.classList.toggle('save-error',!connected);}}
-  async function request(path,{method='GET',data,body,headers={},signal}={}){
+  async function request(path,{method='GET',data,body,headers={},signal,keepalive=false}={}){
     let response;
-    try{response=await fetch(prefix+path,{method,credentials:'same-origin',headers:{'X-Creator-Request':'1',...(data!==undefined?{'Content-Type':'application/json'}:{}),...headers},body:data!==undefined?JSON.stringify(data):body,signal});}
+    try{response=await fetch(prefix+path,{method,credentials:'same-origin',headers:{'X-Creator-Request':'1',...(data!==undefined?{'Content-Type':'application/json'}:{}),...headers},body:data!==undefined?JSON.stringify(data):body,signal,keepalive});}
     catch(error){if(error.name==='AbortError')throw error;throw new Error('本地创作服务无法连接，请启动创作台');}
     if(!response.ok){const n=await response.json().catch(()=>({}));if(response.status===401){connected=false;changed();}const detail=n.error&&typeof n.error==='object'?n.error:n;const error=new Error(detail.message||(typeof n.error==='string'?n.error:'创作数据未保存，请重试'));error.status=response.status;error.code=detail.code;error.details=detail.details;error.requestId=detail.requestId;throw error;}
     if(path.endsWith('/content'))return response.blob();return response.json();

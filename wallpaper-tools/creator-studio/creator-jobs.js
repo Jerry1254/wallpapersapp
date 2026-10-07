@@ -3,9 +3,14 @@
   'use strict';
   const B=window.CreatorBackend,esc=B.escape;
   let ui={},timer,viewRevision=0;
+  const preparing=new Set();
+  window.addEventListener('pagehide',()=>{
+    for(const id of preparing)B.request('/tasks/'+id+'/action',{method:'POST',keepalive:true,data:{action:'fail',message:'准备画面时页面已关闭，请重新打开工程生成'}}).catch(()=>{});
+    preparing.clear();
+  });
   async function snapshot(w,resolve){const input=JSON.parse(JSON.stringify(w));function clean(value){if(!value||typeof value!=='object')return;for(const key of Object.keys(value)){if(['cursor','view','timelineZoom','selection','selectedClipId','selectedSurface','surfaceSelection','canvasHistory','templateId','templateVersion'].includes(key))delete value[key];else clean(value[key]);}}clean(input);delete input.id;const ids=new Set([...Object.values(w.slots||{}),...window.GalleryCore.assets(w),...window.ContentCore.all(w).map(c=>c.assetId)].filter(Boolean)),sources=[];for(const id of [...ids].sort()){const asset=resolve(id);if(!asset)throw new Error('生成素材已丢失，请重新导入');sources.push({id,hash:asset.file?await B.hash(asset.file):asset.demo?'demo-v1-'+id:null});if(!sources.at(-1).hash)throw new Error('生成素材文件不可用');}return {rendererVersion:4,name:w.name,work:input,sources};}
-  async function begin(type,input,projectId=B.projectId){await B.requireConnection();if(!projectId)throw new Error('请先保存并打开项目');return B.request('/tasks',{method:'POST',data:{id:crypto.randomUUID(),projectId,type,input:JSON.parse(B.canonical(input))}});}
-  const action=(id,action,extra={})=>B.request('/tasks/'+id+'/action',{method:'POST',data:{action,...extra}});
+  async function begin(type,input,projectId=B.projectId){await B.requireConnection();if(!projectId)throw new Error('请先保存并打开项目');const task=await B.request('/tasks',{method:'POST',data:{id:crypto.randomUUID(),projectId,type,input:JSON.parse(B.canonical(input))}});if(task.state==='PREPARING')preparing.add(task.id);return task;}
+  async function action(id,action,extra={}){const task=await B.request('/tasks/'+id+'/action',{method:'POST',data:{action,...extra}});if(task.state!=='PREPARING')preparing.delete(id);return task;}
   async function result(task){const files=[];for(const id of task.outputMediaIds)files.push(await B.media(id));return files;}
   const abort=signal=>{if(signal?.aborted)throw new DOMException('已取消','AbortError');};
   async function wait(task,signal,progress){
