@@ -1,4 +1,10 @@
 const test=require('node:test'),assert=require('node:assert/strict'),C=require('./content-core.js');
+test('manual timing lands on project frames without exceeding source bounds',()=>{
+  for(const fps of C.frameRates){const w={fps};for(const value of [.04,.137,2.013])assert(Math.abs(C.snapTime(w,value)*fps-Math.round(value*fps))<1e-7);
+    assert(C.snapTime(w,2.013,0,2.013)<=2.013);assert.equal(C.snapTime(w,0,1/fps),1/fps);assert.equal(C.snapTime(w,30,0,30-1/fps),30-1/fps);
+  }
+  assert.equal(C.snapTime({fps:30},.04),1/30);
+});
 test('shared source replacement updates all references without changing layout or speed',()=>{const w=C.create('video'),before=C.copy(w.tracks);C.replace(w,'motion','new-video');const clips=C.all(w).filter(c=>c.slot==='motion');assert.equal(clips.length,2);assert(clips.every(c=>C.resolve(w,c)==='new-video'));assert.deepEqual(w.tracks,before);assert.equal(w.tracks.filter(t=>t.kind==='audio').length,0);});
 test('templates keep fixed overlays but clear source bindings; instances are independent',()=>{const w=C.create('gallery');w.slots.wallpaper='old-image';w.generated={assetIds:['old-finished-image']};w.pages[0].clips.push(C.clip('full',null,0,1,{assetId:'frame-png'}));const t=C.template(w,'my mockup'),a=C.instantiate(t,{wallpaper:'new-image'}),b=C.instantiate(t,{wallpaper:'other-image'});assert.equal(t.snapshot.slots.wallpaper,null);assert.equal(t.snapshot.generated,undefined);assert.equal(a.generated,undefined);assert.equal(a.pages[0].clips.at(-1).assetId,'frame-png');a.pages[0].clips[0].x=23;assert.equal(b.pages[0].clips[0].x,50);assert.equal(t.snapshot.pages[0].clips[0].x,50);assert.notEqual(a.id,b.id);});
 test('edge trimming removes frames and preserves speed; split preserves source continuity',()=>{const w=C.create('video'),c=w.tracks[1].clips[0];c.speed=2;c.sourceIn=.5;const before=C.copy(c);C.trim(w,c,'start',.5,before);assert.equal(c.speed,2);assert.equal(c.sourceIn,1.5);assert.equal(c.start,2.5);assert.equal(c.duration,6.5);w.selectedClipId=c.id;assert(C.split(w,4));const right=C.selected(w);assert.equal(right.sourceIn,4.5);assert.equal(right.speed,2);assert.equal(c.duration+right.duration,6.5);});

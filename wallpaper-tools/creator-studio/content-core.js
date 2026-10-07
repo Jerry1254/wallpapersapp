@@ -8,6 +8,10 @@
   const frameRates=[24,25,30,50,60];
   const fps=w=>frameRates.includes(Number(w?.fps))?Number(w.fps):30;
   const frame=w=>1/fps(w);
+  const snapTime=(w,value,min=0,max=maxDuration)=>{
+    const rate=fps(w),first=Math.ceil(min*rate-1e-7),last=Math.floor(max*rate+1e-7);
+    return clamp(Math.round(value*rate),first,Math.max(first,last))/rate;
+  };
   const end=w=>Math.max(0,...w.tracks.flatMap(t=>t.clips.map(c=>c.start+c.duration)));
   const extent=w=>Math.min(maxDuration,Math.max(w.duration+2,end(w)+2,5));
   function videoSettings(w){
@@ -115,5 +119,5 @@
     if(!value.drafts.some(w=>w.id===value.activeId))value.activeId=value.drafts[0]?.id||null;
     return value;
   }
-  const api={id,copy,clamp,maxDuration,frameRates,fps,frame,videoSettings,clipStyle,syncDuration,outputSize,outputFrames,end,extent,trackOf,addTrack,pruneTracks,freeStart,place,clip,create,all,selected,active,resolve,sourceTime,replace,split,trim,template,instantiate,normalize};root.ContentCore=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
+  const api={id,copy,clamp,maxDuration,frameRates,fps,frame,snapTime,videoSettings,clipStyle,syncDuration,outputSize,outputFrames,end,extent,trackOf,addTrack,pruneTracks,freeStart,place,clip,create,all,selected,active,resolve,sourceTime,replace,split,trim,template,instantiate,normalize};root.ContentCore=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);

@@ -77,6 +77,7 @@
       input.onchange=()=>{
         let value=input.type==='number'?input.valueAsNumber:input.value;
         if(input.type==='number'&&(!Number.isFinite(value)||input.min!==''&&value<Number(input.min)||input.max!==''&&value>Number(input.max))){B.toast('请输入允许范围内的数值');renderInspector();return;}
+        if(['start','duration','sourceIn'].includes(key))value=C.snapTime(w,value,Number(input.min),Number(input.max));
         const before=C.copy(c),beforeBox=R.geometry(w,c);if(key==='fontWeight')value=Number(value);if(input.dataset.contentUnit==='percent')value/=100;
         if(input.dataset.contentUnit==='px'){
           const sx=w.width/100,sy=w.height/100;if(c.presentation==='phone'){const width=key==='w'?Math.max(1,value-sx):Math.max(1,(value-sx)*.46);c.w=width/sx;c.h=width/.46/sy;}else c[key]=value/(key==='w'?w.width:w.height)*100;
