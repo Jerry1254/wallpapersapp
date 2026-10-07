@@ -4,8 +4,8 @@ import io
 import json
 from pathlib import Path
 import unittest
-from unittest.mock import Mock
-from .bridge import PublishingBridge
+from unittest.mock import Mock, patch
+from .bridge import PublishingBridge, BridgeError
 
 
 class Handler:
@@ -96,6 +96,36 @@ class OperationsTests(unittest.TestCase):
         bad = Handler('/creator-studio/api/distribution/jobs/page?page=1&page=2', 'CREATOR_PUBLISH_SESSION=publish-for-test', 'GET')
         self.bridge.handle(bad)
         self.assertEqual(bad.status, 422)
+
+    def test_backend_validation_errors_keep_the_reason_and_status(self):
+        bridge = PublishingBridge()
+        for body, message in (
+            ({'error': {'code': 'INVALID_REQUEST', 'message': '开始日期必须早于结束日期'}}, '开始日期必须早于结束日期'),
+            ({'detail': '请选择未来的时间'}, '请选择未来的时间'),
+            ({'error': None}, '后台请求失败'),
+        ):
+            response = Mock(status=422)
+            response.read.return_value = json.dumps(body).encode()
+            connection = Mock()
+            connection.getresponse.return_value = response
+            with patch('http.client.HTTPConnection', return_value=connection):
+                with self.assertRaises(BridgeError) as caught:
+                    bridge.api('GET', 'distribution/overview')
+            self.assertEqual(str(caught.exception), message)
+            self.assertEqual(caught.exception.status, 422)
+            connection.close.assert_called_once()
+
+    def test_nested_expiry_error_clears_only_the_active_session(self):
+        bridge = PublishingBridge()
+        bridge.session = {'cookie': 'test-cookie', 'csrf': 'test-csrf'}
+        response = Mock(status=401)
+        response.read.return_value = b'{"error":{"message":"Session expired"}}'
+        connection = Mock()
+        connection.getresponse.return_value = response
+        with patch('http.client.HTTPConnection', return_value=connection):
+            with self.assertRaisesRegex(BridgeError, 'Session expired'):
+                bridge.api('GET', 'distribution/overview')
+        self.assertIsNone(bridge.session)
 
 
 if __name__ == '__main__': unittest.main()

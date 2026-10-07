@@ -104,7 +104,10 @@ class PublishingBridge:
             if response.status >= 400:
                 if response.status == 401 and current is self.session:
                     self.session = None
-                raise BridgeError(value.get('message') or value.get('detail') or '后台请求失败', response.status)
+                detail = value.get('error', value) if isinstance(value, dict) else {}
+                if not isinstance(detail, dict):
+                    detail = {}
+                raise BridgeError(detail.get('message') or detail.get('detail') or '后台请求失败', response.status)
             if path == 'sessions' and method == 'POST':
                 return value, response.getheader('Set-Cookie', '').split(';')[0]
             return value
