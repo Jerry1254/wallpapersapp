@@ -179,4 +179,31 @@ class CreatorPublicationIntegrationIT {
         assertThatThrownBy(()->uploads.upload(new ByteArrayInputStream(new byte[]{9}),"same.png","image/png",AssetPurpose.STATIC_IMAGE,1,key))
                 .isInstanceOfSatisfying(ApiException.class,e->assertThat(e.code()).isEqualTo("IDEMPOTENCY_CONFLICT"));
     }
+    @Test void missingCoverAndUnavailableAssetsRejectWithoutLeavingQueuedTasks()throws Exception {
+        int before=jdbc.queryForObject("SELECT COUNT(*) FROM creator_wallpaper_publication",Integer.class);
+        var absent=input("PUBLISH");((ObjectNode)absent.path("metadata")).remove("coverAssetId");
+        assertThatThrownBy(()->service.submit(absent,UUID.randomUUID().toString(),1))
+                .isInstanceOfSatisfying(ApiException.class,e->assertThat(e.code()).isEqualTo("VALIDATION_FAILED"));
+        for(String id:List.of(cover,source)) {
+            for(String status:List.of("UPLOADING","VALIDATING","REJECTED")) {
+                jdbc.update("UPDATE asset SET validation_status=? WHERE id=?",status,Long.parseLong(id));
+                assertThatThrownBy(()->service.submit(input("PUBLISH"),UUID.randomUUID().toString(),1))
+                        .isInstanceOfSatisfying(ApiException.class,e->assertThat(e.code()).isEqualTo("ASSET_NOT_READY"));
+                assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM creator_wallpaper_publication",Integer.class)).isEqualTo(before);
+            }
+            jdbc.update("UPDATE asset SET validation_status='READY',deleted_at=UTC_TIMESTAMP(6) WHERE id=?",Long.parseLong(id));
+            assertThatThrownBy(()->service.submit(input("PUBLISH"),UUID.randomUUID().toString(),1))
+                    .isInstanceOfSatisfying(ApiException.class,e->assertThat(e.code()).isEqualTo("ASSET_NOT_READY"));
+            jdbc.update("UPDATE asset SET deleted_at=NULL WHERE id=?",Long.parseLong(id));
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM creator_wallpaper_publication",Integer.class)).isEqualTo(before);
+    }
+    @Test void assetRevokedAfterQueuingStopsPublicationBeforeCreatingAWallpaper()throws Exception {
+        var queued=service.submit(input("PUBLISH"),UUID.randomUUID().toString(),1);
+        jdbc.update("UPDATE asset SET validation_status='REJECTED' WHERE id=?",Long.parseLong(source));
+        service.runNext();var result=service.get(Long.parseLong(queued.taskId()));
+        assertThat(result.state()).isEqualTo("NEEDS_INPUT");assertThat(result.wallpaperId()).isNull();
+        assertThat(result.errorCode()).isEqualTo("ASSET_NOT_READY");
+        verifyNoInteractions(packages);
+    }
 }
