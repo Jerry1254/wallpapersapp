@@ -197,7 +197,7 @@ public final class DynamicPhotoMediaProcessor {
                     ffprobe, "-v", "error", "-protocol_whitelist", "file,pipe"));
             if (countFrames) command.add("-count_frames");
             command.addAll(List.of(
-                    "-show_entries", "stream=codec_name,codec_type,codec_tag_string,width,height,pix_fmt,avg_frame_rate,nb_read_frames:stream_tags=rotate:stream_side_data=rotation:format=duration:format_tags=com.apple.quicktime.content.identifier",
+                    "-show_streams", "-show_format",
                     "-of", "json", input.toString()));
             run(command, output, PROBE_TIMEOUT);
             if (Files.size(output) > 128 * 1024) throw formatInvalid();

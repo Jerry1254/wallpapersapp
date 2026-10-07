@@ -232,6 +232,45 @@ class PackageMediaInspectorTest {
         } finally { Files.deleteIfExists(source); }
     }
 
+    @Test
+    void rejectsDynamicPhotoSourceWithDisplayMatrixRotation() throws Exception {
+        Assumptions.assumeTrue(canRun(ffmpeg, "-version") && canRun(ffprobe, "-version"),
+                "FFmpeg and FFprobe are required");
+        Path source = Files.createTempFile("qj-rotation-source-", ".mp4");
+        Path rotated = Files.createTempFile("qj-rotation-metadata-", ".mp4");
+        try {
+            var create = new ProcessBuilder(ffmpeg, "-v", "error", "-y", "-nostdin",
+                    "-f", "lavfi", "-i", "testsrc2=size=64x96:rate=30", "-t", "2",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-threads", "1", source.toString())
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            assertThat(create.waitFor(30, TimeUnit.SECONDS)).isTrue();
+            assertThat(create.exitValue()).isZero();
+            // Set the track display matrix directly: FFmpeg versions differ in rotate-tag remux handling.
+            byte[] content = Files.readAllBytes(source);
+            int trackHeader = -1;
+            for (int index = 4; index < content.length - 100; index++) {
+                if (content[index] == 't' && content[index + 1] == 'k'
+                        && content[index + 2] == 'h' && content[index + 3] == 'd') {
+                    trackHeader = index + 4;
+                    break;
+                }
+            }
+            assertThat(trackHeader).isPositive();
+            var matrix = java.nio.ByteBuffer.wrap(content);
+            int matrixOffset = trackHeader + (content[trackHeader] == 1 ? 52 : 40);
+            int[] quarterTurn = {0, 65536, 0, -65536, 0, 0, 0, 0, 1073741824};
+            for (int index = 0; index < quarterTurn.length; index++) {
+                matrix.putInt(matrixOffset + index * 4, quarterTurn[index]);
+            }
+            Files.write(rotated, content);
+            var processor = new DynamicPhotoMediaProcessor(new ObjectMapper(), ffprobe, ffmpeg,
+                    "missing-MP4Box", "missing-heif-enc", "missing-exiftool");
+            assertThatThrownBy(() -> processor.movingPhoto(Files.readAllBytes(rotated)))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            failure -> assertThat(failure.code()).isEqualTo("DYNAMIC_SOURCE_FORMAT_INVALID"));
+        } finally { Files.deleteIfExists(source); Files.deleteIfExists(rotated); }
+    }
+
     private double probeDuration(byte[] content) throws Exception {
         Path input = Files.createTempFile("qj-live-photo-duration-", ".mov");
         Path output = Files.createTempFile("qj-live-photo-duration-", ".txt");
