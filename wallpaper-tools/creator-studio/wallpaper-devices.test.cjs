@@ -27,3 +27,14 @@ test('restoring editor state isolates the saved history from subsequent edits',(
   assert.equal(D.crop(original).x,7);
   assert.equal(D.normalize({deviceId:'missing',mode:'unknown'}).mode,'both');
 });
+test('4D screen selection and single-view mode describe the same visible screen',()=>{
+  const e=D.fresh();D.setPackagePreviewMode(e,'fold');
+  assert.equal(e.deviceId,'fold7');assert.equal(e.screenId,'inner');
+  D.choosePackagePreview(e,'fold7','cover');
+  assert.equal(e.mode,'phone');assert.equal(e.phoneScreen,'cover');
+  D.choosePackagePreview(e,'fold7','inner');assert.equal(e.mode,'fold');
+  D.choosePackagePreview(e,'iphone17pro','main');assert.equal(e.mode,'phone');
+  D.setPackagePreviewMode(e,'both');D.choosePackagePreview(e,'findn5','inner');assert.equal(e.mode,'both');
+  D.setPackagePreviewMode(e,'phone');assert.equal(e.deviceId,'iphone17pro');assert.equal(e.screenId,'main');
+  D.setPackagePreviewMode(e,'fold');assert.equal(e.deviceId,'findn5');assert.equal(e.screenId,'inner');
+});

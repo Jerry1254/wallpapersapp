@@ -95,7 +95,8 @@ public class CreatorPublicationService {
     public Request decode(JsonNode input) {
         if(input==null || !input.isObject() || write(input).getBytes(StandardCharsets.UTF_8).length>128*1024)throw invalid("请求必须是小于 128 KiB 的 JSON 对象");
         Request request;
-        try{request=mapper.readerFor(Request.class).with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).readValue(input);}
+        try{request=mapper.readerFor(Request.class).with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                .without(DeserializationFeature.ACCEPT_FLOAT_AS_INT).readValue(input);}
         catch(Exception e){throw invalid("请求字段或类型不符合创作台上架契约");}
         var violations=validator.validate(request);
         if(!violations.isEmpty())throw new ApiException(HttpStatus.BAD_REQUEST,"VALIDATION_FAILED","请求校验失败",violations.stream().map(v->new ApiException.ErrorDetail(v.getPropertyPath().toString(),v.getMessage())).toList());

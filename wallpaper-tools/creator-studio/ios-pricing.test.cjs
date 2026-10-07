@@ -16,6 +16,16 @@ test('accepts exactly the admin price list and charges the entered amount withou
 test('rejects missing, fractional, out-of-range and unsupported prices',()=>{
   for(const price of [null,undefined,NaN,Infinity,-1,0,3.5,11,13,17,29,31,'3'])assert.equal(Pricing.iosCreditPack(price),null);
 });
+test('price buttons move only between supported prices and recover invalid manual input',()=>{
+  const supported=[1,2,3,4,5,6,7,8,9,10,12,14,15,16,18,20,21,24,27,30];
+  for(let i=0;i<supported.length;i++){
+    assert.equal(Pricing.stepIosPrice(supported[i],1),supported[Math.min(i+1,supported.length-1)]);
+    assert.equal(Pricing.stepIosPrice(supported[i],-1),supported[Math.max(i-1,0)]);
+  }
+  assert.equal(Pricing.stepIosPrice(11,1),12);assert.equal(Pricing.stepIosPrice(11,-1),10);
+  assert.equal(Pricing.stepIosPrice(3.5,1),4);assert.equal(Pricing.stepIosPrice(3.5,-1),3);
+  assert.equal(Pricing.stepIosPrice(NaN,1),1);assert.equal(Pricing.stepIosPrice(NaN,-1),1);
+});
 test('uses credits for new products and preserves old product identifiers during migration',()=>{
   const fresh=Pricing.normalize();assert.equal(fresh.acquisitionMode,'CREDITS');assert.equal(fresh.credits,null);assert.equal(fresh.firstFreeEligible,true);assert.equal(fresh.enabled,true);
   const legacy=Pricing.normalize({productId:'com.qingjing.legacy',productIdLocked:true,enabled:false});assert.equal(legacy.acquisitionMode,'NON_CONSUMABLE');assert.equal(legacy.productId,'com.qingjing.legacy');assert.equal(legacy.productIdLocked,true);assert.equal(legacy.enabled,false);

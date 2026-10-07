@@ -494,6 +494,7 @@
   function changeDevice(id,screenId){
     pause();finishPendingAction();const d=Devices.device(id),spec=Devices.screen(d.id,screenId);
     if(state.product==='dynamic')Object.assign(profile(),{width:spec.width,height:spec.height});
+    else if(state.product==='4d')Devices.choosePackagePreview(currentView(),d.id,spec.id);
     else Devices.choose(currentView(),d.id,spec.id);
     renderWallpaper();if(state.product==='4d')scheduleSave();else commitAction(state.product==='dynamic'?`${platformNames[state.platform]} · 切换机型尺寸`:'切换静态裁剪尺寸');
   }
@@ -671,7 +672,7 @@
     const syncMode=()=>{const credits=$('wallpaper-ios-mode').value==='CREDITS';$('wallpaper-ios-price-field').hidden=!credits;$('wallpaper-ios-legacy-field').hidden=credits;syncPrice();};
     $('wallpaper-ios-mode').onchange=()=>{if($('wallpaper-ios-mode').value==='CREDITS'){$('wallpaper-ios-mode').querySelector('[value="NON_CONSUMABLE"]')?.remove();if(form.iosAcquisition.acquisitionMode!=='CREDITS'){$('ios-price-sync-status').textContent=Pricing.iosPriceSyncLabel({});}}syncMode();};
     $('wallpaper-ios-credits').oninput=syncPrice;
-    for(const [id,delta] of [['ios-price-minus',-1],['ios-price-plus',1]])$(id).onclick=()=>{const input=$('wallpaper-ios-credits');input.value=String(clamp(Number.isFinite(input.valueAsNumber)?input.valueAsNumber+delta:1,1,30));input.dispatchEvent(new Event('input',{bubbles:true}));};
+    for(const [id,delta] of [['ios-price-minus',-1],['ios-price-plus',1]])$(id).onclick=()=>{const input=$('wallpaper-ios-credits');input.value=String(Pricing.stepIosPrice(input.valueAsNumber,delta));input.dispatchEvent(new Event('input',{bubbles:true}));};
     syncMode();
     const syncSecondary=selected=>{const children=creationCategories.find(c=>c.id===$('wallpaper-category').value)?.children||[];$('wallpaper-subcategory').innerHTML='<option value="">请选择</option>'+children.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');$('wallpaper-subcategory').value=children.some(c=>c.id===selected)?selected:'';$('wallpaper-subcategory').disabled=!children.length;};
     syncSecondary(form.subcategoryId);
@@ -834,7 +835,7 @@
     document.addEventListener('click',e=>{if(devicePickerOpen&&!e.target.closest('.preview-controls')){devicePickerOpen=false;syncDevicePicker();}});
     document.addEventListener('keydown',e=>{if(devicePickerOpen&&e.key==='Escape'){e.preventDefault();devicePickerOpen=false;syncDevicePicker();$('device-picker-toggle').focus();}});
     $('preview-device').onchange=e=>changeDevice(e.target.value,Devices.device(e.target.value).kind==='fold'?'inner':null);$('preview-screen').onchange=e=>changeDevice($('preview-device').value,e.target.value);
-    $$('[data-view-mode]').forEach(button=>button.onclick=()=>{currentView().mode=button.dataset.viewMode;renderWallpaper();scheduleSave();});
+    $$('[data-view-mode]').forEach(button=>button.onclick=()=>{if(state.product==='4d')Devices.setPackagePreviewMode(currentView(),button.dataset.viewMode);else currentView().mode=button.dataset.viewMode;renderWallpaper();scheduleSave();});
     $$('[data-edit-screen]').forEach(button=>button.onclick=()=>{const e=state.staticEditor;changeDevice(button.dataset.editScreen==='fold'?e.foldId:e.phoneId,button.dataset.editScreen==='fold'?'inner':e.phoneScreen);});
     $('save-static').onclick=()=>saveStatic();$('download-static').onclick=()=>saveStatic(true);
     $('apply-thumbnail').onchange=e=>{const editor=state.staticEditor;state.thumbnail=e.target.checked?{sourceId:editor.assetId,key:cropKey(),deviceId:editor.deviceId,screenId:editor.screenId,crop:clone(Devices.crop(editor)),time:editor.times[editor.assetId]||0}:null;syncStaticCrop();commitAction(e.target.checked?'应用为壁纸缩略图':'取消壁纸缩略图');};

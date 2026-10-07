@@ -30,6 +30,15 @@
     else{editor.phoneId=d.id;editor.phoneScreen=s.id;}
     return crop(editor);
   }
+  function choosePackagePreview(editor,id,screenId){
+    choose(editor,id,screenId);
+    if(editor.mode!=='both')editor.mode=device(editor.deviceId).kind==='fold'&&editor.screenId==='inner'?'fold':'phone';
+  }
+  function setPackagePreviewMode(editor,mode){
+    editor.mode=mode;
+    if(mode==='fold')choose(editor,editor.foldId,'inner');
+    else if(mode==='phone')choose(editor,editor.phoneId,editor.phoneScreen);
+  }
   function normalize(value){
     const e={...fresh(),...value,crops:Object.fromEntries(Object.entries(value?.crops||{}).map(([k,v])=>[k,{...v}])),times:{...(value?.times||{})}};
     e.deviceId=device(e.deviceId).id;e.screenId=screen(e.deviceId,e.screenId).id;
@@ -37,6 +46,6 @@
     if(device(e.foldId).kind!=='fold')e.foldId='fold7';
     if(!['phone','fold','both'].includes(e.mode))e.mode='both';return e;
   }
-  const api={devices,device,screen,key,fresh,crop,choose,normalize};
+  const api={devices,device,screen,key,fresh,crop,choose,choosePackagePreview,setPackagePreviewMode,normalize};
   root.WallpaperDevices=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);

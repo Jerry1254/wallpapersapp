@@ -67,6 +67,18 @@ class CreatorPublicationTest {
         var input=body();input.put("environmentId","production");reject(input,"CREATOR_ENVIRONMENT_MISMATCH");
         input=body();input.put("rulesVersion","old");reject(input,"CREATOR_RULES_CHANGED");
     }
+    @Test void rejectsFractionalIntegerFieldsInsteadOfTruncatingThem()throws Exception {
+        for(String field:java.util.List.of("sortOrder","featuredRank")) {
+            var input=body();((ObjectNode)input.path("metadata")).put(field,1.5);
+            reject(input,"VALIDATION_FAILED");
+        }
+        var version=body();version.put("wallpaperId","10");version.put("expectedWallpaperVersion",1.5);
+        reject(version,"VALIDATION_FAILED");
+        var credits=body();credits.putObject("iosAcquisition").put("acquisitionMode","CREDITS").put("credits",3.5);
+        reject(credits,"VALIDATION_FAILED");
+        var whole=body();((ObjectNode)whole.path("metadata")).put("sortOrder",1);
+        assertThat(service.decode(whole).metadata().sortOrder()).isEqualTo(1);
+    }
     @Test void updateRequiresIdAndVersionTogetherAndDraftDoesNotNeedResources()throws Exception {
         var input=body();input.put("wallpaperId","10");reject(input,"VALIDATION_FAILED");
         input=body();input.put("expectedWallpaperVersion",7);reject(input,"VALIDATION_FAILED");
