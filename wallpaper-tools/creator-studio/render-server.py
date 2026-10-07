@@ -347,7 +347,9 @@ def render_content(payload, folder, cancelled=None):
             args += ['-an']
         output = folder / 'content.mp4'
         if direct:
-            args += ['-frames:v', str(int(frames)), '-c:v', 'copy']
+            # A copied video can reach its frame limit before filtered audio is
+            # emitted. Bound both streams with the output duration instead.
+            args += ['-c:v', 'copy']
         else:
             args += ['-vf', f'scale={int(width)}:{int(height)},setsar=1', '-frames:v', str(int(frames)),
                      '-r', str(fps), '-fps_mode', 'cfr', '-c:v', 'libx264', '-preset', 'veryfast']
