@@ -22,7 +22,7 @@ const category = { id: '20', name: '风景', slug: 'scenery' };
 const childCategory = { id: '21', name: '自然风光', slug: 'nature' };
 
 const detail = (
-  status: 'DRAFT' | 'PUBLISHED',
+  status: 'DRAFT' | 'PUBLISHED' | 'OFFLINE',
   version: number,
   variants: unknown[],
   cover = asset('1', 'cover.png')
@@ -384,6 +384,38 @@ describe('adminRepository.saveWallpaper', () => {
     await adminRepository.saveWallpaper(input, false);
     const patch = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH');
     expect(JSON.parse(String(patch?.[1]?.body))).toMatchObject({ featuredRank: 7, childCategoryId: null });
+  });
+  it.each(['PUBLISHED', 'OFFLINE'] as const)('有未发布历史时 %s 商品读取及重新发布仍使用当前正式资源', async (status) => {
+    setCsrfToken('csrf-token');
+    const variant = { id: '40', platform: 'UNIVERSAL', resourceType: 'STATIC_IMAGE', enabled: true, version: 0,
+      resourceVersions: [
+        { id: '51', versionNo: 2, status: 'READY', bindings: [
+          { id: '61', role: 'STATIC_IMAGE', ordinal: 0, asset: asset('3', 'historical.png') }
+        ] },
+        { id: '50', versionNo: 1, status: 'PUBLISHED', bindings: [
+          { id: '60', role: 'STATIC_IMAGE', ordinal: 0, asset: asset('2', 'published.png') }
+        ] }
+      ] };
+    const saved = detail(status, 2, [variant]);
+    const fetchMock = vi.fn(async (url: string, options: RequestInit = {}) => {
+      if (url.includes('/admin/wallpapers?')) return json({ items: [saved], page: { totalPages: 1 } });
+      if (url.includes('/secure-package') || url.includes('/resource-versions')) {
+        throw new Error('Existing published resource must be reused');
+      }
+      return json(saved);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const [input] = await adminRepository.wallpapers();
+    expect(input.resources.staticImage?.name).toBe('published.png');
+    await adminRepository.saveWallpaper(input, true);
+    const publish = fetchMock.mock.calls.find(([url]) => url.endsWith('/publish'));
+    expect(JSON.parse(String(publish?.[1]?.body))).toEqual({ resourceVersionIds: ['50'] });
+    await adminRepository.publishWallpaper('30');
+    const publications = fetchMock.mock.calls.filter(([url]) => url.endsWith('/publish'));
+    expect(publications).toHaveLength(2);
+    for (const [, options] of publications) {
+      expect(JSON.parse(String(options?.body))).toEqual({ resourceVersionIds: ['50'] });
+    }
   });
   it('按资源上传、草稿、变体、版本、发布的顺序完成静态壁纸闭环', async () => {
     setCsrfToken('csrf-token');

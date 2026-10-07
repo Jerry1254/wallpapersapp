@@ -1,5 +1,6 @@
 import dayjs from 'dayjs';
 import { iosAcquisitionMode, iosAcquisitionPayload } from '@/utils/iosAcquisition';
+import { currentResourceVersion } from '@/utils/resourceVersion';
 
 import type {
   AdminDashboard,
@@ -249,10 +250,9 @@ const flattenCategories = (items: ApiCategory[]): Category[] => items.flatMap((i
   ...flattenCategories(item.children || [])
 ]);
 
-const preferredVersion = (variant: ApiWallpaperVariant) => (
-  variant.resourceVersions.find((item) => item.status === 'READY')
-  || variant.resourceVersions.find((item) => item.status === 'PUBLISHED')
-  || variant.resourceVersions[0]
+const preferredVersion = (variant: ApiWallpaperVariant, preferPublished: boolean) => (
+  currentResourceVersion(variant.resourceVersions, preferPublished)
+  || [...variant.resourceVersions].sort((a, b) => b.versionNo - a.versionNo)[0]
 );
 
 const capabilityForVariant = (variant: Pick<ApiWallpaperVariant, 'platform' | 'resourceType'>): WallpaperCapability => {
@@ -272,7 +272,7 @@ const capabilityForVariant = (variant: Pick<ApiWallpaperVariant, 'platform' | 'r
 const resourcesFromApi = (value: ApiWallpaperDetail): WallpaperResources => {
   const resources: WallpaperResources = { cover: toResource(value.cover) };
   for (const variant of value.variants) {
-    const version = preferredVersion(variant);
+    const version = preferredVersion(variant, value.status !== 'DRAFT');
     if (!version) continue;
     if (version.sourcePackage) resources.parallaxPackage = toParallaxPackage(version.sourcePackage);
     for (const binding of version.bindings) {
@@ -402,10 +402,9 @@ const fetchWallpaper = async (id: string) => (
   await apiRequest<ApiWallpaperDetail>(`/admin/wallpapers/${id}`)
 ).data;
 
-const eligibleVersion = (variant: ApiWallpaperVariant) => (
+const eligibleVersion = (variant: ApiWallpaperVariant, preferPublished: boolean) => (
   variant.enabled
-    ? (variant.resourceVersions.find((item) => item.status === 'READY')
-      || variant.resourceVersions.find((item) => item.status === 'PUBLISHED'))
+    ? currentResourceVersion(variant.resourceVersions, preferPublished)
     : undefined
 );
 
@@ -588,7 +587,7 @@ export const adminRepository = {
         }
         if (!variant) throw new ApiError(500, 'INTERNAL_ERROR', '资源变体创建后未返回');
 
-        let version = eligibleVersion(variant);
+        let version = eligibleVersion(variant, detail.status !== 'DRAFT');
         const hasNewFiles = spec.parallaxPackage
           ? version?.sourcePackage?.id !== spec.parallaxPackage.packageId
           : spec.bindings.some((item) => item.resource?.nativeFile);
@@ -662,13 +661,13 @@ export const adminRepository = {
   async publishWallpaper(id: string) {
     const detail = await fetchWallpaper(id);
     for (const variant of detail.variants) {
-      const version = eligibleVersion(variant);
+      const version = eligibleVersion(variant, detail.status !== 'DRAFT');
       if (version?.status === 'READY' && (variant.platform === 'ANDROID' || variant.platform === 'UNIVERSAL') &&
           ['STATIC_IMAGE', 'VIDEO', 'LAYER_PARALLAX'].includes(variant.resourceType)) {
         await apiRequest<ApiResourceVersion>(`/admin/resource-versions/${version.id}/secure-package`, { method: 'POST', csrf: true });
       }
     }
-    const resourceVersionIds = detail.variants.map(eligibleVersion).filter(Boolean).map((item) => item!.id);
+    const resourceVersionIds = detail.variants.map((variant) => eligibleVersion(variant, detail.status !== 'DRAFT')).filter(Boolean).map((item) => item!.id);
     if (!resourceVersionIds.length) throw new ApiError(422, 'RESOURCE_VERSION_NOT_READY', '这张壁纸还没有可发布的资源版本');
     const published = (await apiRequest<ApiWallpaperDetail>(`/admin/wallpapers/${id}/publish`, {
       method: 'POST', headers: { 'If-Match': ifMatch(detail.version) }, body: jsonBody({ resourceVersionIds }), csrf: true

@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus';
 import { computed, reactive, ref, toRaw, watch } from 'vue';
 
 import ResourceFileField from '@/components/ResourceFileField.vue';
+import { currentResourceVersion } from '@/utils/resourceVersion';
 import { iosAcquisitionMode, iosCreditPrices } from '@/utils/iosAcquisition';
 import {
   wallpaperCapabilityLabels,
@@ -163,15 +164,14 @@ const resourceRows = computed(() => {
   if (hasCapability('universal_static')) rows.push({ label: '静态原图', ready: Boolean(form.resources.staticImage || hasExisting('universal_static')) });
   return rows;
 });
-const harmonyStatus = computed(() => form.variants
-  .find((variant) => variant.platform === 'HARMONYOS' && variant.resourceType === 'MOVING_PHOTO')
-  ?.resourceVersions.slice().sort((a, b) => b.versionNo - a.versionNo)[0]?.movingPhoto);
-const harmonyVersion = computed(() => form.variants
-  .find((variant) => variant.platform === 'HARMONYOS' && variant.resourceType === 'MOVING_PHOTO')
-  ?.resourceVersions.slice().sort((a, b) => b.versionNo - a.versionNo)[0]);
-const iosVersion = computed(() => form.variants
-  .find((variant) => variant.platform === 'IOS' && variant.resourceType === 'LIVE_PHOTO')
-  ?.resourceVersions.slice().sort((a, b) => b.versionNo - a.versionNo)[0]);
+const nativeVersion = (platform: string, type: string) => {
+  const versions = form.variants.find((variant) => variant.platform === platform && variant.resourceType === type)?.resourceVersions || [];
+  return currentResourceVersion(versions, form.status !== 'draft')
+    || [...versions].sort((a, b) => b.versionNo - a.versionNo)[0];
+};
+const harmonyVersion = computed(() => nativeVersion('HARMONYOS', 'MOVING_PHOTO'));
+const harmonyStatus = computed(() => harmonyVersion.value?.movingPhoto);
+const iosVersion = computed(() => nativeVersion('IOS', 'LIVE_PHOTO'));
 const iosStatus = computed(() => iosVersion.value?.livePhoto);
 const rebuildingLivePhoto = ref(false);
 const rebuildingMovingPhoto = ref(false);
