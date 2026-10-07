@@ -206,4 +206,32 @@ class CreatorPublicationIntegrationIT {
         assertThat(result.errorCode()).isEqualTo("ASSET_NOT_READY");
         verifyNoInteractions(packages);
     }
+    @Test void metadataEditPreservesVerifiedLegacyIosMappingAndCreditSwitchRetainsRestorationIdentity()throws Exception {
+        var request=input("SAVE_DRAFT");var queued=service.submit(request,UUID.randomUUID().toString(),1);service.runNext();
+        var created=service.get(Long.parseLong(queued.taskId()));long wallpaper=Long.parseLong(created.wallpaperId());
+        var acquisition=new com.qingjing.wallpaper.iosacquisition.IosAcquisitionProperties();
+        var pricing=new com.qingjing.wallpaper.iosacquisition.IosPricingProperties();
+        var apple=mock(com.qingjing.wallpaper.iosacquisition.ApplePriceGateway.class);
+        var creditService=new com.qingjing.wallpaper.iosacquisition.IosCreditProductService(jdbc,acquisition,pricing,apple);
+        var ios=new IosProductService(jdbc,acquisition,pricing,creditService);
+        String legacy="qa.legacy."+UUID.randomUUID();
+        jdbc.update("INSERT INTO ios_product_mapping(wallpaper_id,bundle_id,product_id,first_free_eligible,enabled,verified_transaction_at) VALUES(?,?,?,TRUE,TRUE,UTC_TIMESTAMP(6))",wallpaper,acquisition.getBundleId(),legacy);
+        service=new CreatorPublicationService(jdbc,transactions,MAPPER,Validation.buildDefaultValidatorFactory().getValidator(),
+                new CreatorCapabilities("creator-test","测试","LOCAL","2.21.0"),wallpapers,mock(ParallaxPackageService.class),ios,
+                packages,mock(MovingPhotoPublisher.class),mock(LivePhotoPublisher.class),new WallpaperPublicationChecks(jdbc,storage));
+        var edit=updateInput(request,created);var edited=service.submit(edit,UUID.randomUUID().toString(),1);service.runNext();
+        var completed=service.get(Long.parseLong(edited.taskId()));assertThat(completed.state()).isEqualTo("SUCCEEDED");
+        assertThat(ios.get(wallpaper).productId()).isEqualTo(legacy);
+        assertThat(ios.get(wallpaper).productIdLocked()).isTrue();
+        assertThat(ios.get(wallpaper).firstFreeEligible()).isTrue();
+        var switchInput=updateInput(edit,completed);
+        switchInput.putObject("iosAcquisition").put("acquisitionMode","CREDITS").put("credits",3).put("firstFreeEligible",false).put("enabled",true);
+        var switched=service.submit(switchInput,UUID.randomUUID().toString(),1);service.runNext();
+        assertThat(service.get(Long.parseLong(switched.taskId())).state()).isEqualTo("SUCCEEDED");
+        assertThat(ios.get(wallpaper).acquisitionMode()).isEqualTo("CREDITS");assertThat(ios.get(wallpaper).credits()).isEqualTo(3);
+        assertThat(ios.get(wallpaper).firstFreeEligible()).isFalse();
+        assertThat(jdbc.queryForObject("SELECT product_id FROM ios_product_mapping WHERE wallpaper_id=?",String.class,wallpaper)).isEqualTo(legacy);
+        assertThat(jdbc.queryForObject("SELECT verified_transaction_at IS NOT NULL FROM ios_product_mapping WHERE wallpaper_id=?",Boolean.class,wallpaper)).isTrue();
+        verifyNoInteractions(apple);
+    }
 }
