@@ -456,7 +456,7 @@ class Handler(SimpleHTTPRequestHandler):
         if urlsplit(self.path).path == '/creator-studio/api/local-status':
             if self.headers.get('Host') != f'127.0.0.1:{self.server.server_port}' or self.headers.get('X-Creator-Request') != '1':
                 return self.error('请从本地创作台操作', 403)
-            data = json.dumps({'name': 'qingjing-creator-studio', 'version': '0.13.0', 'pid': os.getpid(), 'codeHash': SERVER_CODE_HASH, 'rendering': RENDER_LOCK.locked()}).encode()
+            data = json.dumps({'name': 'qingjing-creator-studio', 'version': '0.13.0', 'pid': os.getpid(), 'codeHash': SERVER_CODE_HASH, 'rendering': RENDER_LOCK.locked() or creator_bridge.has_pending_generation()}).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
             self.send_header('Cache-Control', 'no-store')

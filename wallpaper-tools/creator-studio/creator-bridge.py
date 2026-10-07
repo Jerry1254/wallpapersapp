@@ -31,6 +31,24 @@ class CreatorBridge:
         self.active = None
         self.renderers = {}
         self.render_lock = None
+        self.task_states = {}
+        self.task_states_lock = threading.Lock()
+
+    def observe_tasks(self, result):
+        with self.task_states_lock:
+            for task in result if isinstance(result, list) else [result]:
+                if not isinstance(task, dict) or not task.get('id') or not task.get('state'):
+                    continue
+                previous = self.task_states.get(task['id'])
+                stamp = task.get('updatedAt') or ''
+                if previous and stamp < previous[0]:
+                    continue
+                self.task_states[task['id']] = (stamp, task['state'])
+
+    def has_pending_generation(self):
+        with self.task_states_lock:
+            return any(state in {'PREPARING', 'QUEUED', 'RUNNING', 'CANCEL_REQUESTED'}
+                       for _, state in self.task_states.values())
 
     def start(self, renderers, render_lock):
         self.renderers = renderers
@@ -76,6 +94,8 @@ class CreatorBridge:
                 raise BridgeError(detail.get('message') or detail.get('detail') or '创作数据请求失败', response.status, detail)
             if path == 'sessions' and method == 'POST':
                 return result, response.getheader('Set-Cookie', '').split(';')[0]
+            if path.split('?')[0].startswith('creator/tasks') or path == 'creator/claim':
+                self.observe_tasks(result)
             return result
         except (OSError, http.client.HTTPException) as error:
             raise BridgeError('本地后台无法连接，请启动本地 API', 503) from error

@@ -24,8 +24,15 @@
     t.media=[...ids].map(H.resolve).filter(Boolean).map(a=>{const {url,...data}=a;return data;});t.createdAt=records.find(r=>r.id===t.id)?.createdAt||new Date().toISOString();
     queue=queue.catch(()=>{}).then(()=>put(t)).catch(error=>{fingerprints.delete(t.id);H.toast('模板尚未保存到本地后台，请重试');throw error;});queue.catch(()=>{});return queue;
   }
-  function mediaFor(t){for(const a of t.media||[]){if(!H.resolve(a.id)){const asset={...a};if(asset.file)asset.url=URL.createObjectURL(asset.file);H.remember(asset);}}}
-  function openTemplate(t){mediaFor(t);const w=C.instantiate(t,t.snapshot.slots||{});w.templateId=t.id;H.openDraft(w);H.close();}
+  function mediaFor(t){
+    const layout=C.copy(t.snapshot);layout.slots=Object.fromEntries(Object.keys(layout.slots||{}).map(key=>[key,null]));
+    const fixed=new Set([...G.assets(layout),...C.all(layout).map(c=>c.assetId)].filter(Boolean));
+    for(const a of t.media||[]){if(fixed.has(a.id)&&!H.resolve(a.id)){const asset={...a};if(asset.file)asset.url=URL.createObjectURL(asset.file);H.remember(asset);}}
+  }
+  function openTemplate(t){
+    const existing=H.data().drafts.find(d=>d.templateId===t.id),bindings=existing?.slots||H.slots();
+    mediaFor(t);const w=C.instantiate(t,bindings);w.templateId=t.id;H.openDraft(w);H.close();
+  }
   function create(){
     H.modal('新建模板','<div class="content-template-form"><label>模板名称<input id="template-new-name" maxlength="60" value="未命名图片模板"></label><label>模板类型<select id="template-new-type"><option value="gallery">图片模板 · 无限画布</option><option value="video">视频模板 · 多轨时间轴</option></select></label><label>画布尺寸<select id="template-new-size"><option value="1080x1440">3:4 · 1080 × 1440</option><option value="1080x1920">9:16 · 1080 × 1920</option><option value="1080x1080">1:1 · 1080 × 1080</option><option value="1920x1080">16:9 · 1920 × 1080</option><option value="720x1280">9:16 · 720 × 1280</option></select></label></div>',[{label:'取消',run:H.close},{label:'创建模板',primary:true,run:()=>{const name=$('template-new-name').value.trim();if(!name)return $('template-new-name').focus();const type=$('template-new-type').value,w=C.create(type);w.name=name;w.slots=H.slots();w.templateId=C.id();const [width,height]=$('template-new-size').value.split('x').map(Number);w.width=width;w.height=height;if(type==='gallery'){w.pages=[];G.ensure(w);w.gallery.frames=[G.frame(width,height)];w.gallery.selectedSurface=w.gallery.frames[0].id;w.gallery.components={};w.gallery.preset={width,height};}else{w.tracks=[];w.selectedClipId=null;}H.openDraft(w);save(w);H.close();}}]);
     $('template-new-type').onchange=e=>{const name=$('template-new-name');if(name.value==='未命名图片模板'||name.value==='未命名视频模板')name.value=e.target.value==='video'?'未命名视频模板':'未命名图片模板';$('template-new-size').value=e.target.value==='video'?'1080x1920':'1080x1440';};
