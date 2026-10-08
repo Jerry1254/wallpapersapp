@@ -141,7 +141,17 @@ async def wait_new_cover(page, selector, previous):
 
 
 async def cover_xhs(page, path):
-    trigger = page.locator('div.upload-cover, div.cover-plugin-preview div.default.pointer').first
+    # The first-frame preview exposes a child edit entry; its former pointer
+    # placeholder and container no longer open the cover editor.
+    preview = page.locator('div.cover-plugin-preview')
+    frame = await unique(preview.locator('div.default:visible'))
+    if frame is not None:
+        await frame.hover()
+    trigger = await unique(preview.get_by_text('编辑封面', exact=True))
+    if trigger is None:
+        trigger = await unique(preview.locator('div.upload-cover:visible'))
+    if trigger is None:
+        raise NeedsInput('平台没有可核对的主封面入口，已停止提交')
     await trigger.click()
     await page.get_by_text('上传封面', exact=True).first.click()
     previous = await page.locator('div.d-modal img').evaluate_all('(images) => images.map(img => img.src)')
@@ -261,6 +271,11 @@ async def save_publish_diagnostic(page, request, phase, submitted, error=None):
                             .filter(n=>n.innerText&&n.innerText.length<500).map(n=>({classes:String(n.className||'').slice(0,200),text:n.innerText.slice(0,200)})):null}))''')
         diagnostic = {'phase': phase, 'submitted': submitted, 'controls': controls}
         if hasattr(page, 'evaluate'):
+            with contextlib.suppress(Exception):
+                diagnostic['coverControls'] = await page.evaluate('''() => Array.from(document.querySelectorAll('[class*="cover"]'))
+                    .filter(e=>e.getClientRects().length).slice(0,40)
+                    .map(e=>({tag:e.tagName,classes:String(e.className||'').slice(0,200),text:(e.innerText||'').slice(0,100),
+                        parent:e.parentElement?{tag:e.parentElement.tagName,classes:String(e.parentElement.className||'').slice(0,200)}:null}))''')
             with contextlib.suppress(Exception):
                 diagnostic['visibilityControls'] = await page.evaluate('''() => Array.from(document.querySelectorAll('*'))
                     .filter(e=>e.getClientRects().length&&/^(公开可见|公开|仅自己可见|仅自己|私密|好友可见|更多设置)$/.test((e.innerText||'').trim())

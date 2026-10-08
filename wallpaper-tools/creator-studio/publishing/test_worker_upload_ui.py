@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 import base64
 from . import test_batch_ui as fixture
-from .worker import IMAGE_UPLOAD_SELECTOR, dismiss_publish_hints, fill_xhs, fill_douyin, douyin_title_selector, cover_douyin
+from .worker import IMAGE_UPLOAD_SELECTOR, dismiss_publish_hints, fill_xhs, fill_douyin, douyin_title_selector, cover_douyin, cover_xhs, NeedsInput
 
 
 @unittest.skipIf(fixture.async_playwright is None, 'Requires local browser runtime')
@@ -61,6 +61,25 @@ class UploadSelectorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.page.locator('.dy-creator-content-modal').get_attribute('data-portrait'),'portrait.png')
         self.assertEqual(await self.page.locator('.dy-creator-content-modal').get_attribute('data-landscape'),'landscape.png')
         self.assertFalse(await self.page.locator('.dy-creator-content-modal').is_visible())
+
+    async def test_xhs_processed_cover_without_pointer_ignores_ai_and_hidden_placeholder(self):
+        await self.page.set_content('''<style>.default{position:relative}.cover-edit-stack{display:none;position:absolute;bottom:0}.default:hover .cover-edit-stack{display:block}</style><div class="cover-plugin-preview">
+          <div class="default pointer" hidden onclick="throw Error('hidden placeholder')"></div>
+          <div class="default column default--ai-cover-layout" style="width:80px;height:100px"><img style="width:80px;height:100px">
+            <div class="cover-edit-stack"><div class="cover-edit-entry" onclick="document.querySelector('.d-modal').hidden=false"><span>编辑封面</span></div></div></div>
+          <div class="ai-cover-preview-card" onclick="throw Error('AI recommendation')">推荐封面</div></div>
+          <div class="d-modal" hidden><button>上传封面</button><div class="upload-wrapper">
+            <input type="file" accept="image/*" onchange="const r=new FileReader();r.onload=()=>document.querySelector('#cover-preview').src=r.result;r.readAsDataURL(this.files[0])"></div>
+            <img id="cover-preview"><div class="d-modal-footer"><button onclick="this.closest('.d-modal').hidden=true">确定</button></div></div>''')
+        with tempfile.TemporaryDirectory() as root:
+            path=Path(root)/'cover.png'
+            path.write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='))
+            await cover_xhs(self.page,str(path))
+        self.assertFalse(await self.page.locator('.d-modal').is_visible())
+        self.assertEqual(await self.page.locator('input[type=file]').evaluate('(e)=>e.files[0].name'),'cover.png')
+        await self.page.set_content('<div class="cover-plugin-preview"><div class="ai-cover-preview-card">推荐封面</div></div>')
+        with self.assertRaisesRegex(NeedsInput,'主封面入口'):
+            await cover_xhs(self.page,'unused.png')
 
     async def test_extension_only_image_input_preserves_order_and_skips_video(self):
         for accept in ('.jpg,.jpeg,.png', '.JPG,.PNG', 'image/*'):
