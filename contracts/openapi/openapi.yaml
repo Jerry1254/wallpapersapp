@@ -76,6 +76,10 @@ paths:
     $ref: './distribution.yaml#/accounts'
   /admin/distribution/accounts/{id}:
     $ref: './distribution.yaml#/account'
+  /admin/distribution/groups:
+    $ref: './distribution.yaml#/groups'
+  /admin/distribution/groups/{id}:
+    $ref: './distribution.yaml#/group'
   /admin/distribution/media:
     $ref: './distribution.yaml#/media'
   /admin/distribution/media/reuse:

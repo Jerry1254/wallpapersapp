@@ -224,8 +224,8 @@ class PublishingBridge:
                     self.operations[op] = {'status': 'running', 'message': '正在打开登录窗口，请扫码并确认账号'}
                 threading.Thread(target=self.login, args=(op, account, parts[2]), daemon=True).start()
                 return self.respond(h, {'operationId': op}) or True
-            allowed = (route in ('/accounts', '/jobs', '/jobs/page', '/overview', '/batches', '/media', '/media/reuse', '/metrics') or
-                       (len(parts) == 2 and parts[0] == 'accounts') or
+            allowed = (route in ('/accounts', '/groups', '/jobs', '/jobs/page', '/overview', '/batches', '/media', '/media/reuse', '/metrics') or
+                       (len(parts) == 2 and parts[0] in ('accounts', 'groups')) or
                        (len(parts) == 3 and parts[0] == 'jobs' and parts[2] == 'action'))
             if not allowed:
                 raise BridgeError('接口不存在', 404)

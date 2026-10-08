@@ -51,6 +51,43 @@ public class DistributionService {
         v.put("checkedAt", r.getTimestamp("checked_at")); return v;
     }
     public List<Map<String,Object>> accounts() { return db.query("SELECT * FROM creator_social_account WHERE archived=FALSE ORDER BY created_at", this::account); }
+    public List<Map<String,Object>> groups() {
+        return db.query("SELECT g.id,g.name,COUNT(a.id) account_count FROM creator_social_group g LEFT JOIN creator_social_account a ON a.group_name=g.name AND a.archived=FALSE GROUP BY g.id,g.name,g.created_at ORDER BY g.created_at,g.id",(r,i)->Map.of("id",r.getString("id"),"name",r.getString("name"),"accountCount",r.getLong("account_count")));
+    }
+    private String groupLabel(JsonNode n) {
+        String name=text(n,"name",80,true);
+        if(Set.of("@ungrouped","未分组").contains(name))throw bad("这个名称用于未分组账号，请换一个分组名称");
+        return name;
+    }
+    private String requireGroup(String id) {
+        return db.queryForList("SELECT name FROM creator_social_group WHERE id=? FOR UPDATE",String.class,uuid(id)).stream().findFirst().orElseThrow(()->bad("分组不存在，请刷新后重试"));
+    }
+    private String accountGroup(JsonNode n) {
+        String name=text(n,"group",80,false);
+        if(name.isEmpty())return "";
+        return db.queryForList("SELECT name FROM creator_social_group WHERE name=? FOR UPDATE",String.class,name).stream().findFirst().orElseThrow(()->bad("请先创建分组，再给账号选择分组"));
+    }
+    @Transactional
+    public Map<String,Object> createGroup(JsonNode n) {
+        String id=UUID.randomUUID().toString(),name=groupLabel(n);
+        try {db.update("INSERT INTO creator_social_group(id,name) VALUES(?,?)",id,name);}
+        catch(DuplicateKeyException e){throw conflict("已存在同名分组");}
+        return Map.of("id",id,"name",name,"accountCount",0);
+    }
+    @Transactional
+    public Map<String,Object> renameGroup(String id,JsonNode n) {
+        String previous=requireGroup(id),name=groupLabel(n);
+        try {db.update("UPDATE creator_social_group SET name=? WHERE id=?",name,id);}
+        catch(DuplicateKeyException e){throw conflict("已存在同名分组");}
+        db.update("UPDATE creator_social_account SET group_name=? WHERE group_name=?",name,previous);
+        return groups().stream().filter(g->g.get("id").equals(id)).findFirst().orElseThrow();
+    }
+    @Transactional
+    public void deleteGroup(String id) {
+        String name=requireGroup(id);
+        db.update("UPDATE creator_social_account SET group_name='' WHERE group_name=?",name);
+        db.update("DELETE FROM creator_social_group WHERE id=?",id);
+    }
     public List<Map<String,Object>> metrics() {
         return db.query("SELECT m.* FROM creator_account_metrics m JOIN (SELECT account_id,MAX(id) id FROM creator_account_metrics GROUP BY account_id) latest ON latest.id=m.id",(r,i)->Map.of("accountId",r.getString("account_id"),"metrics",decode(r.getString("metrics")),"sourceUrl",r.getString("source_url"),"collectedAt",r.getTimestamp("collected_at")));
     }
@@ -70,18 +107,21 @@ public class DistributionService {
     Map<String,Object> requireAccount(String id) {
         return db.query("SELECT * FROM creator_social_account WHERE id=? AND archived=FALSE", this::account, uuid(id)).stream().findFirst().orElseThrow(() -> bad("账号不存在"));
     }
+    @Transactional
     public Map<String,Object> createAccount(JsonNode n) {
         String platform = text(n,"platform",16,true);
         if (!Set.of("xhs","douyin").contains(platform)) throw bad("仅支持小红书和抖音");
         String id = UUID.randomUUID().toString();
-        db.update("INSERT INTO creator_social_account(id,platform,display_name,group_name,runner_id) VALUES(?,?,?,?,?)", id,platform,text(n,"name",80,true),text(n,"group",80,false),uuid(n.path("runnerId").asText()));
+        db.update("INSERT INTO creator_social_account(id,platform,display_name,group_name,runner_id) VALUES(?,?,?,?,?)", id,platform,text(n,"name",80,false),accountGroup(n),uuid(n.path("runnerId").asText()));
         return requireAccount(id);
     }
     @Transactional
     public Map<String,Object> updateAccount(String id, JsonNode n) {
+        String group=n.has("group")?accountGroup(n):null;
         db.queryForList("SELECT id FROM creator_social_account WHERE id=? FOR UPDATE",uuid(id));
         var account=requireAccount(id);
-        if (n.has("name")) db.update("UPDATE creator_social_account SET display_name=?, group_name=? WHERE id=?",text(n,"name",80,true),text(n,"group",80,false),id);
+        if (n.has("name")) db.update("UPDATE creator_social_account SET display_name=? WHERE id=?",text(n,"name",80,false),id);
+        if (group!=null) db.update("UPDATE creator_social_account SET group_name=? WHERE id=?",group,id);
         if (n.has("status")) {
             String status=text(n,"status",24,true);
             if (!Set.of("ready","expired","disconnected","unverified").contains(status)) throw bad("无效的登录状态");
@@ -287,7 +327,8 @@ public class DistributionService {
         v.put("post",decode(r.getString("payload")));v.put("createdAt",r.getTimestamp("created_at"));v.put("dueAt",r.getTimestamp("due_at"));v.put("updatedAt",r.getTimestamp("updated_at"));v.put("resultUrl",r.getString("result_url"));
         return v;
     }
-    private static final String JOB_QUERY="SELECT j.*,a.display_name,a.platform,a.platform_user_id FROM creator_publish_job j JOIN creator_social_account a ON a.id=j.account_id ";
+    static final String ACCOUNT_LABEL="COALESCE(NULLIF(a.nickname,''),NULLIF(a.display_name,''),'未登录账号')";
+    private static final String JOB_QUERY="SELECT j.*,"+ACCOUNT_LABEL+" AS display_name,a.platform,a.platform_user_id FROM creator_publish_job j JOIN creator_social_account a ON a.id=j.account_id ";
     public List<Map<String,Object>> jobs() { return db.query(JOB_QUERY+"ORDER BY j.created_at DESC,j.batch_id,j.batch_position,j.id LIMIT 200",this::job); }
     List<Map<String,Object>> jobsForBatch(String batch) { return db.query(JOB_QUERY+"WHERE j.batch_id=? ORDER BY j.batch_position,j.id",this::job,batch); }
     @Transactional

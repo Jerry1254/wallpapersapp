@@ -118,6 +118,15 @@ class OperationsTests(unittest.TestCase):
         self.bridge.handle(bad)
         self.assertEqual(bad.status, 422)
 
+    def test_group_crud_uses_authenticated_backend_proxy(self):
+        self.bridge.session = {'token': 'publish-for-test', 'cookie': 'backend-for-test', 'csrf': 'csrf-for-test'}
+        for route,method,payload in [('/groups','GET',None),('/groups','POST',{'name':'测试分组'}),('/groups/group-id','PUT',{'name':'新名称'}),('/groups/group-id','DELETE',None)]:
+            handler=Handler('/creator-studio/api/distribution'+route,'CREATOR_PUBLISH_SESSION=publish-for-test',method)
+            encoded=json.dumps(payload or {}).encode();handler.rfile=io.BytesIO(encoded);handler.headers['Content-Length']=str(len(encoded))
+            self.bridge.handle(handler)
+            self.assertEqual(handler.status,200)
+            self.assertEqual(self.bridge.api.call_args.args[:2],(method,'distribution'+route))
+
     def test_identity_diagnostic_is_local_operation_only_and_cannot_mark_account_ready(self):
         account = {'id': 'one', 'name': '账号一'}
         for image, accepted in [('data:image/jpeg;base64,dGVzdA==', True), ('https://example.com/private.jpg', False), ('data:image/jpeg;base64,'+'x'*1400000, False)]:

@@ -90,11 +90,13 @@
                 },
                 "name": {
                   "type": "string",
-                  "maxLength": 80
+                  "maxLength": 80,
+                  "description": "可选的本地备注，可留空；主名称使用平台读取的 nickname。"
                 },
                 "group": {
                   "type": "string",
-                  "maxLength": 80
+                  "maxLength": 80,
+                  "description": "已创建分组的名称；空字符串表示未分组。"
                 },
                 "runnerId": {
                   "type": "string",
@@ -103,7 +105,6 @@
               },
               "required": [
                 "platform",
-                "name",
                 "runnerId"
               ],
               "additionalProperties": false
@@ -170,11 +171,13 @@
               "properties": {
                 "name": {
                   "type": "string",
-                  "maxLength": 80
+                  "maxLength": 80,
+                  "description": "可选的本地备注，可留空；主名称使用平台读取的 nickname。"
                 },
                 "group": {
                   "type": "string",
-                  "maxLength": 80
+                  "maxLength": 80,
+                  "description": "已创建分组的名称；空字符串表示未分组。"
                 },
                 "status": {
                   "type": "string",
@@ -1016,11 +1019,13 @@
         },
         "name": {
           "type": "string",
-          "maxLength": 80
+          "maxLength": 80,
+          "description": "可选的本地备注，可留空；主名称使用平台读取的 nickname。"
         },
         "group": {
           "type": "string",
-          "maxLength": 80
+          "maxLength": 80,
+          "description": "已创建分组的名称；空字符串表示未分组。"
         },
         "runnerId": {
           "type": "string",
@@ -1048,7 +1053,8 @@
         },
         "nickname": {
           "type": "string",
-          "maxLength": 160
+          "maxLength": 160,
+          "description": "扫码登录或身份检查时从平台读取的账号昵称，不由备注名覆盖。"
         },
         "avatarUrl": {
           "type": "string",
@@ -1370,6 +1376,30 @@
       "required": [
         "projectId",
         "assetIds"
+      ],
+      "additionalProperties": false
+    },
+    "AccountGroup": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "accountCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "accountCount"
       ],
       "additionalProperties": false
     }
@@ -1964,6 +1994,204 @@
           }
         }
       ]
+    }
+  },
+  "groups": {
+    "get": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "列出账号分组，包含空分组及未移除账号数量",
+      "security": [
+        {
+          "adminCookie": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/schemas/AccountGroup"
+                }
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "operationId": "creatorDistributionAccountsGet"
+    },
+    "post": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "创建账号分组，名称不得重复",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/schemas/AccountGroup"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "operationId": "creatorDistributionAccountsPost"
+    }
+  },
+  "group": {
+    "put": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "重命名分组，同时更新账号所属分组",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/schemas/AccountGroup"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "requestBody": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "operationId": "creatorDistributionAccountPut",
+      "description": "本机助手读取账号卡片后提交 identity；ready 必须携带 identity。首次绑定后不得更换平台账号，同平台重复身份返回 409。身份核对通过后助手才替换本机加密登录信息。旧账号先处于 unverified，检查通过后可发布。浏览器侧仅可编辑备注与分组。"
+    },
+    "delete": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "删除分组，将账号移至未分组并保留账号及历史任务",
+      "security": [
+        {
+          "adminCookie": [],
+          "adminCsrf": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/schemas/Ok"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "description": "进行中的任务会阻止移除；保留历史任务。平台 Cookie 不存入后台。",
+      "operationId": "creatorDistributionAccountDelete"
     }
   }
 }

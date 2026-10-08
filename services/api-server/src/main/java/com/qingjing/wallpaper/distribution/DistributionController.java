@@ -18,6 +18,10 @@ public class DistributionController {
     private final DistributionQueries queries;
     DistributionController(DistributionService service,DistributionQueries queries) { this.service=service;this.queries=queries; }
     @GetMapping("/accounts") public Object accounts() { return service.accounts(); }
+    @GetMapping("/groups") public Object groups() { return service.groups(); }
+    @PostMapping("/groups") public Object group(@RequestBody JsonNode n) { return service.createGroup(n); }
+    @PutMapping("/groups/{id}") public Object group(@PathVariable String id,@RequestBody JsonNode n) { return service.renameGroup(id,n); }
+    @DeleteMapping("/groups/{id}") public Object removeGroup(@PathVariable String id) { service.deleteGroup(id); return Map.of("ok",true); }
     @GetMapping("/metrics") public Object metrics() { return service.metrics(); }
     @PutMapping("/accounts/{id}/metrics") public Object metrics(@PathVariable String id,@RequestBody JsonNode n) {service.saveMetrics(id,n);return Map.of("ok",true);}
     @PostMapping("/accounts") public Object account(@RequestBody JsonNode n) { return service.createAccount(n); }

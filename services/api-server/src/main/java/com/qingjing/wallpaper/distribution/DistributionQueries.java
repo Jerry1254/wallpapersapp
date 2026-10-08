@@ -45,7 +45,7 @@ public class DistributionQueries {
         Filter f=filter(q,false);int page=number(q.get("page"),1,100000),size=number(q.get("pageSize"),20,100);
         Long total=db.queryForObject("SELECT COUNT(*)"+JOIN+f.where,Long.class,f.args.toArray());
         var args=new ArrayList<>(f.args);args.add(size);args.add((long)(page-1)*size);
-        var rows=db.query("SELECT j.*,a.display_name,a.platform,a.platform_user_id"+JOIN+f.where+" ORDER BY j.created_at DESC,j.batch_id,j.batch_position,j.id LIMIT ? OFFSET ?",service::job,args.toArray());
+        var rows=db.query("SELECT j.*,"+DistributionService.ACCOUNT_LABEL+" AS display_name,a.platform,a.platform_user_id"+JOIN+f.where+" ORDER BY j.created_at DESC,j.batch_id,j.batch_position,j.id LIMIT ? OFFSET ?",service::job,args.toArray());
         return Map.of("items",rows,"total",total,"page",page,"pageSize",size);
     }
     @Transactional(readOnly=true)
@@ -54,13 +54,13 @@ public class DistributionQueries {
         var counts=new TreeMap<String,Long>();STATES.forEach(key->counts.put(key,0L));
         db.query("SELECT j.status,COUNT(*) n"+JOIN+f.where+" GROUP BY j.status",r->{counts.put(r.getString("status"),r.getLong("n"));},f.args.toArray());
         var daily=db.queryForList("SELECT DATE(CONVERT_TZ(j.created_at,'+00:00','+08:00')) AS date,COUNT(*) AS total,SUM(j.status='published') AS published,SUM(j.status IN ('failed','needs_input','uncertain')) AS needsAttention"+JOIN+f.where+" GROUP BY date ORDER BY date",f.args.toArray());
-        var accounts=db.queryForList("SELECT a.id AS accountId,a.display_name AS name,a.platform,a.archived,COUNT(*) AS total,SUM(j.status='published') AS published,SUM(j.status IN ('submitted','uncertain')) AS awaiting,SUM(j.status IN ('failed','needs_input')) AS needsAttention"+JOIN+f.where+" GROUP BY a.id ORDER BY total DESC,a.id",f.args.toArray());
+        var accounts=db.queryForList("SELECT a.id AS accountId,"+DistributionService.ACCOUNT_LABEL+" AS name,a.platform,a.archived,COUNT(*) AS total,SUM(j.status='published') AS published,SUM(j.status IN ('submitted','uncertain')) AS awaiting,SUM(j.status IN ('failed','needs_input')) AS needsAttention"+JOIN+f.where+" GROUP BY a.id ORDER BY total DESC,a.id",f.args.toArray());
         // Snapshot values are not summed across days; deltas require both endpoints to contain the key.
         var metricArgs=new ArrayList<Object>();metricArgs.add(Timestamp.from(f.to));metricArgs.add(Timestamp.from(f.from));
         String accountWhere=" WHERE a.archived=FALSE";
         if(!q.getOrDefault("platform","").isEmpty()){accountWhere+=" AND a.platform=?";metricArgs.add(q.get("platform"));}
         if(!q.getOrDefault("accountId","").isEmpty()){accountWhere+=" AND a.id=?";metricArgs.add(q.get("accountId"));}
-        var metrics=db.query("SELECT a.id,a.display_name,a.platform,m.metrics,m.collected_at,m.source_url,b.metrics AS baseline,b.collected_at AS baseline_at FROM creator_social_account a LEFT JOIN creator_account_metrics m ON m.id=(SELECT id FROM creator_account_metrics WHERE account_id=a.id AND collected_at<? ORDER BY collected_at DESC,id DESC LIMIT 1) LEFT JOIN creator_account_metrics b ON b.id=(SELECT id FROM creator_account_metrics WHERE account_id=a.id AND collected_at<=? ORDER BY collected_at DESC,id DESC LIMIT 1)"+accountWhere+" ORDER BY a.created_at",(r,i)->{
+        var metrics=db.query("SELECT a.id,"+DistributionService.ACCOUNT_LABEL+" AS display_name,a.platform,m.metrics,m.collected_at,m.source_url,b.metrics AS baseline,b.collected_at AS baseline_at FROM creator_social_account a LEFT JOIN creator_account_metrics m ON m.id=(SELECT id FROM creator_account_metrics WHERE account_id=a.id AND collected_at<? ORDER BY collected_at DESC,id DESC LIMIT 1) LEFT JOIN creator_account_metrics b ON b.id=(SELECT id FROM creator_account_metrics WHERE account_id=a.id AND collected_at<=? ORDER BY collected_at DESC,id DESC LIMIT 1)"+accountWhere+" ORDER BY a.created_at",(r,i)->{
             var row=new LinkedHashMap<String,Object>();row.put("accountId",r.getString("id"));row.put("name",r.getString("display_name"));row.put("platform",r.getString("platform"));row.put("collectedAt",r.getTimestamp("collected_at"));row.put("baselineAt",r.getTimestamp("baseline_at"));row.put("sourceUrl",r.getString("source_url"));
             try{var latest=json.readTree(r.getString("metrics")==null?"{}":r.getString("metrics"));var baseline=json.readTree(r.getString("baseline")==null?"{}":r.getString("baseline"));var delta=new TreeMap<String,Long>();for(String key:List.of("followers","plays","likes","comments","favorites"))if(latest.has(key)&&baseline.has(key))delta.put(key,latest.path(key).longValue()-baseline.path(key).longValue());row.put("metrics",latest);row.put("delta",delta);}catch(Exception e){throw new IllegalStateException("Invalid stored metrics",e);}return row;
         },metricArgs.toArray());

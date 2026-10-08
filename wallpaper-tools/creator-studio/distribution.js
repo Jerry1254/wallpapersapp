@@ -3,14 +3,14 @@
   'use strict';
   const $=id=>document.getElementById(id), esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const names={xhs:'小红书',douyin:'抖音'}, labels={queued:'等待执行',running:'处理中',submitting:'正在提交',submitted:'已提交 · 待确认',published:'已确认发布',failed:'未完成',uncertain:'结果待核对',needs_input:'需要处理',cancelled:'已取消',ready:'已登录',expired:'登录失效',disconnected:'未登录'};
-  let hooks, status={}, accounts=[], view='compose', poll, fetching=false, submitting=false, loginEpoch=0, autoLink=true;
+  let hooks, status={}, accounts=[], groups=[], view='compose', poll, fetching=null, submitting=false, loginEpoch=0, autoLink=true;
   const connectionPreference='qingjing-publish-autolink';
   try{autoLink=localStorage.getItem(connectionPreference)!=='off';}catch{}
   function setAutoLink(enabled){autoLink=enabled;try{localStorage.setItem(connectionPreference,enabled?'on':'off');}catch{}}
   const uploads=new Map();
   const Core=window.DistributionCore;
   labels.unverified='待核对身份';
-  const accountName=a=>a.nickname||a.name;
+  const accountName=a=>a.nickname||a.name||`${names[a.platform]}账号 · 等待登录`;
   const identityText=a=>a.platformUserId?`${a.platformUserId.startsWith('handle:')?'账号':'ID'}：${a.platformUserId.split(':').slice(1).join(':')}`:'尚未读取平台身份';
   const avatar=a=>`<span class="account-avatar">${a.avatarUrl?.startsWith('https://')?`<img src="${esc(a.avatarUrl)}" alt="" referrerpolicy="no-referrer">`:a.platform==='xhs'?'小':'抖'}</span>`;
   async function request(route,options={}) {
@@ -34,30 +34,32 @@
     const target=document.createElement('div');target.id='distribution-edit-target';target.className='distribution-edit-target';document.querySelector('.post-form .section-title').after(target);
     poll=setInterval(()=>{if(hooks.state().workspace==='publish')refresh();},6000);
     window.DistributionBatch.init({state:hooks.state,projectId:hooks.projectId,accounts:()=>accounts,status:()=>status,modal:hooks.modal,close:hooks.close,toast:hooks.toast,save:hooks.save,validate,preview,render:()=>{renderAccounts();renderPane();}});
-    window.DistributionConsole.init({accounts:()=>accounts,status:()=>status,request,newAccount,login,bulk,refresh,isView:next=>view===next,openSource:hooks.openSource,modal:hooks.modal,close:hooks.close,toast:hooks.toast});
+    window.DistributionConsole.init({accounts:()=>accounts,groups:()=>groups,manageGroups,status:()=>status,request,newAccount,login,bulk,refresh,isView:next=>view===next,openSource:hooks.openSource,modal:hooks.modal,close:hooks.close,toast:hooks.toast});
     renderAccounts();
   }
-  async function refresh(){
-    if(fetching)return;fetching=true;
+  function refresh(force=false){
+    if(fetching)return force?fetching.then(()=>refresh()):fetching;
+    fetching=(async()=>{
     try {
       status=await request('/status');
       if(!status.connected&&autoLink&&window.CreatorBackend?.connected){await window.CreatorBackend.request('/publish-session',{method:'POST',data:{}});status=await request('/status');}
-      if(status.connected)accounts=await request('/accounts');
-      else {accounts=[];uploads.clear();}
+      if(status.connected)[accounts,groups]=await Promise.all([request('/accounts'),request('/groups')]);
+      else {accounts=[];groups=[];uploads.clear();}
       const previous=Core.currentPost(hooks.state());hooks.state().accounts=accounts;
       $('distribution-status').textContent=status.connected?(status.preparing?'正在准备助手…':status.ready?'发布助手在线':'助手尚未准备'): '尚未连接后台';
       $('distribution-connect').textContent=status.connected?'连接设置':'连接后台';
       renderAccounts();if(view!=='compose'&&!$('distribution-pane').querySelector('input:focus,select:focus'))renderPane();
       if(view==='compose'&&previous!==Core.currentPost(hooks.state()))hooks.render();
     }catch(e){$('distribution-status').textContent=e.message;}
-    finally{fetching=false;}
+    finally{fetching=null;}
+    })();return fetching;
   }
   function enter(){refresh();}
   function open(next){view=next;document.querySelector('#publish-workspace .publish-columns').hidden=next!=='compose';$('distribution-pane').hidden=next==='compose';document.querySelectorAll('[data-distribution-view]').forEach(b=>b.classList.toggle('active',b.dataset.distributionView===next));if(next!=='compose')renderPane();refresh();}
   function renderAccounts(){
     if(!hooks)return;
     const state=hooks.state();state.accounts=accounts;
-    $('account-list').innerHTML=accounts.length?accounts.map(a=>`<label class="account-row">${avatar(a)}<span class="account-copy"><strong>${esc(accountName(a))}</strong><span>${names[a.platform]} · ${esc(a.name)}<br><em class="distribution-state ${a.status}">${labels[a.status]||a.status}${a.runnerId!==status.runnerId?' · 其他电脑':''}</em></span></span><input type="checkbox" data-distribution-account="${a.id}" aria-label="选择${esc(accountName(a))}" ${state.selectedAccounts.has(a.id)?'checked':''} ${a.status!=='ready'||!a.platformUserId||a.runnerId!==status.runnerId?'disabled':''}></label>`).join(''):`<div class="distribution-empty">${status.connected?'添加账号并扫码登录后，即可发布。':'连接本地后台后管理发布账号。'}<button id="distribution-empty-connect">${status.connected?'添加账号':'连接后台'}</button></div>`;
+    $('account-list').innerHTML=accounts.length?accounts.map(a=>`<label class="account-row">${avatar(a)}<span class="account-copy"><strong>${esc(accountName(a))}</strong><span>${names[a.platform]}${a.name?' · '+esc(a.name):''}<br><em class="distribution-state ${a.status}">${labels[a.status]||a.status}${a.runnerId!==status.runnerId?' · 其他电脑':''}</em></span></span><input type="checkbox" data-distribution-account="${a.id}" aria-label="选择${esc(accountName(a))}" ${state.selectedAccounts.has(a.id)?'checked':''} ${a.status!=='ready'||!a.platformUserId||a.runnerId!==status.runnerId?'disabled':''}></label>`).join(''):`<div class="distribution-empty">${status.connected?'添加账号并扫码登录后，即可发布。':'连接本地后台后管理发布账号。'}<button id="distribution-empty-connect">${status.connected?'添加账号':'连接后台'}</button></div>`;
     $('account-count').textContent=accounts.length;
     document.querySelectorAll('[data-distribution-account]').forEach(el=>el.onchange=()=>{el.checked?state.selectedAccounts.add(el.dataset.distributionAccount):state.selectedAccounts.delete(el.dataset.distributionAccount);if(!state.selectedAccounts.has(state.editAccountId))state.editAccountId='';hooks.save();hooks.render();});
     if($('distribution-empty-connect'))$('distribution-empty-connect').onclick=()=>status.connected?newAccount():connection();
@@ -102,16 +104,25 @@
     try{await request('/connect',{method:'POST',body:{username:$('distribution-user').value.trim(),password:$('distribution-password').value}});setAutoLink(true);hooks.close();await refresh();if(!status.ready)connection();}
     catch(e){error.textContent=e.message;}
   }
-  function newAccount(existing){
+  function newAccount(existing,draft){
     if(!status.connected){connection();return;}
-    hooks.modal(existing?'编辑账号':'添加账号',`<div class="field"><label for="distribution-account-name">账号备注名</label><input id="distribution-account-name" maxlength="80" value="${esc(existing?.name||'')}" placeholder="例如：倾境 · 每日壁纸"></div><div class="field"><label for="distribution-account-platform">平台</label><select id="distribution-account-platform" ${existing?'disabled':''}><option value="xhs">小红书</option><option value="douyin">抖音</option></select></div><div class="field"><label for="distribution-account-group">分组</label><input id="distribution-account-group" maxlength="80" value="${esc(existing?.group||'')}" placeholder="例如：壁纸主账号"></div><p class="hint">每个账号单独扫码。登录后自动读取平台身份，备注名仅用于自己区分账号。</p>`,[{label:'取消',run:hooks.close},{label:existing?'保存':'添加并登录',primary:true,run:safe(async()=>{
-      const body={name:$('distribution-account-name').value.trim(),group:$('distribution-account-group').value.trim(),platform:$('distribution-account-platform').value};if(!body.name)throw new Error('请填写账号备注名');
-      const a=await request('/accounts'+(existing?'/'+existing.id:''),{method:existing?'PUT':'POST',body});hooks.close();await refresh();open('accounts');if(!existing&&status.ready)await login(a,'login');else if(!status.ready)connection();
-    })}]);if(existing)$('distribution-account-platform').value=existing.platform;
+    const values=draft||existing||{};
+    hooks.modal(existing?'编辑账号':'添加账号',`<div class="field"><label for="distribution-account-platform">平台</label><select id="distribution-account-platform" ${existing?'disabled':''}><option value="xhs">小红书</option><option value="douyin">抖音</option></select></div>${existing?`<div class="field"><label>平台昵称</label><p class="distribution-identity-name">${esc(existing.nickname||'登录后自动获取')}</p></div>`:'<p class="hint">扫码登录后自动获取平台昵称和头像，账号名称无需手动填写。</p>'}<div class="field"><div class="distribution-field-heading"><label for="distribution-account-group">分组</label><button type="button" id="distribution-account-manage-groups">管理分组</button></div><select id="distribution-account-group"><option value="">未分组</option>${groups.map(g=>`<option value="${esc(g.name)}">${esc(g.name)}</option>`).join('')}</select></div><div class="field"><label for="distribution-account-name">备注（可选）</label><input id="distribution-account-name" maxlength="80" value="${esc(values.name||'')}" placeholder="用于自己区分账号，可留空"></div><p class="hint">每个账号单独扫码，昵称和登录身份以平台读取结果为准。</p>`,[{label:'取消',run:hooks.close},{label:existing?'保存':'添加并登录',primary:true,run:safe(async()=>{
+      const body={name:$('distribution-account-name').value.trim(),group:$('distribution-account-group').value,platform:$('distribution-account-platform').value};
+      const a=await request('/accounts'+(existing?'/'+existing.id:''),{method:existing?'PUT':'POST',body});hooks.close();await refresh(true);open('accounts');if(!existing&&status.ready)await login(a,'login');else if(!status.ready)connection();
+    })}]);$('distribution-account-platform').value=values.platform||'xhs';$('distribution-account-group').value=groups.some(g=>g.name===values.group)?values.group:'';
+    $('distribution-account-manage-groups').onclick=()=>{const saved={name:$('distribution-account-name').value,platform:$('distribution-account-platform').value,group:$('distribution-account-group').value};manageGroups(()=>newAccount(existing,saved));};
+  }
+  function manageGroups(returnTo){
+    hooks.modal('管理分组',`<form id="distribution-group-create" class="distribution-group-create"><label for="distribution-group-name">新分组名称</label><div><input id="distribution-group-name" maxlength="80" placeholder="例如：壁纸主账号" required><button class="primary">创建分组</button></div></form><div class="distribution-group-list">${groups.map(g=>`<div class="distribution-group-row"><div><label for="group-name-${g.id}">分组名称</label><input id="group-name-${g.id}" maxlength="80" value="${esc(g.name)}"><small>${g.accountCount} 个账号</small></div><button data-group-save="${g.id}">保存名称</button><button data-group-delete="${g.id}">删除</button></div>`).join('')||'<p class="hint">还没有分组，可先创建空分组，再添加账号。</p>'}</div><p class="hint">删除分组后，账号移到“未分组”，历史发布记录保留。</p><p id="distribution-group-error" class="distribution-error" role="alert"></p>`,[{label:returnTo?'返回账号设置':'完成',run:returnTo||hooks.close}]);
+    const run=async(button,action)=>{button.disabled=true;try{await action();await refresh(true);manageGroups(returnTo);}catch(e){const target=$('distribution-group-error');if(target)target.textContent=e.message;button.disabled=false;}};
+    $('distribution-group-create').onsubmit=e=>{e.preventDefault();const button=e.currentTarget.querySelector('button');run(button,()=>request('/groups',{method:'POST',body:{name:$('distribution-group-name').value.trim()}}));};
+    document.querySelectorAll('[data-group-save]').forEach(button=>button.onclick=()=>run(button,()=>request('/groups/'+button.dataset.groupSave,{method:'PUT',body:{name:$('group-name-'+button.dataset.groupSave).value.trim()}})));
+    document.querySelectorAll('[data-group-delete]').forEach(button=>button.onclick=()=>{const group=groups.find(g=>g.id===button.dataset.groupDelete);hooks.modal('删除分组',`<p>删除“${esc(group.name)}”后，${group.accountCount} 个账号将移到“未分组”。账号和历史发布记录会保留。</p><p id="distribution-group-delete-error" class="distribution-error" role="alert"></p>`,[{label:'返回',run:()=>manageGroups(returnTo)},{label:'删除分组',primary:true,run:async()=>{try{await request('/groups/'+group.id,{method:'DELETE'});await refresh(true);manageGroups(returnTo);}catch(e){$('distribution-group-delete-error').textContent=e.message;}}}]);});
   }
   async function login(account,mode){
     const result=await request(`/accounts/${account.id}/${mode}`,{method:'POST'});
-    monitorOperation(result,mode==='login'?`登录${names[account.platform]} · ${account.name}`:mode==='analytics'?'同步平台累计指标':'检查登录状态');
+    monitorOperation(result,mode==='login'?`登录${names[account.platform]} · ${accountName(account)}`:mode==='analytics'?'同步平台累计指标':'检查登录状态');
   }
   async function bulk(ids,mode){
     const result=await request('/accounts/operations',{method:'POST',body:{accountIds:ids,mode}});

@@ -32,6 +32,7 @@ class DistributionIntegrationIT {
         db=new JdbcTemplate(ds);tx=new TransactionTemplate(new DataSourceTransactionManager(ds));
         db.update("INSERT INTO creator_social_account(id,platform,display_name,runner_id,login_status) VALUES(?,'xhs','已有账号',?,'ready')",LEGACY,RUNNER);
         db.update("INSERT INTO creator_social_account(id,platform,display_name,runner_id,login_status) VALUES(?,'xhs','第二个旧账号',?,'ready')",LEGACY_SECOND,RUNNER);
+        db.update("UPDATE creator_social_account SET group_name='已有分组' WHERE id=?",LEGACY);
         db.update("INSERT INTO creator_publish_batch(id,request_hash) VALUES(?,?)",LEGACY_BATCH,"f".repeat(64));
         for(String account:new String[]{LEGACY,LEGACY_SECOND})db.update("INSERT INTO creator_publish_job(id,batch_id,account_id,payload,status,due_at) VALUES(?,?,?,'{}','cancelled',CURRENT_TIMESTAMP(3))",UUID.randomUUID().toString(),LEGACY_BATCH,account);
         Flyway.configure().dataSource(ds).load().migrate();
@@ -43,6 +44,47 @@ class DistributionIntegrationIT {
     ObjectNode update(String value){ObjectNode n=obj().put("status","ready").put("runnerId",RUNNER);n.set("identity",identity(value));return n;}
     Map<String,Object> bind(String id,String value){return tx.execute(s->service.updateAccount(id,update(value)));}
     @Test void migratesLegacyAccountsWithoutDiscardingTheirRecords(){assertThat(service.requireAccount(LEGACY)).containsEntry("status","unverified").containsEntry("platformUserId",null);}
+    @Test void migratesExistingGroupNamesAndKeepsEmptyGroups() {
+        assertThat(service.groups()).anySatisfy(g->assertThat(g).containsEntry("name","已有分组").containsEntry("accountCount",1L));
+        var group=service.createGroup(obj().put("name",UUID.randomUUID().toString()));
+        assertThat(service.groups()).anySatisfy(g->assertThat(g).containsEntry("id",group.get("id")).containsEntry("accountCount",0L));
+    }
+    @Test void accountRemarksAreOptionalAndCannotReplacePlatformNames() {
+        String id=(String)service.createAccount(obj().put("platform","douyin").put("runnerId",RUNNER)).get("id");
+        assertThat(service.requireAccount(id)).containsEntry("name","");
+        bind(id,UUID.randomUUID().toString());
+        service.updateAccount(id,obj().put("name","仅本机备注"));
+        assertThat(service.requireAccount(id)).containsEntry("nickname","真实昵称").containsEntry("name","仅本机备注");
+        service.updateAccount(id,obj().put("name",""));
+        assertThat(service.requireAccount(id)).containsEntry("nickname","真实昵称").containsEntry("name","");
+    }
+    @Test void groupRenameAndRemovalMoveMembershipWithoutChangingAccountsOrJobs() {
+        String label=UUID.randomUUID().toString(),renamed=UUID.randomUUID().toString();
+        String group=(String)service.createGroup(obj().put("name",label)).get("id");
+        var job=claimable(UUID.randomUUID().toString());String id=(String)job.get("accountId"),jobId=(String)job.get("id");
+        service.updateAccount(id,obj().put("group",label));
+        tx.execute(s->service.renameGroup(group,obj().put("name",renamed)));
+        assertThat(service.requireAccount(id)).containsEntry("group",renamed).containsEntry("status","ready");
+        assertThat(service.groups()).anySatisfy(g->assertThat(g).containsEntry("id",group).containsEntry("accountCount",1L));
+        String before=db.queryForObject("SELECT payload FROM creator_publish_job WHERE id=?",String.class,jobId);
+        tx.executeWithoutResult(s->service.deleteGroup(group));
+        assertThat(service.requireAccount(id)).containsEntry("group","").containsEntry("status","ready");
+        assertThat(db.queryForObject("SELECT payload FROM creator_publish_job WHERE id=?",String.class,jobId)).isEqualTo(before);
+        assertThat(db.queryForObject("SELECT status FROM creator_publish_job WHERE id=?",String.class,jobId)).isEqualTo("running");
+        assertThat(service.groups()).noneMatch(g->g.get("id").equals(group));
+    }
+    @Test void groupsRejectDuplicatesAndUnknownAssignmentsWithoutLosingMembership() {
+        String label=UUID.randomUUID().toString(),other=UUID.randomUUID().toString();
+        String first=(String)service.createGroup(obj().put("name",label)).get("id");service.createGroup(obj().put("name",other));
+        String id=account();service.updateAccount(id,obj().put("group",label));
+        assertThatThrownBy(()->service.createGroup(obj().put("name",label.toUpperCase(Locale.ROOT)))).isInstanceOf(ApiException.class).hasMessageContaining("同名");
+        assertThatThrownBy(()->tx.execute(s->service.renameGroup(first,obj().put("name",other)))).isInstanceOf(ApiException.class).hasMessageContaining("同名");
+        assertThat(service.requireAccount(id)).containsEntry("group",label);
+        assertThatThrownBy(()->service.updateAccount(id,obj().put("group",UUID.randomUUID().toString()))).isInstanceOf(ApiException.class).hasMessageContaining("先创建");
+        assertThatThrownBy(()->service.createGroup(obj().put("name"," "))).isInstanceOf(ApiException.class);
+        assertThatThrownBy(()->service.createGroup(obj().put("name","未分组"))).isInstanceOf(ApiException.class);
+        assertThatThrownBy(()->service.createGroup(obj().put("name","名".repeat(81)))).isInstanceOf(ApiException.class);
+    }
     @Test void migratesLegacyJobsAndPreservesTheirAccountsAndPayloads(){
         var jobs=service.jobsForBatch(LEGACY_BATCH);
         assertThat(jobs).hasSize(2);assertThat(jobs.stream().map(j->j.get("accountId"))).containsExactlyInAnyOrder(LEGACY,LEGACY_SECOND);
