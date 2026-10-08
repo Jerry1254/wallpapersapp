@@ -66,6 +66,28 @@ class ConsoleUITests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await self.page.locator('#dialog').is_visible())
         self.assertFalse(await self.page.evaluate('consoleRequests.some(r=>r.route.includes("/action"))'))
 
+    async def test_result_verification_updates_only_the_original_job_without_publishing(self):
+        await self.mount()
+        await self.page.evaluate('''const previous=fetch;window.fetch=async(url,options={})=>{
+          if(url.endsWith('/jobs/verification-job/action')){
+            const body=JSON.parse(options.body);consoleRequests.push({route:'/jobs/verification-job/action',body});
+            fakeJobs[0].status=body.result;return {ok:true,status:200,json:async()=>({})};
+          }return previous(url,options);
+        };void 0;''')
+        for status, result, label in [('submitted','published','确认已发布'),('uncertain','failed','确认未发布')]:
+            await self.page.evaluate('''status=>{
+              fakeTotal=1;fakeJobs=[{id:'verification-job',batchId:'original-batch',status,platform:'xhs',accountName:'账号甲',post:{type:'video',title:'核对原任务',body:'正文',tags:[],mediaIds:['file']}}];
+              Distribution.open('jobs');
+            }''',status)
+            await self.page.get_by_role('button',name='核对结果',exact=True).click()
+            await self.page.get_by_role('button',name=label,exact=True).click()
+            await self.wait_for('!document.getElementById("dialog").open')
+            self.assertEqual(await self.page.evaluate('fakeJobs[0].status'),result)
+        actions=await self.page.evaluate('consoleRequests.filter(r=>r.route.endsWith("/action"))')
+        self.assertEqual([r['body'] for r in actions],[{'action':'resolve','result':'published'},{'action':'resolve','result':'failed'}])
+        self.assertTrue(all(r['route']=='/jobs/verification-job/action' for r in actions))
+        self.assertFalse(await self.page.evaluate('consoleRequests.some(r=>r.route==="/batches"||r.route.includes("/originality-approval"))'))
+
     async def test_account_filters_select_only_matching_local_accounts(self):
         await self.mount()
         await self.page.evaluate("fakeAccounts[0].group='主账号';fakeAccounts[1].group='其他';Distribution.open('accounts')")

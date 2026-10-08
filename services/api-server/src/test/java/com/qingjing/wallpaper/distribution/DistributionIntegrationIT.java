@@ -61,6 +61,42 @@ class DistributionIntegrationIT {
     @Test void aReadyStatusWithoutFreshIdentityIsRejected(){
         String a=account();assertThatThrownBy(()->tx.execute(s->service.updateAccount(a,obj().put("status","ready").put("runnerId",RUNNER)))).isInstanceOf(ApiException.class);
     }
+    Map<String,Object> claimable(String runner){
+        String a=(String)service.createAccount(obj().put("platform","xhs").put("name","故障隔离验收").put("runnerId",runner)).get("id");
+        tx.executeWithoutResult(s->service.updateAccount(a,update(UUID.randomUUID().toString()).put("runnerId",runner)));
+        ObjectNode batch=obj().put("id",UUID.randomUUID().toString());
+        batch.putArray("entries").addObject().put("accountId",a).set("post",post(source(),"提交故障验收").put("visibility","private"));
+        tx.execute(s->service.createBatch(batch));
+        return tx.execute(s->service.claim(runner));
+    }
+    ObjectNode report(Map<String,Object> job,String status){
+        return obj().put("leaseToken",(String)job.get("leaseToken")).put("status",status).put("message","隔离故障验收");
+    }
+    Map<String,Object> claim(String runner){return tx.execute(s->service.claim(runner));}
+    @Test void submissionFailureCannotBeReclaimedOrRetriedBeforeHumanVerification(){
+        String runner=UUID.randomUUID().toString();var job=claimable(runner);String id=(String)job.get("id");
+        tx.executeWithoutResult(s->service.report(id,report(job,"submitting")));
+        assertThatThrownBy(()->tx.executeWithoutResult(s->service.report(id,report(job,"failed")))).hasMessageContaining("提交后");
+        tx.executeWithoutResult(s->service.report(id,report(job,"uncertain")));
+        for(int i=0;i<3;i++)assertThat(claim(runner)).isEmpty();
+        assertThatThrownBy(()->tx.executeWithoutResult(s->service.action(id,obj().put("action","retry")))).hasMessageContaining("先到平台核对");
+        tx.executeWithoutResult(s->service.action(id,obj().put("action","resolve").put("result","published")));
+        assertThat(service.jobsForBatch((String)job.get("batchId"))).hasSize(1).first().satisfies(j->assertThat(j).containsEntry("id",id).containsEntry("status","published"));
+        assertThat(claim(runner)).isEmpty();
+    }
+    @Test void lostSubmissionLeaseRejectsLateReportsAndFailedResolutionDoesNotRepublish(){
+        String runner=UUID.randomUUID().toString();var job=claimable(runner);String id=(String)job.get("id");
+        tx.executeWithoutResult(s->service.report(id,report(job,"submitting")));
+        db.update("UPDATE creator_publish_job SET heartbeat_at=CURRENT_TIMESTAMP(3)-INTERVAL 3 MINUTE WHERE id=?",id);
+        assertThat(claim(runner)).isEmpty();
+        assertThatThrownBy(()->tx.executeWithoutResult(s->service.report(id,report(job,"submitted")))).hasMessageContaining("租约已失效");
+        tx.executeWithoutResult(s->service.action(id,obj().put("action","resolve").put("result","failed")));
+        assertThat(claim(runner)).isEmpty();
+        assertThat(service.jobsForBatch((String)job.get("batchId"))).hasSize(1).first().satisfies(j->assertThat(j).containsEntry("id",id).containsEntry("status","failed"));
+        tx.executeWithoutResult(s->service.action(id,obj().put("action","retry")));
+        var retried=tx.execute(s->service.claim(runner));assertThat(retried.get("id")).isEqualTo(id);
+        assertThat(retried.get("leaseToken")).isNotEqualTo(job.get("leaseToken"));
+    }
     @Test void completeHistoryPaginatesBeyondTwoHundredAndKeepsArchivedAccounts(){
         String a=account(),batch=UUID.randomUUID().toString();
         db.update("INSERT INTO creator_publish_batch(id,request_hash) VALUES(?,?)",batch,"e".repeat(64));
