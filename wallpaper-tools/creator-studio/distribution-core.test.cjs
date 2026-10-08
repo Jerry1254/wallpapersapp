@@ -84,3 +84,16 @@ test('a saved pending submission keeps the exact batch payload across refreshes 
   assert.equal(Core.finishSubmission(restored,pending),true);
   assert.equal(restored.submissionPending,null);assert.deepEqual(restored.batchPlan.rows,[{id:'later'}]);
 });
+test('publication summaries distinguish partial success, waiting, approval and uncertain results',()=>{
+  const summary=counts=>Core.publicationSummary({counts,taskCount:Object.values(counts).reduce((a,b)=>a+b,0)});
+  assert.equal(summary({published:3}).label,'全部成功');
+  assert.equal(summary({published:2,failed:1}).label,'部分成功');
+  assert.equal(summary({published:2,queued:1}).label,'等待发布');
+  assert.equal(summary({published:1,running:1}).label,'发布中');
+  assert.equal(summary({published:1,needs_input:1}).label,'需要处理');
+  assert.equal(summary({published:1,submitted:1}).label,'待核对结果');
+  assert.equal(summary({published:1,uncertain:1}).label,'待核对结果');
+  assert.equal(summary({published:1,cancelled:1}).label,'发布完成');
+  assert.equal(summary({cancelled:2}).label,'已取消');
+  assert.equal(summary({published:1,failed:1,needs_input:1,queued:1,uncertain:1,cancelled:1}).detail,'1 成功 · 1 失败 · 1 需处理 · 1 等待 / 处理中 · 1 待核对 · 1 取消');
+});

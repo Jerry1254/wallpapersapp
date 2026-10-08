@@ -174,6 +174,9 @@ public class DistributionService {
         return db.queryForList("SELECT id,media_type,extension,storage_key,size_bytes FROM creator_publish_media WHERE id=?",uuid(id)).stream().findFirst().orElseThrow(()->bad("素材不存在，请重新上传"));
     }
     public StoredContent content(String id) { return storage.open(new StorageKey((String)media(id).get("storage_key"))); }
+    public Map<String,Object> mediaInfo(String id) {
+        var row=media(id);return Map.of("id",row.get("id"),"type",row.get("media_type"),"extension",row.get("extension"),"size",row.get("size_bytes"));
+    }
     @Transactional
     public Map<String,Object> reuseMedia(JsonNode n) {
         String workspaceId=text(n,"workspaceMediaId",128,true);
@@ -324,6 +327,7 @@ public class DistributionService {
         for(String key:List.of("id","status","message")) v.put(key,r.getString(key));
         v.put("accountId",r.getString("account_id"));v.put("accountName",r.getString("display_name"));v.put("platform",r.getString("platform"));
         v.put("platformUserId",r.getString("platform_user_id"));v.put("batchId",r.getString("batch_id"));v.put("batchPosition",r.getObject("batch_position"));
+        v.put("scheduled",r.getBoolean("scheduled"));
         v.put("post",decode(r.getString("payload")));v.put("createdAt",r.getTimestamp("created_at"));v.put("dueAt",r.getTimestamp("due_at"));v.put("updatedAt",r.getTimestamp("updated_at"));v.put("resultUrl",r.getString("result_url"));
         return v;
     }

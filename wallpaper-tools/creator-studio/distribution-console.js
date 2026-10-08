@@ -8,10 +8,8 @@
   const num=v=>v==null?'—':Number(v).toLocaleString('zh-CN');
   const accountName=a=>a.nickname||a.name||`${names[a.platform]}账号 · 等待登录`;
   const avatar=a=>`<span class="account-avatar">${a.avatarUrl?.startsWith('https://')?`<img src="${esc(a.avatarUrl)}" alt="" referrerpolicy="no-referrer">`:a.platform==='xhs'?'小':'抖'}</span>`;
-  const platformURL=p=>p==='xhs'?'https://creator.xiaohongshu.com/new/note-manager':'https://creator.douyin.com/creator-micro/content/manage';
-  const jobURL=j=>j.platform==='xhs'&&j.resultUrl?.startsWith('https://creator.xiaohongshu.com/publish/')?platformURL(j.platform):(j.resultUrl||platformURL(j.platform));
   const query=q=>new URLSearchParams(Object.entries(q).filter(([,v])=>v!==''&&v!=null)).toString();
-  const fields={accounts:{keyword:'',platform:'',group:'',status:''},jobs:{keyword:'',platform:'',accountId:'',status:'',type:'',from:'',to:'',batchId:'',page:1,pageSize:20},data:{platform:'',accountId:'',from:'',to:''}};
+  const fields={accounts:{keyword:'',platform:'',group:'',status:''},jobs:{keyword:'',platform:'',accountId:'',result:'',type:'',from:'',to:'',more:false,page:1,pageSize:20},data:{platform:'',accountId:'',from:'',to:''}};
   const selected=new Set();let H,epoch=0;
   // The API groups days in China time, independently of the browser's timezone.
   const day=v=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(v);
@@ -59,25 +57,63 @@
     $('console-check').onclick=safe(()=>H.bulk(all.filter(a=>selected.has(a.id)&&a.runnerId===status.runnerId).map(a=>a.id),'check'));
     $('console-sync').onclick=safe(()=>H.bulk(all.filter(a=>selected.has(a.id)&&a.runnerId===status.runnerId).map(a=>a.id),'analytics'));list();
   }
+  const briefDate=value=>value?new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):'—';
+  const thumbnails=new Map(),thumbnailQueue=[];let thumbnailActive=0,thumbnailObserver,detailEpoch=0;
+  function thumbnail(id){
+    if(thumbnails.has(id))return thumbnails.get(id).promise;
+    const entry={};entry.promise=new Promise((resolve,reject)=>thumbnailQueue.push({id,entry,resolve,reject}));thumbnails.set(id,entry);drainThumbnails();return entry.promise;
+  }
+  async function drainThumbnails(){
+    if(thumbnailActive>=2||!thumbnailQueue.length)return;
+    const task=thumbnailQueue.shift();thumbnailActive++;drainThumbnails();
+    try{
+      const response=await fetch('/creator-studio/api/distribution/media/'+encodeURIComponent(task.id)+'/thumbnail',{headers:{'X-Creator-Request':'1'},credentials:'same-origin'});
+      if(!response.ok)throw new Error('缩略图暂不可用');task.entry.url=URL.createObjectURL(await response.blob());task.resolve(task.entry.url);
+      if(thumbnails.size>128){const oldest=[...thumbnails].find(([,row])=>row.url);if(oldest){URL.revokeObjectURL(oldest[1].url);thumbnails.delete(oldest[0]);}}
+    }catch(e){thumbnails.delete(task.id);task.reject(e);}finally{thumbnailActive--;drainThumbnails();}
+  }
+  function showThumbnails(pane){
+    thumbnailObserver?.disconnect();
+    const load=img=>{thumbnail(img.dataset.thumbnail).then(url=>{if(img.isConnected){img.src=url;img.hidden=false;img.onerror=()=>{img.hidden=true;};}}).catch(()=>{});};
+    const images=[...pane.querySelectorAll('[data-thumbnail]')];
+    if('IntersectionObserver' in window){thumbnailObserver=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){thumbnailObserver.unobserve(entry.target);load(entry.target.querySelector('img'));}},{root:pane,rootMargin:'80px'});images.forEach(img=>thumbnailObserver.observe(img.parentElement));}
+    else images.forEach(load);
+  }
+  window.addEventListener('pagehide',()=>{thumbnailObserver?.disconnect();for(const entry of thumbnails.values())if(entry.url)URL.revokeObjectURL(entry.url);thumbnails.clear();});
+  const workThumbnail=work=>`<span class="console-publication-thumb"><svg aria-hidden="true"><use href="#i-${work.type==='video'?'video':'image'}"/></svg>${work.thumbnailMediaId?`<img data-thumbnail="${esc(work.thumbnailMediaId)}" alt="" decoding="async" hidden>`:''}</span>`;
   async function jobs(pane){
     const f=fields.jobs,ticket=++epoch;
-    pane.innerHTML=`<div class="distribution-heading"><div><h2>发布任务</h2><p>完整历史按任务创建时间筛选。提交后结果待核对的任务不会自动重发。</p></div><button id="console-jobs-refresh">刷新</button></div><form class="distribution-filters console-filters"><label>搜索<input data-filter="keyword" placeholder="标题、账号或处理提示" value="${esc(f.keyword)}"></label>${commonFilters(f,true)}<button class="primary">查询</button><button type="button" id="console-jobs-reset">清除筛选</button></form><div id="console-jobs-results" aria-live="polite">正在读取任务…</div>`;
-    bindFilters(pane,f,()=>{f.page=1;jobs(pane);});$('console-jobs-refresh').onclick=()=>H.refresh();$('console-jobs-reset').onclick=()=>{Object.assign(f,{keyword:'',platform:'',accountId:'',status:'',type:'',from:'',to:'',batchId:'',page:1});jobs(pane);};
+    const {more,...criteria}=f,signature=JSON.stringify(criteria),reuse=pane.dataset.publicationFilter===signature&&!!pane.querySelector('#console-jobs-results'),scrollTop=reuse?pane.scrollTop:0;
+    const moreCount=['platform','accountId','type','from','to'].filter(key=>f[key]).length;
+    if(!reuse){
+      pane.dataset.publicationFilter=signature;
+      pane.innerHTML=`<div class="distribution-heading"><div><h2>发布任务</h2></div><button id="console-jobs-refresh">刷新</button></div><form class="console-job-filters"><div class="console-job-filter-main"><label>搜索<input data-filter="keyword" placeholder="作品标题或账号" value="${esc(f.keyword)}"></label><label>发布情况<select data-filter="result"><option value="">全部状态</option><option value="published">全部成功</option><option value="attention">需要处理或核对</option><option value="pending">等待或执行中</option><option value="cancelled">已取消</option></select></label><button class="primary">查询</button><button type="button" id="console-jobs-reset">清除筛选</button></div><details id="console-jobs-more" ${f.more?'open':''}><summary>更多筛选${moreCount?' · '+moreCount+' 项':''}</summary><div class="distribution-filters console-filters">${commonFilters(f)}<label>内容形式<select data-filter="type"><option value="">图文和视频</option><option value="image">图文</option><option value="video">视频</option></select></label></div></details></form><div id="console-jobs-results" aria-live="polite">正在读取任务…</div>`;
+      bindFilters(pane,f,()=>{f.page=1;jobs(pane);});$('console-jobs-more').ontoggle=e=>{f.more=e.currentTarget.open;};$('console-jobs-refresh').onclick=()=>H.refresh(true);$('console-jobs-reset').onclick=()=>{Object.assign(f,{keyword:'',platform:'',accountId:'',result:'',type:'',from:'',to:'',more:false,page:1});delete pane.dataset.publicationFilter;jobs(pane);};
+    }
     try{
-      const result=await H.request('/jobs/page?'+query(range(f)));if(ticket!==epoch||!H.isView('jobs'))return;
+      const result=await H.request('/jobs/works?'+query(range(criteria)));if(ticket!==epoch||!H.isView('jobs'))return;
       const rows=result.items,total=result.total,pages=Math.max(1,Math.ceil(total/f.pageSize));
       if(f.page>pages){f.page=pages;return jobs(pane);}
-      $('console-jobs-results').innerHTML=`<p class="hint">${f.batchId?'当前批次 · ':''}共 ${num(total)} 条任务</p><div class="distribution-job-list">${rows.map(j=>`<article class="distribution-job"><div><span class="distribution-state ${j.status}">${labels[j.status]||esc(j.status)}</span><strong>${esc(j.post.title||'未命名内容')}</strong><small>${names[j.platform]} · ${esc(j.accountName)} · ${j.post.type==='video'?'视频':'图文'}</small><p>${esc(j.message||'等待助手到点开始上传')}</p>${j.post.source?`<p>来源：${esc(j.post.source.projectName)} · ${[...new Set((j.post.source.assets||[]).map(a=>a.workName||a.name))].map(esc).join('、')}</p>`:''}<small>创建 ${date(j.createdAt)} · 计划开始 ${date(j.dueAt)}<br>最近更新 ${date(j.updatedAt)} · 批次内第 ${j.batchPosition==null?'—':j.batchPosition+1} 条</small></div><div class="distribution-job-actions"><a href="${esc(jobURL(j))}" target="_blank" rel="noopener noreferrer">${j.resultUrl?'查看平台作品':'打开平台管理'}</a>${j.status==='queued'?`<button data-job="${j.id}" data-action="cancel">取消</button>${j.platform==='xhs'&&j.post.originality==='original'?`<button data-job="${j.id}" data-action="originality">确认原创须知</button>`:''}`:''}${['failed','needs_input'].includes(j.status)?`<button data-job="${j.id}" data-action="retry">重试</button>`:''}${['submitted','uncertain'].includes(j.status)?`<button data-job="${j.id}" data-action="resolve">核对结果</button>`:''}${j.post.source?`<button data-source="${j.id}">查看来源作品</button>`:''}<button data-details="${j.id}">查看内容</button><button data-batch="${j.batchId}">同批任务</button></div></article>`).join('')||'<p class="distribution-empty">没有匹配的发布任务。</p>'}</div><div class="console-pagination"><button id="console-previous" ${f.page<=1?'disabled':''}>上一页</button><span>第 ${f.page} / ${pages} 页</span><button id="console-next" ${f.page>=pages?'disabled':''}>下一页</button></div>`;
+      $('console-jobs-results').innerHTML=`<p class="hint">共 ${num(total)} 次作品发布</p>${rows.length?`<div class="console-publication-table"><table><thead><tr><th>作品</th><th>发布方式</th><th>发布情况</th><th>创建时间</th><th>操作</th></tr></thead><tbody>${rows.map((work,index)=>{const summary=Core.publicationSummary(work);return `<tr><td><div class="console-publication-work">${workThumbnail(work)}<span><strong>${esc(work.title)}</strong><small>${work.type==='video'?'视频':'图文'} · ${work.accountCount} 个账号</small></span></div></td><td>${work.scheduled?`定时发布<small>${briefDate(work.dueAt)}</small>`:'立即发布'}</td><td><span class="distribution-state ${summary.status}">${summary.label}</span><small>${summary.detail}</small></td><td title="${esc(date(work.createdAt))}">${briefDate(work.createdAt)}</td><td><button data-work-details="${index}">查看详情</button></td></tr>`;}).join('')}</tbody></table></div>`:'<p class="distribution-empty">没有匹配的发布任务。</p>'}<div class="console-pagination"><button id="console-previous" ${f.page<=1?'disabled':''}>上一页</button><span>第 ${f.page} / ${pages} 页</span><button id="console-next" ${f.page>=pages?'disabled':''}>下一页</button></div>`;
       $('console-previous').onclick=()=>{f.page--;jobs(pane);};$('console-next').onclick=()=>{f.page++;jobs(pane);};
-      pane.querySelectorAll('[data-source]').forEach(b=>b.onclick=safe(()=>H.openSource(rows.find(j=>j.id===b.dataset.source).post.source)));
-      pane.querySelectorAll('[data-batch]').forEach(b=>b.onclick=()=>{f.batchId=b.dataset.batch;f.page=1;jobs(pane);});
-      pane.querySelectorAll('[data-details]').forEach(b=>b.onclick=()=>{const j=rows.find(r=>r.id===b.dataset.details);H.modal('任务内容快照',`<p>${names[j.platform]} · ${esc(j.accountName)}</p><h3>${esc(j.post.title)}</h3><p class="distribution-body">${esc(j.post.body)}</p><p>${(j.post.tags||[]).map(t=>'#'+esc(t)).join(' ')}</p><p>${(j.post.mediaIds||[]).length} 个素材 · ${esc(Core.settingsSummary(j.platform,j.post))}</p><p class="hint">此处展示创建任务时固定的内容，后续修改作品不会改变它。</p>`,[{label:'关闭',run:H.close}]);});
-      pane.querySelectorAll('[data-job]').forEach(b=>b.onclick=()=>action(rows.find(j=>j.id===b.dataset.job),b.dataset.action));
+      pane.querySelectorAll('[data-work-details]').forEach(b=>b.onclick=()=>workDetails(rows[Number(b.dataset.workDetails)]));pane.scrollTop=scrollTop;showThumbnails(pane);
     }catch(e){if(ticket===epoch)error(pane,'console-jobs-results',e);}
+  }
+  async function workDetails(work){
+    const ticket=++detailEpoch;
+    H.modal('发布详情',`<div id="console-work-detail-body"><p class="hint">正在读取各账号结果…</p></div>`,[{label:'关闭',run:H.close}]);
+    const target=$('console-work-detail-body');
+    try{
+      const rows=[];let page=1,total;
+      do{const result=await H.request('/jobs/page?'+query({batchId:work.batchId,workKey:work.workKey,page:page++,pageSize:100}));rows.push(...result.items);total=result.total;}while(rows.length<total);
+      if(ticket!==detailEpoch||!$('dialog').open||$('console-work-detail-body')!==target)return;
+      target.innerHTML=`<h3 class="console-work-detail-title">${esc(work.title)}</h3><p class="hint">${work.type==='video'?'视频':'图文'} · ${work.accountCount} 个账号 · ${work.scheduled?'定时发布 '+briefDate(work.dueAt):'立即发布'}</p><div class="console-job-accounts">${rows.map(j=>`<article class="console-job-account"><div class="console-job-account-heading"><strong>${esc(j.accountName)}</strong><span class="distribution-platform ${j.platform}">${names[j.platform]}</span><span class="distribution-state ${j.status}">${labels[j.status]||esc(j.status)}</span></div>${j.message&&!['published','cancelled'].includes(j.status)?`<p class="console-job-message">${esc(j.message)}</p>`:''}<div class="console-job-detail-actions">${j.status==='queued'?`<button data-detail-job="${j.id}" data-action="cancel">取消任务</button>${j.platform==='xhs'&&j.post.originality==='original'?`<button data-detail-job="${j.id}" data-action="originality">确认原创须知</button>`:''}`:''}${['failed','needs_input'].includes(j.status)?`<button data-detail-job="${j.id}" data-action="retry">重试</button>`:''}${['submitted','uncertain'].includes(j.status)?`<button data-detail-job="${j.id}" data-action="resolve">核对结果</button>`:''}</div><details class="console-job-content"><summary>查看发布内容</summary><h4>${esc(j.post.title)}</h4><p class="distribution-body">${esc(j.post.body)}</p><p>${(j.post.tags||[]).map(t=>'#'+esc(t)).join(' ')}</p><p class="hint">${(j.post.mediaIds||[]).length} 个素材 · ${esc(Core.settingsSummary(j.platform,j.post))}</p>${j.post.coverId?'<p class="hint">已设置自定义封面</p>':''}${j.post.landscapeCoverId?'<p class="hint">已设置横版封面</p>':''}</details></article>`).join('')}</div>`;
+      target.querySelectorAll('[data-detail-job]').forEach(b=>b.onclick=()=>action(rows.find(j=>j.id===b.dataset.detailJob),b.dataset.action));
+    }catch(e){if(ticket===detailEpoch&&$('dialog').open&&$('console-work-detail-body')===target)target.innerHTML=`<p class="distribution-error">${esc(e.message)}</p>`;}
   }
   function action(job,mode){
     const run=body=>safe(async()=>{await H.request('/jobs/'+job.id+'/action',{method:'POST',body});H.close();await H.refresh();});
-    if(mode==='resolve')H.modal('核对平台结果',`<h3>${esc(job.post.title)}</h3><p>${names[job.platform]} · ${esc(job.accountName)}</p><p>请在平台作品管理中确认这条内容的结果后选择状态。</p><a href="${platformURL(job.platform)}" target="_blank" rel="noopener noreferrer">打开平台作品管理</a>`,[{label:'稍后核对',run:H.close},{label:'确认未发布',run:run({action:'resolve',result:'failed'})},{label:'确认已发布',primary:true,run:run({action:'resolve',result:'published'})}]);
+    if(mode==='resolve')H.modal('核对平台结果',`<h3>${esc(job.post.title)}</h3><p>${names[job.platform]} · ${esc(job.accountName)}</p><p>请在平台作品管理中确认这条内容的结果后选择状态。</p>`,[{label:'稍后核对',run:H.close},{label:'确认未发布',run:run({action:'resolve',result:'failed'})},{label:'确认已发布',primary:true,run:run({action:'resolve',result:'published'})}]);
     else {
       const approvalOnly=mode==='originality';
       const originality=(mode==='retry'||approvalOnly)&&job.platform==='xhs'&&job.post.originality==='original';

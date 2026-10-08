@@ -1243,6 +1243,10 @@
         "createdAt": {
           "type": "string",
           "format": "date-time"
+        },
+        "scheduled": {
+          "type": "boolean",
+          "description": "是否定时发布；立即发布不依据时间差推断。"
         }
       },
       "required": [
@@ -1254,7 +1258,8 @@
         "status",
         "message",
         "dueAt",
-        "updatedAt"
+        "updatedAt",
+        "scheduled"
       ],
       "additionalProperties": false
     },
@@ -1402,6 +1407,73 @@
         "accountCount"
       ],
       "additionalProperties": false
+    },
+    "PublicationWork": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "batchId",
+        "workKey",
+        "title",
+        "type",
+        "thumbnailMediaId",
+        "accountCount",
+        "taskCount",
+        "counts",
+        "scheduled",
+        "createdAt",
+        "dueAt"
+      ],
+      "properties": {
+        "batchId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workKey": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "title": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "image",
+            "video"
+          ]
+        },
+        "thumbnailMediaId": {
+          "type": "string",
+          "description": "代表封面或首个素材的发布素材 ID；旧记录缺少素材时为空。"
+        },
+        "accountCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "taskCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "scheduled": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "dueAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
     }
   },
   "mediaReuse": {
@@ -1668,6 +1740,16 @@
             "maximum": 100,
             "default": 20
           }
+        },
+        {
+          "name": "workKey",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "description": "同一次发布中按素材类型与顺序区分的作品标识，可用于读取全部账号详情。"
         }
       ]
     }
@@ -2192,6 +2274,286 @@
       },
       "description": "进行中的任务会阻止移除；保留历史任务。平台 Cookie 不存入后台。",
       "operationId": "creatorDistributionAccountDelete"
+    }
+  },
+  "jobsWorks": {
+    "get": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "分页汇总作品发布记录",
+      "security": [
+        {
+          "adminCookie": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "操作成功",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/schemas/PublicationWork"
+                    }
+                  },
+                  "total": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "page": {
+                    "type": "integer"
+                  },
+                  "pageSize": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "items",
+                  "total",
+                  "page",
+                  "pageSize"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "operationId": "creatorDistributionWorksGet",
+      "parameters": [
+        {
+          "name": "platform",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "xhs",
+              "douyin"
+            ]
+          }
+        },
+        {
+          "name": "accountId",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "from",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        {
+          "name": "to",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        {
+          "name": "status",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "submitting",
+              "submitted",
+              "published",
+              "failed",
+              "uncertain",
+              "needs_input",
+              "cancelled"
+            ]
+          }
+        },
+        {
+          "name": "type",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video"
+            ]
+          }
+        },
+        {
+          "name": "keyword",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "batchId",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000,
+            "default": 1
+          }
+        },
+        {
+          "name": "pageSize",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 20
+          }
+        },
+        {
+          "name": "workKey",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "description": "同一次发布中按素材类型与顺序区分的作品标识，可用于读取全部账号详情。"
+        },
+        {
+          "name": "result",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "published",
+              "attention",
+              "pending",
+              "cancelled"
+            ]
+          },
+          "description": "published 为全部成功；attention 为包含失败、需处理或待核对成员；pending 为包含等待/执行中成员；cancelled 为全部取消。"
+        }
+      ],
+      "description": "同一次发布中的同类型、同顺序素材合并；文案和封面差异保留在账号任务详情。分页与 total 按作品计数。平台、账号、关键词筛选选择包含匹配成员的作品，返回统计仍覆盖该作品全部账号（包括已移除账号），避免误报全部成功。"
+    }
+  },
+  "mediaInfo": {
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    ],
+    "get": {
+      "tags": [
+        "Admin distribution"
+      ],
+      "summary": "读取发布素材的安全元信息",
+      "security": [
+        {
+          "adminCookie": []
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "素材元信息",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "type",
+                  "extension",
+                  "size"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "image",
+                      "video"
+                    ]
+                  },
+                  "extension": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "管理会话失效"
+        },
+        "409": {
+          "description": "任务状态或幂等请求冲突"
+        },
+        "422": {
+          "description": "参数不符合助手当前支持范围"
+        },
+        "403": {
+          "description": "CSRF 校验失败或权限不足"
+        }
+      },
+      "operationId": "creatorDistributionMediaInfoGet",
+      "description": "仅返回类型、扩展名和大小，不返回存储路径；本地缩略图读取复用同一管理会话认证。"
     }
   }
 }

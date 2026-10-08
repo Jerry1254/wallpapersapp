@@ -4,6 +4,7 @@ import io
 import json
 from pathlib import Path
 import unittest
+import uuid
 from unittest.mock import Mock, patch
 from .bridge import PublishingBridge, BridgeError
 
@@ -126,6 +127,27 @@ class OperationsTests(unittest.TestCase):
             self.bridge.handle(handler)
             self.assertEqual(handler.status,200)
             self.assertEqual(self.bridge.api.call_args.args[:2],(method,'distribution'+route))
+
+    def test_work_history_forwards_filters_without_losing_pagination(self):
+        self.bridge.session = {'token': 'publish-for-test', 'cookie': 'backend-for-test', 'csrf': 'csrf-for-test'}
+        handler=Handler('/creator-studio/api/distribution/jobs/works?result=attention&page=2&pageSize=20','CREATOR_PUBLISH_SESSION=publish-for-test','GET')
+        self.bridge.handle(handler)
+        self.assertEqual(handler.status,200)
+        self.assertEqual(self.bridge.api.call_args.args[:2],('GET','distribution/jobs/works?result=attention&page=2&pageSize=20'))
+
+    def test_cached_thumbnail_still_requires_valid_admin_session(self):
+        media_id=str(uuid.uuid4());self.bridge.thumbnails[media_id]=b'local-jpeg-for-test'
+        self.bridge.session = {'token': 'publish-for-test', 'cookie': 'backend-for-test', 'csrf': 'csrf-for-test'}
+        route='/creator-studio/api/distribution/media/'+media_id+'/thumbnail'
+        missing=Handler(route,'','GET');self.bridge.handle(missing)
+        self.assertEqual(missing.status,401);self.bridge.api.assert_not_called()
+        valid=Handler(route,'CREATOR_PUBLISH_SESSION=publish-for-test','GET');self.bridge.handle(valid)
+        self.assertEqual(valid.status,200);self.assertEqual(valid.response_headers['Content-Type'],'image/jpeg')
+        self.assertEqual(valid.wfile.getvalue(),b'local-jpeg-for-test')
+        self.bridge.api.assert_called_once_with('GET','distribution/media/'+media_id+'/info',session=self.bridge.session)
+        self.bridge.api.side_effect=BridgeError('会话失效',401)
+        expired=Handler(route,'CREATOR_PUBLISH_SESSION=publish-for-test','GET');self.bridge.handle(expired)
+        self.assertEqual(expired.status,401);self.assertNotIn(b'local-jpeg-for-test',expired.wfile.getvalue())
 
     def test_identity_diagnostic_is_local_operation_only_and_cannot_mark_account_ready(self):
         account = {'id': 'one', 'name': '账号一'}

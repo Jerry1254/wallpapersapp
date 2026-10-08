@@ -1,9 +1,11 @@
 """Loopback-only publishing bridge. Business records live behind the admin API."""
 import http.client
+from collections import OrderedDict
 import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -38,6 +40,8 @@ class PublishingBridge:
         self.preparing = False
         self.setup_message = ''
         self.started = False
+        self.thumbnail_lock = threading.Lock()
+        self.thumbnails = OrderedDict()
         self.backend = urlsplit(os.environ.get('CREATOR_PUBLISH_API', 'http://127.0.0.1:8080'))
         if self.backend.scheme != 'http' or self.backend.hostname not in ('127.0.0.1', 'localhost'):
             raise ValueError('CREATOR_PUBLISH_API must be a loopback HTTP API')
@@ -128,6 +132,46 @@ class PublishingBridge:
         h.end_headers()
         h.wfile.write(encoded)
 
+    def thumbnail(self, h, media_id):
+        media_id = str(uuid.UUID(media_id))
+        session = self.session
+        # Revalidate admin access even when the immutable thumbnail is cached.
+        info = self.api('GET', 'distribution/media/' + media_id + '/info', session=session)
+        with self.thumbnail_lock:
+            encoded = self.thumbnails.get(media_id)
+            if encoded is None:
+                if info.get('type') not in ('image', 'video'):
+                    raise BridgeError('该素材无法显示缩略图', 422)
+                demuxer = {'jpg': 'jpeg_pipe', 'jpeg': 'jpeg_pipe', 'png': 'png_pipe', 'webp': 'webp_pipe',
+                           'mp4': 'mov', 'mov': 'mov', 'webm': 'matroska'}.get(info.get('extension'))
+                if demuxer is None:
+                    raise BridgeError('该素材格式无法显示缩略图', 422)
+                ffmpeg = os.environ.get('CREATOR_FFMPEG') or shutil.which('ffmpeg') or str(Path.home() / '.homebrew/bin/ffmpeg')
+                if not Path(ffmpeg).is_file():
+                    raise BridgeError('本机缩略图工具暂不可用', 503)
+                with tempfile.TemporaryDirectory(dir=RUNTIME, prefix='thumbnail-') as folder:
+                    source, output = Path(folder) / 'source', Path(folder) / 'preview.jpg'
+                    self.api('GET', 'distribution/media/' + media_id, download=source, session=session)
+                    try:
+                        subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-protocol_whitelist', 'file,pipe', '-f', demuxer,
+                                        '-i', str(source), '-frames:v', '1', '-vf', 'scale=160:160:force_original_aspect_ratio=decrease',
+                                        '-threads', '1', str(output)], check=True, capture_output=True, timeout=20)
+                        encoded = output.read_bytes()
+                    except (OSError, subprocess.SubprocessError):
+                        raise BridgeError('这份素材暂时无法读取缩略图', 422)
+                if not 0 < len(encoded) <= 512 * 1024:
+                    raise BridgeError('缩略图无效', 422)
+                self.thumbnails[media_id] = encoded
+                while len(self.thumbnails) > 128:
+                    self.thumbnails.popitem(last=False)
+            self.thumbnails.move_to_end(media_id)
+        h.send_response(200)
+        h.send_header('Content-Type', 'image/jpeg')
+        h.send_header('Content-Length', str(len(encoded)))
+        h.send_header('Cache-Control', 'no-store')
+        h.end_headers()
+        h.wfile.write(encoded)
+
     def handle(self, h):
         path = urlsplit(h.path).path
         if not path.startswith(PREFIX + '/'):
@@ -181,6 +225,9 @@ class PublishingBridge:
                     raise BridgeError('登录会话已结束', 404)
                 return self.respond(h, self.operations[op]) or True
             parts = route.strip('/').split('/')
+            if len(parts) == 3 and parts[0] == 'media' and parts[2] == 'thumbnail' and h.command == 'GET':
+                self.thumbnail(h, parts[1])
+                return True
             if len(parts) == 3 and parts[0] == 'jobs' and parts[2] == 'originality-approval' and h.command == 'POST':
                 if n.get('accepted') is not True:
                     raise BridgeError('请先确认本次原创声明须知', 422)
@@ -224,7 +271,7 @@ class PublishingBridge:
                     self.operations[op] = {'status': 'running', 'message': '正在打开登录窗口，请扫码并确认账号'}
                 threading.Thread(target=self.login, args=(op, account, parts[2]), daemon=True).start()
                 return self.respond(h, {'operationId': op}) or True
-            allowed = (route in ('/accounts', '/groups', '/jobs', '/jobs/page', '/overview', '/batches', '/media', '/media/reuse', '/metrics') or
+            allowed = (route in ('/accounts', '/groups', '/jobs', '/jobs/page', '/jobs/works', '/overview', '/batches', '/media', '/media/reuse', '/metrics') or
                        (len(parts) == 2 and parts[0] in ('accounts', 'groups')) or
                        (len(parts) == 3 and parts[0] == 'jobs' and parts[2] == 'action'))
             if not allowed:
@@ -253,7 +300,7 @@ class PublishingBridge:
                     value = self.api('POST', 'distribution/media', stream=body, size=size, filename=h.headers.get('X-Filename', ''))
             else:
                 query = ''
-                if h.command == 'GET' and route in ('/jobs/page', '/overview'):
+                if h.command == 'GET' and route in ('/jobs/page', '/jobs/works', '/overview'):
                     params = parse_qs(urlsplit(h.path).query, keep_blank_values=True)
                     if any(len(values) != 1 for values in params.values()):
                         raise BridgeError('查询条件不能重复', 422)

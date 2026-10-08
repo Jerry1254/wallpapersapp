@@ -34,9 +34,11 @@ public class DistributionController {
         var content=service.content(id);
         return ResponseEntity.ok().contentLength(content.sizeBytes()).header("Content-Type","application/octet-stream").body(output->{try(content){content.inputStream().transferTo(output);}});
     }
+    @GetMapping("/media/{id}/info") public Object mediaInfo(@PathVariable String id) { return service.mediaInfo(id); }
     @PostMapping("/media/reuse") public Object reuse(@RequestBody JsonNode n) {return service.reuseMedia(n);}
     @GetMapping("/jobs") public Object jobs() { return service.jobs(); }
     @GetMapping("/jobs/page") public Object jobsPage(@RequestParam Map<String,String> q) { return queries.jobs(q); }
+    @GetMapping("/jobs/works") public Object works(@RequestParam Map<String,String> q) { return queries.works(q); }
     @GetMapping("/overview") public Object overview(@RequestParam Map<String,String> q) { return queries.overview(q); }
     @PostMapping("/batches") public Object batch(@RequestBody JsonNode n) { return service.createBatch(n); }
     @PostMapping("/claim") public Object claim(@RequestBody JsonNode n) { return service.claim(n.path("runnerId").asText()); }

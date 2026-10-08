@@ -86,6 +86,10 @@ paths:
     $ref: './distribution.yaml#/mediaReuse'
   /admin/distribution/media/{id}:
     $ref: './distribution.yaml#/mediaContent'
+  /admin/distribution/jobs/works:
+    $ref: './distribution.yaml#/jobsWorks'
+  /admin/distribution/media/{id}/info:
+    $ref: './distribution.yaml#/mediaInfo'
   /admin/distribution/jobs/page:
     $ref: './distribution.yaml#/jobsPage'
   /admin/distribution/overview:

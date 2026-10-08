@@ -80,6 +80,20 @@
     state.submissionPending=null;
     return true;
   }
-  const api={accountPost,currentPost,customize,source,settingFields,settings,settingsSummary,contentChoices,rowKey,buildBatch,mergeBatch,finishSubmission};
+  function publicationSummary(work){
+    const counts={published:0,failed:0,needs_input:0,queued:0,running:0,submitting:0,submitted:0,uncertain:0,cancelled:0,...work.counts};
+    const pending=counts.queued+counts.running+counts.submitting,awaiting=counts.submitted+counts.uncertain;
+    let status='queued',label='等待发布';
+    if(counts.running+counts.submitting){status='running';label='发布中';}
+    else if(pending){status='queued';label='等待发布';}
+    else if(awaiting){status='uncertain';label='待核对结果';}
+    else if(counts.needs_input){status='needs_input';label='需要处理';}
+    else if(counts.failed){status='failed';label=counts.published?'部分成功':'发布失败';}
+    else if(counts.published){status='published';label=counts.published===work.taskCount?'全部成功':'发布完成';}
+    else if(counts.cancelled){status='cancelled';label='已取消';}
+    const parts=[[counts.published,'成功'],[counts.failed,'失败'],[counts.needs_input,'需处理'],[pending,'等待 / 处理中'],[awaiting,'待核对'],[counts.cancelled,'取消']].filter(([n])=>n).map(([n,text])=>`${n} ${text}`);
+    return {status,label,detail:parts.join(' · ')};
+  }
+  const api={accountPost,currentPost,customize,source,settingFields,settings,settingsSummary,contentChoices,rowKey,buildBatch,mergeBatch,finishSubmission,publicationSummary};
   if(typeof module==='object'&&module.exports)module.exports=api;else root.DistributionCore=api;
 })(typeof window==='object'?window:globalThis);

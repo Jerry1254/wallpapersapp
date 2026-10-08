@@ -164,6 +164,45 @@ class DistributionIntegrationIT {
         var withoutBaseline=queries.overview(Map.of("accountId",a,"from","2026-09-01T00:00:00Z","to","2026-10-03T00:00:00Z"));
         assertThat((Map<?,?>)((Map<?,?>)((List<?>)withoutBaseline.get("metrics")).get(0)).get("delta")).isEmpty();
     }
+    @Test void workHistoryGroupsCaptionsAcrossAccountsButSeparatesWorksBatchesAndImageOrder(){
+        String a=account(),b=account(),batch=UUID.randomUUID().toString(),secondBatch=UUID.randomUUID().toString(),image=UUID.randomUUID().toString(),other=UUID.randomUUID().toString();
+        for(String id:List.of(batch,secondBatch))db.update("INSERT INTO creator_publish_batch(id,request_hash) VALUES(?,?)",id,"e".repeat(64));
+        ObjectNode first=obj().put("type","image").put("title","账号甲的标题");first.putArray("mediaIds").add(image).add(other);
+        first.putObject("source").putArray("assets").addObject().put("workName","真正的作品名称");
+        var caption=first.deepCopy().put("title","账号乙的标题").put("coverId",other);
+        var reverse=first.deepCopy();reverse.putArray("mediaIds").add(other).add(image);
+        var video=first.deepCopy().put("type","video");video.putArray("mediaIds").add(image);
+        List<ObjectNode> posts=List.of(first,caption,reverse,video,first);
+        for(int i=0;i<posts.size();i++)db.update("INSERT INTO creator_publish_job(id,batch_id,account_id,payload,status,due_at,created_at,batch_position,scheduled) VALUES(?,?,?,?,?,'2026-10-08 02:00:00','2026-10-08 01:00:00',?,TRUE)",UUID.randomUUID().toString(),i==4?secondBatch:batch,i==1?b:a,posts.get(i).toString(),i==1?"failed":"published",i);
+        service.archiveAccount(b);
+        var result=queries.works(Map.of("batchId",batch));assertThat(result.get("total")).isEqualTo(3L);
+        var items=(List<Map<String,Object>>)result.get("items");var combined=items.stream().filter(row->row.get("taskCount").equals(2)).findFirst().orElseThrow();
+        assertThat(combined).containsEntry("title","真正的作品名称").containsEntry("accountCount",2).containsEntry("scheduled",true).containsEntry("thumbnailMediaId",image).doesNotContainKey("jobs");
+        assertThat((Map<String,Object>)combined.get("counts")).containsEntry("published",1L).containsEntry("failed",1L);
+        var details=queries.jobs(Map.of("batchId",batch,"workKey",combined.get("workKey").toString()));assertThat(details.get("total")).isEqualTo(2L);
+        assertThat((List<?>)details.get("items")).hasSize(2);
+        var filtered=queries.works(Map.of("batchId",batch,"accountId",b,"result","attention"));assertThat(filtered.get("total")).isEqualTo(1L);
+        assertThat((Map<String,Object>)((List<?>)filtered.get("items")).get(0)).containsEntry("accountCount",2).containsEntry("taskCount",2);
+        assertThat(queries.works(Map.of("batchId",batch,"result","published")).get("total")).isEqualTo(2L);
+        assertThat(queries.works(Map.of("batchId",batch,"keyword","真正的作品名称")).get("total")).isEqualTo(3L);
+        var captionMatch=queries.works(Map.of("batchId",batch,"keyword","账号乙的标题"));assertThat(captionMatch.get("total")).isEqualTo(1L);
+        assertThat((Map<String,Object>)((List<?>)captionMatch.get("items")).get(0)).containsEntry("taskCount",2);
+        assertThat(queries.works(Map.of("batchId",secondBatch)).get("total")).isEqualTo(1L);
+    }
+    @Test void workPaginationDoesNotSplitMembersAndRejectsInvalidGroupFilters(){
+        String a=account(),batch=UUID.randomUUID().toString();db.update("INSERT INTO creator_publish_batch(id,request_hash) VALUES(?,?)",batch,"f".repeat(64));
+        for(int i=0;i<23;i++){var post=obj().put("title","作品"+i).put("type","image");post.putArray("mediaIds").add(UUID.randomUUID().toString());for(String status:List.of("queued","needs_input"))db.update("INSERT INTO creator_publish_job(id,batch_id,account_id,payload,status,due_at,created_at) VALUES(?,?,?,?,?,CURRENT_TIMESTAMP(3),'2026-10-08 00:00:00')",UUID.randomUUID().toString(),batch,a,post.toString(),status);}
+        var page=queries.works(Map.of("batchId",batch,"page","2","pageSize","20","result","pending"));assertThat(page.get("total")).isEqualTo(23L);
+        assertThat((List<Map<String,Object>>)page.get("items")).hasSize(3).allSatisfy(row->assertThat(row).containsEntry("taskCount",2));
+        assertThat(queries.works(Map.of("batchId",batch,"result","attention")).get("total")).isEqualTo(23L);
+        assertThat(queries.works(Map.of("batchId",batch,"result","cancelled")).get("total")).isEqualTo(0L);
+        assertThatThrownBy(()->queries.works(Map.of("result","invalid"))).isInstanceOf(ApiException.class);
+        assertThatThrownBy(()->queries.works(Map.of("pageSize","51"))).isInstanceOf(ApiException.class);
+        assertThatThrownBy(()->queries.jobs(Map.of("workKey","not-a-key"))).isInstanceOf(ApiException.class);
+    }
+    @Test void mediaInfoDoesNotExposeStoragePaths(){
+        var source=source();assertThat(service.mediaInfo(source.media)).containsEntry("id",source.media).containsEntry("type","image").containsEntry("size",100L).doesNotContainKeys("storage_key","workspace_media_id");
+    }
     record Source(String project,String file,String media,ObjectNode payload){}
     Source source(){
         String id=UUID.randomUUID().toString(),file="file-"+id;
