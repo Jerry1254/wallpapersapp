@@ -154,6 +154,7 @@ class PublishLifetimeTests(unittest.IsolatedAsyncioTestCase):
             SimpleNamespace(start=AsyncMock(return_value=self.runtime)))}).start()
         self.page.set_default_timeout=Mock()
         self.page.url='https://creator.xiaohongshu.com/publish/publish'
+        patch.object(worker, 'dismiss_publish_hints', new=AsyncMock()).start()
 
     async def test_failure_is_captured_before_browser_runtime_stops(self):
         await self.prepare_publish()
@@ -241,7 +242,13 @@ class PublishDiagnosticTests(unittest.IsolatedAsyncioTestCase):
             request['job']['id'] = '8c1ea09a-b84c-4b9f-b605-acec12c9f2d1'
             page.screenshot.side_effect = RuntimeError('closed page')
             await worker.save_publish_diagnostic(page, request, '提交后', True)
-            self.assertEqual(list(Path(folder).iterdir()), [])
+            self.assertEqual([file.name for file in Path(folder).iterdir()], ['diagnostics'])
+            diagnostics = list((Path(folder) / 'diagnostics').iterdir())
+            self.assertEqual([file.name for file in diagnostics],
+                             ['8c1ea09a-b84c-4b9f-b605-acec12c9f2d1.json'])
+            import json
+            self.assertEqual(json.loads(diagnostics[0].read_text()),
+                             {'phase': '提交后', 'submitted': True, 'controls': []})
 
 
 if __name__ == '__main__': unittest.main()

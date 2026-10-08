@@ -23,7 +23,7 @@ def emit(event, **values):
     OUTPUT.flush()
 
 
-class NeedsInput(Exception):
+class NeedsInput(SettingsError):
     pass
 
 

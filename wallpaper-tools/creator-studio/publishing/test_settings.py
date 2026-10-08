@@ -233,6 +233,21 @@ class BrowserTests(unittest.IsolatedAsyncioTestCase):
         verify = await apply_settings(self.page,'xhs',{'type':'video','originality':'not_original'})
         await verify()
 
+    async def test_worker_originality_approval_message_survives_settings_adapter(self):
+        from worker import NeedsInput
+        await self.page.set_content('''<div class="custom-switch-card"><span>原创声明</span>
+            <div class="d-switch" onclick="this.querySelector('input').checked=true;document.getElementById('agreement').hidden=false">
+            <input type="checkbox" onclick="event.preventDefault()"></div></div>
+            <div id="agreement" hidden><span>我已阅读并同意《原创声明须知》</span><button>声明原创</button></div>''')
+
+        async def awaiting_approval(page):
+            raise NeedsInput('原创声明需要确认《原创声明须知》，请完成本次确认后重试；尚未提交')
+
+        with self.assertRaisesRegex(NeedsInput, '原创声明须知'):
+            await apply_settings(self.page, 'xhs', {'type': 'video', 'originality': 'original'}, awaiting_approval)
+        self.assertTrue(await self.page.locator('#agreement').is_visible())
+        self.assertFalse(await self.page.get_by_role('button', name='声明原创', exact=True).evaluate('el=>!!el.dataset.clicked'))
+
     async def test_closed_modal_is_not_enough_when_platform_discarded_declaration(self):
         for platform in ('douyin', 'xhs'):
             label = await self.declaration_form(platform, retain=False)
