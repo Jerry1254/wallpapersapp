@@ -47,6 +47,25 @@ class ConsoleUITests(unittest.IsolatedAsyncioTestCase):
         folder=ROOT.parent.parent/'.runtime/creator-tests';folder.mkdir(parents=True,exist_ok=True)
         await self.page.screenshot(path=str(folder/'distribution-dashboard.png'))
 
+    async def test_retry_requires_originality_confirmation_and_shows_request_errors_in_dialog(self):
+        await self.mount()
+        await self.page.evaluate('''fakeTotal=1;fakeJobs=[{id:'original-job',batchId:'batch',status:'needs_input',platform:'xhs',accountName:'账号甲',post:{type:'video',title:'原创视频',body:'正文',tags:[],mediaIds:['file'],originality:'original'}}];Distribution.open('jobs')''')
+        await self.page.get_by_role('button', name='重试', exact=True).click()
+        await self.page.get_by_role('button', name='确认重试', exact=True).click()
+        self.assertTrue(await self.page.locator('#dialog').is_visible())
+        self.assertEqual(await self.page.locator('#dialog').get_by_role('alert').inner_text(), '请先确认本次原创声明须知')
+        self.assertFalse(await self.page.evaluate('consoleRequests.some(r=>r.route.includes("/originality-approval")||r.route.includes("/action"))'))
+        await self.page.evaluate('''const previous=fetch;window.fetch=async(url,options={})=>{
+          if(url.endsWith('/originality-approval')){consoleRequests.push({route:'/jobs/original-job/originality-approval',body:JSON.parse(options.body)});return {ok:false,status:409,json:async()=>({message:'任务状态已变化，请刷新'})};}
+          return previous(url,options);
+        };void 0;''')
+        await self.page.locator('#console-originality-accepted').check()
+        await self.page.get_by_role('button', name='确认重试', exact=True).click()
+        await self.wait_for('document.getElementById("console-action-error").textContent.includes("任务状态已变化")')
+        self.assertEqual(await self.page.locator('#dialog').get_by_role('alert').inner_text(), '任务状态已变化，请刷新')
+        self.assertTrue(await self.page.locator('#dialog').is_visible())
+        self.assertFalse(await self.page.evaluate('consoleRequests.some(r=>r.route.includes("/action"))'))
+
     async def test_account_filters_select_only_matching_local_accounts(self):
         await self.mount()
         await self.page.evaluate("fakeAccounts[0].group='主账号';fakeAccounts[1].group='其他';Distribution.open('accounts')")

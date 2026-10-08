@@ -19,7 +19,7 @@
   function period(days){const end=day(new Date());fields.data.from=shift(end,1-days);fields.data.to=end;}
   function range(f){const q={...f};if(f.from)q.from=new Date(f.from+'T00:00:00+08:00').toISOString();if(f.to)q.to=new Date(shift(f.to,1)+'T00:00:00+08:00').toISOString();return q;}
   function init(h){H=h;period(30);}
-  function safe(fn){return async(...args)=>{try{return await fn(...args);}catch(e){H.toast(e.message);}};}
+  function safe(fn,errorId){return async(...args)=>{try{return await fn(...args);}catch(e){const target=errorId&&$(errorId);if(target){target.textContent=e.message;target.hidden=false;}else H.toast(e.message);}};}
   function commonFilters(f,includeTasks=false){
     return `<label>平台<select data-filter="platform"><option value="">全部平台</option><option value="xhs">小红书</option><option value="douyin">抖音</option></select></label><label>账号<select data-filter="accountId"><option value="">全部账号（含历史任务）</option>${H.accounts().filter(a=>!f.platform||a.platform===f.platform).map(a=>`<option value="${a.id}">${esc(accountName(a))}</option>`).join('')}</select></label>${includeTasks?`<label>状态<select data-filter="status"><option value="">全部状态</option>${Object.entries(labels).filter(([key])=>!['ready','expired','disconnected','unverified'].includes(key)).map(([key,label])=>`<option value="${key}">${label}</option>`).join('')}</select></label><label>形式<select data-filter="type"><option value="">图文和视频</option><option value="image">图文</option><option value="video">视频</option></select></label>`:''}<label>开始日期<input type="date" data-filter="from" value="${esc(f.from)}"></label><label>结束日期<input type="date" data-filter="to" value="${esc(f.to)}"></label>`;
   }
@@ -79,13 +79,13 @@
     if(mode==='resolve')H.modal('核对平台结果',`<h3>${esc(job.post.title)}</h3><p>${names[job.platform]} · ${esc(job.accountName)}</p><p>请在平台作品管理中确认这条内容的结果后选择状态。</p><a href="${platformURL(job.platform)}" target="_blank" rel="noopener noreferrer">打开平台作品管理</a>`,[{label:'稍后核对',run:H.close},{label:'确认未发布',run:run({action:'resolve',result:'failed'})},{label:'确认已发布',primary:true,run:run({action:'resolve',result:'published'})}]);
     else {
       const originality=mode==='retry'&&job.platform==='xhs'&&job.post.originality==='original';
-      H.modal(mode==='retry'?'重试发布':'取消任务',`<p>${esc(job.post.title)} · ${esc(job.accountName)}</p><p>${mode==='retry'?'将使用原任务的内容重新上传和发布。':'只取消尚未开始执行的这条任务。'}</p>${originality?'<p class="hint">小红书声明原创时可能要求接受《原创声明须知》。如滥用声明，平台将驳回并予以相关处置。确认只对本次任务生效。</p><label><input id="console-originality-accepted" type="checkbox"> 本次同意原创声明须知，并授权在平台点击“声明原创”</label>':''}`,[{label:'返回',run:H.close},{label:mode==='retry'?'确认重试':'确认取消',primary:true,run:safe(async()=>{
+      H.modal(mode==='retry'?'重试发布':'取消任务',`<p>${esc(job.post.title)} · ${esc(job.accountName)}</p><p>${mode==='retry'?'将使用原任务的内容重新上传和发布。':'只取消尚未开始执行的这条任务。'}</p>${originality?'<p class="hint">小红书声明原创时可能要求接受《原创声明须知》。如滥用声明，平台将驳回并予以相关处置。确认只对本次任务生效。</p><label><input id="console-originality-accepted" type="checkbox"> 本次同意原创声明须知，并授权在平台点击“声明原创”</label>':''}<p id="console-action-error" class="distribution-error" role="alert" hidden></p>`,[{label:'返回',run:H.close},{label:mode==='retry'?'确认重试':'确认取消',primary:true,run:safe(async()=>{
         if(originality){
           if(!$('console-originality-accepted').checked)throw new Error('请先确认本次原创声明须知');
           await H.request('/jobs/'+job.id+'/originality-approval',{method:'POST',body:{accepted:true}});
         }
         await H.request('/jobs/'+job.id+'/action',{method:'POST',body:{action:mode}});H.close();await H.refresh();
-      })}]);
+      },'console-action-error')}]);
     }
   }
   async function data(pane){
