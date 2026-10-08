@@ -81,6 +81,20 @@ class UploadSelectorTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(NeedsInput,'主封面入口'):
             await cover_xhs(self.page,'unused.png')
 
+    async def test_xhs_modern_cover_upload_finishes_and_updates_main_preview(self):
+        await self.page.set_content('''<div class="cover-plugin-preview"><div class="default" style="width:80px;height:100px">
+          <button onclick="const m=document.querySelector('.main-cover-editor-modal');m.hidden=false;setTimeout(()=>m.replaceChildren(document.querySelector('#cover-controls').content.cloneNode(true)),250)">编辑封面</button>
+          </div><div class="default artistic-bg">推荐封面</div></div>
+          <div class="d-modal main-cover-editor-modal" hidden>加载中</div><template id="cover-controls"><label class="upload-btn">上传
+            <input type="file" accept="image/png, image/jpeg, image/*" onchange="const r=new FileReader();r.onload=()=>document.querySelector('#uploaded').src=r.result;r.readAsDataURL(this.files[0])"></label>
+            <img id="uploaded"><button onclick="document.querySelector('.default:not(.artistic-bg)').style.backgroundImage='url('+document.querySelector('#uploaded').src+')';this.closest('.d-modal').hidden=true">完成</button></template>''')
+        with tempfile.TemporaryDirectory() as root:
+            path=Path(root)/'cover.png'
+            path.write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='))
+            await cover_xhs(self.page,str(path))
+        self.assertFalse(await self.page.locator('.main-cover-editor-modal').is_visible())
+        self.assertTrue(await self.page.locator('.default:not(.artistic-bg)').evaluate('(e)=>getComputedStyle(e).backgroundImage.includes("data:image/png")'))
+
     async def test_extension_only_image_input_preserves_order_and_skips_video(self):
         for accept in ('.jpg,.jpeg,.png', '.JPG,.PNG', 'image/*'):
             await self.page.set_content('<input id="video" type="file" accept=".mp4,.mov">'

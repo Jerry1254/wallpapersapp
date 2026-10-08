@@ -144,7 +144,7 @@ async def cover_xhs(page, path):
     # The first-frame preview exposes a child edit entry; its former pointer
     # placeholder and container no longer open the cover editor.
     preview = page.locator('div.cover-plugin-preview')
-    frame = await unique(preview.locator('div.default:visible'))
+    frame = await unique(preview.locator('div.default:not(.operator):not(.artistic-bg):visible'))
     if frame is not None:
         await frame.hover()
     trigger = await unique(preview.get_by_text('编辑封面', exact=True))
@@ -152,7 +152,36 @@ async def cover_xhs(page, path):
         trigger = await unique(preview.locator('div.upload-cover:visible'))
     if trigger is None:
         raise NeedsInput('平台没有可核对的主封面入口，已停止提交')
+    original = await frame.evaluate('''element => ({background:getComputedStyle(element).backgroundImage,
+        images:[...element.querySelectorAll('img')].map(img=>img.src)})''') if frame is not None else None
     await trigger.click()
+    modern = page.locator('div.main-cover-editor-modal')
+    if await modern.is_visible():
+        upload = modern.locator('input[type=file][accept*="image"]')
+        # The editor opens with a skeleton before its upload controls mount.
+        await upload.first.wait_for(state='attached', timeout=60000)
+        if await upload.count() != 1:
+            raise NeedsInput('平台主封面编辑器没有唯一的图片上传入口，已停止提交')
+        previous = await modern.locator('img').evaluate_all('(images) => images.map(img => img.src)')
+        await upload.set_input_files(path)
+        await wait_new_cover(page, 'div.main-cover-editor-modal img', previous)
+        await modern.get_by_role('button', name='完成', exact=True).click()
+        await modern.wait_for(state='hidden', timeout=60000)
+        if original is None:
+            raise NeedsInput('平台没有可核对的主封面预览，已停止提交')
+        await page.wait_for_function('''async previous => {
+            const element=[...document.querySelectorAll('div.cover-plugin-preview div.default:not(.operator):not(.artistic-bg)')]
+                .find(e=>e.getClientRects().length);
+            if(!element)return false;
+            const background=getComputedStyle(element).backgroundImage;
+            if(background.startsWith('url(') && background!==previous.background){
+                const image=new Image();image.src=background.slice(4,-1).replace(/^["']|["']$/g,'');
+                try{await image.decode();return image.naturalWidth>0;}catch{return false;}
+            }
+            return [...element.querySelectorAll('img')].some(img=>img.complete && img.naturalWidth>0
+                && img.src && !previous.images.includes(img.src));
+        }''',arg=original,timeout=60000)
+        return
     await page.get_by_text('上传封面', exact=True).first.click()
     previous = await page.locator('div.d-modal img').evaluate_all('(images) => images.map(img => img.src)')
     await page.locator('div.upload-wrapper input[type=file][accept*="image"]').first.set_input_files(path)
@@ -320,7 +349,8 @@ async def publish(request):
         emit('progress',message=phase)
         if not job.get('platformUserId'):
             raise NeedsInput('请先在账号管理检查平台身份')
-        await read_identity(page,platform,job['platformUserId'])
+        # A fresh browser can display the home-page skeleton for over 20 seconds.
+        await read_identity(page,platform,job['platformUserId'],timeout=60000)
         files = [paths[item] for item in post['mediaIds']]
         emit('progress', message=phase)
         if platform == 'douyin':
