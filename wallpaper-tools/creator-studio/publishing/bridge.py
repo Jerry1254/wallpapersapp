@@ -186,7 +186,7 @@ class PublishingBridge:
                     raise BridgeError('请先确认本次原创声明须知', 422)
                 job = next((j for j in self.api('GET', 'distribution/jobs') if j['id'] == parts[1]), None)
                 account = None if job is None else next((a for a in self.api('GET', 'distribution/accounts') if a['id'] == job['accountId']), None)
-                if not job or not account or account['runnerId'] != self.runner or job['status'] not in ('failed', 'needs_input'):
+                if not job or not account or account['runnerId'] != self.runner or job['status'] not in ('queued', 'failed', 'needs_input'):
                     raise BridgeError('只能为本机尚未提交的任务确认原创须知', 409)
                 try:
                     issue_operator_approval(RUNTIME, job)

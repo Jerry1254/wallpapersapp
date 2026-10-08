@@ -88,6 +88,26 @@ class ConsoleUITests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(r['route']=='/jobs/verification-job/action' for r in actions))
         self.assertFalse(await self.page.evaluate('consoleRequests.some(r=>r.route==="/batches"||r.route.includes("/originality-approval"))'))
 
+    async def test_scheduled_originality_confirmation_does_not_retry_or_change_due_time(self):
+        await self.mount()
+        await self.page.evaluate('''fakeTotal=1;fakeJobs=[{id:'scheduled-job',status:'queued',platform:'xhs',accountName:'账号甲',dueAt:'2026-10-08T02:30:00Z',post:{type:'video',title:'定时原创视频',originality:'original',mediaIds:['file']}}];
+          const previous=fetch;window.fetch=async(url,options={})=>{
+            if(url.endsWith('/jobs/scheduled-job/originality-approval')){
+              consoleRequests.push({route:'/jobs/scheduled-job/originality-approval',body:JSON.parse(options.body)});
+              return {ok:true,status:200,json:async()=>({ok:true})};
+            }return previous(url,options);
+          };Distribution.open('jobs');''')
+        await self.page.get_by_role('button',name='确认原创须知',exact=True).click()
+        await self.page.get_by_role('button',name='确认本条原创须知',exact=True).click()
+        self.assertIn('请先确认本次原创声明须知',await self.page.locator('#console-action-error').inner_text())
+        self.assertFalse(await self.page.evaluate('consoleRequests.some(r=>r.route.includes("originality-approval"))'))
+        await self.page.locator('#console-originality-accepted').check()
+        await self.page.get_by_role('button',name='确认本条原创须知',exact=True).click()
+        await self.wait_for('!document.getElementById("dialog").open')
+        self.assertEqual(await self.page.evaluate('fakeJobs[0].dueAt'),'2026-10-08T02:30:00Z')
+        self.assertEqual(await self.page.evaluate('fakeJobs[0].status'),'queued')
+        self.assertFalse(await self.page.evaluate('consoleRequests.some(r=>r.route.endsWith("/action")||r.route==="/batches")'))
+
     async def test_account_filters_select_only_matching_local_accounts(self):
         await self.mount()
         await self.page.evaluate("fakeAccounts[0].group='主账号';fakeAccounts[1].group='其他';Distribution.open('accounts')")

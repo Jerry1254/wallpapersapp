@@ -82,6 +82,8 @@ class OperationsTests(unittest.TestCase):
             issue.assert_not_called()
             job['status']='needs_input';self.assertEqual(request().status,200)
             issue.assert_called_once()
+            job['status']='queued';self.assertEqual(request().status,200)
+            self.assertEqual(issue.call_count,2)
     def test_bulk_keeps_exclusive_operation_and_continues_after_one_account_fails(self):
         accounts = [{'id': 'one', 'name': '账号一'}, {'id': 'two', 'name': '账号二'}]
         self.bridge.active = 'op'
