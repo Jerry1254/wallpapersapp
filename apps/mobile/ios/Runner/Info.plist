@@ -26,6 +26,8 @@
 	<true/>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>用于将您下载的静态壁纸或动态壁纸保存到系统相册。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>用于选择您主动发送给在线客服的问题截图或图片。</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

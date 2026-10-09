@@ -22,6 +22,7 @@ import 'privacy/privacy_gate.dart';
 import 'updates/app_updates.dart';
 import 'updates/app_update_gate.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
+import 'support/online_support.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -70,9 +71,16 @@ class _QingjingAppState extends State<QingjingApp> {
         sessions: sessions,
         authenticatedMedia: widget.config.isOffline,
       );
+  late final supportApi = customerSupportApi(
+    widget.config.apiBase,
+    sessions,
+    updates.versionHeaders,
+  );
+  late final supportInbox = CustomerSupportInbox(supportApi);
 
   @override
   void dispose() {
+    supportInbox.dispose();
     if (widget.updateController == null) updates.dispose();
     super.dispose();
   }
@@ -80,30 +88,35 @@ class _QingjingAppState extends State<QingjingApp> {
   @override
   Widget build(BuildContext context) => AppBrandingScope(
     branding: widget.config.branding,
-    child: MaterialApp(
-      title: widget.config.branding.appName,
-      debugShowCheckedModeBanner: false,
-      navigatorObservers: [detailPreviewRouteObserver],
-      navigatorKey: appNavigatorKey,
-      builder: (context, child) => AppUpdateOverlay(
-        controller: updates,
+    child: CustomerSupportScope(
+      api: supportApi,
+      inbox: supportInbox,
+      child: MaterialApp(
+        title: widget.config.branding.appName,
+        debugShowCheckedModeBanner: false,
+        navigatorObservers: [detailPreviewRouteObserver],
         navigatorKey: appNavigatorKey,
-        child: child!,
-      ),
-      theme: QjTheme.light,
-      home: PrivacyGate(
-        store: widget.privacyConsentStore,
-        policySource: widget.config.isOffline
-            ? null
-            : widget.policySource ?? RemotePolicySource(widget.config.apiBase),
-        builder: (_) => AppUpdateBootstrap(
+        builder: (context, child) => AppUpdateOverlay(
           controller: updates,
-          builder: (_) => HomeShell(
-            repository: repository,
-            sessions: sessions,
-            apiBase: widget.config.apiBase,
-            playback: playback,
-            labMode: widget.config.environment == 'lab',
+          navigatorKey: appNavigatorKey,
+          child: child!,
+        ),
+        theme: QjTheme.light,
+        home: PrivacyGate(
+          store: widget.privacyConsentStore,
+          policySource: widget.config.isOffline
+              ? null
+              : widget.policySource ??
+                    RemotePolicySource(widget.config.apiBase),
+          builder: (_) => AppUpdateBootstrap(
+            controller: updates,
+            builder: (_) => HomeShell(
+              repository: repository,
+              sessions: sessions,
+              apiBase: widget.config.apiBase,
+              playback: playback,
+              labMode: widget.config.environment == 'lab',
+            ),
           ),
         ),
       ),
@@ -130,6 +143,14 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (widget.repository is HttpCatalogRepository) {
+      CustomerSupportScope.inboxOf(context)?.start();
+    }
+  }
+
   int index = 0;
   bool downloadDialogVisible = false;
   late final redemptions = RedemptionCoordinator(

@@ -1,0 +1,21 @@
+name: qingjing_customer_support
+description: 倾境用户与客服端共享聊天交互和可靠发送。
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.10.9
+dependencies:
+  flutter:
+    sdk: flutter
+  image_picker: 1.2.2
+  path_provider: 2.1.5
+  # Keep the CocoaPods implementation compatible with the installed Flutter 3.38 SDK.
+  path_provider_foundation: 2.5.1
+  video_player: 2.11.1
+  crypto: ^3.0.7
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+flutter:
+  uses-material-design: true

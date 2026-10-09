@@ -5,6 +5,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'qj_theme.dart';
 import '../catalog/catalog.dart';
 import '../catalog/catalog_image.dart';
+import '../support/inbox.dart';
 
 class QjIcon extends StatelessWidget {
   const QjIcon(this.name, {super.key, this.size = 20, this.color});
@@ -588,26 +589,28 @@ class QjBrandHeader extends StatelessWidget {
               ),
               Tooltip(
                 message: '联系客服',
-                child: TextButton.icon(
-                  onPressed: onService,
-                  style: TextButton.styleFrom(
-                    backgroundColor: T.colorNavigation,
-                    foregroundColor: T.colorInverseInk,
-                    minimumSize: const Size(0, 44),
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    shape: const StadiumBorder(),
-                    textStyle: QjTheme.type(
-                      12,
-                      FontWeight.w700,
-                      T.lineHeightCaption,
+                child: CustomerSupportUnreadBadge(
+                  child: TextButton.icon(
+                    onPressed: onService,
+                    style: TextButton.styleFrom(
+                      backgroundColor: T.colorNavigation,
+                      foregroundColor: T.colorInverseInk,
+                      minimumSize: const Size(0, 44),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      shape: const StadiumBorder(),
+                      textStyle: QjTheme.type(
+                        12,
+                        FontWeight.w700,
+                        T.lineHeightCaption,
+                      ),
                     ),
+                    icon: const QjIcon(
+                      'message-circle-more',
+                      size: 21,
+                      color: T.colorInverseInk,
+                    ),
+                    label: const Text('客服'),
                   ),
-                  icon: const QjIcon(
-                    'message-circle-more',
-                    size: 21,
-                    color: T.colorInverseInk,
-                  ),
-                  label: const Text('客服'),
                 ),
               ),
             ],
@@ -656,18 +659,20 @@ class QjPageHeader extends StatelessWidget {
           ),
         ),
         if (serviceAction)
-          IconButton(
-            tooltip: '联系客服',
-            onPressed: onAction,
-            style: IconButton.styleFrom(
-              backgroundColor: T.colorNavigation,
-              foregroundColor: T.colorInverseInk,
-              minimumSize: const Size(44, 44),
-            ),
-            icon: const QjIcon(
-              'headphones',
-              size: 20,
-              color: T.colorInverseInk,
+          CustomerSupportUnreadBadge(
+            child: IconButton(
+              tooltip: '联系客服',
+              onPressed: onAction,
+              style: IconButton.styleFrom(
+                backgroundColor: T.colorNavigation,
+                foregroundColor: T.colorInverseInk,
+                minimumSize: const Size(44, 44),
+              ),
+              icon: const QjIcon(
+                'headphones',
+                size: 20,
+                color: T.colorInverseInk,
+              ),
             ),
           )
         else if (actionLabel != null)

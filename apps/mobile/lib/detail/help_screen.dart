@@ -6,6 +6,7 @@ import '../config/app_branding.dart';
 import '../design_system/qj_components.dart';
 import '../design_system/qj_theme.dart';
 import '../support/customer_service.dart';
+import '../support/online_support.dart';
 
 class HelpScreen extends StatelessWidget {
   const HelpScreen({super.key, this.customerService = false, this.repository});
@@ -13,38 +14,46 @@ class HelpScreen extends StatelessWidget {
   final CatalogRepository? repository;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: T.sizeContentMax),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(T.space5, 0, T.space5, T.space6),
-            children: [
-              QjPageHeader(
-                title: customerService ? '微信客服' : '壁纸设置教程',
-                serviceAction: !customerService,
-                onAction: () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => const HelpScreen(customerService: true),
+  Widget build(BuildContext context) => customerService
+      ? const CustomerSupportPage()
+      : Scaffold(
+          body: SafeArea(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: T.sizeContentMax),
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(
+                    T.space5,
+                    0,
+                    T.space5,
+                    T.space6,
                   ),
+                  children: [
+                    QjPageHeader(
+                      title: customerService ? '微信客服' : '壁纸设置教程',
+                      serviceAction: !customerService,
+                      onAction: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              const HelpScreen(customerService: true),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: T.space6),
+                    if (customerService) ...[
+                      QjCustomerServiceCard(
+                        onCopy: () => copyCustomerWechat(context),
+                        onPreview: () => previewCustomerQr(context),
+                      ),
+                    ] else
+                      _TutorialCatalog(repository: repository),
+                  ],
                 ),
               ),
-              const SizedBox(height: T.space6),
-              if (customerService) ...[
-                QjCustomerServiceCard(
-                  onCopy: () => copyCustomerWechat(context),
-                  onPreview: () => previewCustomerQr(context),
-                ),
-              ] else
-                _TutorialCatalog(repository: repository),
-            ],
+            ),
           ),
-        ),
-      ),
-    ),
-  );
+        );
 }
 
 class _TutorialCatalog extends StatefulWidget {
