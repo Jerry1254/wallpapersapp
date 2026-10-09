@@ -1,0 +1,14 @@
+<svg width="720" height="1040" viewBox="0 0 720 1040" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="water" x1="80" y1="0" x2="620" y2="1040" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#CBE3DF"/>
+      <stop offset=".42" stop-color="#6EA5A0"/>
+      <stop offset="1" stop-color="#243C42"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="1040" rx="48" fill="url(#water)"/>
+  <circle cx="180" cy="202" r="78" fill="#FFF3D4" fill-opacity=".86"/>
+  <path d="M0 548C112 500 220 510 338 560C474 618 592 612 720 542V704C566 760 448 764 324 714C192 660 108 666 0 710V548Z" fill="#E7F0EA" fill-opacity=".68"/>
+  <path d="M0 716C138 648 252 704 360 748C482 798 592 790 720 718V1040H0V716Z" fill="#2E5B60"/>
+  <path d="M0 854C150 790 280 838 392 882C510 928 606 914 720 858V1040H0V854Z" fill="#17363B"/>
+</svg>

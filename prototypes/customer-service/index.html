@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#191817">
+    <title>倾境 · 在线客服交互原型</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%23f4a91e'/%3E%3Ctext x='20' y='28' text-anchor='middle' font-size='25' fill='%23191817'%3E倾%3C/text%3E%3C/svg%3E">
+    <link rel="stylesheet" href="styles.css">
+    <script src="prototype.js" defer></script>
+  </head>
+  <body>
+    <header class="prototype-bar">
+      <div class="prototype-brand"><span class="brand-mark">倾</span><div><strong>在线客服</strong><small>交互原型 · 本地演示</small></div></div>
+      <nav class="view-switch" aria-label="原型视角">
+        <button type="button" data-view="admin">管理后台</button>
+        <button type="button" data-view="customer">用户 App</button>
+        <button type="button" data-view="agent">手机客服</button>
+      </nav>
+      <button type="button" id="demo-toggle" class="demo-toggle" aria-expanded="false" aria-controls="demo-panel"><span data-icon="sliders"></span><span class="demo-label">演示选项</span></button>
+    </header>
+    <main id="surface"></main>
+    <section id="demo-panel" class="demo-panel" aria-label="原型演示选项" hidden>
+      <div class="demo-heading"><div><strong>试试不同情况</strong><p>仅演示交互，消息保存在本机浏览器。</p></div><button type="button" class="icon-button" data-action="close-demo" aria-label="关闭演示选项"><span data-icon="close"></span></button></div>
+      <button type="button" data-action="incoming-user"><span data-icon="message"></span><span>其他用户来消息<small>体验未读提醒与会话切换</small></span></button>
+      <button type="button" data-action="incoming-agent"><span data-icon="headset"></span><span>模拟客服回复<small>在用户 App 中查看收到的回复</small></span></button>
+      <div class="demo-divider"></div>
+      <label for="send-outcome">下一条消息的发送结果</label>
+      <select id="send-outcome"><option value="success">正常发送</option><option value="failure">发送失败</option><option value="uncertain">已保存，但确认超时</option></select>
+      <button type="button" data-action="example-image"><span data-icon="image"></span><span>插入示例图片<small>体验图片发送与大图预览</small></span></button>
+      <button type="button" data-action="network"><span data-icon="wifi"></span><span id="network-label">模拟断网</span></button>
+      <div class="demo-divider"></div>
+      <button type="button" data-action="reset" class="reset-demo"><span data-icon="reset"></span><span>重置演示数据</span></button>
+    </section>
+    <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <dialog id="image-dialog" class="image-dialog" aria-label="查看图片"><button type="button" class="image-close" aria-label="关闭图片"><span data-icon="close"></span></button><img alt="聊天图片预览"></dialog>
+    <dialog id="reset-dialog" class="reset-dialog" aria-labelledby="reset-title"><span class="dialog-icon" data-icon="reset"></span><h2 id="reset-title">重置演示数据？</h2><p>会清除本次演示的聊天、图片和草稿，恢复初始会话。</p><div><button type="button" class="button secondary" data-action="cancel-reset">保留数据</button><button type="button" class="button primary" data-action="confirm-reset">重置</button></div></dialog>
+    <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+    <noscript>请启用 JavaScript 以体验客服原型交互。</noscript>
+  </body>
+</html>
