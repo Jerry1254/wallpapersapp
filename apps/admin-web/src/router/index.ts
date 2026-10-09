@@ -9,6 +9,7 @@ const router = createRouter({
       path: '/',
       component: () => import('@/layout/AdminLayout.vue'),
       children: [
+        { path: 'support', name: 'support', component: () => import('@/views/SupportView.vue'), meta: { title: '在线客服' } },
         { path: '', redirect: '/dashboard' },
         { path: 'dashboard', name: 'dashboard', component: () => import('@/views/DashboardView.vue'), meta: { title: '工作台' } },
         { path: 'categories', name: 'categories', component: () => import('@/views/CategoriesView.vue'), meta: { title: '分类管理' } },

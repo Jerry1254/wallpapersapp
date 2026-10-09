@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   CollectionTag,
+  ChatDotRound,
   Document,
   DataAnalysis,
   Fold,
@@ -25,6 +26,7 @@ const collapsed = ref(false);
 const mobile = ref(false);
 
 const items = [
+  { path: '/support', label: '在线客服', icon: ChatDotRound },
   { path: '/dashboard', label: '工作台', icon: DataAnalysis },
   { path: '/categories', label: '分类管理', icon: CollectionTag },
   { path: '/wallpapers', label: '壁纸管理', icon: Picture },
