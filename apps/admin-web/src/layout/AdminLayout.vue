@@ -8,6 +8,7 @@ import {
   Iphone,
   Key,
   List,
+  Lock,
   Menu as MenuIcon,
   Picture,
   VideoPlay,
@@ -35,6 +36,7 @@ const items = [
   { path: '/codes', label: '兑换码', icon: Key },
   { path: '/redemptions', label: '兑换记录', icon: List },
   { path: '/devices', label: '设备权益', icon: Iphone },
+  { path: '/security', label: '安全风控', icon: Lock },
   { path: '/app-releases', label: 'App 版本管理', icon: Upload }
 ];
 
