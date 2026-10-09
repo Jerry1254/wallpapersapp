@@ -14,16 +14,13 @@ import { ApiRequestError } from '../network/JsonHttp';
 import { HarmonyDeviceSession } from '../network/HarmonyDeviceSession';
 import { AppUpdateEvents, InstalledAppVersion } from '../update/AppUpdateEvents';
 import { AppRelease, AppUpdatePolicy, AppUpdateService } from '../update/AppUpdateService';
+import { PublishedPolicies, RemotePolicies } from '../privacy/RemotePolicies';
 import { CustomerSupport } from '../support/CustomerSupport';
 import { DownloadedMovingPhoto, DownloadedStaticImage, HarmonyDelivery } from '../media/HarmonyDelivery';
 import { SavedGalleryAsset } from '../media/SavedGalleryAsset';
 import {
-  POLICY_EFFECTIVE_DATE,
-  POLICY_VERSION,
-  PRIVACY_POLICY,
   PolicyDocument,
-  PolicySection,
-  USER_AGREEMENT
+  PolicySection
 } from '../privacy/PolicyDocuments';
 
 interface FailureWithMessage {
@@ -66,6 +63,7 @@ struct Index {
   @State consentBusy: boolean = false;
   @State consentError: string = '';
   @State policyDocumentKey: string = '';
+  @State policies: PublishedPolicies = new PublishedPolicies();
   @State detailOwned: boolean = false;
   @State redemptionVisible: boolean = false;
   @State redemptionCode: string = '';
@@ -147,8 +145,9 @@ struct Index {
     try {
       const store: preferences.Preferences = await preferences.getPreferences(
         this.context as common.UIAbilityContext, PRIVACY_PREFERENCES);
+      this.policies = await RemotePolicies.load(this.context as common.UIAbilityContext, CatalogApi.BASE_URL);
       const acceptedVersion: string = String(await store.get(ACCEPTED_POLICY_VERSION, ''));
-      this.consentAccepted = acceptedVersion === POLICY_VERSION;
+      this.consentAccepted = acceptedVersion === this.policies.consentVersion;
       this.consentError = '';
     } catch (error) {
       this.consentAccepted = false;
@@ -268,7 +267,7 @@ struct Index {
     try {
       const store: preferences.Preferences = await preferences.getPreferences(
         this.context as common.UIAbilityContext, PRIVACY_PREFERENCES);
-      await store.put(ACCEPTED_POLICY_VERSION, POLICY_VERSION);
+      await store.put(ACCEPTED_POLICY_VERSION, this.policies.consentVersion);
       await store.flush();
       this.consentAccepted = true;
       this.initializeAfterConsent();
@@ -1444,7 +1443,7 @@ struct Index {
           Text('隐私政策与用户协议').width('100%').fontSize(23).fontWeight(FontWeight.Bolder).fontColor(T.ink);
           Text('欢迎使用倾境壁纸。请您在使用前阅读并同意以下协议。')
             .width('100%').fontSize(14).fontColor(T.ink).margin({ top: 14 });
-          Text('为了识别当前安装、保护兑换权益并提供下载服务，您同意后 App 将生成匿名安装凭据，并处理平台类型、App 生成的公钥或凭据、兑换、下载及安全记录。我们不读取通讯录、短信、通话记录、位置、摄像头、麦克风或相册内容。')
+          Text(this.policies.privacy.introduction)
             .width('100%').fontSize(12).fontColor(T.mutedInk).margin({ top: 12 });
           Text('请分别点击查看完整内容：').width('100%').fontSize(12).fontColor(T.mutedInk).margin({ top: 14 });
           Row({ space: 8 }) {
@@ -1483,7 +1482,7 @@ struct Index {
   }
 
   @Builder
-  private PolicyOverlay(document: PolicyDocument) {
+  private PolicyOverlay(document: PolicyDocument, effectiveDate: string) {
     Column() {
       Row() {
         Button() {
@@ -1498,7 +1497,7 @@ struct Index {
       .width('100%');
       Scroll() {
         Column() {
-          Text('生效日期：' + POLICY_EFFECTIVE_DATE).width('100%').fontSize(12).fontColor(T.mutedInk);
+          Text('生效日期：' + effectiveDate).width('100%').fontSize(12).fontColor(T.mutedInk);
           Text(document.introduction).width('100%').fontSize(14).fontColor(T.ink).margin({ top: 14 });
           ForEach(document.sections, (section: PolicySection) => {
             Text(section.title).width('100%').fontSize(17).fontWeight(FontWeight.Bold)
@@ -1749,10 +1748,10 @@ struct Index {
         }
       }
       if (this.policyDocumentKey === 'AGREEMENT') {
-        this.PolicyOverlay(USER_AGREEMENT);
+        this.PolicyOverlay(this.policies.terms, this.policies.termsDate);
       }
       if (this.policyDocumentKey === 'PRIVACY') {
-        this.PolicyOverlay(PRIVACY_POLICY);
+        this.PolicyOverlay(this.policies.privacy, this.policies.privacyDate);
       }
       if (this.consentAccepted && this.updateVisible) this.UpdateOverlay();
     }

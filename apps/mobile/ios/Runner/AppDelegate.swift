@@ -18,6 +18,15 @@ import UIKit
       )
       channel.setMethodCallHandler { call, result in
         switch call.method {
+        case "cachedPolicies":
+          result(UserDefaults.standard.string(forKey: "cached_online_policies"))
+        case "savePolicies":
+          guard let text = call.arguments as? String, text.utf8.count <= 1_100_000 else {
+            result(FlutterError(code: "INVALID_POLICIES", message: "Invalid policies", details: nil))
+            return
+          }
+          UserDefaults.standard.set(text, forKey: "cached_online_policies")
+          result(nil)
         case "acceptedVersion":
           result(UserDefaults.standard.string(forKey: Self.acceptedPolicyVersionKey))
         case "acceptVersion":

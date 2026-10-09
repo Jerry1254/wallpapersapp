@@ -63,7 +63,7 @@ public class AdminAuditFilter extends OncePerRequestFilter {
         String[] segments = relative.split("/");
         String root = segments.length == 0 ? "system" : segments[0];
         String id = segments.length > 1
-                && (segments[1].matches("[0-9]+") || root.equals("wallpaper-tutorials"))
+                && (segments[1].matches("[0-9]+") || root.equals("wallpaper-tutorials") || root.equals("legal-documents"))
                         ? segments[1]
                         : "new";
         String suffix = segments.length > 2 ? "_" + segments[2].replace('-', '_') : "";

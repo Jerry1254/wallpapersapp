@@ -1,49 +1,13 @@
 #!/usr/bin/env python3
-"""Generate the official website legal pages from the App policy source."""
+"""Generate website shells that read the published legal documents from the API."""
 
 from __future__ import annotations
 
 import html
-import re
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[3]
-POLICY_SOURCE = ROOT / "apps/mobile/lib/privacy/policies.dart"
 DIST = Path(__file__).resolve().parents[1] / "dist"
-
-
-def extract_document(source: str, constant: str, next_constant: str | None) -> tuple[str, list[tuple[str, str]]]:
-    start = source.index(f"const {constant} = PolicyDocument(")
-    end = source.index(f"const {next_constant} = PolicyDocument(") if next_constant else len(source)
-    block = source[start:end]
-
-    introduction_match = re.search(r"introduction:\s*'(?P<value>.*?)',\s*sections:", block, re.S)
-    if not introduction_match:
-        raise RuntimeError(f"Could not parse {constant} introduction")
-
-    sections = re.findall(
-        r"PolicySection\(\s*'(?P<title>.*?)',\s*'(?P<body>.*?)',\s*\)",
-        block,
-        re.S,
-    )
-    if not sections:
-        raise RuntimeError(f"Could not parse {constant} sections")
-
-    def decode(value: str) -> str:
-        return value.replace(r"\n", "\n").replace(r"\'", "'")
-
-    return decode(introduction_match.group("value")), [
-        (decode(title), decode(body)) for title, body in sections
-    ]
-
-
-def paragraphs(body: str) -> str:
-    return "\n".join(
-        f"<p>{html.escape(part).replace(chr(10), '<br>')}</p>"
-        for part in body.split("\n\n")
-        if part.strip()
-    )
 
 
 def render_page(*, title: str, introduction: str, sections: list[tuple[str, str]], canonical: str) -> str:
@@ -91,21 +55,21 @@ def render_page(*, title: str, introduction: str, sections: list[tuple[str, str]
   <main class="legal-shell">
     <div class="legal-hero">
       <p class="eyebrow">倾境壁纸 · 法律文件</p>
-      <h1>{title}</h1>
-      <p class="legal-intro">{html.escape(introduction)}</p>
-      <div class="legal-meta">
-        <span>版本：2026-09-28-v3</span>
-        <span>生效日期：2026年9月28日</span>
+      <h1 id="legal-title">{title}</h1>
+      <p id="legal-intro" class="legal-intro">{html.escape(introduction)}</p>
+      <div class="legal-meta" id="legal-meta" aria-live="polite">
       </div>
     </div>
 
     <div class="legal-layout">
       <aside class="legal-toc" aria-label="目录">
         <strong>目录</strong>
-        {toc}
+        <div id="legal-toc">{toc}</div>
       </aside>
       <article class="legal-content">
-        {content}
+        <div id="legal-content">{content}</div>
+        <p id="legal-status" role="status"></p>
+        <button id="legal-retry" type="button" hidden>重新加载</button>
         <div class="legal-next">
           <span>继续阅读</span>
           <a href="{other_path}">{other_label}<span aria-hidden="true">→</span></a>
@@ -124,15 +88,77 @@ def render_page(*, title: str, introduction: str, sections: list[tuple[str, str]
     </div>
     <p>© 2026 倾境壁纸平台</p>
   </footer>
+<script>
+{legal_script("privacy" if title == "隐私政策" else "terms")}
+</script>
 </body>
 </html>
 '''
 
 
+def legal_script(key: str) -> str:
+    # All admin-authored content is rendered as text, never HTML.
+    script = r"""
+(() => {
+  const key = '__KEY__', cacheKey = 'qingjing-legal-' + key;
+  const el = id => document.getElementById(id);
+  function validate(manifest) {
+    if (!manifest || !Array.isArray(manifest.items) || manifest.items.length !== 2) throw Error('invalid');
+    const item = manifest.items.find(d => d.key === key), c = item && item.content;
+    const text = (v, max) => typeof v === 'string' && v.trim().length > 0 && v.length <= max;
+    if (!item || !Number.isSafeInteger(item.revision) || item.revision < 1 || !c ||
+        !text(c.title, 100) || !text(c.effectiveDate, 40) || !text(c.introduction, 10000) ||
+        !Array.isArray(c.sections) || c.sections.length < 1 || c.sections.length > 60 ||
+        !c.sections.every(s => text(s.title, 200) && text(s.body, 20000))) throw Error('invalid');
+    return item;
+  }
+  function render(item) {
+    const c = item.content;
+    el('legal-title').textContent = c.title;
+    document.title = c.title + '｜倾境壁纸';
+    el('legal-intro').textContent = c.introduction;
+    el('legal-meta').textContent = '版本：' + item.revision + '　生效日期：' + c.effectiveDate;
+    el('legal-toc').replaceChildren(); el('legal-content').replaceChildren();
+    c.sections.forEach((s, i) => {
+      const section = document.createElement('section'); section.className = 'legal-section'; section.id = 'section-' + i;
+      const heading = document.createElement('h2'); heading.textContent = s.title;
+      const body = document.createElement('p'); body.textContent = s.body;
+      body.style.whiteSpace = 'pre-wrap'; body.style.overflowWrap = 'anywhere';
+      section.append(heading, body); el('legal-content').append(section);
+      const link = document.createElement('a'); link.href = '#' + section.id; link.textContent = s.title;
+      el('legal-toc').append(link);
+    });
+  }
+  async function load() {
+    el('legal-retry').hidden = true; el('legal-status').textContent = '正在加载…';
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch('https://wallpaper.biguo66.top/api/v1/public/legal-documents', {
+        credentials: 'omit', cache: 'no-store', redirect: 'error', signal: controller.signal,
+        headers: { Accept: 'application/json' }
+      });
+      if (!response.ok) throw Error('unavailable');
+      const body = await response.text(); if (body.length > 500000) throw Error('too large');
+      const manifest = JSON.parse(body); render(validate(manifest));
+      try { localStorage.setItem(cacheKey, body); } catch (_) {}
+      el('legal-status').textContent = '';
+    } catch (_) {
+      let cached = false;
+      try { const body = localStorage.getItem(cacheKey); if (body && body.length <= 500000) {
+        render(validate(JSON.parse(body))); cached = true;
+      }} catch (_) {}
+      if (!cached) el('legal-intro').textContent = '协议暂时无法加载，请检查网络后重试。';
+      el('legal-status').textContent = cached ? '暂时无法连接服务器，当前展示上次获取的已发布内容。' : '暂时无法获取已发布内容。';
+      el('legal-retry').hidden = false;
+    } finally { clearTimeout(timer); }
+  }
+  el('legal-retry').addEventListener('click', load); load();
+})();
+"""
+    return script.replace('__KEY__', key)
+
+
 def main() -> None:
-    source = POLICY_SOURCE.read_text(encoding="utf-8")
-    privacy_intro, privacy_sections = extract_document(source, "privacyPolicy", "userAgreement")
-    terms_intro, terms_sections = extract_document(source, "userAgreement", None)
 
     privacy_dir = DIST / "privacy"
     terms_dir = DIST / "terms"
@@ -141,8 +167,8 @@ def main() -> None:
     privacy_dir.joinpath("index.html").write_text(
         render_page(
             title="隐私政策",
-            introduction=privacy_intro,
-            sections=privacy_sections,
+            introduction="正在加载已发布的协议…",
+            sections=[],
             canonical="https://biguo66.top/privacy/",
         ),
         encoding="utf-8",
@@ -150,8 +176,8 @@ def main() -> None:
     terms_dir.joinpath("index.html").write_text(
         render_page(
             title="用户协议",
-            introduction=terms_intro,
-            sections=terms_sections,
+            introduction="正在加载已发布的协议…",
+            sections=[],
             canonical="https://biguo66.top/terms/",
         ),
         encoding="utf-8",

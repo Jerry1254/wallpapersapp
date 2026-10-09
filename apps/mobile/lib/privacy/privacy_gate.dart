@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../design_system/qj_components.dart';
 import '../design_system/qj_theme.dart';
 import 'policies.dart';
+import 'remote_policies.dart';
 
 abstract interface class PrivacyConsentStore {
   Future<String?> acceptedVersion();
@@ -42,11 +43,13 @@ class PrivacyGate extends StatefulWidget {
     required this.store,
     required this.builder,
     this.onReject,
+    this.policySource,
   });
 
   final PrivacyConsentStore store;
   final WidgetBuilder builder;
   final VoidCallback? onReject;
+  final PolicySource? policySource;
 
   @override
   State<PrivacyGate> createState() => _PrivacyGateState();
@@ -57,6 +60,7 @@ class _PrivacyGateState extends State<PrivacyGate> {
   bool accepted = false;
   bool saving = false;
   String? error;
+  PublishedPolicies policies = PublishedPolicies.bundled;
 
   @override
   void initState() {
@@ -66,10 +70,13 @@ class _PrivacyGateState extends State<PrivacyGate> {
 
   Future<void> _load() async {
     try {
+      final current =
+          await widget.policySource?.load() ?? PublishedPolicies.bundled;
       final version = await widget.store.acceptedVersion();
       if (!mounted) return;
       setState(() {
-        accepted = version == policyVersion;
+        policies = current;
+        accepted = version == current.consentVersion;
         checking = false;
       });
     } catch (_) {
@@ -88,7 +95,7 @@ class _PrivacyGateState extends State<PrivacyGate> {
       error = null;
     });
     try {
-      await widget.store.accept(policyVersion);
+      await widget.store.accept(policies.consentVersion);
       if (!mounted) return;
       setState(() {
         accepted = true;
@@ -115,12 +122,20 @@ class _PrivacyGateState extends State<PrivacyGate> {
   @override
   Widget build(BuildContext context) {
     if (checking) return const _PrivacyLoading();
-    if (accepted) return widget.builder(context);
-    return _ConsentScreen(
-      saving: saving,
-      error: error,
-      onAccept: _accept,
-      onReject: _reject,
+    return PolicyScope(
+      policies: policies,
+      child: Builder(
+        builder: (context) {
+          if (accepted) return widget.builder(context);
+          return _ConsentScreen(
+            saving: saving,
+            error: error,
+            onAccept: _accept,
+            onReject: _reject,
+            onlinePolicies: widget.policySource != null,
+          );
+        },
+      ),
     );
   }
 }
@@ -140,17 +155,22 @@ class _ConsentScreen extends StatelessWidget {
     required this.error,
     required this.onAccept,
     required this.onReject,
+    required this.onlinePolicies,
   });
 
   final bool saving;
   final String? error;
   final VoidCallback onAccept, onReject;
+  final bool onlinePolicies;
 
   void _open(BuildContext context, PolicyDocument document) {
     Navigator.push(
       context,
       MaterialPageRoute<void>(
-        builder: (_) => PolicyDocumentScreen(document: document),
+        builder: (_) => PolicyDocumentScreen(
+          document: PolicyScope.of(context).document(document),
+          effectiveDate: PolicyScope.of(context).date(document),
+        ),
       ),
     );
   }
@@ -200,7 +220,9 @@ class _ConsentScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: T.space3),
                         Text(
-                          '为了识别当前安装、保护兑换权益并提供下载服务，您同意后 App 将生成匿名安装凭据，并处理平台类型、App 生成的公钥或凭据、兑换、下载及安全记录。我们不读取通讯录、短信、通话记录、位置、摄像头、麦克风或相册内容。',
+                          onlinePolicies
+                              ? PolicyScope.of(context).privacy.introduction
+                              : '为了识别当前安装、保护兑换权益并提供下载服务，您同意后 App 将生成匿名安装凭据，并处理平台类型、App 生成的公钥或凭据、兑换、下载及安全记录。我们不读取通讯录、短信、通话记录、位置、摄像头、麦克风或相册内容。',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                         const SizedBox(height: T.space2),
@@ -256,28 +278,43 @@ class _ConsentScreen extends StatelessWidget {
 }
 
 class PolicyCenterScreen extends StatelessWidget {
-  const PolicyCenterScreen({super.key});
+  const PolicyCenterScreen({
+    super.key,
+    this.policies = PublishedPolicies.bundled,
+  });
+
+  final PublishedPolicies policies;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: T.sizeContentMax),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(T.space5, 0, T.space5, T.space8),
-            children: [
-              QjPageHeader(title: '协议与隐私'),
-              const SizedBox(height: T.space5),
-              _PolicyLink(document: privacyPolicy),
-              const SizedBox(height: T.space3),
-              _PolicyLink(document: userAgreement),
-              const SizedBox(height: T.space4),
-              Text(
-                '联系邮箱：$qingjingSupportEmail',
-                style: Theme.of(context).textTheme.bodySmall,
+  Widget build(BuildContext context) => PolicyScope(
+    policies: policies,
+    child: Builder(
+      builder: (context) => Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: T.sizeContentMax),
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(
+                  T.space5,
+                  0,
+                  T.space5,
+                  T.space8,
+                ),
+                children: [
+                  QjPageHeader(title: '协议与隐私'),
+                  const SizedBox(height: T.space5),
+                  _PolicyLink(document: privacyPolicy),
+                  const SizedBox(height: T.space3),
+                  _PolicyLink(document: userAgreement),
+                  const SizedBox(height: T.space4),
+                  Text(
+                    '联系邮箱：$qingjingSupportEmail',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -297,13 +334,16 @@ class _PolicyLink extends StatelessWidget {
         horizontal: T.space4,
         vertical: T.space2,
       ),
-      title: Text(document.title),
-      subtitle: const Text('生效日期：$policyEffectiveDate'),
+      title: Text(PolicyScope.of(context).document(document).title),
+      subtitle: Text('生效日期：${PolicyScope.of(context).date(document)}'),
       trailing: const QjIcon('chevron-right'),
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute<void>(
-          builder: (_) => PolicyDocumentScreen(document: document),
+          builder: (_) => PolicyDocumentScreen(
+            document: PolicyScope.of(context).document(document),
+            effectiveDate: PolicyScope.of(context).date(document),
+          ),
         ),
       ),
     ),
@@ -311,9 +351,14 @@ class _PolicyLink extends StatelessWidget {
 }
 
 class PolicyDocumentScreen extends StatelessWidget {
-  const PolicyDocumentScreen({super.key, required this.document});
+  const PolicyDocumentScreen({
+    super.key,
+    required this.document,
+    this.effectiveDate = policyEffectiveDate,
+  });
 
   final PolicyDocument document;
+  final String effectiveDate;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -327,7 +372,7 @@ class PolicyDocumentScreen extends StatelessWidget {
               QjPageHeader(title: document.title),
               const SizedBox(height: T.space4),
               Text(
-                '生效日期：$policyEffectiveDate',
+                '生效日期：$effectiveDate',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: T.space3),

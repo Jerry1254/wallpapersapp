@@ -1,3 +1,4 @@
+import 'privacy/remote_policies.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -37,12 +38,14 @@ class QingjingApp extends StatefulWidget {
     required this.config,
     this.repository,
     this.updateController,
+    this.policySource,
     this.privacyConsentStore = const PlatformPrivacyConsentStore(),
   });
   final AppConfig config;
   final CatalogRepository? repository;
   final AppUpdateController? updateController;
   final PrivacyConsentStore privacyConsentStore;
+  final PolicySource? policySource;
   @override
   State<QingjingApp> createState() => _QingjingAppState();
 }
@@ -90,6 +93,9 @@ class _QingjingAppState extends State<QingjingApp> {
       theme: QjTheme.light,
       home: PrivacyGate(
         store: widget.privacyConsentStore,
+        policySource: widget.config.isOffline
+            ? null
+            : widget.policySource ?? RemotePolicySource(widget.config.apiBase),
         builder: (_) => AppUpdateBootstrap(
           controller: updates,
           builder: (_) => HomeShell(

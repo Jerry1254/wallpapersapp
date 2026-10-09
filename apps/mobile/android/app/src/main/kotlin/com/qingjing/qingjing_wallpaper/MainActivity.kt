@@ -15,6 +15,17 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "qingjing/privacy_consent")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "cachedPolicies" -> result.success(preferences.getString("cached_online_policies", null))
+                    "savePolicies" -> {
+                        val text = call.arguments as? String
+                        if (text == null || text.length > 1_100_000) {
+                            result.error("INVALID_POLICIES", "Invalid policies", null)
+                        } else if (preferences.edit().putString("cached_online_policies", text).commit()) {
+                            result.success(null)
+                        } else {
+                            result.error("SAVE_FAILED", "Unable to cache policies", null)
+                        }
+                    }
                     "acceptedVersion" -> result.success(
                         preferences.getString("accepted_policy_version", null)
                     )

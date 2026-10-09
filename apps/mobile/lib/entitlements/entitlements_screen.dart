@@ -1,3 +1,4 @@
+import '../privacy/remote_policies.dart';
 import 'package:flutter/material.dart';
 import '../config/app_branding.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
@@ -233,7 +234,8 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute<void>(
-                builder: (_) => const PolicyCenterScreen(),
+                builder: (_) =>
+                    PolicyCenterScreen(policies: PolicyScope.of(context)),
               ),
             ),
           ),

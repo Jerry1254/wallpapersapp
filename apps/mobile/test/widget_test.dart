@@ -1,3 +1,4 @@
+import 'package:qingjing_wallpaper/privacy/remote_policies.dart';
 import 'package:flutter/material.dart';
 import 'package:qingjing_wallpaper/catalog/catalog.dart';
 import 'catalog_test.dart' show FakeCatalog;
@@ -28,6 +29,7 @@ void main() {
     final repository = FakeCatalog();
     await tester.pumpWidget(
       QingjingApp(
+        policySource: const BundledPolicySource(),
         repository: repository,
         updateController: noUpdates(),
         privacyConsentStore: MemoryPrivacyConsentStore(accepted: policyVersion),
@@ -58,6 +60,7 @@ void main() {
     final repository = FakeCatalog();
     await tester.pumpWidget(
       QingjingApp(
+        policySource: const BundledPolicySource(),
         repository: repository,
         updateController: noUpdates(),
         privacyConsentStore: MemoryPrivacyConsentStore(accepted: policyVersion),
@@ -81,6 +84,7 @@ void main() {
     final repository = FakeCatalog();
     await tester.pumpWidget(
       QingjingApp(
+        policySource: const BundledPolicySource(),
         repository: repository,
         updateController: noUpdates(),
         privacyConsentStore: MemoryPrivacyConsentStore(accepted: policyVersion),

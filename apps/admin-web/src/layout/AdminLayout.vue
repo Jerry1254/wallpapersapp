@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   CollectionTag,
+  Document,
   DataAnalysis,
   Fold,
   Iphone,
@@ -27,6 +28,7 @@ const items = [
   { path: '/dashboard', label: '工作台', icon: DataAnalysis },
   { path: '/categories', label: '分类管理', icon: CollectionTag },
   { path: '/wallpapers', label: '壁纸管理', icon: Picture },
+  { path: '/legal-documents', label: '协议管理', icon: Document },
   { path: '/tutorials', label: '设置教程', icon: VideoPlay },
   { path: '/codes', label: '兑换码', icon: Key },
   { path: '/redemptions', label: '兑换记录', icon: List },
