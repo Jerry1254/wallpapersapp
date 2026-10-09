@@ -30,6 +30,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class DownloadTicketService {
     private final JdbcTemplate jdbc;
+    private final com.qingjing.wallpaper.risk.RiskService risk;
     private final PublicWallpaperViewReader wallpapers;
     private final RedisRateLimiter rateLimiter;
     private final StringRedisTemplate redis;
@@ -42,11 +43,12 @@ public class DownloadTicketService {
     private static final Duration TTL = Duration.ofSeconds(90);
     public DownloadTicketService(JdbcTemplate jdbc, PublicWallpaperViewReader wallpapers, RedisRateLimiter rateLimiter,
             StringRedisTemplate redis, SecurityCrypto crypto, InstallationEncryptionKeys keys, ObjectMapper mapper,
-            FileStorage storage, DeviceProperties devices) {
-        this.jdbc=jdbc; this.wallpapers=wallpapers; this.rateLimiter=rateLimiter; this.redis=redis;
+            FileStorage storage, DeviceProperties devices, com.qingjing.wallpaper.risk.RiskService risk) {
+        this.risk=risk; this.jdbc=jdbc; this.wallpapers=wallpapers; this.rateLimiter=rateLimiter; this.redis=redis;
         this.crypto=crypto; this.keys=keys; this.mapper=mapper; this.storage=storage; this.devices=devices;
     }
     public DownloadDescriptor create(DevicePrincipal principal,long wallpaperId,CreateDownloadTicketRequest request) {
+        risk.requireCurrentAddress(principal.deviceId());
         rateLimiter.require("download-ticket",Long.toString(principal.deviceId()),30,Duration.ofMinutes(1));
         if (!PlatformResourceScope.visibleTo(principal.platform(), request.deliveryPlatform(), request.resourceType())) {
             throw new ApiException(HttpStatus.BAD_REQUEST,"RESOURCE_PLATFORM_MISMATCH",
@@ -87,6 +89,7 @@ public class DownloadTicketService {
                 principal.platform(),request.deliveryPlatform(),request.resourceType(),DeliveryMode.SECURE_PACKAGE,
                 authorization,expiry.toString());
         validateSecurePackage(state);
+        risk.download(principal.deviceId(),wallpaperId);
         try { redis.opsForValue().set(ticketKey(token),mapper.writeValueAsString(state),TTL); }
         catch (com.fasterxml.jackson.core.JsonProcessingException exception) { throw new IllegalStateException("Cannot serialize download ticket"); }
         return new DownloadDescriptor(DeliveryMode.SECURE_PACKAGE,Long.toString(wallpaperId),wallpaper.cover(),token,"/api/v1/delivery/files",expiry,
@@ -99,7 +102,12 @@ public class DownloadTicketService {
         rateLimiter.require("download-read",Long.toString(state.deviceId()),12,Duration.ofMinutes(1));
         if (state.deliveryMode()!=DeliveryMode.SECURE_PACKAGE) throw invalid();
         PackageRow resource=validateSecurePackage(state);
-        return new ProtectedFile(resource.size(),resource.encryptedHash(),output -> stream(token,resource,output));
+        return new ProtectedFile(resource.size(),resource.encryptedHash(),guard(state.deviceId(),output -> stream(token,resource,output)));
+    }
+    private Writer guard(long device,Writer writer) {
+        // Preserve the request address across deferred streaming threads.
+        String ip=risk.currentIp();
+        return output->{ risk.requireAllowed(device,ip); writer.write(output); };
     }
     private void stream(String token,PackageRow expected,OutputStream output) throws IOException {
         if (!reads.tryAcquire()) throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,"RATE_LIMITED","Too many active downloads");
@@ -126,8 +134,9 @@ public class DownloadTicketService {
         try {
             Ticket state=mapper.readValue(json,Ticket.class);
             if (!Instant.parse(state.expiresAt()).isAfter(Instant.now())) throw invalid();
+            risk.requireCurrentAddress(state.deviceId());
             return state;
-        } catch (Exception error) { throw invalid(); }
+        } catch (ApiException error) { throw error; } catch (Exception error) { throw invalid(); }
     }
     public ProtectedFile readMovingPhotoFile(String token, MovingPhotoPart part) {
         Ticket state=readTicket(token);
@@ -137,7 +146,7 @@ public class DownloadTicketService {
         String storageKey=part==MovingPhotoPart.POSTER?resource.posterStorage():resource.videoStorage();
         long size=part==MovingPhotoPart.POSTER?resource.posterSize():resource.videoSize();
         String hash=part==MovingPhotoPart.POSTER?resource.posterHash():resource.videoHash();
-        return new ProtectedFile(size,hash,output->streamMovingPhoto(token,part,storageKey,size,hash,output));
+        return new ProtectedFile(size,hash,guard(state.deviceId(),output->streamMovingPhoto(token,part,storageKey,size,hash,output)));
     }
     public StaticImageFile readStaticImageFile(String token) {
         Ticket state=readTicket(token);
@@ -145,7 +154,7 @@ public class DownloadTicketService {
         rateLimiter.require("static-image-read",Long.toString(state.deviceId()),12,Duration.ofMinutes(1));
         StaticImageRow resource=validateStaticImage(state);
         return new StaticImageFile(resource.size(),resource.hash(),resource.mimeType(),
-                output->streamStaticImage(token,resource,output));
+                guard(state.deviceId(),output->streamStaticImage(token,resource,output)));
     }
     public ProtectedFile readLivePhotoFile(String token, LivePhotoPart part) {
         Ticket state=readTicket(token);
@@ -155,7 +164,7 @@ public class DownloadTicketService {
         String storageKey=part==LivePhotoPart.PHOTO?resource.photoStorage():resource.videoStorage();
         long size=part==LivePhotoPart.PHOTO?resource.photoSize():resource.videoSize();
         String hash=part==LivePhotoPart.PHOTO?resource.photoHash():resource.videoHash();
-        return new ProtectedFile(size,hash,output->streamLivePhoto(token,part,storageKey,size,hash,output));
+        return new ProtectedFile(size,hash,guard(state.deviceId(),output->streamLivePhoto(token,part,storageKey,size,hash,output)));
     }
     public ProtectedFile readLivePhotoSourceFile(String token) {
         Ticket state=readTicket(token);
@@ -163,7 +172,7 @@ public class DownloadTicketService {
         rateLimiter.require("live-photo-source-read",Long.toString(state.deviceId()),12,Duration.ofMinutes(1));
         LivePhotoRow resource=validateLivePhoto(state);
         return new ProtectedFile(resource.sourceSize(),resource.sourceHash(),
-                output->streamLivePhotoSource(token,resource,output));
+                guard(state.deviceId(),output->streamLivePhotoSource(token,resource,output)));
     }
     private void streamMovingPhoto(String token,MovingPhotoPart part,String key,long size,String hash,OutputStream output) throws IOException {
         if(!reads.tryAcquire()) throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,"RATE_LIMITED","Too many active downloads");
@@ -265,6 +274,7 @@ public class DownloadTicketService {
                 DevicePlatform.HARMONYOS,DeliveryPlatform.HARMONYOS,ResourceType.MOVING_PHOTO,
                 DeliveryMode.MOVING_PHOTO,authorization,expiry.toString());
         validateMovingPhoto(state);
+        risk.download(principal.deviceId(),wallpaperId);
         try { redis.opsForValue().set(ticketKey(token),mapper.writeValueAsString(state),TTL); }
         catch(com.fasterxml.jackson.core.JsonProcessingException error){throw new IllegalStateException("Cannot serialize download ticket");}
         return new DownloadDescriptor(DeliveryMode.MOVING_PHOTO,Long.toString(wallpaperId),cover,token,null,expiry,
@@ -291,6 +301,7 @@ public class DownloadTicketService {
                 DeliveryMode.LIVE_PHOTO,authorization,expiry.toString());
         LivePhotoRow current=validateLivePhoto(state);
         requireSourceIntegrity(current);
+        risk.download(principal.deviceId(),wallpaperId);
         try { redis.opsForValue().set(ticketKey(token),mapper.writeValueAsString(state),TTL); }
         catch(com.fasterxml.jackson.core.JsonProcessingException error){throw new IllegalStateException("Cannot serialize download ticket");}
         return new DownloadDescriptor(DeliveryMode.LIVE_PHOTO,Long.toString(wallpaperId),cover,token,null,expiry,
@@ -316,6 +327,7 @@ public class DownloadTicketService {
                 principal.platform(),DeliveryPlatform.UNIVERSAL,ResourceType.STATIC_IMAGE,
                 DeliveryMode.STATIC_IMAGE,authorization,expiry.toString());
         validateStaticImage(state);
+        risk.download(principal.deviceId(),wallpaperId);
         try { redis.opsForValue().set(ticketKey(token),mapper.writeValueAsString(state),TTL); }
         catch(com.fasterxml.jackson.core.JsonProcessingException error){throw new IllegalStateException("Cannot serialize download ticket");}
         return new DownloadDescriptor(DeliveryMode.STATIC_IMAGE,Long.toString(wallpaperId),cover,token,null,expiry,

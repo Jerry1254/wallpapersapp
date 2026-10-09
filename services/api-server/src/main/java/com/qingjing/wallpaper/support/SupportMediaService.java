@@ -16,17 +16,19 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 public class SupportMediaService {
     private static final Duration TTL = Duration.ofMinutes(15);
     private final SupportService support;
+    private final com.qingjing.wallpaper.risk.RiskService risk;
     private final StringRedisTemplate redis;
     private final SecurityCrypto crypto;
     private final ObjectMapper mapper;
     private final JdbcTemplate jdbc;
     private final FileStorage storage;
     public SupportMediaService(SupportService support, StringRedisTemplate redis, SecurityCrypto crypto,
-                               ObjectMapper mapper, JdbcTemplate jdbc, FileStorage storage) {
-        this.support = support; this.redis = redis; this.crypto = crypto;
+                               ObjectMapper mapper, JdbcTemplate jdbc, FileStorage storage, com.qingjing.wallpaper.risk.RiskService risk) {
+        this.risk=risk; this.support = support; this.redis = redis; this.crypto = crypto;
         this.mapper = mapper; this.jdbc = jdbc; this.storage = storage;
     }
     public SupportDtos.MediaAccess access(long attachmentId, DevicePrincipal device) {
+        if(device!=null) risk.requireCurrentAddress(device.deviceId());
         support.authorizedAttachment(attachmentId, device == null ? null : support.forDevice(device));
         String token = crypto.randomToken(32);
         var ticket = new MediaTicket(attachmentId, device == null ? null : device.deviceId(),
@@ -36,6 +38,7 @@ public class SupportMediaService {
         return new SupportDtos.MediaAccess("/api/v1/support/files/" + attachmentId + "?ticket=" + token, ticket.expiresAt());
     }
     public ResponseEntity<StreamingResponseBody> content(long attachmentId, String token, String range) {
+        String ip=risk.currentIp();
         MediaTicket ticket = ticket(attachmentId, token);
         if (ticket.deviceId() != null && jdbc.queryForObject("""
                 SELECT COUNT(*) FROM anonymous_device d JOIN device_credential c ON c.device_id=d.id
@@ -59,6 +62,7 @@ public class SupportMediaService {
         }
         final long offset = start, length = end - start + 1;
         StreamingResponseBody body = output -> {
+            if(ticket.deviceId()!=null) risk.requireAllowed(ticket.deviceId(),ip);
             // Revalidate a grant when streaming begins; storage paths never reach clients.
             ticket(attachmentId, token);
             try (var content = storage.open(new StorageKey(file.storageKey()))) {
@@ -87,6 +91,7 @@ public class SupportMediaService {
         try {
             var ticket = mapper.readValue(json, MediaTicket.class);
             if (ticket.attachmentId() != attachmentId || !ticket.expiresAt().isAfter(Instant.now())) throw invalid();
+            if(ticket.deviceId()!=null) risk.requireCurrentAddress(ticket.deviceId());
             return ticket;
         } catch (java.io.IOException error) { throw invalid(); }
     }

@@ -27,13 +27,15 @@ public class PreviewTicketService {
     private final RedisRateLimiter limiter;private final DeviceProperties devices;private final InstallationEncryptionKeys keys;
     private final PublicWallpaperViewReader wallpapers;private final FileStorage storage;private final ObjectMapper mapper;
     private final PreviewGenerationService previews;
+    private final com.qingjing.wallpaper.risk.RiskService risk;
     private final Semaphore reads=new Semaphore(4);
     private static final Duration TTL=Duration.ofSeconds(90);
     public PreviewTicketService(JdbcTemplate jdbc,StringRedisTemplate redis,SecurityCrypto crypto,RedisRateLimiter limiter,
-        DeviceProperties devices,InstallationEncryptionKeys keys,PublicWallpaperViewReader wallpapers,FileStorage storage,ObjectMapper mapper,PreviewGenerationService previews) {
-        this.jdbc=jdbc;this.redis=redis;this.crypto=crypto;this.limiter=limiter;this.devices=devices;this.keys=keys;this.wallpapers=wallpapers;this.storage=storage;this.mapper=mapper;this.previews=previews;
+        DeviceProperties devices,InstallationEncryptionKeys keys,PublicWallpaperViewReader wallpapers,FileStorage storage,ObjectMapper mapper,PreviewGenerationService previews,com.qingjing.wallpaper.risk.RiskService risk) {
+        this.risk=risk;this.jdbc=jdbc;this.redis=redis;this.crypto=crypto;this.limiter=limiter;this.devices=devices;this.keys=keys;this.wallpapers=wallpapers;this.storage=storage;this.mapper=mapper;this.previews=previews;
     }
     public PreviewDtos.PreviewDescriptor create(DevicePrincipal principal,long wallpaperId,PreviewDtos.CreatePreviewTicketRequest request) {
+        risk.requireCurrentAddress(principal.deviceId());
         limiter.require("preview-ticket",Long.toString(principal.deviceId()),6,Duration.ofMinutes(1));
         if(!PlatformResourceScope.visibleTo(principal.platform(),request.deliveryPlatform(),request.resourceType())) {
             throw new ApiException(HttpStatus.BAD_REQUEST,"RESOURCE_PLATFORM_MISMATCH",
@@ -70,9 +72,11 @@ public class PreviewTicketService {
             new DeliveryDtos.SecurePackageMetadata(3,selected.size(),selected.plainSize(),selected.encryptedHash(),selected.plainHash(),selected.signing(),fingerprint,wrapped,"RSA-OAEP-SHA256-MGF1-SHA1"),null,revision);
     }
     public DownloadTicketService.ProtectedFile read(String token) {
+        String ip=risk.currentIp();
         var ticket=ticket(token);if(ticket.mode()!=PreviewMode.SECURE_PACKAGE)throw invalid();
         limiter.require("preview-read",Long.toString(ticket.device()),12,Duration.ofMinutes(1));var expected=validatePackage(ticket);
         return new DownloadTicketService.ProtectedFile(expected.size(),expected.encryptedHash(),output->{
+            risk.requireAllowed(ticket.device(),ip);
             if(!reads.tryAcquire()) throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,"RATE_LIMITED","Too many active preview transfers");
             try {
                 var current=validatePackage(ticket(token));
@@ -87,10 +91,12 @@ public class PreviewTicketService {
         });
     }
     public DownloadTicketService.ProtectedFile readMovingPhotoVideo(String token) {
+        String ip=risk.currentIp();
         var ticket=ticket(token);if(ticket.mode()!=PreviewMode.MOVING_PHOTO || ticket.platform()!=DeviceDtos.DevicePlatform.HARMONYOS)throw invalid();
         limiter.require("preview-moving-photo-read",Long.toString(ticket.device()),12,Duration.ofMinutes(1));
         var expected=validateMovingPhoto(ticket);
         return new DownloadTicketService.ProtectedFile(expected.videoSize(),expected.videoHash(),output->{
+            risk.requireAllowed(ticket.device(),ip);
             if(!reads.tryAcquire())throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,"RATE_LIMITED","Too many active preview transfers");
             try {
                 var current=validateMovingPhoto(ticket(token));
@@ -106,10 +112,12 @@ public class PreviewTicketService {
         });
     }
     public DownloadTicketService.ProtectedFile readLivePhotoVideo(String token) {
+        String ip=risk.currentIp();
         var ticket=ticket(token);if(ticket.mode()!=PreviewMode.LIVE_PHOTO || ticket.platform()!=DeviceDtos.DevicePlatform.IOS)throw invalid();
         limiter.require("preview-live-photo-read",Long.toString(ticket.device()),12,Duration.ofMinutes(1));
         var expected=validateLivePhoto(ticket);
         return new DownloadTicketService.ProtectedFile(expected.videoSize(),expected.videoHash(),output->{
+            risk.requireAllowed(ticket.device(),ip);
             if(!reads.tryAcquire())throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,"RATE_LIMITED","Too many active preview transfers");
             try {
                 var current=validateLivePhoto(ticket(token));
@@ -126,8 +134,8 @@ public class PreviewTicketService {
     }
     private Ticket ticket(String token) {
         if(token==null || !token.matches("[A-Za-z0-9_-]{43}")) throw invalid();String json=redis.opsForValue().get(ticketKey(token));if(json==null) throw invalid();
-        try { var ticket=mapper.readValue(json,Ticket.class);if(!Instant.parse(ticket.expires()).isAfter(Instant.now())) throw invalid();return ticket; }
-        catch(Exception error) { throw invalid(); }
+        try { var ticket=mapper.readValue(json,Ticket.class);if(!Instant.parse(ticket.expires()).isAfter(Instant.now())) throw invalid();risk.requireCurrentAddress(ticket.device());return ticket; }
+        catch(ApiException error) { throw error; } catch(Exception error) { throw invalid(); }
     }
     private Package validatePackage(Ticket ticket) {
         requireRevision(ticket);

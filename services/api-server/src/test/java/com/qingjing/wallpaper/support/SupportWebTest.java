@@ -38,7 +38,7 @@ class SupportWebTest {
         mvc = MockMvcBuilders.standaloneSetup(new DeviceSupportController(support,media), new AdminSupportController(support,media))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .addFilters(new SignedBodyFilter(mock(HandlerExceptionResolver.class)))
-                .addMappedInterceptors(new String[]{"/api/v1/device/support/**"}, new DeviceAuthInterceptor(identity,limiter))
+                .addMappedInterceptors(new String[]{"/api/v1/device/support/**"}, new DeviceAuthInterceptor(identity,limiter,mock(com.qingjing.wallpaper.risk.RiskService.class),new com.qingjing.wallpaper.risk.ClientAddress("")))
                 .addMappedInterceptors(new String[]{"/api/v1/admin/support/**"}, new AdminAuthInterceptor(adminSessions)).build();
     }
     @Test void unauthenticatedReadsCannotReachSupportData() throws Exception {

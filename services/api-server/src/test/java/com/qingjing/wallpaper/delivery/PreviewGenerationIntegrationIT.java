@@ -264,7 +264,7 @@ class PreviewGenerationIntegrationIT {
                 .when(values).set(anyString(), anyString(), any(Duration.class));
         var tickets = new PreviewTicketService(jdbc, redis, crypto(), mock(RedisRateLimiter.class), properties,
                 mock(InstallationEncryptionKeys.class), mock(PublicWallpaperViewReader.class), storage,
-                new ObjectMapper().findAndRegisterModules(), generation);
+                new ObjectMapper().findAndRegisterModules(), generation,mock(com.qingjing.wallpaper.risk.RiskService.class));
         var principal = new DevicePrincipal(301, credential, DeviceDtos.DevicePlatform.IOS, DeviceDtos.CredentialType.PLATFORM_PUBLIC_KEY);
         var descriptor = tickets.create(principal, 101, new PreviewDtos.CreatePreviewTicketRequest(DeliveryPlatform.IOS, ResourceType.LIVE_PHOTO));
         assertThat(descriptor.previewRevision()).isEqualTo(1);

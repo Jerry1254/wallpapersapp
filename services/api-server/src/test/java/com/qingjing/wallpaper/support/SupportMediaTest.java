@@ -31,7 +31,7 @@ class SupportMediaTest {
         var storage = new LocalFileStorage(directory); var file = storage.commit(storage.stage(new ByteArrayInputStream("0123456789".getBytes()),100),"mp4");
         var attachment = new SupportDtos.Attachment("1",SupportDtos.MessageKind.VIDEO,"demo.mp4","video/mp4",10,null,null,1000L);
         when(support.attachmentRecord(1L)).thenReturn(new SupportService.AttachmentRecord(attachment,file.storageKey().value(),null));
-        media = new SupportMediaService(support,redis,crypto,new ObjectMapper().findAndRegisterModules(),mock(JdbcTemplate.class),storage);
+        media = new SupportMediaService(support,redis,crypto,new ObjectMapper().findAndRegisterModules(),mock(JdbcTemplate.class),storage,mock(com.qingjing.wallpaper.risk.RiskService.class));
         media.access(1,null);
     }
     @Test void videoRangesReturnOnlyRequestedBytesAndRejectInvalidRanges() throws Exception {

@@ -21,10 +21,14 @@ public class DeviceAuthInterceptor implements HandlerInterceptor {
 
     private final DeviceIdentityService identity;
     private final RedisRateLimiter rateLimiter;
+    private final com.qingjing.wallpaper.risk.RiskService risk;
+    private final com.qingjing.wallpaper.risk.ClientAddress address;
 
-    public DeviceAuthInterceptor(DeviceIdentityService identity, RedisRateLimiter rateLimiter) {
+    public DeviceAuthInterceptor(DeviceIdentityService identity, RedisRateLimiter rateLimiter,
+            com.qingjing.wallpaper.risk.RiskService risk,com.qingjing.wallpaper.risk.ClientAddress address) {
         this.identity = identity;
         this.rateLimiter = rateLimiter;
+        this.risk=risk; this.address=address;
     }
 
     @Override
@@ -38,6 +42,12 @@ public class DeviceAuthInterceptor implements HandlerInterceptor {
         }
         SessionData session = identity.requireSession(authorization.substring(7));
         String uri = request.getRequestURI();
+        request.setAttribute(RequestAttributes.DEVICE_PRINCIPAL, identity.principal(session));
+        String ip=address.of(request);
+        if(!uri.startsWith("/api/v1/device/security/")) {
+            risk.requireAllowed(session.deviceId(),ip);
+            risk.count("REQUEST_FLOOD",session.deviceId(),ip,null);
+        }
         boolean sensitiveWrite = SignedDeviceRoutes.requiresSignature(request.getMethod(), uri);
         boolean supportUpload = request.getMethod().equals("POST") && uri.equals("/api/v1/device/support/attachments");
         boolean supportControl = request.getMethod().equals("POST") && (uri.equals("/api/v1/device/support/read") || uri.equals("/api/v1/device/support/presence"));
@@ -49,7 +59,7 @@ public class DeviceAuthInterceptor implements HandlerInterceptor {
         if (sensitiveWrite) {
             Object value = request.getAttribute(RequestAttributes.SIGNED_BODY_BYTES);
             byte[] body = value instanceof byte[] bytes ? bytes : new byte[0];
-            identity.verifySignedRequest(
+            try { identity.verifySignedRequest(
                     session,
                     request.getMethod(),
                     canonicalPath(request),
@@ -57,6 +67,11 @@ public class DeviceAuthInterceptor implements HandlerInterceptor {
                     requiredHeader(request, "X-Request-Nonce"),
                     body,
                     requiredHeader(request, "X-Request-Signature"));
+            } catch(ApiException error) {
+                if(error.code().equals("REQUEST_SIGNATURE_INVALID") || error.code().equals("REQUEST_NONCE_REUSED"))
+                    risk.count("INVALID_SIGNATURE",session.deviceId(),ip,null);
+                throw error;
+            }
         }
         request.setAttribute(RequestAttributes.DEVICE_PRINCIPAL, identity.principal(session));
         return true;

@@ -30,7 +30,7 @@ class AppUpdateMvcChainTest {
         @Bean DeviceIdentityService identity() { return mock(DeviceIdentityService.class); }
         @Bean RedisRateLimiter limiter() { return mock(RedisRateLimiter.class); }
         @Bean DeviceAuthInterceptor authentication(DeviceIdentityService identity,RedisRateLimiter limiter) {
-            return new DeviceAuthInterceptor(identity,limiter);
+            return new DeviceAuthInterceptor(identity,limiter,mock(com.qingjing.wallpaper.risk.RiskService.class),new com.qingjing.wallpaper.risk.ClientAddress(""));
         }
         @Bean AppReleaseService releases() { return mock(AppReleaseService.class); }
         @Bean AppUpdateInterceptor updates(AppReleaseService releases) { return new AppUpdateInterceptor(releases); }

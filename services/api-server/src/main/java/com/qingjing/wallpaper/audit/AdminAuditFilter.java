@@ -76,6 +76,7 @@ public class AdminAuditFilter extends OncePerRequestFilter {
     private String aggregateType(String root) {
         return switch (root) {
             case "sessions" -> "ADMIN_ACCOUNT";
+            case "security" -> "SECURITY_POLICY";
             case "assets" -> "ASSET";
             case "categories" -> "CATEGORY";
             case "wallpapers" -> "WALLPAPER";

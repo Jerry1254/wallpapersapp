@@ -62,6 +62,7 @@ class WallpaperChannelIntegrationIT {
     PublicCatalogService catalog;
     PublicAssetService assets;
     DownloadTicketService downloads;
+    com.qingjing.wallpaper.risk.RiskService risk;
     PreviewTicketService previews;
     DeviceEntitlementService entitlements;
 
@@ -84,6 +85,8 @@ class WallpaperChannelIntegrationIT {
     }
 
     @BeforeEach void setUp() {
+        jdbc.update("DELETE FROM security_ban");
+        risk=new com.qingjing.wallpaper.risk.RiskService(jdbc,mock(com.qingjing.wallpaper.risk.RiskCounter.class),new com.qingjing.wallpaper.risk.ClientAddress(""),transactions);
         jdbc.update("UPDATE wallpaper SET offline_promotion_only=(id=11),access_type='FREE'");
         jdbc.update("UPDATE category SET icon_asset_id=id");
         jdbc.update("UPDATE anonymous_device SET status='ACTIVE',app_install_scope=? WHERE id=302",WallpaperChannelAccess.OFFLINE_SCOPE);
@@ -101,10 +104,10 @@ class WallpaperChannelIntegrationIT {
         when(values.get(anyString())).thenAnswer(call->cached.get(call.getArgument(0)));
         doAnswer(call->{cached.put(call.getArgument(0),call.getArgument(1));return null;})
                 .when(values).set(anyString(),anyString(),any(Duration.class));
-        downloads=new DownloadTicketService(jdbc,views,mock(RedisRateLimiter.class),redis,crypto,keys,MAPPER,storage,properties);
+        downloads=new DownloadTicketService(jdbc,views,mock(RedisRateLimiter.class),redis,crypto,keys,MAPPER,storage,properties,risk);
         var generation=new PreviewGenerationService(jdbc,storage,mock(com.qingjing.wallpaper.delivery.infrastructure.PreviewWatermarkRenderer.class),
                 mock(SecurePackagePublisher.class),mock(com.qingjing.wallpaper.parallax.ParallaxStorageCleanup.class),transactions);
-        previews=new PreviewTicketService(jdbc,redis,crypto,mock(RedisRateLimiter.class),properties,keys,views,storage,MAPPER,generation);
+        previews=new PreviewTicketService(jdbc,redis,crypto,mock(RedisRateLimiter.class),properties,keys,views,storage,MAPPER,generation,risk);
     }
 
     @Test void theDatabaseInstallationDefinesTheChannelAndEveryOtherPlatformIsOnline() {
@@ -183,6 +186,35 @@ class WallpaperChannelIntegrationIT {
         assertThat(SecurePackageCodec.sha256(transferred.toByteArray())).isEqualTo(offlineFormal.packageMetadata().encryptedSha256());
         jdbc.update("UPDATE anonymous_device SET app_install_scope='com.qingjing.bizhi' WHERE id=302");
         notFound(()->downloads.readProtectedFile(offlineFormal.ticket()));
+    }
+
+    @Test void permanentBanRevokesAlreadyIssuedDownloadAndPreviewGrantsIncludingDeferredStreams() throws Exception {
+        var download=downloads.create(devices.get(301L),10,new DeliveryDtos.CreateDownloadTicketRequest(DeliveryPlatform.UNIVERSAL,ResourceType.STATIC_IMAGE,null));
+        var preview=previews.create(devices.get(301L),10,new PreviewDtos.CreatePreviewTicketRequest(DeliveryPlatform.UNIVERSAL,ResourceType.STATIC_IMAGE));
+        var pendingDownload=downloads.readProtectedFile(download.ticket());var pendingPreview=previews.read(preview.ticket());
+        risk.manualBan(new com.qingjing.wallpaper.risk.RiskDtos.BanRequest("301","203.0.113.9","测试原有票据撤销"),1);
+        for(Runnable operation:List.<Runnable>of(()->downloads.readProtectedFile(download.ticket()),()->previews.read(preview.ticket()))) {
+            assertThatThrownBy(operation::run).isInstanceOfSatisfying(ApiException.class,e->assertThat(e.code()).isEqualTo("ACCESS_UNAVAILABLE"));
+        }
+        assertThatThrownBy(()->pendingDownload.writer().write(new ByteArrayOutputStream())).isInstanceOf(ApiException.class);
+        assertThatThrownBy(()->pendingPreview.writer().write(new ByteArrayOutputStream())).isInstanceOf(ApiException.class);
+    }
+
+    @Test void deferredStreamsRetainTheIpWhenTheServletThreadHasAlreadyFinished() throws Exception {
+        var request=new org.springframework.mock.web.MockHttpServletRequest();request.setRemoteAddr("203.0.113.9");
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+            new org.springframework.web.context.request.ServletRequestAttributes(request));
+        DownloadTicketService.ProtectedFile pendingDownload;
+        DownloadTicketService.ProtectedFile pendingPreview;
+        try {
+            var download=downloads.create(devices.get(301L),10,new DeliveryDtos.CreateDownloadTicketRequest(DeliveryPlatform.UNIVERSAL,ResourceType.STATIC_IMAGE,null));
+            var preview=previews.create(devices.get(301L),10,new PreviewDtos.CreatePreviewTicketRequest(DeliveryPlatform.UNIVERSAL,ResourceType.STATIC_IMAGE));
+            pendingDownload=downloads.readProtectedFile(download.ticket());pendingPreview=previews.read(preview.ticket());
+        } finally { org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes(); }
+        risk.manualBan(new com.qingjing.wallpaper.risk.RiskDtos.BanRequest(null,"203.0.113.9","仅封禁当前 IP"),1);
+        assertThat(risk.blocked(301L,null)).isFalse();
+        assertThatThrownBy(()->pendingDownload.writer().write(new ByteArrayOutputStream())).isInstanceOf(ApiException.class);
+        assertThatThrownBy(()->pendingPreview.writer().write(new ByteArrayOutputStream())).isInstanceOf(ApiException.class);
     }
 
     @Test void hiddenRedemptionDoesNotConsumeCodeQuotaAndSavedResultsAreRechecked() {

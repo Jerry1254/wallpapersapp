@@ -18,6 +18,7 @@ class ModuleLayoutTest {
             "delivery",
             "entitlement",
             "redemption",
+            "risk",
             "shared",
             "support",
             "tutorial");

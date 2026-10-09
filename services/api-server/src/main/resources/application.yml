@@ -45,7 +45,7 @@ management:
 info:
   app:
     name: ${spring.application.name}
-    contract-version: ${QJ_API_CONTRACT_VERSION:2.23.0}
+    contract-version: ${QJ_API_CONTRACT_VERSION:2.24.0}
     environment-id: ${QJ_ENVIRONMENT_ID:UNCONFIGURED}
     deployment-stage: ${QJ_DEPLOYMENT_STAGE:UNCONFIGURED}
     git-commit: ${QJ_DEPLOYMENT_GIT_COMMIT:unknown}
@@ -54,6 +54,8 @@ info:
     flyway-version: ${QJ_FLYWAY_VERSION:unknown}
 
 qingjing:
+  risk:
+    trusted-proxy-ips: ${QJ_RISK_TRUSTED_PROXY_IPS:}
   scheduling-enabled: ${QJ_SCHEDULING_ENABLED:true}
   delivery:
     ffprobe: ${QJ_FFPROBE:ffprobe}
