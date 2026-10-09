@@ -3,6 +3,8 @@ package com.qingjing.wallpaper.asset.application;
 import java.util.Set;
 
 public enum AssetPurpose {
+    SUPPORT_IMAGE(10L * 1024 * 1024, Set.of(DetectedAssetType.JPEG, DetectedAssetType.PNG, DetectedAssetType.WEBP)),
+    SUPPORT_VIDEO(100L * 1024 * 1024, Set.of(DetectedAssetType.MP4)),
     CATEGORY_ICON(10L * 1024 * 1024, Set.of(DetectedAssetType.JPEG, DetectedAssetType.PNG, DetectedAssetType.WEBP)),
     WALLPAPER_COVER(20L * 1024 * 1024, Set.of(DetectedAssetType.JPEG, DetectedAssetType.PNG, DetectedAssetType.WEBP)),
     BACKGROUND(50L * 1024 * 1024, Set.of(DetectedAssetType.JPEG, DetectedAssetType.PNG, DetectedAssetType.WEBP)),

@@ -19,6 +19,7 @@ class ModuleLayoutTest {
             "entitlement",
             "redemption",
             "shared",
+            "support",
             "tutorial");
 
     @Test

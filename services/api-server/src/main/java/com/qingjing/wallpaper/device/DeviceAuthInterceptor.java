@@ -39,10 +39,11 @@ public class DeviceAuthInterceptor implements HandlerInterceptor {
         SessionData session = identity.requireSession(authorization.substring(7));
         String uri = request.getRequestURI();
         boolean sensitiveWrite = SignedDeviceRoutes.requiresSignature(request.getMethod(), uri);
+        boolean supportUpload = request.getMethod().equals("POST") && uri.equals("/api/v1/device/support/attachments");
         rateLimiter.require(
-                sensitiveWrite ? "device-sensitive-write" : "device-read",
+                supportUpload ? "support-image-upload" : sensitiveWrite ? "device-sensitive-write" : "device-read",
                 Long.toString(session.deviceId()),
-                sensitiveWrite ? 30 : 120,
+                supportUpload ? 5 : sensitiveWrite ? 30 : 120,
                 Duration.ofMinutes(1));
         if (sensitiveWrite) {
             Object value = request.getAttribute(RequestAttributes.SIGNED_BODY_BYTES);

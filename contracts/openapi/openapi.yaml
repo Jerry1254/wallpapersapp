@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.22.0
+  version: 2.23.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -52,6 +52,13 @@ tags:
     description: iOS 商品映射、测试安装标记与一次性首免重置
   - name: Apple Notifications
     description: App Store Server Notifications V2 验签入口
+
+  - name: Device Support
+    description: 当前设备自己的在线客服会话与消息
+  - name: Admin Support
+    description: 电脑与独立安卓客服共用的会话和素材管理
+  - name: Support Media
+    description: 单文件短期授权的客服媒体访问
 
 paths:
   /public/legal-documents:
@@ -3776,6 +3783,966 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /device/support/conversation:
+    get:
+      tags:
+        - Device Support
+      operationId: getCustomerSupportConversation
+      summary: 读取当前设备会话，不恢复已隐藏会话
+      description: 读取当前设备会话，不恢复已隐藏会话
+      security:
+        - deviceBearer: []
+      parameters: []
+      responses:
+        "200":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportConversation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /device/support/messages:
+    get:
+      tags:
+        - Device Support
+      operationId: getCustomerSupportMessages
+      summary: 读取本设备消息或按游标补齐
+      description: 读取本设备消息或按游标补齐
+      security:
+        - deviceBearer: []
+      parameters:
+        - name: after
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+          description: 与before互斥；按ID向前同步，0从头补齐
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+          description: 与after互斥；读取此ID之前的历史
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportMessagePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags:
+        - Device Support
+      operationId: sendCustomerSupportMessage
+      summary: 发送文本或图片，重复标识返回原记录
+      description: 设备不能发送视频或使用客服素材标识；同一标识不同内容返回409。已发送仅表示MySQL已保存。
+      security:
+        - deviceBearer: []
+      parameters:
+        - $ref: "#/components/parameters/RequestTimestamp"
+        - $ref: "#/components/parameters/RequestNonce"
+        - $ref: "#/components/parameters/RequestSignature"
+      responses:
+        "201":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportMessage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportSendRequest"
+  /device/support/messages/by-client/{clientId}:
+    get:
+      tags:
+        - Device Support
+      operationId: findCustomerSupportMessage
+      summary: 按客户端标识核对本人发送结果
+      description: 按客户端标识核对本人发送结果
+      security:
+        - deviceBearer: []
+      parameters:
+        - name: clientId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportMessage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /device/support/read:
+    post:
+      tags:
+        - Device Support
+      operationId: markCustomerSupportRead
+      summary: 按实际显示的消息位置确认读取
+      description: 按实际显示的消息位置确认读取
+      security:
+        - deviceBearer: []
+      parameters:
+        - $ref: "#/components/parameters/RequestTimestamp"
+        - $ref: "#/components/parameters/RequestNonce"
+        - $ref: "#/components/parameters/RequestSignature"
+      responses:
+        "200":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportOk"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportReadRequest"
+  /device/support/presence:
+    post:
+      tags:
+        - Device Support
+      operationId: updateCustomerSupportPresence
+      summary: 更新用户聊天页前台连接状态
+      description: 更新用户聊天页前台连接状态
+      security:
+        - deviceBearer: []
+      parameters:
+        - $ref: "#/components/parameters/RequestTimestamp"
+        - $ref: "#/components/parameters/RequestNonce"
+        - $ref: "#/components/parameters/RequestSignature"
+      responses:
+        "200":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportOk"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportPresenceRequest"
+  /device/support/attachments:
+    post:
+      tags:
+        - Device Support
+      operationId: uploadCustomerSupportImage
+      summary: 上传当前设备会话图片
+      description: 最大10MiB，真实JPEG、PNG、WebP。此multipart请求使用设备会话，不使用JSON正文签名。上传完成不代表消息已发送。
+      security:
+        - deviceBearer: []
+      parameters: []
+      responses:
+        "201":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportAttachment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+              additionalProperties: false
+  /device/support/attachments/{attachmentId}/access:
+    get:
+      tags:
+        - Device Support
+      operationId: getCustomerSupportMediaAccess
+      summary: 获取本会话图片或视频短期访问地址
+      description: 获取本会话图片或视频短期访问地址
+      security:
+        - deviceBearer: []
+      parameters:
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/LongId"
+      responses:
+        "200":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportMediaAccess"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /admin/support/conversations:
+    get:
+      tags:
+        - Admin Support
+      operationId: listSupportConversations
+      summary: 搜索或筛选未隐藏客服会话
+      description: 搜索或筛选未隐藏客服会话
+      security:
+        - adminCookie: []
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+        - name: unread
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100000
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportConversationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /admin/support/conversations/{conversationId}:
+    get:
+      tags:
+        - Admin Support
+      operationId: getAdminSupportConversation
+      summary: 查询客服会话及共享未读位置
+      description: 查询客服会话及共享未读位置
+      security:
+        - adminCookie: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/LongId"
+      responses:
+        "200":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportConversation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags:
+        - Admin Support
+      operationId: hideSupportConversation
+      summary: 移出会话列表，保留历史
+      description: 用户仅打开页面不恢复；下一条新的用户消息保存时恢复，旧消息重试或客服回复不能恢复。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/LongId"
+      responses:
+        "204":
+          description: 操作已保存
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /admin/support/conversations/{conversationId}/messages:
+    get:
+      tags:
+        - Admin Support
+      operationId: getAdminSupportMessages
+      summary: 读取客服会话消息与历史
+      description: 读取客服会话消息与历史
+      security:
+        - adminCookie: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/LongId"
+        - name: after
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+          description: 与before互斥；按ID向前同步，0从头补齐
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+          description: 与after互斥；读取此ID之前的历史
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportMessagePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags:
+        - Admin Support
+      operationId: sendAdminSupportMessage
+      summary: 客服发送文本图片或视频
+      description: 客服发送文本图片或视频
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/LongId"
+      responses:
+        "201":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportMessage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportSendRequest"
+  /admin/support/conversations/{conversationId}/messages/by-client/{clientId}:
+    get:
+      tags:
+        - Admin Support
+      operationId: findAdminSupportMessage
+      summary: 按客户端标识核对客服发送结果
+      description: 按客户端标识核对客服发送结果
+      security:
+        - adminCookie: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/LongId"
+        - name: clientId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportMessage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /admin/support/conversations/{conversationId}/read:
+    post:
+      tags:
+        - Admin Support
+      operationId: markAdminSupportRead
+      summary: 确认客服共享读取位置
+      description: 确认客服共享读取位置
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/LongId"
+      responses:
+        "200":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportOk"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportReadRequest"
+  /admin/support/library:
+    get:
+      tags:
+        - Admin Support
+      operationId: listSupportLibrary
+      summary: 查询客服图片视频及快捷短语
+      description: 查询客服图片视频及快捷短语
+      security:
+        - adminCookie: []
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/SupportLibraryKind"
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100000
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportLibraryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags:
+        - Admin Support
+      operationId: createSupportLibraryItem
+      summary: 新增客服素材或短语
+      description: 新增客服素材或短语
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters: []
+      responses:
+        "201":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportLibraryItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportLibraryRequest"
+  /admin/support/library/{itemId}:
+    put:
+      tags:
+        - Admin Support
+      operationId: updateSupportLibraryItem
+      summary: 编辑客服素材或短语，版本防覆盖
+      description: version必须为最新版本，不能改变分类。替换文件后历史消息仍引用原文件。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/LongId"
+      responses:
+        "200":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportLibraryItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportLibraryRequest"
+    delete:
+      tags:
+        - Admin Support
+      operationId: deleteSupportLibraryItem
+      summary: 删除素材选择项并保留历史文件
+      description: 删除素材选择项并保留历史文件
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/LongId"
+        - name: version
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+      responses:
+        "204":
+          description: 操作已保存
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /admin/support/attachments:
+    post:
+      tags:
+        - Admin Support
+      operationId: uploadAdminSupportMedia
+      summary: 上传客服图片或MP4视频
+      description: 图片最大10MiB，视频最大100MiB且不超过15分钟，实际内容校验。上传完成不代表消息或素材保存成功。
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters: []
+      responses:
+        "201":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportAttachment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+                - kind
+              properties:
+                file:
+                  type: string
+                  format: binary
+                kind:
+                  type: string
+                  enum:
+                    - IMAGE
+                    - VIDEO
+              additionalProperties: false
+  /admin/support/attachments/{attachmentId}/access:
+    get:
+      tags:
+        - Admin Support
+      operationId: getAdminSupportMediaAccess
+      summary: 获取客服媒体短期访问地址
+      description: 获取客服媒体短期访问地址
+      security:
+        - adminCookie: []
+      parameters:
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/LongId"
+      responses:
+        "200":
+          description: 已完成，返回服务器保存或查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportMediaAccess"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /support/files/{attachmentId}:
+    get:
+      tags:
+        - Support Media
+      operationId: getSupportMediaContent
+      summary: 使用单文件短期凭据读取图片或视频
+      description: 校验单文件授权，禁止跨文件使用，支持单段Range与视频拖动；响应禁止缓存。
+      security:
+        - supportMediaTicket: []
+      parameters:
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/LongId"
+        - name: Range
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 完整媒体内容
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: 单段媒体内容
+          headers:
+            Content-Range:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "416":
+          description: 字节范围不可满足，返回Content-Range总长度
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     deviceBearer:
@@ -3808,6 +4775,12 @@ components:
       scheme: bearer
       bearerFormat: opaque-preview-ticket
       description: 独立 90 秒预览票据，仅允许读取受限预览包；放在 Authorization header，禁止 URL 携带。
+
+    supportMediaTicket:
+      type: apiKey
+      in: query
+      name: ticket
+      description: 仅允许读取一个客服媒体文件的15分钟凭据，原生播放器不能携带设备正文签名
 
   headers:
     EntityTag:
@@ -4221,6 +5194,14 @@ components:
       type: string
       description: V1 稳定错误码；message 可本地化，客户端分支只依赖 code。
       enum:
+        - SUPPORT_INVALID
+        - SUPPORT_CONVERSATION_NOT_FOUND
+        - SUPPORT_MESSAGE_NOT_FOUND
+        - SUPPORT_ATTACHMENT_NOT_FOUND
+        - SUPPORT_ATTACHMENT_FORBIDDEN
+        - SUPPORT_LIBRARY_NOT_FOUND
+        - SUPPORT_LIBRARY_CHANGED
+        - SUPPORT_MEDIA_ACCESS_EXPIRED
         - LEGAL_DOCUMENT_INVALID
         - LEGAL_DOCUMENT_NOT_FOUND
         - CREATOR_RULES_CHANGED
@@ -4407,6 +5388,9 @@ components:
         - LIVE_PHOTO_SOURCE
         - STATIC_IMAGE
         - MOVING_PHOTO_SOURCE
+
+        - SUPPORT_IMAGE
+        - SUPPORT_VIDEO
 
     CategorySummary:
       type: object
@@ -7160,4 +8144,341 @@ components:
           type: string
           minLength: 1
           maxLength: 500
+      additionalProperties: false
+
+    SupportMessageKind:
+      type: string
+      enum:
+        - TEXT
+        - IMAGE
+        - VIDEO
+    SupportLibraryKind:
+      type: string
+      enum:
+        - IMAGE
+        - VIDEO
+        - PHRASE
+    SupportAttachment:
+      type: object
+      required:
+        - id
+        - kind
+        - filename
+        - mimeType
+        - sizeBytes
+      properties:
+        id:
+          $ref: "#/components/schemas/LongId"
+        kind:
+          type: string
+          enum:
+            - IMAGE
+            - VIDEO
+        filename:
+          type: string
+          maxLength: 255
+          minLength: 1
+        mimeType:
+          type: string
+          maxLength: 100
+          minLength: 1
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 104857600
+        width:
+          type: integer
+          format: int64
+          minimum: 1
+          nullable: true
+        height:
+          type: integer
+          format: int64
+          minimum: 1
+          nullable: true
+        durationMs:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 900000
+          nullable: true
+      additionalProperties: false
+    SupportMessage:
+      type: object
+      required:
+        - id
+        - conversationId
+        - clientId
+        - sender
+        - kind
+        - createdAt
+      properties:
+        id:
+          $ref: "#/components/schemas/LongId"
+        conversationId:
+          $ref: "#/components/schemas/LongId"
+        clientId:
+          type: string
+          format: uuid
+        sender:
+          type: string
+          enum:
+            - CUSTOMER
+            - ADMIN
+        kind:
+          $ref: "#/components/schemas/SupportMessageKind"
+        text:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          nullable: true
+        attachment:
+          allOf:
+            - $ref: "#/components/schemas/SupportAttachment"
+          nullable: true
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+    SupportSendRequest:
+      type: object
+      required:
+        - clientId
+        - kind
+      properties:
+        clientId:
+          type: string
+          format: uuid
+          description: 一次发送意图一个UUID；超时和重发保持此标识，服务器会话内去重
+        kind:
+          $ref: "#/components/schemas/SupportMessageKind"
+        text:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          nullable: true
+        attachmentId:
+          allOf:
+            - $ref: "#/components/schemas/LongId"
+          nullable: true
+          type: string
+        libraryItemId:
+          allOf:
+            - $ref: "#/components/schemas/LongId"
+          nullable: true
+          type: string
+      additionalProperties: false
+    SupportMessagePage:
+      type: object
+      required:
+        - items
+        - cursor
+        - hasMore
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SupportMessage"
+        cursor:
+          type: string
+          pattern: ^[0-9]+$
+          description: after模式为本页最后ID；历史模式为本页最早ID；空页保留请求位置
+        hasMore:
+          type: boolean
+      additionalProperties: false
+    SupportConversation:
+      type: object
+      required:
+        - id
+        - name
+        - online
+        - hidden
+        - unreadCount
+      properties:
+        id:
+          $ref: "#/components/schemas/LongId"
+        name:
+          type: string
+          maxLength: 80
+          minLength: 1
+        online:
+          type: boolean
+          description: 仅客服端展示，表示用户聊天页近期保持前台连接
+        hidden:
+          type: boolean
+          description: 客服会话是否已移出列表，只有新的用户消息可恢复
+        unreadCount:
+          type: integer
+          format: int64
+          minimum: 0
+        lastMessage:
+          allOf:
+            - $ref: "#/components/schemas/SupportMessage"
+          nullable: true
+          type: object
+      additionalProperties: false
+    SupportConversationPage:
+      type: object
+      required:
+        - items
+        - page
+        - pageSize
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SupportConversation"
+        page:
+          type: integer
+          format: int64
+          minimum: 1
+        pageSize:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+      additionalProperties: false
+    SupportReadRequest:
+      type: object
+      required:
+        - messageId
+      properties:
+        messageId:
+          $ref: "#/components/schemas/LongId"
+      additionalProperties: false
+    SupportPresenceRequest:
+      type: object
+      required:
+        - active
+      properties:
+        active:
+          type: boolean
+          description: 前台约20秒续期，45秒未续期自动离线
+      additionalProperties: false
+    SupportOk:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+          enum:
+            - true
+      additionalProperties: false
+    SupportLibraryRequest:
+      type: object
+      required:
+        - kind
+        - title
+      properties:
+        kind:
+          $ref: "#/components/schemas/SupportLibraryKind"
+        title:
+          type: string
+          maxLength: 60
+          minLength: 1
+        note:
+          type: string
+          maxLength: 200
+          nullable: true
+        text:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          nullable: true
+        attachmentId:
+          allOf:
+            - $ref: "#/components/schemas/LongId"
+          nullable: true
+          type: string
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+      additionalProperties: false
+    SupportLibraryItem:
+      type: object
+      required:
+        - id
+        - kind
+        - title
+        - note
+        - version
+        - updatedAt
+      properties:
+        id:
+          $ref: "#/components/schemas/LongId"
+        kind:
+          $ref: "#/components/schemas/SupportLibraryKind"
+        title:
+          type: string
+          maxLength: 60
+          minLength: 1
+        note:
+          type: string
+          maxLength: 200
+        text:
+          type: string
+          maxLength: 2000
+          minLength: 1
+          nullable: true
+        attachment:
+          allOf:
+            - $ref: "#/components/schemas/SupportAttachment"
+          nullable: true
+          type: object
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+        updatedAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+    SupportLibraryPage:
+      type: object
+      required:
+        - items
+        - page
+        - pageSize
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SupportLibraryItem"
+        page:
+          type: integer
+          format: int64
+          minimum: 1
+        pageSize:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+      additionalProperties: false
+    SupportMediaAccess:
+      type: object
+      required:
+        - url
+        - expiresAt
+      properties:
+        url:
+          type: string
+          description: 单文件15分钟授权地址，需重新获取以续期；不可作为永久资源地址
+        expiresAt:
+          type: string
+          format: date-time
       additionalProperties: false

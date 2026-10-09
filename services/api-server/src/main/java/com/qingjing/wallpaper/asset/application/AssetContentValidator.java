@@ -73,7 +73,7 @@ public final class AssetContentValidator {
             case WEBP -> validateWebp(stagedObject);
             case JSON -> validateJson(stagedObject);
             case ZIP -> validateArchive(stagedObject);
-            case MP4, QUICKTIME -> purpose == AssetPurpose.TUTORIAL_VIDEO
+            case MP4, QUICKTIME -> (purpose == AssetPurpose.TUTORIAL_VIDEO || purpose == AssetPurpose.SUPPORT_VIDEO)
                     ? validateTutorialVideo(stagedObject)
                     : new AssetMetadata(detectedType, null, null, null);
         };
