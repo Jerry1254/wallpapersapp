@@ -124,6 +124,7 @@ class _PrivacyGateState extends State<PrivacyGate> {
     if (checking) return const _PrivacyLoading();
     return PolicyScope(
       policies: policies,
+      source: widget.policySource,
       child: Builder(
         builder: (context) {
           if (accepted) return widget.builder(context);
@@ -277,13 +278,54 @@ class _ConsentScreen extends StatelessWidget {
   );
 }
 
-class PolicyCenterScreen extends StatelessWidget {
+class PolicyCenterScreen extends StatefulWidget {
   const PolicyCenterScreen({
     super.key,
     this.policies = PublishedPolicies.bundled,
+    this.policySource,
   });
 
   final PublishedPolicies policies;
+  final PolicySource? policySource;
+
+  @override
+  State<PolicyCenterScreen> createState() => _PolicyCenterScreenState();
+}
+
+class _PolicyCenterScreenState extends State<PolicyCenterScreen> {
+  late PublishedPolicies policies = widget.policies;
+  late bool loading = widget.policySource != null;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.policySource != null) _refresh();
+  }
+
+  Future<void> _refresh() async {
+    try {
+      final current = await widget.policySource!.load();
+      if (!mounted) return;
+      setState(() {
+        // Keep an already loaded publication if neither network nor cache is
+        // available. Reading a newer document does not change accepted consent.
+        if (current.consentVersion !=
+                PublishedPolicies.bundled.consentVersion ||
+            policies.consentVersion ==
+                PublishedPolicies.bundled.consentVersion) {
+          policies = current;
+        }
+        loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        loading = false;
+        error = '暂时无法更新协议，当前显示上次获取的内容';
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) => PolicyScope(
@@ -304,9 +346,19 @@ class PolicyCenterScreen extends StatelessWidget {
                 children: [
                   QjPageHeader(title: '协议与隐私'),
                   const SizedBox(height: T.space5),
-                  _PolicyLink(document: privacyPolicy),
+                  if (loading) ...[
+                    const LinearProgressIndicator(),
+                    const SizedBox(height: T.space2),
+                    const Text('正在加载协议…'),
+                    const SizedBox(height: T.space3),
+                  ],
+                  if (error != null) ...[
+                    Text(error!, style: Theme.of(context).textTheme.bodySmall),
+                    const SizedBox(height: T.space3),
+                  ],
+                  _PolicyLink(document: privacyPolicy, enabled: !loading),
                   const SizedBox(height: T.space3),
-                  _PolicyLink(document: userAgreement),
+                  _PolicyLink(document: userAgreement, enabled: !loading),
                   const SizedBox(height: T.space4),
                   Text(
                     '联系邮箱：$qingjingSupportEmail',
@@ -323,9 +375,10 @@ class PolicyCenterScreen extends StatelessWidget {
 }
 
 class _PolicyLink extends StatelessWidget {
-  const _PolicyLink({required this.document});
+  const _PolicyLink({required this.document, this.enabled = true});
 
   final PolicyDocument document;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) => QjSurface(
@@ -337,15 +390,17 @@ class _PolicyLink extends StatelessWidget {
       title: Text(PolicyScope.of(context).document(document).title),
       subtitle: Text('生效日期：${PolicyScope.of(context).date(document)}'),
       trailing: const QjIcon('chevron-right'),
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute<void>(
-          builder: (_) => PolicyDocumentScreen(
-            document: PolicyScope.of(context).document(document),
-            effectiveDate: PolicyScope.of(context).date(document),
-          ),
-        ),
-      ),
+      onTap: !enabled
+          ? null
+          : () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => PolicyDocumentScreen(
+                  document: PolicyScope.of(context).document(document),
+                  effectiveDate: PolicyScope.of(context).date(document),
+                ),
+              ),
+            ),
     ),
   );
 }

@@ -154,12 +154,20 @@ class RemotePolicySource implements PolicySource {
 }
 
 class PolicyScope extends InheritedWidget {
-  const PolicyScope({super.key, required this.policies, required super.child});
+  const PolicyScope({
+    super.key,
+    required this.policies,
+    this.source,
+    required super.child,
+  });
   final PublishedPolicies policies;
+  final PolicySource? source;
   static PublishedPolicies of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<PolicyScope>()?.policies ??
       PublishedPolicies.bundled;
+  static PolicySource? sourceOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<PolicyScope>()?.source;
   @override
   bool updateShouldNotify(PolicyScope oldWidget) =>
-      policies != oldWidget.policies;
+      policies != oldWidget.policies || source != oldWidget.source;
 }

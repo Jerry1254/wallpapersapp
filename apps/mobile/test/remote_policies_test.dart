@@ -1,10 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:qingjing_wallpaper/catalog/catalog.dart';
+import 'package:qingjing_wallpaper/config/app_config.dart';
+import 'package:qingjing_wallpaper/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qingjing_wallpaper/privacy/remote_policies.dart';
 import 'package:qingjing_wallpaper/privacy/privacy_gate.dart';
+import 'catalog_test.dart' show FakeCatalog;
+import 'widget_test.dart' show noUpdates;
 
 String manifest({int revision = 1, int consent = 1}) => jsonEncode({
   'consentVersion': 'privacy:$consent|terms:1',
@@ -34,6 +39,17 @@ class FixedSource implements PolicySource {
 }
 
 class RealHttpOverrides extends HttpOverrides {}
+
+class UpdatingSource implements PolicySource {
+  UpdatingSource(this.current);
+  PublishedPolicies current;
+  int calls = 0;
+  @override
+  Future<PublishedPolicies> load() async {
+    calls++;
+    return current;
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -123,6 +139,71 @@ void main() {
     await tester.tap(find.text('远程隐私政策'));
     await tester.pumpAndSettle();
     expect(find.text('最新正文'), findsOneWidget);
+  });
+  testWidgets('我的顶部协议入口重新获取后台，两份协议同步且不改同意记录', (tester) async {
+    const identityChannel = MethodChannel('qingjing/wallpaper_android');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(identityChannel, (call) async {
+      if (call.method == 'identity') {
+        throw PlatformException(code: 'TEST_NO_DEVICE');
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(identityChannel, null),
+    );
+    final source = UpdatingSource(PublishedPolicies.parse(manifest()));
+    final store = MemoryPrivacyConsentStore(accepted: 'privacy:1|terms:1');
+    final catalog = FakeCatalog();
+    await tester.pumpWidget(
+      QingjingApp(
+        policySource: source,
+        privacyConsentStore: store,
+        repository: catalog,
+        updateController: noUpdates(),
+        config: AppConfig(
+          environment: 'local',
+          apiBase: Uri.parse('http://127.0.0.1:8080/api/v1'),
+          debug: true,
+        ),
+      ),
+    );
+    await tester.pump();
+    catalog.pending.single.complete(WallpaperPage([], 1, 0));
+    await tester.pumpAndSettle();
+    expect(source.calls, 1);
+    source.current = PublishedPolicies.parse(
+      manifest(
+        revision: 2,
+        consent: 2,
+      ).replaceAll('最新正文', '后台重新发布正文').replaceAll('2026年10月9日', '2026年10月10日'),
+    );
+    await tester.tap(find.byKey(const ValueKey('app-tab-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('用户协议与隐私政策'));
+    await tester.pumpAndSettle();
+    expect(source.calls, 2);
+    expect(find.text('生效日期：2026年10月10日'), findsNWidgets(2));
+    for (final title in ['远程隐私政策', '远程用户协议']) {
+      await tester.tap(find.text(title));
+      await tester.pumpAndSettle();
+      expect(find.text('后台重新发布正文'), findsOneWidget);
+      await tester.tap(find.byTooltip('返回'));
+      await tester.pumpAndSettle();
+    }
+    expect(await store.acceptedVersion(), 'privacy:1|terms:1');
+    await tester.tap(find.byTooltip('返回'));
+    await tester.pumpAndSettle();
+    source.current = PublishedPolicies.parse(
+      manifest(revision: 3).replaceAll('最新正文', '再次发布正文'),
+    );
+    await tester.tap(find.text('用户协议与隐私政策'));
+    await tester.pumpAndSettle();
+    expect(source.calls, 3);
+    await tester.tap(find.text('远程隐私政策'));
+    await tester.pumpAndSettle();
+    expect(find.text('再次发布正文'), findsOneWidget);
   });
   testWidgets('重大发布先拦截业务，同意保存当前快照版本', (tester) async {
     final current = PublishedPolicies.parse(manifest(revision: 3, consent: 2));

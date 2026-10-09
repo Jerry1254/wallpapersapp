@@ -19,6 +19,7 @@ import { CustomerSupport } from '../support/CustomerSupport';
 import { DownloadedMovingPhoto, DownloadedStaticImage, HarmonyDelivery } from '../media/HarmonyDelivery';
 import { SavedGalleryAsset } from '../media/SavedGalleryAsset';
 import {
+  POLICY_VERSION,
   PolicyDocument,
   PolicySection
 } from '../privacy/PolicyDocuments';
@@ -63,6 +64,7 @@ struct Index {
   @State consentBusy: boolean = false;
   @State consentError: string = '';
   @State policyDocumentKey: string = '';
+  @State policyLoading: boolean = false;
   @State policies: PublishedPolicies = new PublishedPolicies();
   @State detailOwned: boolean = false;
   @State redemptionVisible: boolean = false;
@@ -98,6 +100,7 @@ struct Index {
   private savedGalleryAsset: SavedGalleryAsset | null = null;
   private openingSavedGalleryAsset: boolean = false;
   private initialLoadStarted: boolean = false;
+  private policyReadGeneration: number = 0;
   private pageVisible: boolean = false;
   private updates: AppUpdateService | null = null;
   private updateCheckTask: Promise<void> | null = null;
@@ -156,6 +159,31 @@ struct Index {
       this.consentChecked = true;
     }
     if (this.consentAccepted) this.initializeAfterConsent();
+  }
+
+  private async openPublishedPolicy(key: string): Promise<void> {
+    if (this.context === null) return;
+    const generation: number = ++this.policyReadGeneration;
+    this.policyDocumentKey = key;
+    this.policyLoading = true;
+    try {
+      const current: PublishedPolicies = await RemotePolicies.load(
+        this.context as common.UIAbilityContext, CatalogApi.BASE_URL);
+      if (generation !== this.policyReadGeneration || this.policyDocumentKey !== key) return;
+      // Reading published text never writes the accepted consent version.
+      if (current.consentVersion !== POLICY_VERSION ||
+        this.policies.consentVersion === POLICY_VERSION) this.policies = current;
+    } catch (error) {
+      hilog.warn(LOG_DOMAIN, 'QingjingPrivacy', 'Policy refresh unavailable; using previous content');
+    } finally {
+      if (generation === this.policyReadGeneration) this.policyLoading = false;
+    }
+  }
+
+  private closePolicy(): void {
+    this.policyReadGeneration++;
+    this.policyDocumentKey = '';
+    this.policyLoading = false;
   }
 
   private initializeAfterConsent(): void {
@@ -419,6 +447,10 @@ struct Index {
 
   onBackPress(): boolean {
     if (this.updateMandatory || (this.consentAccepted && !this.updateStartupChecked)) return true;
+    if (this.policyDocumentKey.length > 0) {
+      this.closePolicy();
+      return true;
+    }
     if (this.updateVisible) {
       this.dismissOptionalUpdate();
       return true;
@@ -1110,10 +1142,10 @@ struct Index {
           Row({ space: 8 }) {
             Button('隐私政策').layoutWeight(1).height(38).fontSize(13).fontWeight(FontWeight.Bold)
               .fontColor(T.ink).backgroundColor(T.surfaceMuted).borderRadius(19)
-              .onClick(() => this.policyDocumentKey = 'PRIVACY');
+              .onClick(() => this.openPublishedPolicy('PRIVACY'));
             Button('用户协议').layoutWeight(1).height(38).fontSize(13).fontWeight(FontWeight.Bold)
               .fontColor(T.ink).backgroundColor(T.surfaceMuted).borderRadius(19)
-              .onClick(() => this.policyDocumentKey = 'AGREEMENT');
+              .onClick(() => this.openPublishedPolicy('AGREEMENT'));
           }
           .width('100%').margin({ top: 12 });
         }
@@ -1490,24 +1522,31 @@ struct Index {
         }
         .width(44).height(44).padding(0).backgroundColor(T.surface)
         .border({ width: 1, color: T.outline }).borderRadius(22)
-        .onClick(() => this.policyDocumentKey = '');
+        .onClick(() => this.closePolicy());
         Text(document.title).fontSize(22).fontWeight(FontWeight.Bolder).fontColor(T.ink)
           .layoutWeight(1).margin({ left: 10 });
       }
       .width('100%');
-      Scroll() {
-        Column() {
-          Text('生效日期：' + effectiveDate).width('100%').fontSize(12).fontColor(T.mutedInk);
-          Text(document.introduction).width('100%').fontSize(14).fontColor(T.ink).margin({ top: 14 });
-          ForEach(document.sections, (section: PolicySection) => {
-            Text(section.title).width('100%').fontSize(17).fontWeight(FontWeight.Bold)
-              .fontColor(T.ink).margin({ top: 22 });
-            Text(section.body).width('100%').fontSize(14).fontColor(T.ink).margin({ top: 8 });
-          }, (section: PolicySection) => section.title);
+      if (this.policyLoading) {
+        Column({ space: 12 }) {
+          LoadingProgress().width(32).height(32);
+          Text('正在加载协议…').fontSize(14).fontColor(T.mutedInk);
+        }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center);
+      } else {
+        Scroll() {
+          Column() {
+            Text('生效日期：' + effectiveDate).width('100%').fontSize(12).fontColor(T.mutedInk);
+            Text(document.introduction).width('100%').fontSize(14).fontColor(T.ink).margin({ top: 14 });
+            ForEach(document.sections, (section: PolicySection) => {
+              Text(section.title).width('100%').fontSize(17).fontWeight(FontWeight.Bold)
+                .fontColor(T.ink).margin({ top: 22 });
+              Text(section.body).width('100%').fontSize(14).fontColor(T.ink).margin({ top: 8 });
+            }, (section: PolicySection) => section.title);
+          }
+          .width('100%').padding({ bottom: 30 });
         }
-        .width('100%').padding({ bottom: 30 });
+        .width('100%').layoutWeight(1).scrollBar(BarState.Off).margin({ top: 16 });
       }
-      .width('100%').layoutWeight(1).scrollBar(BarState.Off).margin({ top: 16 });
     }
     .width('100%').height('100%').padding({ left: T.gutter, right: T.gutter })
     .backgroundColor(T.surface);

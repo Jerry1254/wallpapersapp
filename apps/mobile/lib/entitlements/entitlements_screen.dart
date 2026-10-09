@@ -231,13 +231,19 @@ class _EntitlementsScreenState extends State<EntitlementsScreen> {
               '查看${AppBrandingScope.of(context).serviceName}的服务规则与信息处理说明',
             ),
             trailing: const QjIcon('chevron-right'),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(
-                builder: (_) =>
-                    PolicyCenterScreen(policies: PolicyScope.of(context)),
-              ),
-            ),
+            onTap: () {
+              final policies = PolicyScope.of(context);
+              final source = PolicyScope.sourceOf(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => PolicyCenterScreen(
+                    policies: policies,
+                    policySource: source,
+                  ),
+                ),
+              );
+            },
           ),
         ),
         const SizedBox(height: T.space7),
