@@ -495,7 +495,7 @@ struct Index {
       this.dismissOptionalUpdate();
       return true;
     }
-    if (this.page === 'CUSTOMER') {
+    if (this.page === 'CUSTOMER' || this.page === 'ONLINE_CUSTOMER') {
       this.goBack();
       return true;
     }
@@ -507,6 +507,10 @@ struct Index {
   }
 
   private goBack(): void {
+    if (this.page === 'ONLINE_CUSTOMER') {
+      this.page = 'CUSTOMER';
+      return;
+    }
     if (this.page === 'DETAIL' && this.detailFullScreen) {
       this.detailFullScreen = false;
       return;
@@ -1426,7 +1430,7 @@ struct Index {
   private CustomerPage() {
     Scroll() {
       Column() {
-        this.PageHeader('微信客服', false);
+        this.PageHeader('联系客服', false);
         Column() {
           Row() {
             Image($r('app.media.message_circle_more_dark')).width(22).height(22).objectFit(ImageFit.Contain);
@@ -1460,6 +1464,9 @@ struct Index {
         }
         .width('100%').padding(20).backgroundColor(T.surface).border({ width: 1, color: T.outline })
         .borderRadius(T.cardRadius).margin({ top: 20 });
+        Button('联系在线客服').width('100%').height(48).fontSize(15).fontWeight(FontWeight.Bold)
+          .fontColor(T.inverseInk).backgroundColor(T.navigation).borderRadius(24).margin({ top: 20 })
+          .onClick(() => this.page = 'ONLINE_CUSTOMER');
       }
       .width('100%').constraintSize({ minHeight: '100%' })
       .padding({ left: T.gutter, right: T.gutter, bottom: 30 });
@@ -1799,7 +1806,8 @@ struct Index {
             if (this.page === 'TUTORIAL_PLAYER' && this.selectedTutorial !== null) {
               this.TutorialPlayerPage(this.selectedTutorial as WallpaperTutorial);
             }
-            if (this.page === 'CUSTOMER') SupportChatView({ onBack: () => this.goBack(), onBackup: () => this.customerDialogVisible = true });
+            if (this.page === 'CUSTOMER') this.CustomerPage();
+            if (this.page === 'ONLINE_CUSTOMER') SupportChatView({ onBack: () => this.goBack(), onBackup: () => this.customerDialogVisible = true });
           }
           .width('100%').layoutWeight(1);
           if (this.page === 'HOME' || this.page === 'MINE') {

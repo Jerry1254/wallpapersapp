@@ -246,7 +246,7 @@ void main() {
     expect(find.byType(RedemptionDialog), findsNothing);
   });
 
-  testWidgets('兑换弹层进入在线客服，微信备用入口可打开并返回', (tester) async {
+  testWidgets('兑换弹层进入联系客服，点击在线入口可跳转并返回微信卡片', (tester) async {
     final coordinator = RedemptionCoordinator(FakeApi(), MemoryStore());
     await tester.pumpWidget(
       MaterialApp(
@@ -274,19 +274,20 @@ void main() {
     await tester.tap(find.text('联系客服'));
     await tester.pumpAndSettle();
 
-    expect(find.text('在线客服'), findsOneWidget);
-    expect(find.byType(QjCustomerServiceCard), findsNothing);
-    await tester.tap(find.text('微信客服'));
-    await tester.pumpAndSettle();
+    expect(find.text('联系客服'), findsOneWidget);
     expect(find.byType(QjCustomerServiceCard), findsOneWidget);
-    expect(find.text('保存二维码'), findsNothing);
-    expect(find.text('微信客服'), findsNWidgets(2));
+    expect(find.text('联系在线客服'), findsOneWidget);
     expect(find.text('jykj992'), findsOneWidget);
     expect(find.byType(RedemptionDialog), findsNothing);
-    await tester.tap(find.byTooltip('关闭'));
+    await tester.ensureVisible(find.text('联系在线客服'));
+    await tester.tap(find.text('联系在线客服'));
     await tester.pumpAndSettle();
+    expect(find.text('在线客服'), findsOneWidget);
     expect(find.byType(QjCustomerServiceCard), findsNothing);
     await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(QjCustomerServiceCard), findsOneWidget);
+    await tester.tap(find.byTooltip('返回'));
     await tester.pumpAndSettle();
     expect(find.byType(RedemptionDialog), findsOneWidget);
   });

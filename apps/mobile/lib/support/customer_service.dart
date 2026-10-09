@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../design_system/qj_components.dart';
 import '../design_system/qj_theme.dart';
-import 'online_support.dart';
+import '../detail/help_screen.dart';
 
 const customerWechatId = 'jykj992';
 const _customerQrAsset = 'assets/ui-reference/customer-service-qr.png';
@@ -46,7 +46,9 @@ Future<void> previewCustomerQr(BuildContext context) => showDialog<void>(
 Future<void> showCustomerServiceDialog(BuildContext context) =>
     Navigator.push<void>(
       context,
-      MaterialPageRoute<void>(builder: (_) => const CustomerSupportPage()),
+      MaterialPageRoute<void>(
+        builder: (_) => const HelpScreen(customerService: true),
+      ),
     );
 
 Future<void> showWechatServiceDialog(BuildContext context) => showDialog<void>(
