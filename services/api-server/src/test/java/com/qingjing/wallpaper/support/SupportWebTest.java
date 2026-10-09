@@ -20,10 +20,11 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
 
 class SupportWebTest {
     SupportService support; SupportMediaService media; DeviceIdentityService identity; MockMvc mvc;
-    DevicePrincipal principal;
+    DevicePrincipal principal; RedisRateLimiter limiter;
     @BeforeEach void setup() {
         support = mock(SupportService.class); media = mock(SupportMediaService.class); identity = mock(DeviceIdentityService.class);
         var adminSessions = mock(AdminSessionService.class);
+        limiter = mock(RedisRateLimiter.class);
         var admin = new AdminSessionService.SessionData(1, "fixture", "fixture-csrf", Instant.now().plusSeconds(60));
         when(adminSessions.require(null)).thenThrow(new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "需要登录"));
         when(adminSessions.require("fixture-session")).thenReturn(admin);
@@ -37,7 +38,7 @@ class SupportWebTest {
         mvc = MockMvcBuilders.standaloneSetup(new DeviceSupportController(support,media), new AdminSupportController(support,media))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .addFilters(new SignedBodyFilter(mock(HandlerExceptionResolver.class)))
-                .addMappedInterceptors(new String[]{"/api/v1/device/support/**"}, new DeviceAuthInterceptor(identity,mock(RedisRateLimiter.class)))
+                .addMappedInterceptors(new String[]{"/api/v1/device/support/**"}, new DeviceAuthInterceptor(identity,limiter))
                 .addMappedInterceptors(new String[]{"/api/v1/admin/support/**"}, new AdminAuthInterceptor(adminSessions)).build();
     }
     @Test void unauthenticatedReadsCannotReachSupportData() throws Exception {
@@ -67,5 +68,15 @@ class SupportWebTest {
                 .header("X-Request-Timestamp",timestamp).header("X-Request-Nonce",nonce).header("X-Request-Signature","fixture-proof")
                 .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isCreated()).andExpect(jsonPath("clientId").value(clientId));
         verify(identity).verifySignedRequest(any(),eq("POST"),eq("/api/v1/device/support/messages"),eq(timestamp),eq(nonce),aryEq(body.getBytes(StandardCharsets.UTF_8)),eq("fixture-proof"));
+    }
+    @Test void heartbeatAndReadAcknowledgementsDoNotConsumeTheMessageSendingAllowance() throws Exception {
+        for(String path:List.of("/api/v1/device/support/presence","/api/v1/device/support/read")) {
+            String body=path.endsWith("presence")?"{\"active\":true}":"{\"messageId\":\"1\"}";
+            mvc.perform(post(path).header("Authorization","Bearer fixture-device").header("X-Request-Timestamp",Instant.now().toString())
+                    .header("X-Request-Nonce",UUID.randomUUID().toString()).header("X-Request-Signature","fixture-proof").contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isOk());
+        }
+        verify(limiter,times(2)).require(eq("support-control"),eq("291"),eq(90),eq(java.time.Duration.ofMinutes(1)));
+        verify(limiter,never()).require(eq("device-sensitive-write"),anyString(),anyInt(),any());
     }
 }

@@ -150,4 +150,48 @@ class SupportIntegrationIT {
             assertThat(saved).isEqualTo(1); assertThat(support.library(null,"",1,50).items().get(0).version()).isEqualTo(1);
         } finally { workers.shutdownNow(); }
     }
+    @Test void customerAndAgentHttpFlowsSharePersistedMessagesAttachmentsAndHiddenState() throws Exception {
+        var mapper = new ObjectMapper().findAndRegisterModules();
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+                new DeviceSupportController(support,mock(SupportMediaService.class)),
+                new AdminSupportController(support,mock(SupportMediaService.class)))
+                .setControllerAdvice(new com.qingjing.wallpaper.shared.web.ApiExceptionHandler()).build();
+        String device = com.qingjing.wallpaper.shared.web.RequestAttributes.DEVICE_PRINCIPAL;
+        String admin = com.qingjing.wallpaper.shared.web.RequestAttributes.ADMIN_PRINCIPAL;
+        var agent = new com.qingjing.wallpaper.adminidentity.AdminPrincipal(1,"support-test");
+        var opened = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/device/support/conversation").requestAttr(device,USER))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk()).andReturn();
+        String cid = mapper.readTree(opened.getResponse().getContentAsString()).get("id").asText();
+        var uploaded = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart("/api/v1/device/support/attachments")
+                .file(new org.springframework.mock.web.MockMultipartFile("file","screen.png","image/png",image)).requestAttr(device,USER))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isCreated()).andReturn();
+        String attachment = mapper.readTree(uploaded.getResponse().getContentAsString()).get("id").asText();
+        var request = new SendRequest(UUID.randomUUID().toString(),MessageKind.IMAGE,null,attachment,null);
+        for(int attempt=0;attempt<2;attempt++) mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/device/support/messages")
+                .requestAttr(device,USER).contentType("application/json").content(mapper.writeValueAsBytes(request)))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isCreated());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/admin/support/conversations"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("total").value(1))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("items[0].unreadCount").value(1));
+        var reply = text("收到截图，请按设置教程操作");
+        var sent = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/admin/support/conversations/"+cid+"/messages")
+                .requestAttr(admin,agent).contentType("application/json").content(mapper.writeValueAsBytes(reply)))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isCreated()).andReturn();
+        String replyId = mapper.readTree(sent.getResponse().getContentAsString()).get("id").asText();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/device/support/messages").requestAttr(device,USER))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("items.length()").value(2))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("items[1].text").value(reply.text()));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/device/support/read").requestAttr(device,USER)
+                .contentType("application/json").content(mapper.writeValueAsBytes(new ReadRequest(replyId))))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete("/api/v1/admin/support/conversations/"+cid))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNoContent());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/device/support/conversation").requestAttr(device,USER))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("hidden").value(true));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/device/support/messages").requestAttr(device,USER)
+                .contentType("application/json").content(mapper.writeValueAsBytes(text("我又来了"))))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isCreated());
+        assertThat(support.conversation(Long.parseLong(cid),false).hidden()).isFalse();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM support_message",Long.class)).isEqualTo(3);
+    }
 }

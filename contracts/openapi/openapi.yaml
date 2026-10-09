@@ -3951,7 +3951,7 @@ paths:
         - Device Support
       operationId: markCustomerSupportRead
       summary: 按实际显示的消息位置确认读取
-      description: 按实际显示的消息位置确认读取
+      description: 按实际显示的消息位置确认读取；与前台状态心跳共用每设备每分钟 90 次的控制请求限流，不占用消息发送额度。
       security:
         - deviceBearer: []
       parameters:
@@ -3991,7 +3991,7 @@ paths:
         - Device Support
       operationId: updateCustomerSupportPresence
       summary: 更新用户聊天页前台连接状态
-      description: 更新用户聊天页前台连接状态
+      description: 更新用户聊天页前台连接状态；与读取确认共用每设备每分钟 90 次的控制请求限流，不占用消息发送额度。
       security:
         - deviceBearer: []
       parameters:
