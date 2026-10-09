@@ -3,7 +3,7 @@ import { ApiError, readableApiError } from '@/repositories/http/apiClient';
 import type { SupportRepository } from '@/repositories/http/supportRepository';
 import { compareSupportIds, emptySupportDraft, pendingMatches, type Draft, type PendingSupportMessage, type SupportConversation, type SupportMessage, type SupportSend } from './support';
 
-interface Feed { messages: SupportMessage[]; since: string; older: string; hasOlder: boolean; initialized: boolean; readThrough: string }
+interface Feed { messages: SupportMessage[]; since: string; older: string; hasOlder: boolean; initialized: boolean; readThrough: string; reading: boolean }
 export interface SupportCacheData { pending: PendingSupportMessage[]; drafts: Record<string, Draft> }
 export interface SupportCache { load(): SupportCacheData; save(data: SupportCacheData): void }
 export class BrowserSupportCache implements SupportCache {
@@ -20,9 +20,10 @@ export function createSupportChat(repository: SupportRepository, cache: SupportC
   const state = reactive({ selected: null as SupportConversation | null, feeds: {} as Record<string, Feed>, drafts: {} as Record<string, Draft>,
     pending: [] as PendingSupportMessage[], cacheError: '', error: '', loading: false });
   const busy = new Set<string>();
-  const feed = (id: string): Feed => state.feeds[id] ??= { messages: [], since: '0', older: '0', hasOlder: false, initialized: false, readThrough: '0' };
+  let unreadableCache = false;
+  const feed = (id: string): Feed => state.feeds[id] ??= { messages: [], since: '0', older: '0', hasOlder: false, initialized: false, readThrough: '0', reading: false };
   const snapshot = (): SupportCacheData => ({ pending: state.pending, drafts: state.drafts });
-  const persist = () => { try { cache.save(snapshot()); state.cacheError = ''; } catch (error) { state.cacheError = readableApiError(error); } };
+  const persist = () => { if (unreadableCache) return; try { cache.save(snapshot()); state.cacheError = ''; } catch (error) { state.cacheError = readableApiError(error); } };
   function merge(id: string, messages: SupportMessage[]) {
     const current = feed(id); const map = new Map(current.messages.map(item => [item.id, item]));
     for (const message of messages) if (message.conversationId === id) map.set(message.id, message);
@@ -35,7 +36,7 @@ export function createSupportChat(repository: SupportRepository, cache: SupportC
   function saveDraft() { persist(); }
   function restore() {
     try { const stored = cache.load(); state.drafts = stored.drafts; state.pending = stored.pending.map(item => ({ ...item, state: item.state === 'sending' ? 'uncertain' : item.state })); persist(); }
-    catch (error) { state.cacheError = readableApiError(error, '本地发送记录无法读取'); }
+    catch (error) { unreadableCache = true; state.cacheError = readableApiError(error, '本地发送记录无法读取'); }
   }
   async function select(conversation: SupportConversation) {
     state.selected = conversation; state.loading = true; state.error = ''; const id = conversation.id;
@@ -63,9 +64,11 @@ export function createSupportChat(repository: SupportRepository, cache: SupportC
     current.older = page.cursor; current.hasOlder = page.hasMore;
   }
   async function markRead(id: string, visibleId: string) {
-    const current = feed(id); const position = compareSupportIds(visibleId, current.since) > 0 ? current.since : visibleId;
+    const current = feed(id); if (current.reading) return; const position = compareSupportIds(visibleId, current.since) > 0 ? current.since : visibleId;
     if (position === '0' || compareSupportIds(position, current.readThrough) <= 0) return;
-    await repository.read(id, position); current.readThrough = position;
+    current.reading = true;
+    try { await repository.read(id, position); current.readThrough = position; }
+    finally { current.reading = false; }
   }
   async function recover(id?: string) {
     for (const pending of [...state.pending]) {

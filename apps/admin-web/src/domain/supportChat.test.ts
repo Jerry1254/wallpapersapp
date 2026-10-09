@@ -58,4 +58,14 @@ describe('客服可靠发送', () => {
     const other = createSupportChat(repo, cache); other.restore(); await other.recover();
     expect(other.state.pending[0]?.state).toBe('uncertain'); expect(repo.send).toHaveBeenCalledTimes(1);
   });
+  it('合并在途读取确认；无法读取的本机记录不能被覆盖', async () => {
+    const { chat, repo } = setup(); chat.feed('1').since = '10';
+    let complete!: () => void;
+    vi.mocked(repo.read).mockImplementation(() => new Promise(resolve => { complete = resolve; }));
+    const first = chat.markRead('1', '10'); await chat.markRead('1', '10');
+    expect(repo.read).toHaveBeenCalledTimes(1); complete(); await first;
+    const cache = { load: () => { throw new Error('损坏'); }, save: vi.fn() };
+    const broken = createSupportChat(repo, cache); broken.restore(); broken.draft('1').text = '新草稿'; broken.saveDraft(); await broken.recover();
+    expect(cache.save).not.toHaveBeenCalled(); await expect(broken.sendDraft('1')).rejects.toThrow();
+  });
 });
