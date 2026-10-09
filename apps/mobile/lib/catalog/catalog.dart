@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../device/device_session.dart';
+import '../security/security_network.dart';
 
 String clientDeliveryPlatform([TargetPlatform? target]) =>
     (target ?? defaultTargetPlatform) == TargetPlatform.iOS ? 'IOS' : 'ANDROID';
@@ -242,6 +243,9 @@ class HttpCatalogRepository implements CatalogRepository {
     Map<String, String>? query,
     bool authenticated = true,
   ]) async {
+    if (SecurityNetwork.blocked) {
+      throw const ApiFailure(403, 'ACCESS_UNAVAILABLE');
+    }
     if (authenticated && sessions != null) {
       final uri = Uri(path: path, queryParameters: query);
       Future<Map<String, dynamic>> request() =>
@@ -273,10 +277,14 @@ class HttpCatalogRepository implements CatalogRepository {
             throw const FormatException('Response too large');
           }
         }
+        final data = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
         if (response.statusCode < 200 || response.statusCode >= 300) {
+          if ((data['error'] as Map?)?['code'] == 'ACCESS_UNAVAILABLE') {
+            SecurityNetwork.notifyBlocked();
+          }
           throw ApiFailure(response.statusCode, 'REQUEST_FAILED');
         }
-        return jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+        return data;
       })().timeout(const Duration(seconds: 15));
     } on ApiFailure {
       rethrow;

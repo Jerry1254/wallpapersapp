@@ -6,6 +6,7 @@ import { MovingPhotoStore } from './MovingPhotoStore';
 import { StaticImageStore } from './StaticImageStore';
 import { SavedGalleryAsset } from './SavedGalleryAsset';
 import { InstalledAppVersion } from '../update/AppUpdateEvents';
+import { SecurityEvents } from '../security/SecurityEvents';
 
 export type DeliveryProgress = (received: number, total: number) => void;
 
@@ -145,6 +146,7 @@ export class HarmonyDelivery {
 
   private static async downloadPart(file: DeliveryFile, ticket: string, destination: string,
     onProgress: (received: number) => void): Promise<void> {
+    SecurityEvents.requireAllowed(HarmonyDelivery.absoluteUrl(file.url));
     const request: http.HttpRequest = http.createHttp();
     const output: fileIo.File = await fileIo.open(destination,
       fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);

@@ -1,6 +1,7 @@
 import { http } from '@kit.NetworkKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { AppUpdateEvents, InstalledAppVersion } from '../update/AppUpdateEvents';
+import { SecurityEvents } from '../security/SecurityEvents';
 
 const LOG_DOMAIN: number = 0x514A;
 
@@ -26,6 +27,7 @@ interface ErrorEnvelope {
 export class JsonHttp {
   static async request(url: string, method: http.RequestMethod, body: Object | string | null = null,
     bearer: string = '', extraHeaders: Record<string, string> = {}, acceptedStatuses: number[] = []): Promise<Object> {
+    SecurityEvents.requireAllowed(url);
     const request: http.HttpRequest = http.createHttp();
     const headers: Record<string, string> = {
       'Accept': 'application/json',
@@ -51,6 +53,7 @@ export class JsonHttp {
       if ((status < 200 || status >= 300) && acceptedStatuses.indexOf(status) < 0) {
         const code: string = JsonHttp.errorCode(text);
         if (code === 'APP_UPDATE_REQUIRED') AppUpdateEvents.notifyRequired();
+        if (code === 'ACCESS_UNAVAILABLE') SecurityEvents.notifyBlocked();
         hilog.error(LOG_DOMAIN, 'QingjingApi', 'HTTP %{public}d %{public}s %{public}s', status, code, text);
         throw new ApiRequestError(status, code, JsonHttp.errorMessage(status, code));
       }
@@ -70,6 +73,7 @@ export class JsonHttp {
   }
 
   private static errorMessage(status: number, code: string): string {
+    if (code === 'ACCESS_UNAVAILABLE') return '网络异常，请稍后重试';
     if (code === 'PREVIEW_PROCESSING') return '预览资源生成中，请稍后';
     if (code === 'PREVIEW_GENERATION_FAILED') return '预览资源生成失败，请稍后重试';
     if (code === 'APP_UPDATE_REQUIRED') return '当前版本已不再支持，请更新至最新版本';

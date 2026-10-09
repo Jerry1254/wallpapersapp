@@ -49,6 +49,12 @@ class DownloadManager extends ValueNotifier<DownloadState> {
   final AndroidPackageInstaller installer;
   final IosMediaInstaller iosInstaller;
   final bool isIos;
+  bool _disposed = false;
+  @override
+  set value(DownloadState state) {
+    if (!_disposed) super.value = state;
+  }
+
   bool _cancelRequested = false;
   bool _operationActive = false;
   StreamSubscription<PackageDownloadProgress>? _progress;
@@ -257,6 +263,8 @@ class DownloadManager extends ValueNotifier<DownloadState> {
 
   @override
   void dispose() {
+    _cancelRequested = true;
+    _disposed = true;
     _progress?.cancel();
     super.dispose();
   }

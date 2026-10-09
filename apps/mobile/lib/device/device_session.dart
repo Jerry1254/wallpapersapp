@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
 import 'package:wallpaper_ios/wallpaper_ios.dart';
+import '../security/security_network.dart';
 
 String instantString(DateTime value) {
   final utc = value.toUtc();
@@ -32,6 +33,7 @@ class DeviceApiError implements Exception {
   final int status;
   final String code;
   String get message => switch (code) {
+    'ACCESS_UNAVAILABLE' => '网络异常，请稍后重试',
     'CREDENTIAL_REVOKED' || 'DEVICE_DISABLED' => '此安装凭据已停用，请联系客服',
     'TIMESTAMP_INVALID' => '手机时间与服务端不一致，请校准后重试',
     'DEVICE_PROVIDER_NOT_ALLOWED' ||
@@ -162,6 +164,9 @@ class HttpDeviceTransport implements DeviceTransport {
     Map<String, String> headers = const {},
     Set<int> accepted = const {},
   }) async {
+    if (SecurityNetwork.blocked && !SecurityNetwork.isRecovery(path)) {
+      throw const DeviceApiError(403, 'ACCESS_UNAVAILABLE');
+    }
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 15);
     try {
@@ -195,6 +200,7 @@ class HttpDeviceTransport implements DeviceTransport {
               (data['error'] as Map<String, dynamic>?)?['code'] as String? ??
               'REQUEST_FAILED';
           if (code == 'APP_UPDATE_REQUIRED') onUpdateRequired?.call();
+          if (code == 'ACCESS_UNAVAILABLE') SecurityNetwork.notifyBlocked();
           throw DeviceApiError(response.statusCode, code);
         }
         return data;
@@ -238,7 +244,10 @@ class DeviceSessionManager {
   final InstallationIdentityProvider identity;
   DeviceSession? _current;
   Future<DeviceSession>? _pending;
-  Future<DeviceSession> session() async {
+  Future<DeviceSession> session({bool allowBlocked = false}) async {
+    if (SecurityNetwork.blocked && !allowBlocked) {
+      throw const DeviceApiError(403, 'ACCESS_UNAVAILABLE');
+    }
     final current = _current;
     if (current != null &&
         current.expiresAt.isAfter(
@@ -395,7 +404,9 @@ class DeviceSessionManager {
     Set<int> accepted = const {},
   }) async {
     for (var attempt = 0; attempt < 2; attempt++) {
-      final current = await session();
+      final current = await session(
+        allowBlocked: SecurityNetwork.isRecovery(path),
+      );
       final requestHeaders = {
         ...headers,
         'Authorization': 'Bearer ${current.token}',

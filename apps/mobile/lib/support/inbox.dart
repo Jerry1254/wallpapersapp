@@ -8,6 +8,13 @@ class CustomerSupportInbox extends ChangeNotifier with WidgetsBindingObserver {
   int unread = 0;
   bool started = false, active = true, running = false, alive = true;
   Timer? timer;
+  bool suspended = false;
+  void setSuspended(bool value) {
+    suspended = value;
+    timer?.cancel();
+    if (!value && started && active) unawaited(refresh());
+  }
+
   int delay = 2;
   void start() {
     if (started) return;
@@ -18,7 +25,7 @@ class CustomerSupportInbox extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> refresh() async {
     timer?.cancel();
-    if (!alive || !started || !active || running) return;
+    if (!alive || !started || !active || suspended || running) return;
     running = true;
     try {
       final conversation = await api.conversation();
@@ -32,7 +39,9 @@ class CustomerSupportInbox extends ChangeNotifier with WidgetsBindingObserver {
       delay = (delay * 2).clamp(2, 30);
     } finally {
       running = false;
-      if (alive && active) timer = Timer(Duration(seconds: delay), refresh);
+      if (alive && active && !suspended) {
+        timer = Timer(Duration(seconds: delay), refresh);
+      }
     }
   }
 

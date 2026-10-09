@@ -123,6 +123,25 @@ class Installer extends AndroidPackageInstaller {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('封禁移除业务页面后，正在完成的下载不会更新已销毁页面', () async {
+    final installer = Installer(), sessions = Sessions();
+    final manager = DownloadManager(
+      sessions,
+      Uri.parse('https://example.test/api/v1'),
+      installer: installer,
+    );
+    final operation = manager.download('10', 'UNIVERSAL', 'STATIC_IMAGE');
+    await Future<void>.delayed(Duration.zero);
+    await manager.cancel();
+    manager.dispose();
+    installer.installed.complete(
+      const PlatformResult(OperationStatus.completed, value: 'installed'),
+    );
+    await operation;
+    expect(installer.cancels, 1);
+    await installer.stream.close();
+  });
+
   test('只有原生安全安装完成才记录下载成功，过滤其他下载事件', () async {
     final installer = Installer(), sessions = Sessions();
     final manager = DownloadManager(

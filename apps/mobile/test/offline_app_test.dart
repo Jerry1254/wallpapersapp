@@ -27,7 +27,7 @@ class _MediaSessions extends DeviceSessionManager {
   bool fail = false;
 
   @override
-  Future<DeviceSession> session() async {
+  Future<DeviceSession> session({bool allowBlocked = false}) async {
     calls++;
     if (fail) throw const DeviceApiError(401, 'SESSION_INVALID');
     return DeviceSession(

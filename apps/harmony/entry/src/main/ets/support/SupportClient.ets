@@ -1,3 +1,4 @@
+import { SecurityEvents } from '../security/SecurityEvents';
 import { common } from '@kit.AbilityKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
@@ -6,6 +7,8 @@ import { HarmonyDeviceSession } from '../network/HarmonyDeviceSession';
 import { ApiRequestError, JsonHttp } from '../network/JsonHttp';
 import { CatalogApi } from '../network/CatalogApi';
 import { InstalledAppVersion } from '../update/AppUpdateEvents';
+interface SupportErrorDetail { code?: string; }
+interface SupportErrorEnvelope { error?: SupportErrorDetail; }
 
 export interface SupportAttachment {
   id: string; kind: string; filename: string; mimeType: string; sizeBytes: number;
@@ -162,6 +165,7 @@ export class SupportClient {
     this.uploadPath = path; this.attachment = null; this.persist(); this.changed(); await this.uploadImage();
   }
   async uploadImage(): Promise<void> {
+    SecurityEvents.requireAllowed(CatalogApi.BASE_URL + '/device/support/attachments');
     const request: http.HttpRequest = http.createHttp();
     try {
       const token: string = await this.sessions.accessToken();
@@ -172,7 +176,14 @@ export class SupportClient {
         multiFormDataList: [{ name: 'file', contentType: 'application/octet-stream', remoteFileName: 'support-image', filePath: this.uploadPath }],
         connectTimeout: 15000, readTimeout: 60000, expectDataType: http.HttpDataType.STRING, usingCache: false
       });
-      if (response.responseCode !== 201) throw new Error('图片上传失败，请检查格式或网络后重试');
+      if (response.responseCode !== 201) {
+        const errorBody: SupportErrorEnvelope = JSON.parse(response.result as string) as SupportErrorEnvelope;
+        if (errorBody.error?.code === 'ACCESS_UNAVAILABLE') {
+          SecurityEvents.notifyBlocked();
+          throw new Error('网络异常，请稍后重试');
+        }
+        throw new Error('图片上传失败，请检查格式或网络后重试');
+      }
       this.attachment = JSON.parse(response.result as string) as SupportAttachment;
       const old: string = this.uploadPath; this.uploadPath = ''; this.persist(); try { fs.unlinkSync(old); } catch (error) {} this.changed();
     } finally { request.destroy(); }

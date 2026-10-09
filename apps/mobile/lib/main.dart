@@ -23,6 +23,7 @@ import 'updates/app_updates.dart';
 import 'updates/app_update_gate.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
 import 'support/online_support.dart';
+import 'security/app_security.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,6 +41,7 @@ class QingjingApp extends StatefulWidget {
     this.repository,
     this.updateController,
     this.policySource,
+    this.securityController,
     this.privacyConsentStore = const PlatformPrivacyConsentStore(),
   });
   final AppConfig config;
@@ -47,6 +49,7 @@ class QingjingApp extends StatefulWidget {
   final AppUpdateController? updateController;
   final PrivacyConsentStore privacyConsentStore;
   final PolicySource? policySource;
+  final AppSecurityController? securityController;
   @override
   State<QingjingApp> createState() => _QingjingAppState();
 }
@@ -77,9 +80,24 @@ class _QingjingAppState extends State<QingjingApp> {
     updates.versionHeaders,
   );
   late final supportInbox = CustomerSupportInbox(supportApi);
+  late final AppSecurityController? security =
+      widget.securityController ??
+      (widget.repository == null
+          ? AppSecurityController(sessions, widget.config.apiBase.toString())
+          : null);
+  @override
+  void initState() {
+    super.initState();
+    security?.addListener(_securityChanged);
+  }
+
+  void _securityChanged() =>
+      supportInbox.setSuspended(security?.blocked ?? false);
 
   @override
   void dispose() {
+    security?.removeListener(_securityChanged);
+    if (widget.securityController == null) security?.dispose();
     supportInbox.dispose();
     if (widget.updateController == null) updates.dispose();
     super.dispose();
@@ -96,11 +114,20 @@ class _QingjingAppState extends State<QingjingApp> {
         debugShowCheckedModeBanner: false,
         navigatorObservers: [detailPreviewRouteObserver],
         navigatorKey: appNavigatorKey,
-        builder: (context, child) => AppUpdateOverlay(
-          controller: updates,
-          navigatorKey: appNavigatorKey,
-          child: child!,
-        ),
+        builder: (context, child) => security == null
+            ? AppUpdateOverlay(
+                controller: updates,
+                navigatorKey: appNavigatorKey,
+                child: child!,
+              )
+            : AppSecurityOverlay(
+                controller: security!,
+                child: AppUpdateOverlay(
+                  controller: updates,
+                  navigatorKey: appNavigatorKey,
+                  child: child!,
+                ),
+              ),
         theme: QjTheme.light,
         home: PrivacyGate(
           store: widget.privacyConsentStore,
@@ -108,16 +135,30 @@ class _QingjingAppState extends State<QingjingApp> {
               ? null
               : widget.policySource ??
                     RemotePolicySource(widget.config.apiBase),
-          builder: (_) => AppUpdateBootstrap(
-            controller: updates,
-            builder: (_) => HomeShell(
-              repository: repository,
-              sessions: sessions,
-              apiBase: widget.config.apiBase,
-              playback: playback,
-              labMode: widget.config.environment == 'lab',
-            ),
-          ),
+          builder: (_) => security == null
+              ? AppUpdateBootstrap(
+                  controller: updates,
+                  builder: (_) => HomeShell(
+                    repository: repository,
+                    sessions: sessions,
+                    apiBase: widget.config.apiBase,
+                    playback: playback,
+                    labMode: widget.config.environment == 'lab',
+                  ),
+                )
+              : AppSecurityBootstrap(
+                  controller: security!,
+                  builder: (_) => AppUpdateBootstrap(
+                    controller: updates,
+                    builder: (_) => HomeShell(
+                      repository: repository,
+                      sessions: sessions,
+                      apiBase: widget.config.apiBase,
+                      playback: playback,
+                      labMode: widget.config.environment == 'lab',
+                    ),
+                  ),
+                ),
         ),
       ),
     ),
@@ -185,6 +226,7 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void dispose() {
     downloads.removeListener(_downloadChanged);
+    unawaited(downloads.cancel().catchError((_) {}));
     downloads.dispose();
     iosAcquisition?.dispose();
     super.dispose();

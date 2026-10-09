@@ -11,6 +11,7 @@ import {
 } from '../model/CatalogModels';
 import { CatalogApi } from '../network/CatalogApi';
 import { ApiRequestError } from '../network/JsonHttp';
+import { HarmonySecurity } from '../security/HarmonySecurity';
 import { HarmonyDeviceSession } from '../network/HarmonyDeviceSession';
 import { AppUpdateEvents, InstalledAppVersion } from '../update/AppUpdateEvents';
 import { AppRelease, AppUpdatePolicy, AppUpdateService } from '../update/AppUpdateService';
@@ -89,6 +90,11 @@ struct Index {
   @State detailPreviewEnded: boolean = false;
   @State detailPreviewError: string = '';
   @State detailFullScreen: boolean = false;
+  @State securityReady: boolean = false;
+  @State securityBlocked: boolean = false;
+  @State securityBusy: boolean = false;
+  private security: HarmonySecurity | null = null;
+  private securitySessions: HarmonyDeviceSession | null = null;
   @State updateStartupChecked: boolean = false;
   @State updateVisible: boolean = false;
   @State updateMandatory: boolean = false;
@@ -126,23 +132,28 @@ struct Index {
   onPageShow(): void {
     this.pageVisible = true;
     if (this.consentAccepted) {
-      this.initializeAfterConsent();
+      if (this.security === null) this.initializeAfterConsent();
+      else this.checkSecurity();
       if (this.updateStartupChecked) this.checkForUpdates();
     }
   }
 
   onPageHide(): void {
     this.pageVisible = false;
+    this.security?.setActive(false);
     this.stopSupportPoll();
   }
 
   aboutToDisappear(): void {
+    this.security?.dispose();
     AppUpdateEvents.onRequired = null;
     this.pageVisible = false;
     this.stopSupportPoll();
   }
 
-  private onApplicationForeground(): void {
+  private async onApplicationForeground(): Promise<void> {
+    if (this.consentAccepted) await this.checkSecurity();
+    if (!this.securityReady || this.securityBlocked) return;
     if (this.consentAccepted && this.updates !== null) this.checkForUpdates();
     if (this.page === 'DETAIL' && this.selectedDetail !== null) {
       this.openDetail(this.selectedDetail as WallpaperSummary, this.selectedCapability);
@@ -197,6 +208,20 @@ struct Index {
 
   private initializeAfterConsent(): void {
     if (this.context === null) return;
+    if (this.security === null) {
+      this.securitySessions = new HarmonyDeviceSession(this.context as common.UIAbilityContext);
+      this.security = new HarmonySecurity(this.context as common.UIAbilityContext,
+        this.securitySessions as HarmonyDeviceSession, (blocked: boolean, ready: boolean, busy: boolean) => {
+          this.securityBlocked = blocked; this.securityReady = ready; this.securityBusy = busy;
+          if (blocked) {
+            this.closePolicy();
+            this.stopSupportPoll(); this.redemptionVisible = false; this.customerDialogVisible = false;
+            this.qrPreview = false; this.deliveryVisible = false; this.updateVisible = false;
+            try { this.videoController.pause(); } catch (error) {}
+          }
+        });
+    }
+    if (!this.securityReady || this.securityBlocked) { this.checkSecurity(); return; }
     if (this.updates === null) {
       this.updates = new AppUpdateService(this.context as common.UIAbilityContext,
         (policy: AppUpdatePolicy) => this.applyUpdatePolicy(policy));
@@ -207,10 +232,17 @@ struct Index {
     this.initializeBusiness();
   }
 
+  private async checkSecurity(): Promise<void> {
+    if (this.security === null || !this.consentAccepted || this.securityBusy) return;
+    (this.security as HarmonySecurity).setActive(this.supportActive && this.pageVisible);
+    await (this.security as HarmonySecurity).start();
+    if (this.securityReady && !this.securityBlocked) this.initializeAfterConsent();
+  }
+
   private initializeBusiness(): void {
-    if (this.context === null || !this.updateStartupChecked || this.updateMandatory) return;
+    if (this.context === null || !this.securityReady || this.securityBlocked || !this.updateStartupChecked || this.updateMandatory) return;
     if (this.api === null) {
-      const sessions: HarmonyDeviceSession = new HarmonyDeviceSession(this.context as common.UIAbilityContext);
+      const sessions: HarmonyDeviceSession = this.securitySessions as HarmonyDeviceSession;
       this.api = new CatalogApi(sessions);
     }
     this.startInitialLoad();
@@ -223,6 +255,7 @@ struct Index {
   }
 
   private onSupportLifecycle(): void {
+    this.security?.setActive(this.supportActive && this.pageVisible);
     this.stopSupportPoll();
     if (this.supportActive) {
       this.supportDelay = 2000;
@@ -232,7 +265,7 @@ struct Index {
 
   private async refreshSupportUnread(): Promise<void> {
     this.stopSupportPoll();
-    if (!this.supportActive || !this.pageVisible || !this.consentAccepted || this.api === null || this.updateMandatory || this.supportRunning) return;
+    if (!this.supportActive || !this.pageVisible || !this.consentAccepted || this.securityBlocked || !this.securityReady || this.api === null || this.updateMandatory || this.supportRunning) return;
     this.supportRunning = true;
     try {
       this.customerUnread = await (this.api as CatalogApi).supportUnread();
@@ -241,14 +274,14 @@ struct Index {
       this.supportDelay = Math.min(this.supportDelay * 2, 30000);
     } finally {
       this.supportRunning = false;
-      if (this.supportActive && this.pageVisible && !this.updateMandatory) {
+      if (this.supportActive && this.pageVisible && !this.updateMandatory && !this.securityBlocked) {
         this.supportTimer = setTimeout(() => { this.refreshSupportUnread(); }, this.supportDelay);
       }
     }
   }
 
   private async checkForUpdates(): Promise<void> {
-    if (this.updates === null || !this.consentAccepted) return;
+    if (this.updates === null || !this.consentAccepted || this.securityBlocked || !this.securityReady) return;
     if (this.updateCheckTask !== null) return await (this.updateCheckTask as Promise<void>);
     const pending: Promise<void> = this.performUpdateCheck();
     this.updateCheckTask = pending;
@@ -486,6 +519,7 @@ struct Index {
   }
 
   onBackPress(): boolean {
+    if (this.securityBlocked || !this.securityReady) return true;
     if (this.updateMandatory || (this.consentAccepted && !this.updateStartupChecked)) return true;
     if (this.policyDocumentKey.length > 0) {
       this.closePolicy();
@@ -1786,6 +1820,20 @@ struct Index {
         }
         .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
         .backgroundColor(T.surfaceMuted);
+      } else if (this.securityBlocked || (!this.securityReady && !this.securityBusy)) {
+        Column({ space: 18 }) {
+          Text('网络异常').fontSize(26).fontWeight(FontWeight.Bold).fontColor(T.ink);
+          Text('暂时无法连接，请稍后重试').fontSize(15).fontColor(T.mutedInk);
+          Button(this.securityBusy ? '正在刷新…' : '刷新').height(48).width(180)
+            .fontColor(T.inverseInk).backgroundColor(T.ink).borderRadius(24)
+            .enabled(!this.securityBusy).onClick(() => this.checkSecurity());
+        }
+        .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+        .backgroundColor(T.surface);
+      } else if (!this.securityReady) {
+        Column({ space: 14 }) { LoadingProgress().width(42).height(42).color(T.accentStrong); }
+          .width('100%').height('100%').justifyContent(FlexAlign.Center).alignItems(HorizontalAlign.Center)
+          .backgroundColor(T.surface);
       } else if (!this.updateStartupChecked) {
         Column({ space: 14 }) {
           LoadingProgress().width(42).height(42).color(T.accentStrong);
@@ -1844,7 +1892,7 @@ struct Index {
       if (this.policyDocumentKey === 'PRIVACY') {
         this.PolicyOverlay(this.policies.privacy, this.policies.privacyDate);
       }
-      if (this.consentAccepted && this.updateVisible) this.UpdateOverlay();
+      if (this.consentAccepted && !this.securityBlocked && this.securityReady && this.updateVisible) this.UpdateOverlay();
     }
     .width('100%').height('100%').backgroundColor(T.surface);
   }

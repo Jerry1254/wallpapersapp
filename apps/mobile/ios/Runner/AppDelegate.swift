@@ -12,6 +12,41 @@ import UIKit
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
     if let controller = window?.rootViewController as? FlutterViewController {
+      let security = FlutterMethodChannel(name: "qingjing/security", binaryMessenger: controller.binaryMessenger)
+      security.setMethodCallHandler { call, result in
+        switch call.method {
+        case "cachedBlock":
+          guard let scope = call.arguments as? String, scope.count <= 1024 else {
+            result(FlutterError(code: "INVALID_SCOPE", message: "Invalid scope", details: nil)); return
+          }
+          result(UserDefaults.standard.bool(forKey: "security_blocked_" + scope))
+        case "saveBlock":
+          guard let value = call.arguments as? [String: Any], let scope = value["scope"] as? String,
+                scope.count <= 1024, let blocked = value["blocked"] as? Bool else {
+            result(FlutterError(code: "INVALID_STATE", message: "Invalid state", details: nil)); return
+          }
+          UserDefaults.standard.set(blocked, forKey: "security_blocked_" + scope); result(nil)
+        case "checkEnvironment":
+          let checks = Array((call.arguments as? [String] ?? []).prefix(4))
+          var signals: [String: String] = [:]
+          for check in checks {
+            switch check {
+            case "ROOT_JAILBREAK":
+              let paths = ["/Applications/Cydia.app", "/Library/MobileSubstrate/MobileSubstrate.dylib", "/private/var/lib/apt", "/usr/bin/ssh"]
+              signals[check] = paths.contains { FileManager.default.fileExists(atPath: $0) } ? "RISK" : "NORMAL"
+            case "EMULATOR":
+              #if targetEnvironment(simulator)
+              signals[check] = "RISK"
+              #else
+              signals[check] = "NORMAL"
+              #endif
+            default: signals[check] = "UNKNOWN"
+            }
+          }
+          result(signals)
+        default: result(FlutterMethodNotImplemented)
+        }
+      }
       let channel = FlutterMethodChannel(
         name: Self.privacyConsentChannel,
         binaryMessenger: controller.binaryMessenger

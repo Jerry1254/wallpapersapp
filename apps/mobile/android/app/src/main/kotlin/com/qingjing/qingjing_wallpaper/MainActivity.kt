@@ -11,6 +11,7 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         appUpdates?.destroy()
         appUpdates = AppUpdateBridge(this, flutterEngine.dartExecutor.binaryMessenger)
+        SecurityBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         val preferences = getSharedPreferences("qingjing_privacy_state", MODE_PRIVATE)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "qingjing/privacy_consent")
             .setMethodCallHandler { call, result ->
