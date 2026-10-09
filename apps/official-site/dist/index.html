@@ -4,20 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#ffffff">
-  <meta name="description" content="倾境壁纸官方网站。浏览、兑换并使用适合当前设备的动态与静态壁纸。">
+  <meta name="description" content="倾境壁纸官方网站，提供手机静态壁纸、动态壁纸与 4D 壁纸。在官网发现喜欢的风格，前往倾境动态壁纸 App 查看、购买并使用数字壁纸。">
   <link rel="canonical" href="https://biguo66.top/">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
+  <script src="/showcase.js" defer></script>
   <title>倾境壁纸｜让屏幕成为你的风景</title>
 </head>
-<body>
+<body class="home-page">
   <header class="site-header">
     <a class="brand" href="/" aria-label="倾境壁纸首页">
       <span class="brand-mark" aria-hidden="true"><span></span></span>
       <span>倾境壁纸</span>
     </a>
     <nav class="top-nav" aria-label="主要导航">
-      <a class="active" href="#product">产品</a>
+      <a class="active" href="#wallpapers">壁纸商店</a>
       <a href="#experience">使用流程</a>
       <a href="/privacy/">隐私政策</a>
       <a href="/terms/">用户协议</a>
@@ -30,25 +31,26 @@
       <div class="hero-copy">
         <p class="eyebrow">QINGJING WALLPAPER</p>
         <h1>让屏幕，成为<br><em>你的风景。</em></h1>
-        <p class="hero-lead">精选动态与静态壁纸，按当前设备展示适合的内容。从预览、兑换到设置，每一步都清晰简单。</p>
+        <p class="hero-lead">静态壁纸、动态壁纸与 4D 壁纸，让日常多一点喜欢。发现心仪的风格，前往倾境动态壁纸 App 预览、购买并设置。</p>
         <div class="hero-actions">
-          <a class="button button-primary" href="#experience">了解使用流程 <span aria-hidden="true">↓</span></a>
-          <a class="button button-quiet" href="/privacy/">查看隐私政策</a>
+          <a class="button button-primary" href="#wallpapers">挑选喜欢的壁纸 <span aria-hidden="true">↓</span></a>
+          <a class="button button-quiet" href="#experience">了解购买流程</a>
         </div>
         <div class="trust-row" aria-label="产品特点">
-          <span><i></i>无账号注册</span>
-          <span><i></i>无广告追踪</span>
+          <span><i></i>数字壁纸内容</span>
+          <span><i></i>App 内选购与使用</span>
           <span><i></i>按设备适配</span>
         </div>
       </div>
-      <div class="hero-visual" aria-label="倾境壁纸 App 界面预览">
+      <div class="hero-visual" aria-label="手机壁纸效果示意">
         <div class="glow glow-one"></div>
         <div class="glow glow-two"></div>
         <div class="phone-frame">
           <div class="phone-speaker"></div>
-          <img src="/assets/app-preview.jpg" alt="倾境壁纸 App 动态壁纸详情页">
+          <img src="/assets/wallpapers/ocean-dusk.webp" alt="落日海岸壁纸在手机屏幕上的效果示意" width="600" height="900" fetchpriority="high">
+          <div class="phone-preview-copy" aria-hidden="true"><span>倾境动态壁纸</span><strong>把喜欢，<br>留在屏幕上。</strong></div>
         </div>
-        <div class="floating-note note-top"><span>动态预览</span><strong>画面即刻呈现</strong></div>
+        <div class="floating-note note-top"><span>发现你的风格</span><strong>每次点亮，都有喜欢</strong></div>
         <div class="floating-note note-bottom"><span>设备适配</span><strong>只看适合你的内容</strong></div>
       </div>
     </section>
@@ -63,16 +65,82 @@
       </div>
     </section>
 
+    <section class="wallpaper-shop" id="wallpapers" aria-labelledby="shop-title">
+      <div class="shop-heading">
+        <div class="section-heading">
+          <p class="eyebrow">WALLPAPER COLLECTION</p>
+          <h2 id="shop-title">一屏风景，一份喜欢。</h2>
+          <p>从山海到星空，从治愈插画到抽象光影，找到属于你的屏幕心情。</p>
+        </div>
+        <span class="shop-channel"><i aria-hidden="true"></i>前往 App 购买</span>
+      </div>
+      <div class="shop-toolbar">
+        <div class="shop-filters" role="group" aria-label="按壁纸风格筛选">
+          <button class="filter-button is-active" type="button" data-filter="all" aria-pressed="true">全部壁纸</button>
+          <button class="filter-button" type="button" data-filter="nature" aria-pressed="false">自然风景</button>
+          <button class="filter-button" type="button" data-filter="illustration" aria-pressed="false">插画动漫</button>
+          <button class="filter-button" type="button" data-filter="pets" aria-pressed="false">萌宠治愈</button>
+          <button class="filter-button" type="button" data-filter="abstract" aria-pressed="false">抽象艺术</button>
+          <button class="filter-button" type="button" data-filter="cosmos" aria-pressed="false">科幻星空</button>
+        </div>
+        <p class="shop-count" id="shop-count" role="status">共 10 款</p>
+      </div>
+      <div class="wallpaper-grid">
+        <article class="wallpaper-card" data-category="nature">
+          <div class="wallpaper-cover"><img src="/assets/wallpapers/misty-mountains.webp" alt="青绿色群山与晨雾，远处一轮暖阳" width="600" height="900" loading="lazy" decoding="async"><span class="wallpaper-kind">自然风景</span></div>
+          <div class="wallpaper-info"><h3>云山入梦</h3><p>把山间的清晨，留在屏幕里。</p><div class="wallpaper-purchase"><span class="wallpaper-price"><small>¥</small>6<small>.00</small></span><button class="buy-button" type="button" aria-label="购买云山入梦">购买 <span aria-hidden="true">↗</span></button></div></div>
+        </article>
+        <article class="wallpaper-card" data-category="nature">
+          <div class="wallpaper-cover"><img src="/assets/wallpapers/ocean-dusk.webp" alt="粉色暮光下的碧蓝海岸与白色浪花" width="600" height="900" loading="lazy" decoding="async"><span class="wallpaper-kind">自然风景</span></div>
+          <div class="wallpaper-info"><h3>落日海岸</h3><p>海风与晚霞，刚好都在。</p><div class="wallpaper-purchase"><span class="wallpaper-price"><small>¥</small>8<small>.00</small></span><button class="buy-button" type="button" aria-label="购买落日海岸">购买 <span aria-hidden="true">↗</span></button></div></div>
+        </article>
+        <article class="wallpaper-card" data-category="nature">
+          <div class="wallpaper-cover"><img src="/assets/wallpapers/northern-lights.webp" alt="雪山与松林上空的绿色极光" width="600" height="900" loading="lazy" decoding="async"><span class="wallpaper-kind">自然风景</span></div>
+          <div class="wallpaper-info"><h3>极光之境</h3><p>让夜空，为你亮起一次。</p><div class="wallpaper-purchase"><span class="wallpaper-price"><small>¥</small>12<small>.00</small></span><button class="buy-button" type="button" aria-label="购买极光之境">购买 <span aria-hidden="true">↗</span></button></div></div>
+        </article>
+        <article class="wallpaper-card" data-category="illustration">
+          <div class="wallpaper-cover"><img src="/assets/wallpapers/sakura-train.webp" alt="粉色樱花环绕的桥梁与橙色电车插画" width="600" height="900" loading="lazy" decoding="async"><span class="wallpaper-kind">插画动漫</span></div>
+          <div class="wallpaper-info"><h3>樱花电车</h3><p>开往春天，途经你的心情。</p><div class="wallpaper-purchase"><span class="wallpaper-price"><small>¥</small>8<small>.00</small></span><button class="buy-button" type="button" aria-label="购买樱花电车">购买 <span aria-hidden="true">↗</span></button></div></div>
+        </article>
+        <article class="wallpaper-card" data-category="pets">
+          <div class="wallpaper-cover"><img src="/assets/wallpapers/sleepy-cat.webp" alt="暖阳下在米色靠垫上熟睡的小猫" width="600" height="900" loading="lazy" decoding="async"><span class="wallpaper-kind">萌宠治愈</span></div>
+          <div class="wallpaper-info"><h3>午后小憩</h3><p>今天也要，软乎乎地生活。</p><div class="wallpaper-purchase"><span class="wallpaper-price"><small>¥</small>6<small>.00</small></span><button class="buy-button" type="button" aria-label="购买午后小憩">购买 <span aria-hidden="true">↗</span></button></div></div>
+        </article>
+        <article class="wallpaper-card" data-category="abstract">
+          <div class="wallpaper-cover"><img src="/assets/wallpapers/liquid-lavender.webp" alt="紫色与珍珠白交织的透明流体玻璃艺术" width="600" height="900" loading="lazy" decoding="async"><span class="wallpaper-kind">抽象艺术</span></div>
+          <div class="wallpaper-info"><h3>流光紫晶</h3><p>光的流动，有自己的形状。</p><div class="wallpaper-purchase"><span class="wallpaper-price"><small>¥</small>8<small>.00</small></span><button class="buy-button" type="button" aria-label="购买流光紫晶">购买 <span aria-hidden="true">↗</span></button></div></div>
+        </article>
+        <article class="wallpaper-card" data-category="cosmos">
+          <div class="wallpaper-cover"><img src="/assets/wallpapers/neon-city.webp" alt="雨夜未来城市中的蓝紫色霓虹光影" width="600" height="900" loading="lazy" decoding="async"><span class="wallpaper-kind">科幻星空</span></div>
+          <div class="wallpaper-info"><h3>霓虹漫游</h3><p>在一座未来城市，短暂停留。</p><div class="wallpaper-purchase"><span class="wallpaper-price"><small>¥</small>12<small>.00</small></span><button class="buy-button" type="button" aria-label="购买霓虹漫游">购买 <span aria-hidden="true">↗</span></button></div></div>
+        </article>
+        <article class="wallpaper-card" data-category="cosmos">
+          <div class="wallpaper-cover"><img src="/assets/wallpapers/moon-orbit.webp" alt="紫蓝色环状行星与深空星云" width="600" height="900" loading="lazy" decoding="async"><span class="wallpaper-kind">科幻星空</span></div>
+          <div class="wallpaper-info"><h3>星际回响</h3><p>把遥远的宇宙，带到眼前。</p><div class="wallpaper-purchase"><span class="wallpaper-price"><small>¥</small>12<small>.00</small></span><button class="buy-button" type="button" aria-label="购买星际回响">购买 <span aria-hidden="true">↗</span></button></div></div>
+        </article>
+        <article class="wallpaper-card" data-category="abstract">
+          <div class="wallpaper-cover"><img src="/assets/wallpapers/golden-contour.webp" alt="炭黑色丝绸褶皱与细腻金色轮廓线" width="600" height="900" loading="lazy" decoding="async"><span class="wallpaper-kind">抽象艺术</span></div>
+          <div class="wallpaper-info"><h3>鎏金曲线</h3><p>简洁的线条，也有温度。</p><div class="wallpaper-purchase"><span class="wallpaper-price"><small>¥</small>6<small>.00</small></span><button class="buy-button" type="button" aria-label="购买鎏金曲线">购买 <span aria-hidden="true">↗</span></button></div></div>
+        </article>
+        <article class="wallpaper-card" data-category="nature">
+          <div class="wallpaper-cover"><img src="/assets/wallpapers/spring-tulips.webp" alt="晨光下盛开的浅粉色和白色郁金香" width="600" height="900" loading="lazy" decoding="async"><span class="wallpaper-kind">自然风景</span></div>
+          <div class="wallpaper-info"><h3>花间春信</h3><p>让每次点亮，都像春天。</p><div class="wallpaper-purchase"><span class="wallpaper-price"><small>¥</small>6<small>.00</small></span><button class="buy-button" type="button" aria-label="购买花间春信">购买 <span aria-hidden="true">↗</span></button></div></div>
+        </article>
+      </div>
+      <p class="shop-notice">以上为壁纸风格与价格展示示例。实际可购买的商品、价格及设备适配情况，以 App 内展示为准。</p>
+      <noscript><p class="shop-notice">请前往「倾境动态壁纸」App 查看并购买壁纸。启用 JavaScript 后可使用分类筛选和购买提示。</p></noscript>
+    </section>
+
     <section class="experience" id="experience">
       <div class="section-heading">
         <p class="eyebrow">从喜欢到使用</p>
         <h2>简单四步，换一种屏幕心情</h2>
-        <p>客户端会根据安装包自动匹配平台内容，不需要手动选择设备类型。</p>
+        <p>壁纸属于数字内容。在 App 内查看适配情况与实际价格，购买后下载或保存，并按照教程完成设置。</p>
       </div>
       <ol class="steps">
         <li><span>01</span><div><strong>发现</strong><p>按分类或关键词找到喜欢的壁纸。</p></div></li>
         <li><span>02</span><div><strong>预览</strong><p>在详情页查看真实画面和动态效果。</p></div></li>
-        <li><span>03</span><div><strong>兑换</strong><p>输入有效兑换码，获取当前壁纸权益。</p></div></li>
+        <li><span>03</span><div><strong>购买</strong><p>在 App 内确认价格并购买，或使用有效兑换码获取权益。</p></div></li>
         <li><span>04</span><div><strong>设置</strong><p>下载或保存后，按照教程完成系统设置。</p></div></li>
       </ol>
     </section>
@@ -97,7 +165,7 @@
     <section class="support">
       <p class="eyebrow">需要帮助？</p>
       <h2>告诉我们你遇到的问题</h2>
-      <p>兑换、权益恢复或设置过程中遇到问题，可通过邮箱联系我们。</p>
+      <p>购买、兑换、权益恢复或设置过程中遇到问题，可通过邮箱联系我们。</p>
       <a href="mailto:qingjingwallpaper@126.com">qingjingwallpaper@126.com <span aria-hidden="true">↗</span></a>
     </section>
   </main>
@@ -112,5 +180,16 @@
     </div>
     <p>© 2026 倾境壁纸平台</p>
   </footer>
+
+  <dialog class="purchase-dialog" id="purchase-dialog" aria-labelledby="purchase-title" aria-describedby="purchase-description">
+    <button class="dialog-close" type="button" aria-label="关闭购买提示"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+    <div class="dialog-product"><img id="purchase-cover" alt="" width="80" height="120"><div><p class="eyebrow">你喜欢的屏幕风景</p><h3 id="purchase-wallpaper"></h3><p id="purchase-price"></p></div></div>
+    <h2 id="purchase-title">请前往 App 购买</h2>
+    <p class="dialog-description" id="purchase-description">打开「倾境动态壁纸」App，浏览喜欢的壁纸，确认设备适配情况和价格后完成购买。</p>
+    <ol class="dialog-steps"><li>打开倾境动态壁纸 App</li><li>选择壁纸，预览并确认价格</li><li>完成购买，下载并设置</li></ol>
+    <p class="dialog-notice">当前商品为官网展示示例，实际商品与价格以 App 为准。</p>
+    <button class="button button-primary dialog-confirm" type="button">我知道了</button>
+    <a class="dialog-support" href="mailto:qingjingwallpaper@126.com">获取 App 或购买帮助 <span aria-hidden="true">↗</span></a>
+  </dialog>
 </body>
 </html>
