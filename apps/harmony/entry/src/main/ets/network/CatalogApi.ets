@@ -13,6 +13,10 @@ import { HarmonyDeviceSession } from './HarmonyDeviceSession';
 import { ApiRequestError, JsonHttp } from './JsonHttp';
 import { util } from '@kit.ArkTS';
 
+interface SupportUnreadResponse {
+  unreadCount: number;
+}
+
 interface CategoryListResponse {
   items: ApiCategoryPayload[];
 }
@@ -86,6 +90,11 @@ export class CatalogApi {
 
   constructor(sessions: HarmonyDeviceSession) {
     this.sessions = sessions;
+  }
+
+  async supportUnread(): Promise<number> {
+    const response: SupportUnreadResponse = await this.authenticatedGet('/device/support/conversation') as SupportUnreadResponse;
+    return response.unreadCount;
   }
 
   async categories(): Promise<WallpaperCategory[]> {

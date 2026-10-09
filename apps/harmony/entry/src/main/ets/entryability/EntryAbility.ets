@@ -6,8 +6,12 @@ const DOMAIN: number = 0x514A;
 
 export default class EntryAbility extends UIAbility {
   onForeground(): void {
+    AppStorage.setOrCreate<boolean>('qingjing_app_active', true);
     const revision: number = AppStorage.get<number>('qingjing_foreground_revision') ?? 0;
     AppStorage.setOrCreate<number>('qingjing_foreground_revision', revision + 1);
+  }
+  onBackground(): void {
+    AppStorage.setOrCreate<boolean>('qingjing_app_active', false);
   }
 
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {

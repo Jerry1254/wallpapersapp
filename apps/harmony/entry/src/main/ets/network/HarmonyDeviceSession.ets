@@ -86,6 +86,11 @@ export class HarmonyDeviceSession {
   invalidate(): void {
     this.accessTokenValue = '';
   }
+  async supportCacheIdentity(): Promise<string> {
+    await this.accessToken();
+    const store: preferences.Preferences = await preferences.getPreferences(this.context, HarmonyDeviceSession.PREFERENCES_NAME);
+    return String(await store.get(HarmonyDeviceSession.CREDENTIAL_ID, '')).replace(/[^a-zA-Z0-9_-]/g, '_');
+  }
 
   async signedPost(path: string, body: Object, extraHeaders: Record<string, string> = {},
     acceptedStatuses: number[] = []): Promise<Object> {

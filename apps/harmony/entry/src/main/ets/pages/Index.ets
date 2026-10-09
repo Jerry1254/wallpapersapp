@@ -16,6 +16,7 @@ import { AppUpdateEvents, InstalledAppVersion } from '../update/AppUpdateEvents'
 import { AppRelease, AppUpdatePolicy, AppUpdateService } from '../update/AppUpdateService';
 import { PublishedPolicies, RemotePolicies } from '../privacy/RemotePolicies';
 import { CustomerSupport } from '../support/CustomerSupport';
+import { SupportChatView } from '../support/SupportChatView';
 import { DownloadedMovingPhoto, DownloadedStaticImage, HarmonyDelivery } from '../media/HarmonyDelivery';
 import { SavedGalleryAsset } from '../media/SavedGalleryAsset';
 import {
@@ -39,6 +40,11 @@ const ACCEPTED_POLICY_VERSION: string = 'accepted_policy_version';
 @Component
 struct Index {
   @StorageLink('qingjing_foreground_revision') @Watch('onApplicationForeground') foregroundRevision: number = 0;
+  @StorageLink('qingjing_app_active') @Watch('onSupportLifecycle') supportActive: boolean = true;
+  @State customerUnread: number = 0;
+  private supportTimer: number = -1;
+  private supportRunning: boolean = false;
+  private supportDelay: number = 2000;
   @State activeTab: number = 0;
   @State page: string = 'HOME';
   @State returnPage: string = 'HOME';
@@ -127,10 +133,13 @@ struct Index {
 
   onPageHide(): void {
     this.pageVisible = false;
+    this.stopSupportPoll();
   }
 
   aboutToDisappear(): void {
     AppUpdateEvents.onRequired = null;
+    this.pageVisible = false;
+    this.stopSupportPoll();
   }
 
   private onApplicationForeground(): void {
@@ -205,6 +214,37 @@ struct Index {
       this.api = new CatalogApi(sessions);
     }
     this.startInitialLoad();
+    this.refreshSupportUnread();
+  }
+
+  private stopSupportPoll(): void {
+    if (this.supportTimer >= 0) clearTimeout(this.supportTimer);
+    this.supportTimer = -1;
+  }
+
+  private onSupportLifecycle(): void {
+    this.stopSupportPoll();
+    if (this.supportActive) {
+      this.supportDelay = 2000;
+      this.refreshSupportUnread();
+    }
+  }
+
+  private async refreshSupportUnread(): Promise<void> {
+    this.stopSupportPoll();
+    if (!this.supportActive || !this.pageVisible || !this.consentAccepted || this.api === null || this.updateMandatory || this.supportRunning) return;
+    this.supportRunning = true;
+    try {
+      this.customerUnread = await (this.api as CatalogApi).supportUnread();
+      this.supportDelay = 2000;
+    } catch (error) {
+      this.supportDelay = Math.min(this.supportDelay * 2, 30000);
+    } finally {
+      this.supportRunning = false;
+      if (this.supportActive && this.pageVisible && !this.updateMandatory) {
+        this.supportTimer = setTimeout(() => { this.refreshSupportUnread(); }, this.supportDelay);
+      }
+    }
   }
 
   private async checkForUpdates(): Promise<void> {
@@ -453,6 +493,10 @@ struct Index {
     }
     if (this.updateVisible) {
       this.dismissOptionalUpdate();
+      return true;
+    }
+    if (this.page === 'CUSTOMER') {
+      this.goBack();
       return true;
     }
     if (this.page === 'DETAIL' && this.detailFullScreen) {
@@ -786,7 +830,7 @@ struct Index {
       Button() {
         Row({ space: 7 }) {
           Image($r('app.media.message_circle_more')).width(20).height(20).objectFit(ImageFit.Contain);
-          Text('客服').fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.inverseInk);
+          Text(this.customerUnread > 0 ? '客服 ' + (this.customerUnread > 99 ? '99+' : String(this.customerUnread)) : '客服').fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.inverseInk);
         }
       }
         .height(44)
@@ -825,7 +869,7 @@ struct Index {
         Button() {
           Row({ space: 6 }) {
             Image($r('app.media.message_circle_more')).width(18).height(18).objectFit(ImageFit.Contain);
-            Text('客服').fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.inverseInk);
+            Text(this.customerUnread > 0 ? '客服 ' + (this.customerUnread > 99 ? '99+' : String(this.customerUnread)) : '客服').fontSize(13).fontWeight(FontWeight.Bold).fontColor(T.inverseInk);
           }
         }
           .height(44)
@@ -1599,7 +1643,7 @@ struct Index {
         .width('100%').height(44).backgroundColor(T.surface)
         .border({ width: 1, color: T.outlineStrong }).borderRadius(22)
         .margin({ top: 12 }).enabled(!this.redemptionBusy)
-        .onClick(() => this.customerDialogVisible = true);
+        .onClick(() => { this.redemptionVisible = false; this.openCustomer('DETAIL'); });
       }
       .width('100%').padding({ left: 22, right: 22, top: 14, bottom: 28 })
       .backgroundColor(T.surface).borderRadius({ topLeft: 28, topRight: 28 });
@@ -1755,7 +1799,7 @@ struct Index {
             if (this.page === 'TUTORIAL_PLAYER' && this.selectedTutorial !== null) {
               this.TutorialPlayerPage(this.selectedTutorial as WallpaperTutorial);
             }
-            if (this.page === 'CUSTOMER') this.CustomerPage();
+            if (this.page === 'CUSTOMER') SupportChatView({ onBack: () => this.goBack(), onBackup: () => this.customerDialogVisible = true });
           }
           .width('100%').layoutWeight(1);
           if (this.page === 'HOME' || this.page === 'MINE') {
