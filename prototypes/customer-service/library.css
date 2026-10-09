@@ -1,0 +1,126 @@
+.status-dot.offline { background:#aaa39a; }
+.conversation-row { position:relative; }
+.conversation-row .conversation-item { padding-right:44px; }
+.conversation-delete { position:absolute; right:4px; top:50%; transform:translateY(-50%); width:32px; height:36px; color:#aaa298; }
+.conversation-delete .icon { width:16px; height:16px; }
+.conversation-delete:hover,.conversation-delete:focus-visible { color:var(--danger); background:var(--danger-soft); }
+.delete-conversation-button { display:flex; align-items:center; gap:6px; background:transparent; color:#8b847b; padding:8px 10px; border-radius:8px; font-size:12px; flex-shrink:0; }
+.delete-conversation-button .icon { width:17px; height:17px; }
+.delete-conversation-button:hover { background:var(--danger-soft); color:var(--danger); }
+.danger { background:var(--danger); color:#fff; }
+.danger:hover { background:#b33933; }
+.composer-library-button { display:flex; align-items:center; gap:6px; background:transparent; color:var(--muted); min-height:36px; padding:0 8px; border-radius:8px; font-size:12px; }
+.composer-library-button:hover { background:var(--accent-soft); }
+.composer-library-button .icon { width:18px; height:18px; }
+.work-status .button { font-size:12px; }
+.library-panel { flex:1; min-height:0; background:#fff; border:1px solid var(--line); border-radius:12px; padding:0 24px 24px; display:flex; flex-direction:column; }
+.library-tabs { display:flex; gap:26px; border-bottom:1px solid var(--line); margin-bottom:18px; flex-shrink:0; }
+.library-tabs button { display:flex; flex-direction:column; align-items:center; gap:7px; background:none; color:var(--muted); border-bottom:2px solid transparent; padding:18px 18px 14px; font-size:13px; }
+.library-tabs button>.icon { width:27px; height:27px; }
+.library-tabs button.active { color:#a56b0c; border-bottom-color:var(--accent); font-weight:650; }
+.library-tabs button:hover { background:var(--soft); }
+.library-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:16px; flex-shrink:0; }
+.library-toolbar .button { font-size:12px; }
+.library-sync { color:var(--muted); display:flex; align-items:center; gap:7px; font-size:12px; }
+.library-sync .icon { width:16px; height:16px; }
+.library-search { display:flex; align-items:center; gap:10px; border:1px solid var(--line); background:var(--soft); border-radius:9px; padding:0 13px; margin-bottom:20px; flex-shrink:0; }
+.library-search>.icon { color:var(--muted); width:18px; height:18px; }
+.library-search input { flex:1; min-width:0; padding:12px 0; font-size:13px; background:none; border:0; outline:none; color:var(--ink); }
+.library-search:focus-within { border-color:var(--accent); box-shadow:0 0 0 2px #f4a91e22; }
+.library-search input:focus-visible { outline:none; }
+.library-search>span { color:var(--muted); font-size:11px; white-space:nowrap; }
+.library-items { flex:1; min-height:0; overflow:auto; scrollbar-width:thin; padding:3px; }
+.library-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.library-card { display:flex; gap:16px; align-items:center; padding:15px; border:1px solid var(--line); border-radius:12px; background:#fff; min-width:0; }
+.library-card:hover { border-color:#d8c39b; background:#fffdf8; }
+.library-art { width:100px; height:108px; flex-shrink:0; border-radius:9px; border:0; padding:0; background:var(--soft); display:grid; place-items:center; position:relative; overflow:hidden; }
+.library-art img,.library-art video { width:100%; height:100%; object-fit:cover; display:block; }
+.library-art>img:not([src]),.library-art>video:not([src]) { opacity:0; }
+.library-art .icon { width:30px; height:30px; }
+.phrase-art { height:90px; background:var(--accent-soft); color:#a37932; }
+.library-copy { min-width:0; flex:1; }
+.library-copy>strong { display:block; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.library-copy>p { font-size:12px; color:var(--muted); margin:7px 0 13px; line-height:1.7; overflow:hidden; overflow-wrap:anywhere; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+.library-card-actions { display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
+.library-card-actions .button { height:32px; padding:0 10px; font-size:11px; gap:5px; font-weight:500; }
+.library-card-actions .icon { width:14px; height:14px; }
+.library-remove { width:32px; height:32px; color:#8b847b; }
+.library-remove:hover { color:var(--danger); background:var(--danger-soft); }
+.library-empty { display:grid; place-items:center; align-content:center; gap:12px; text-align:center; min-height:260px; color:var(--muted); padding:24px; }
+.library-empty>.icon { width:38px; height:38px; color:#b3a58c; }
+.library-empty strong { font-size:14px; font-weight:650; color:var(--ink); }
+.library-empty p { font-size:12px; margin:0; line-height:1.7; }
+.library-dialog { width:min(760px,calc(100vw - 32px)); height:min(720px,84dvh); max-width:none; max-height:90dvh; border:1px solid var(--line); border-radius:20px; padding:24px; background:#fff; box-shadow:0 20px 70px #19181722; }
+.library-dialog[open] { display:flex; flex-direction:column; }
+.library-dialog::backdrop,.editor-dialog::backdrop { background:#19181766; }
+.library-dialog-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:16px; flex-shrink:0; }
+.library-dialog-heading h2 { font-size:21px; margin:0; overflow-wrap:anywhere; }
+.library-dialog-heading p { color:var(--muted); font-size:12px; line-height:1.7; margin:6px 0 0; }
+.library-dialog .library-tabs { margin-bottom:16px; }
+.library-dialog .library-tabs button { padding-top:12px; }
+.library-dialog .library-card { padding:12px; gap:12px; }
+.library-dialog .library-art { width:84px; height:96px; }
+.editor-dialog { width:min(520px,calc(100vw - 32px)); max-width:none; max-height:90dvh; border:1px solid var(--line); border-radius:20px; padding:26px; background:#fff; box-shadow:0 20px 70px #19181722; }
+.editor-field { display:flex; flex-direction:column; gap:9px; margin:18px 0; font-size:13px; font-weight:600; }
+.editor-field input,.editor-field textarea { width:100%; min-width:0; border:1px solid var(--line); border-radius:9px; padding:11px 12px; background:var(--soft); font-size:14px; color:var(--ink); font-weight:400; }
+.editor-field input[type=file] { font-size:12px; padding:10px; }
+.editor-field small { color:var(--muted); font-size:11px; line-height:1.6; font-weight:400; overflow-wrap:anywhere; }
+.editor-field textarea { resize:vertical; min-height:74px; max-height:240px; line-height:1.7; }
+.editor-error { font-size:12px; color:var(--danger); margin:0; line-height:1.7; min-height:20px; }
+.editor-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:18px; }
+.editor-actions .button { font-size:13px; min-width:80px; }
+.editor-current-media .library-art { width:74px; height:74px; }
+.phrase-preview-content { background:var(--soft); border:1px solid var(--line); padding:18px; border-radius:12px; line-height:1.9; font-size:14px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.attachment-preview video { width:42px; height:48px; object-fit:cover; border-radius:6px; }
+.media-preview-button { position:relative; }
+.video-play { position:absolute; inset:0; display:grid; place-items:center; pointer-events:none; color:#fff; background:#1918171a; }
+.video-play>.icon { width:38px; height:38px; padding:9px; border-radius:50%; background:#191817b0; }
+.message-image video { width:176px; max-width:100%; height:190px; display:block; object-fit:cover; }
+.video-caption { font-size:11px; padding:8px 8px 4px; overflow-wrap:anywhere; }
+.phone .message-image video { width:151px; height:180px; }
+.video-dialog { background:transparent; border:0; padding:0; overflow:visible; max-width:90vw; max-height:88dvh; }
+.video-dialog::backdrop { background:#191817e0; }
+.video-dialog video { display:block; max-width:85vw; max-height:80dvh; min-width:200px; border-radius:14px; background:#191817; }
+.media-unavailable { background:var(--soft); }
+.phone .conversation-row .conversation-item { padding-right:50px; }
+.phone .conversation-delete { width:44px; height:44px; }
+.phone .delete-conversation-button { width:44px; height:44px; padding:0; justify-content:center; }
+.phone .delete-conversation-button>span { display:none; }
+.phone .composer-library-button { min-height:44px; padding:0 9px; }
+.phone .composer-library-button>span { font-size:11px; }
+@media(max-width:1000px) { .library-card { gap:12px; padding:12px; } .library-art { width:80px; height:100px; } }
+@media(max-width:800px) { .work-status .online-pill { display:none; } .library-sync { font-size:11px; } .library-grid { grid-template-columns:1fr; } }
+@media(max-width:650px) {
+  .work-status>[data-action=manage-library] { width:44px; height:38px; padding:0; }
+  .work-status>[data-action=manage-library]>span { display:none; }
+  .conversation-row .conversation-item { padding-right:50px; }
+  .conversation-delete { width:44px; height:44px; }
+  .delete-conversation-button { min-height:44px; }
+  .delete-conversation-button>span { display:none; }
+  .library-admin-content { min-height:0; }
+  .library-panel { padding:0 16px 16px; border-radius:0; border-width:1px 0 0; }
+  .library-tabs { justify-content:space-between; gap:8px; }
+  .library-tabs button { padding:15px 13px 12px; font-size:12px; }
+  .library-tabs button>.icon { width:24px; height:24px; }
+  .library-toolbar { gap:9px; }
+  .library-toolbar .button { height:44px; }
+  .library-search input { font-size:16px; }
+  .library-search { margin-bottom:14px; }
+  .library-copy>strong { font-size:13px; }
+  .library-card-actions .button,.library-remove { min-height:44px; }
+  .library-remove { width:44px; }
+  .library-card-actions .button { padding:0 11px; }
+  .library-dialog { width:calc(100vw - 16px); padding:18px 14px; height:min(720px,90dvh); border-radius:18px; }
+  .library-dialog-heading h2 { font-size:19px; }
+  .library-dialog-heading .icon-button { width:44px; height:44px; }
+  .library-dialog-heading p { font-size:11px; }
+  .library-dialog .library-art { width:72px; height:84px; }
+  .library-dialog .library-card { gap:12px; padding:12px; }
+  .library-dialog .library-copy>p { font-size:12px; }
+  .library-dialog .library-tabs { margin-bottom:14px; }
+  .editor-dialog { padding:20px; }
+  .editor-field input,.editor-field textarea { font-size:16px; }
+  .editor-field input[type=file] { font-size:12px; }
+  .editor-actions .button { height:44px; }
+  #delete-dialog .button { height:44px; }
+}

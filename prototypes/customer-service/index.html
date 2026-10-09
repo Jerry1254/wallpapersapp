@@ -7,6 +7,9 @@
     <title>倾境 · 在线客服交互原型</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%23f4a91e'/%3E%3Ctext x='20' y='28' text-anchor='middle' font-size='25' fill='%23191817'%3E倾%3C/text%3E%3C/svg%3E">
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="library.css">
+    <script src="media-store.js" defer></script>
+    <script src="library.js" defer></script>
     <script src="prototype.js" defer></script>
   </head>
   <body>
@@ -34,7 +37,12 @@
     </section>
     <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
     <dialog id="image-dialog" class="image-dialog" aria-label="查看图片"><button type="button" class="image-close" aria-label="关闭图片"><span data-icon="close"></span></button><img alt="聊天图片预览"></dialog>
-    <dialog id="reset-dialog" class="reset-dialog" aria-labelledby="reset-title"><span class="dialog-icon" data-icon="reset"></span><h2 id="reset-title">重置演示数据？</h2><p>会清除本次演示的聊天、图片和草稿，恢复初始会话。</p><div><button type="button" class="button secondary" data-action="cancel-reset">保留数据</button><button type="button" class="button primary" data-action="confirm-reset">重置</button></div></dialog>
+    <dialog id="reset-dialog" class="reset-dialog" aria-labelledby="reset-title"><span class="dialog-icon" data-icon="reset"></span><h2 id="reset-title">重置演示数据？</h2><p>会清除本次聊天和草稿，恢复初始会话、素材库和快捷短语。</p><div><button type="button" class="button secondary" data-action="cancel-reset">保留数据</button><button type="button" class="button primary" data-action="confirm-reset">重置</button></div></dialog>
+    <dialog id="delete-dialog" class="reset-dialog" aria-labelledby="delete-title"><span data-icon="trash"></span><h2 id="delete-title">删除会话？</h2><p id="delete-description"></p><div><button type="button" class="button secondary" data-action="cancel-delete">取消</button><button type="button" class="button danger" data-action="confirm-delete">删除</button></div></dialog>
+    <dialog id="picker-dialog" class="library-dialog" aria-labelledby="picker-title"></dialog>
+    <dialog id="editor-dialog" class="editor-dialog" aria-labelledby="editor-title"></dialog>
+    <dialog id="phrase-dialog" class="editor-dialog" aria-labelledby="phrase-preview-title"></dialog>
+    <dialog id="video-dialog" class="video-dialog" aria-label="视频预览"><button type="button" class="image-close" data-action="close-video" aria-label="关闭视频"><span data-icon="close"></span></button><video controls playsinline preload="metadata"></video></dialog>
     <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp" hidden>
     <noscript>请启用 JavaScript 以体验客服原型交互。</noscript>
   </body>

@@ -9,6 +9,9 @@
   const imageInput = document.querySelector('#image-input');
   const imageDialog = document.querySelector('#image-dialog');
   const resetDialog = document.querySelector('#reset-dialog');
+  const deleteDialog = document.querySelector('#delete-dialog');
+  const videoDialog = document.querySelector('#video-dialog');
+  let pendingDeletion = null;
   const paths = {
     message: '<path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z"/>',
     headset: '<path d="M3 14v-3a9 9 0 0 1 18 0v3M21 16v1a4 4 0 0 1-4 4h-3"/><rect x="2" y="12" width="5" height="7" rx="2"/><rect x="17" y="12" width="5" height="7" rx="2"/>',
@@ -43,17 +46,19 @@
     replies: '<path d="M3 3h18v14H8l-5 4z"/><path d="M7 7h10M7 11h7"/>',
     signal: '<path d="M4 18v2m5-7v7m5-12v12m5-17v17"/>',
     lock: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4"/>',
+    trash: '<path d="M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    edit: '<path d="m16 3 5 5-12 12-6 1 1-6ZM14 5l5 5"/>',
   };
   const icon = (name) => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.message}</svg>`;
   const escape = (value = '') => String(value).replace(/[&<>"']/g, (character) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
   const uid = () => window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const time = (timestamp) => new Date(timestamp).toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit',hour12:false});
-  const safeImage = (source) => /^(assets\/(mountain|coast)\.svg|data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+)$/.test(source || '') ? source : 'assets/mountain.svg';
   const seed = () => {
     const now = Date.now();
     const message = (id, role, text, minutes, extra = {}) => ({id,role,text,createdAt:now - minutes * 60000,status:'sent',delivered:true,readByAgent:true,readByCustomer:true,attempts:1,...extra});
     return {
-      version:1, sessionId:uid(), sound:true, network:true, drafts:{},
+      version:1, sessionId:uid(), sound:true, network:true, drafts:{}, library:SupportLibrary.seed(),
       conversations:[
         {id:CUSTOMER_ID,name:'用户 0291',avatar:'29',tone:'gold',platform:'Android',version:'1.0.1',online:true,messages:[
           message('a1','customer','你好，刚兑换的壁纸设置后没有动，请问怎么处理？',14),
@@ -88,7 +93,10 @@
   function read() {
     try {
       const value = JSON.parse(localStorage.getItem(STORAGE_KEY));
-      if (value?.version === 1 && Array.isArray(value.conversations) && value.drafts && value.sessionId) return value;
+      if (value?.version === 1 && Array.isArray(value.conversations) && value.drafts && value.sessionId) {
+        value.library ||= SupportLibrary.seed();
+        return value;
+      }
     } catch (_) { /* Missing, corrupt or unavailable browser storage starts a fresh demo. */ }
     return cache || seed();
   }
@@ -109,7 +117,7 @@
     view:['admin','customer','agent'].includes(initial.get('view')) ? initial.get('view') : 'admin',
     active:CUSTOMER_ID,
     customerPage:initial.get('screen') === 'home' ? 'home' : 'chat',
-    agentPage:'list', adminChat:false, search:'', filter:'all', quick:false,
+    agentPage:'list', adminPage:'chat', adminChat:false, search:'', filter:'all', quick:false,
     nextOutcome:'success', jump:false,
   };
   function mutate(change, refresh = true) {
@@ -121,12 +129,20 @@
   const currentRole = () => ui.view === 'customer' ? 'customer' : 'agent';
   const currentId = () => ui.view === 'customer' ? CUSTOMER_ID : ui.active;
   const conversation = (id = currentId()) => model.conversations.find((item) => item.id === id);
-  const isChatOpen = () => ui.view === 'customer' ? ui.customerPage === 'chat' : ui.view === 'agent' ? ui.agentPage === 'chat' : window.innerWidth > 650 || ui.adminChat;
+  const agentConversations = () => model.conversations.filter(item => !item.hiddenForAgent);
+  const isChatOpen = () => ui.view === 'customer' ? ui.customerPage === 'chat' : ui.view === 'agent' ? ui.agentPage === 'chat' && !!ui.active : ui.adminPage === 'chat' && !!ui.active && (window.innerWidth > 650 || ui.adminChat);
   const unread = (item, role = 'agent') => item.messages.filter((message) => message.delivered && message.role !== role && !message[role === 'agent' ? 'readByAgent' : 'readByCustomer']).length;
-  const totalUnread = () => model.conversations.reduce((sum, item) => sum + unread(item), 0);
+  const totalUnread = () => agentConversations().reduce((sum, item) => sum + unread(item), 0);
   const draftKey = () => `${ui.view}:${currentId()}`;
   const draft = () => model.drafts[draftKey()] || {text:'',image:null};
   const visibleMessages = (item) => item.messages.filter((message) => message.delivered || message.role === currentRole());
+  function ensureActive() {
+    if (ui.view === 'customer' || conversation(ui.active) && !conversation(ui.active).hiddenForAgent) return false;
+    const next = agentConversations().sort((a,b) => b.messages.at(-1).createdAt - a.messages.at(-1).createdAt)[0]?.id || null;
+    if (next === ui.active) return false;
+    ui.active = next; ui.agentPage = 'list'; ui.adminChat = false; ui.quick = false;
+    return true;
+  }
   function markRead() {
     if (!isChatOpen()) return;
     const item = conversation();
@@ -136,9 +152,9 @@
       write(model);
     }
   }
-  const avatar = (item, agent = false) => agent
+  const avatar = (item, agent = false, showPresence = true) => agent
     ? `<span class="avatar dark">${icon('headset')}</span>`
-    : `<span class="avatar ${escape(item.tone)}">${escape(item.avatar)}${item.online ? '<span class="presence"></span>' : ''}</span>`;
+    : `<span class="avatar ${escape(item.tone)}">${escape(item.avatar)}${item.online && showPresence ? '<span class="presence"></span>' : ''}</span>`;
   const soundControl = () => `<button type="button" class="sound-button" data-action="sound" aria-pressed="${model.sound}" aria-label="${model.sound ? '关闭' : '开启'}声音提醒">${icon(model.sound ? 'volume':'mute')}<span>声音${model.sound ? '开启':'关闭'}</span></button>`;
   const networkBanner = () => !model.network ? `<div class="network-banner" role="status">${icon('wifiOff')}<span>网络已断开，恢复后可重试发送。</span></div>` : '';
   function sidebar() {
@@ -146,21 +162,21 @@
     return `<aside class="admin-sidebar"><div class="admin-brand"><span class="brand-mark">倾</span><div><strong>倾境壁纸</strong><small>管理后台</small></div></div><nav class="admin-menu" aria-label="管理后台导航">${items.map(([name,label]) => `<button type="button" ${name === 'headset' ? 'class="current" aria-current="page" data-action="admin-home"':'data-action="context-menu"'} title="${label}">${icon(name)}<span class="menu-label">${label}</span>${name === 'headset' ? `<span class="sidebar-count" data-total-unread>${totalUnread() || ''}</span>`:''}</button>`).join('')}</nav><div class="sidebar-footer"><span class="status-dot"></span><span>倾境运营管理</span></div></aside>`;
   }
   function listPane(mobile = false) {
-    return `<section class="conversation-pane"><div class="list-top"><div class="list-title"><h2>${mobile ? '会话':'用户会话'}</h2>${mobile ? '<span class="online-pill"><span class="status-dot"></span>接待中</span>':`<span>${model.conversations.length} 位用户</span>`}</div><label class="search-box">${icon('search')}<span class="sr-only">搜索用户或消息</span><input id="conversation-search" type="search" placeholder="搜索用户或消息" value="${escape(ui.search)}" autocomplete="off"></label></div><div class="list-filters" aria-label="会话筛选"><button type="button" data-filter="all" class="${ui.filter === 'all' ? 'active':''}" aria-pressed="${ui.filter === 'all'}">全部<span class="filter-count">${model.conversations.length}</span></button><button type="button" data-filter="unread" class="${ui.filter === 'unread' ? 'active':''}" aria-pressed="${ui.filter === 'unread'}">未读<span class="filter-count" data-unread-conversations>${model.conversations.filter((item) => unread(item)).length}</span></button></div><div id="conversation-list" class="conversation-list"></div>${mobile ? `<footer class="agent-list-footer"><div><span class="avatar dark">A</span><span>管理员 · 正在接待</span></div>${soundControl()}</footer>`:''}</section>`;
+    return `<section class="conversation-pane"><div class="list-top"><div class="list-title"><h2>${mobile ? '会话':'用户会话'}</h2>${mobile ? '<span class="online-pill"><span class="status-dot"></span>接待中</span>':`<span><span data-conversation-count>${agentConversations().length}</span> 位用户</span>`}</div><label class="search-box">${icon('search')}<span class="sr-only">搜索用户或消息</span><input id="conversation-search" type="search" placeholder="搜索用户或消息" value="${escape(ui.search)}" autocomplete="off"></label></div><div class="list-filters" aria-label="会话筛选"><button type="button" data-filter="all" class="${ui.filter === 'all' ? 'active':''}" aria-pressed="${ui.filter === 'all'}">全部<span class="filter-count" data-conversation-count>${agentConversations().length}</span></button><button type="button" data-filter="unread" class="${ui.filter === 'unread' ? 'active':''}" aria-pressed="${ui.filter === 'unread'}">未读<span class="filter-count" data-unread-conversations>${agentConversations().filter((item) => unread(item)).length}</span></button></div><div id="conversation-list" class="conversation-list"></div>${mobile ? `<footer class="agent-list-footer"><div><span class="avatar dark">A</span><span>管理员 · 正在接待</span></div>${soundControl()}</footer>`:''}</section>`;
   }
   function listItems() {
     const query = ui.search.trim().toLowerCase();
-    const items = model.conversations.filter((item) => {
+    const items = agentConversations().filter((item) => {
       const matches = !query || `${item.name} ${item.platform} ${item.messages.filter((message) => message.delivered || message.role === 'agent').map((message) => message.text).join(' ')}`.toLowerCase().includes(query);
       return matches && (ui.filter !== 'unread' || unread(item) > 0);
     }).sort((a,b) => b.messages.at(-1).createdAt - a.messages.at(-1).createdAt);
-    if (!items.length) return `<div class="list-empty">${icon(query ? 'search':'check')}<p><strong>${query ? '没有找到相关会话':'暂时没有未读消息'}</strong>${query ? '试试其他用户编号或关键词':'新的咨询会显示在这里'}</p></div>`;
+    if (!items.length) return `<div class="list-empty">${icon(query ? 'search':ui.filter === 'unread' ? 'check':'message')}<p><strong>${query ? '没有找到相关会话':ui.filter === 'unread' ? '暂时没有未读消息':'暂无会话'}</strong>${query ? '试试其他用户编号或关键词':'用户发来新消息时，会显示在这里'}</p></div>`;
     return items.map((item) => {
       const last = item.messages.filter((message) => message.delivered || message.role === 'agent').at(-1);
       const count = unread(item);
       const prefix = last?.role === 'agent' ? last.status === 'failed' ? '[发送失败] ' : last.status === 'uncertain' ? '[发送未确认] ' : '我：' : '';
-      const preview = prefix + (last?.text || (last?.image ? '[图片]':'暂无消息'));
-      return `<button type="button" class="conversation-item ${ui.active === item.id ? 'active':''}" data-conversation="${escape(item.id)}" aria-label="打开${escape(item.name)}的会话${count ? `，${count}条未读`:''}" aria-current="${ui.active === item.id}">${avatar(item)}<div class="conversation-copy"><div class="conversation-name"><strong>${escape(item.name)}</strong><time>${time(last?.createdAt || Date.now())}</time></div><div class="conversation-preview"><p>${escape(preview)}</p>${count ? `<span class="unread-badge">${count > 99 ? '99+':count}</span>`:''}</div></div></button>`;
+      const preview = prefix + (last?.text || (last?.image ? '[图片]':last?.video ? '[视频]':'暂无消息'));
+      return `<div class="conversation-row"><button type="button" class="conversation-item ${ui.active === item.id ? 'active':''}" data-conversation="${escape(item.id)}" aria-label="打开${escape(item.name)}的会话${count ? `，${count}条未读`:''}" aria-current="${ui.active === item.id}">${avatar(item)}<div class="conversation-copy"><div class="conversation-name"><strong>${escape(item.name)}</strong><time>${time(last?.createdAt || Date.now())}</time></div><div class="conversation-preview"><p>${escape(preview)}</p>${count ? `<span class="unread-badge">${count > 99 ? '99+':count}</span>`:''}</div></div></button><button type="button" class="conversation-delete icon-button" data-delete-conversation="${escape(item.id)}" aria-label="删除${escape(item.name)}的会话" title="删除会话">${icon('trash')}</button></div>`;
     }).join('');
   }
   function chatPane() {
@@ -168,22 +184,29 @@
     if (!item) return `<section class="chat-pane"><div class="empty-chat">${icon('message')}选择一位用户开始回复</div></section>`;
     const customer = currentRole() === 'customer';
     const name = customer ? '在线客服' : item.name;
-    const meta = customer ? '<span class="status-dot"></span>倾境客服 · 在线' : `${item.online ? '<span class="status-dot"></span>在线':'暂时离线'}<span>·</span>${escape(item.platform)}<span>·</span>${escape(item.version)}`;
-    return `<section class="chat-pane"><header class="chat-heading"><button type="button" class="icon-button mobile-back" data-action="back" aria-label="${customer ? '返回我的页面':'返回会话列表'}">${icon('back')}</button><div class="chat-person">${avatar(item,customer)}<div><h2>${escape(name)}</h2><p>${meta}</p></div></div>${customer ? soundControl():`<span class="chat-heading-note">${icon('lock')}消息记录保留</span>`}</header><div id="network-banner-slot">${networkBanner()}</div><div id="chat-feed" class="chat-feed" role="log" aria-label="${escape(name)}聊天记录" aria-live="polite"></div><button type="button" id="new-messages" class="new-messages-button" data-action="scroll-bottom" hidden>${icon('arrowDown')}查看新消息</button>${composer()}</section>`;
+    const meta = customer || item.online ? '<span class="status-dot"></span>在线':'<span class="status-dot offline"></span>离线';
+    return `<section class="chat-pane"><header class="chat-heading"><button type="button" class="icon-button mobile-back" data-action="back" aria-label="${customer ? '返回我的页面':'返回会话列表'}">${icon('back')}</button><div class="chat-person">${avatar(item,customer,false)}<div><h2>${escape(name)}</h2><p>${meta}</p></div></div>${customer ? soundControl():`<button type="button" class="delete-conversation-button" data-delete-conversation="${escape(item.id)}" aria-label="删除${escape(item.name)}的会话">${icon('trash')}<span>删除会话</span></button>`}</header><div id="network-banner-slot">${networkBanner()}</div><div id="chat-feed" class="chat-feed" role="log" aria-label="${escape(name)}聊天记录" aria-live="polite"></div><button type="button" id="new-messages" class="new-messages-button" data-action="scroll-bottom" hidden>${icon('arrowDown')}查看新消息</button>${composer()}</section>`;
   }
   function composer() {
     const value = draft();
-    return `<form id="composer" class="composer" aria-label="发送消息"><div class="composer-toolbar"><button type="button" class="icon-button" data-action="choose-image" aria-label="添加图片" title="添加图片">${icon('image')}</button>${currentRole() === 'agent' ? `<button type="button" class="icon-button" data-action="quick" aria-label="快捷回复" aria-expanded="${ui.quick}" title="快捷回复">${icon('replies')}</button>`:''}<span class="composer-hint">Enter 发送 · Shift + Enter 换行</span></div><div id="quick-replies" class="quick-replies" ${ui.quick ? '':'hidden'}>${['您好，我帮您看一下。','方便发一张截图吗？','不客气，有问题随时联系。'].map((text) => `<button type="button" data-quick="${escape(text)}">${escape(text)}</button>`).join('')}</div><div id="attachment-slot">${attachmentMarkup(value)}</div><label class="sr-only" for="message-input">消息内容</label><textarea id="message-input" placeholder="${currentRole() === 'customer' ? '描述您的问题，也可以发送截图…':'输入回复内容…'}" maxlength="2000" rows="2">${escape(value.text)}</textarea><div class="composer-bottom"><p>发送结果会显示在每条消息下方</p><button type="submit" id="send-button" class="send-button" ${!value.text.trim() && !value.image ? 'disabled':''}>发送${icon('send')}</button></div></form>`;
+    return `<form id="composer" class="composer" aria-label="发送消息"><div class="composer-toolbar"><button type="button" class="icon-button" data-action="choose-image" aria-label="添加图片" title="添加图片">${icon('image')}</button>${currentRole() === 'agent' ? `<button type="button" class="composer-library-button" data-action="open-library" aria-label="选择客服素材" title="素材库">${icon('folder')}<span>素材库</span></button><button type="button" class="composer-library-button" data-action="quick" aria-label="选择快捷短语" title="快捷短语">${icon('replies')}<span>快捷短语</span></button>`:''}<span class="composer-hint">Enter 发送 · Shift + Enter 换行</span></div><div id="attachment-slot">${attachmentMarkup(value)}</div><label class="sr-only" for="message-input">消息内容</label><textarea id="message-input" placeholder="${currentRole() === 'customer' ? '描述您的问题，也可以发送截图…':'输入回复内容…'}" maxlength="2000" rows="2">${escape(value.text)}</textarea><div class="composer-bottom"><p>发送结果会显示在每条消息下方</p><button type="submit" id="send-button" class="send-button" ${!value.text.trim() && !value.image && !value.media ? 'disabled':''}>发送${icon('send')}</button></div></form>`;
   }
   function attachmentMarkup(value) {
-    return value.image ? `<div class="attachment-preview"><img src="${escape(safeImage(value.image.source))}" alt="待发送图片"><div><strong>${escape(value.image.name)}</strong><small>点击发送后，图片才会发出</small></div><button type="button" class="icon-button" data-action="remove-image" aria-label="移除待发送图片">${icon('close')}</button></div>` : '';
+    const media = value.media || (value.image ? {...value.image,type:'image'} : null);
+    if (!media) return '';
+    const art = media.type === 'video' ? `<video muted playsinline preload="auto" data-media-source="${escape(media.source)}" ${media.poster ? `data-media-poster="${escape(media.poster)}"`:''}></video>` : `<img data-media-source="${escape(media.source)}" alt="待发送图片">`;
+    return `<div class="attachment-preview">${art}<div><strong>${escape(media.name)}</strong><small>点击发送后，${media.type === 'video' ? '视频':'图片'}才会发出</small></div><button type="button" class="icon-button" data-action="remove-image" aria-label="移除待发送素材">${icon('close')}</button></div>`;
   }
   function messageMarkup(message, item) {
     const mine = message.role === currentRole();
     const labels = {sending:'发送中',sent:'已发送',failed:'发送失败',uncertain:'发送未确认'};
     const statusIcons = {sending:'clock',sent:'check',failed:'alert',uncertain:'alert'};
     const retry = mine && ['failed','uncertain'].includes(message.status);
-    return `<article class="message-row ${mine ? 'mine':''}" data-message-id="${escape(message.id)}">${avatar(item,message.role === 'agent')}<div class="message-content"><div class="message-bubble ${mine ? escape(message.status):''} ${message.image ? 'image-bubble':''}">${message.image ? `<button type="button" class="message-image" data-image="${escape(safeImage(message.image))}" aria-label="查看聊天图片"><img src="${escape(safeImage(message.image))}" alt="${escape(message.imageName || '聊天截图')}"></button>${message.text ? `<div class="image-caption">${escape(message.text)}</div>`:''}`:escape(message.text)}</div><div class="message-meta"><time>${time(message.createdAt)}</time>${mine ? `<span class="message-state ${escape(message.status)} ${message.status === 'sending' ? 'spinning':''}">${icon(statusIcons[message.status])}${labels[message.status] || '发送未确认'}</span>`:''}${retry ? `<button type="button" class="retry-button" data-retry="${escape(message.id)}" aria-label="重发这条消息">${icon('reset')}重发</button>`:''}</div>${retry ? `<div class="failure-reason">${escape(message.error || '未收到发送确认，请重试。')}</div>`:''}</div></article>`;
+    const media = message.video
+      ? `<button type="button" class="message-image media-preview-button" data-video="${escape(message.video)}" aria-label="播放聊天视频"><video muted playsinline preload="auto" data-media-source="${escape(message.video)}" ${message.videoPoster ? `data-media-poster="${escape(message.videoPoster)}"`:''}></video><span class="video-play">${icon('play')}</span></button><div class="video-caption">${escape(message.videoName || '视频')}</div>`
+      : message.image ? `<button type="button" class="message-image media-preview-button" data-image="${escape(message.image)}" aria-label="查看聊天图片"><img data-media-source="${escape(message.image)}" alt="${escape(message.imageName || '聊天截图')}"></button>` : '';
+    const content = media ? `${media}${message.text ? `<div class="image-caption">${escape(message.text)}</div>`:''}` : escape(message.text);
+    return `<article class="message-row ${mine ? 'mine':''}" data-message-id="${escape(message.id)}">${avatar(item,message.role === 'agent',false)}<div class="message-content"><div class="message-bubble ${mine ? escape(message.status):''} ${media ? 'image-bubble':''}">${content}</div><div class="message-meta"><time>${time(message.createdAt)}</time>${mine ? `<span class="message-state ${escape(message.status)} ${message.status === 'sending' ? 'spinning':''}">${icon(statusIcons[message.status])}${labels[message.status] || '发送未确认'}</span>`:''}${retry ? `<button type="button" class="retry-button" data-retry="${escape(message.id)}" aria-label="重发这条消息">${icon('reset')}重发</button>`:''}</div>${retry ? `<div class="failure-reason">${escape(message.error || '未收到发送确认，请重试。')}</div>`:''}</div></article>`;
   }
   function chatMessages() {
     const item = conversation();
@@ -198,6 +221,7 @@
   }
   function render() {
     model = read();
+    ensureActive();
     markRead();
     ui.jump = false;
     document.querySelectorAll('[data-view]').forEach((button) => {
@@ -206,7 +230,11 @@
       button.setAttribute('aria-pressed',String(active));
     });
     if (ui.view === 'admin') {
-      surface.innerHTML = `<div class="admin-shell">${sidebar()}<section class="admin-main"><header class="admin-topbar"><div class="breadcrumb">${icon('menu')}<span>内容运营</span><i>/</i><strong>在线客服</strong></div><div class="admin-identity"><span>A</span><div><strong>管理员</strong><small>倾境管理后台</small></div></div></header><div class="admin-content"><div class="page-heading"><div><h1>客服工作台</h1><p>查看用户咨询，在这里直接回复。</p></div><div class="work-status"><span class="online-pill"><span class="status-dot"></span>正在接待</span>${soundControl()}</div></div><div class="workspace ${ui.adminChat ? 'mobile-chat':''}">${listPane()}${chatPane()}</div></div></section></div>`;
+      const libraryPage = ui.adminPage === 'library';
+      const heading = libraryPage ? '<h1>客服素材库</h1><p>统一维护图片、视频和快捷短语，手机客服同步使用。</p>' : '<h1>客服工作台</h1><p>查看用户咨询，在这里直接回复。</p>';
+      const actions = libraryPage ? `<button type="button" class="button secondary" data-action="return-workbench">${icon('back')}返回会话</button>` : `<button type="button" class="button secondary" data-action="manage-library">${icon('folder')}<span>客服素材库</span></button><span class="online-pill"><span class="status-dot"></span>正在接待</span>${soundControl()}`;
+      const body = libraryPage ? SupportLibrary.managerMarkup() : `<div class="workspace ${ui.adminChat ? 'mobile-chat':''}">${listPane()}${chatPane()}</div>`;
+      surface.innerHTML = `<div class="admin-shell">${sidebar()}<section class="admin-main"><header class="admin-topbar"><div class="breadcrumb">${icon('menu')}<span>内容运营</span><i>/</i><strong>在线客服</strong></div><div class="admin-identity"><span>A</span><div><strong>管理员</strong><small>倾境管理后台</small></div></div></header><div class="admin-content ${libraryPage ? 'library-admin-content':''}"><div class="page-heading"><div>${heading}</div><div class="work-status">${actions}</div></div>${body}</div></section></div>`;
     } else {
       const inner = ui.view === 'customer' ? ui.customerPage === 'home' ? customerHome():chatPane() : ui.agentPage === 'list' ? listPane(true):chatPane();
       surface.innerHTML = `<div class="mobile-stage"><div class="phone">${phoneTop()}<div class="phone-content">${inner}</div><div class="phone-home-indicator"></div></div></div>`;
@@ -217,8 +245,11 @@
     if (feed) { feed.innerHTML = chatMessages(); requestAnimationFrame(() => { feed.scrollTop = feed.scrollHeight; }); }
     updateChrome();
     listenToFeed();
+    SupportLibrary.refresh();
+    SupportMediaStore.hydrate(surface);
   }
   function refreshScreen() {
+    if (ensureActive()) { render(); return; }
     markRead();
     const list = document.querySelector('#conversation-list');
     if (list) list.innerHTML = listItems();
@@ -244,11 +275,14 @@
       document.querySelector('.phone-content').innerHTML = customerHome();
     }
     updateChrome();
+    SupportLibrary.refresh();
+    SupportMediaStore.hydrate(surface);
   }
   function updateChrome() {
     const count = totalUnread();
     document.querySelectorAll('[data-total-unread]').forEach((element) => { element.textContent = count || ''; });
-    document.querySelectorAll('[data-unread-conversations]').forEach((element) => { element.textContent = model.conversations.filter((item) => unread(item)).length; });
+    document.querySelectorAll('[data-unread-conversations]').forEach((element) => { element.textContent = agentConversations().filter((item) => unread(item)).length; });
+    document.querySelectorAll('[data-conversation-count]').forEach(element => { element.textContent = agentConversations().length; });
     document.querySelectorAll('[data-action="sound"]').forEach((button) => {
       button.setAttribute('aria-pressed',String(model.sound));
       button.setAttribute('aria-label',`${model.sound ? '关闭':'开启'}声音提醒`);
@@ -273,9 +307,9 @@
   function updateComposer() {
     const value = draft();
     const slot = document.querySelector('#attachment-slot');
-    if (slot) slot.innerHTML = attachmentMarkup(value);
+    if (slot) { slot.innerHTML = attachmentMarkup(value); SupportMediaStore.hydrate(slot); }
     const button = document.querySelector('#send-button');
-    if (button) button.disabled = !value.text.trim() && !value.image;
+    if (button) button.disabled = !value.text.trim() && !value.image && !value.media;
   }
   function changeView(view) {
     ui.view = view; ui.quick = false; ui.search = ''; ui.filter = 'all';
@@ -287,15 +321,18 @@
     render();
   }
   function openConversation(id) {
+    if (!conversation(id) || conversation(id).hiddenForAgent) return;
     ui.active = id; ui.agentPage = 'chat'; ui.adminChat = true; ui.quick = false;
+    if (ui.view === 'admin') ui.adminPage = 'chat';
     render();
   }
   function beginSend(retryId) {
     const id = currentId();
     const role = currentRole();
+    if (!conversation(id)) return;
     const value = {...draft(),text:document.querySelector('#message-input')?.value ?? draft().text};
     const key = draftKey();
-    if (!retryId && !value.text.trim() && !value.image) return;
+    if (!retryId && !value.text.trim() && !value.image && !value.media) return;
     const messageId = retryId || uid();
     const outcome = model.network ? ui.nextOutcome : 'failure';
     const session = model.sessionId;
@@ -309,9 +346,11 @@
         if (!['failed','uncertain'].includes(message.status)) return;
         message.status = 'sending'; message.error = ''; message.attempts += 1; message.pendingAt = Date.now();
       } else {
-        message = {id:messageId,role,text:value.text.trim(),image:value.image?.source || null,imageName:value.image?.name || '',createdAt:Date.now(),pendingAt:Date.now(),status:'sending',delivered:false,readByAgent:role === 'agent',readByCustomer:role === 'customer',attempts:1};
+        const media = value.media || (value.image ? {...value.image,type:'image'} : null);
+        message = {id:messageId,role,text:value.text.trim(),image:media?.type === 'image' ? media.source : null,imageName:media?.type === 'image' ? media.name : '',video:media?.type === 'video' ? media.source : null,videoName:media?.type === 'video' ? media.name : '',createdAt:Date.now(),pendingAt:Date.now(),status:'sending',delivered:false,readByAgent:role === 'agent',readByCustomer:role === 'customer',attempts:1};
+        if (media?.poster) message.videoPoster = media.poster;
         target.messages.push(message);
-        state.drafts[key] = {text:'',image:null};
+        state.drafts[key] = {text:'',image:null,media:null};
       }
       ui.jump = true;
     });
@@ -324,7 +363,8 @@
       let result;
       mutate((state) => {
         if (state.sessionId !== session) return;
-        const message = state.conversations.find((item) => item.id === id)?.messages.find((entry) => entry.id === messageId);
+        const target = state.conversations.find((item) => item.id === id);
+        const message = target?.messages.find((entry) => entry.id === messageId);
         if (!message || message.status !== 'sending') return;
         if (!state.network || disconnected || outcome === 'failure') {
           message.status = 'failed'; message.error = '网络连接中断，发送失败。请点击重发。';
@@ -334,6 +374,7 @@
         } else {
           message.delivered = true; message.status = 'sent'; message.error = '';
         }
+        if (message.delivered && message.role === 'customer') { target.hiddenForAgent = false; target.online = true; }
         result = message.status;
       });
       if (result === 'failed') toast('消息发送失败，内容已保留，可点击重发。','error');
@@ -359,11 +400,12 @@
     } catch (_) { /* Visual unread indicators remain available if audio is blocked. */ }
   }
   function simulateIncoming(role) {
-    const id = role === 'customer' ? model.conversations.find((item) => item.id !== ui.active && item.id !== CUSTOMER_ID)?.id || 'visitor-0866' : currentId();
+    const id = role === 'customer' ? model.conversations.find((item) => item.id !== ui.active && item.id !== CUSTOMER_ID)?.id || 'visitor-0866' : currentId() || CUSTOMER_ID;
     const text = role === 'customer' ? ['你好，想咨询一下壁纸设置的问题。','刚才补了一张截图，麻烦看一下。','请问现在方便帮我处理吗？'][Math.floor(Math.random()*3)] : '您好，消息已收到。我帮您核对一下，请稍等。';
     mutate((state) => {
       const item = state.conversations.find((entry) => entry.id === id);
       item.online = true;
+      if (role === 'customer') item.hiddenForAgent = false;
       item.messages.push({id:uid(),role,text,createdAt:Date.now(),status:'sent',delivered:true,readByAgent:role === 'agent',readByCustomer:role === 'customer',attempts:1});
     });
     closeDemo();
@@ -388,23 +430,73 @@
     document.querySelector('#demo-toggle').setAttribute('aria-expanded','false');
   }
   function attachExample() {
+    if (ui.view !== 'customer' && !ui.active) return toast('请先选择要回复的用户。','error');
     if (!isChatOpen()) {
       if (ui.view === 'customer') ui.customerPage = 'chat';
       else { ui.agentPage = 'chat'; ui.adminChat = true; }
       render();
     }
-    updateDraft({image:{source:'assets/mountain.svg',name:'壁纸问题截图.svg'}});
+    updateDraft({image:null,media:{type:'image',source:'assets/mountain.svg',name:'壁纸问题截图.svg'}});
     closeDemo();
     toast('示例图片已添加，点击发送即可。');
   }
-  function previewImage(source) {
-    imageDialog.querySelector('img').src = safeImage(source);
-    imageDialog.showModal();
+  async function previewMedia(source, type = 'image') {
+    try {
+      const url = await SupportMediaStore.url(source);
+      if (type === 'video') {
+        const video = videoDialog.querySelector('video');
+        video.src = url;
+        videoDialog.showModal();
+        video.play().catch(() => {});
+      } else {
+        imageDialog.querySelector('img').src = url;
+        imageDialog.showModal();
+      }
+    } catch (error) { toast(error.message || '素材无法预览，请重试。','error'); }
+  }
+  function askDelete(target) {
+    pendingDeletion = {...target,session:model.sessionId};
+    deleteDialog.querySelector('#delete-title').textContent = target.title;
+    deleteDialog.querySelector('#delete-description').textContent = target.description;
+    deleteDialog.showModal();
+  }
+  function askDeleteConversation(id) {
+    const item = conversation(id);
+    if (!item || item.hiddenForAgent || currentRole() !== 'agent') return;
+    askDelete({kind:'conversation',id,title:'删除会话？',description:`将「${item.name}」从客服列表中移除。聊天记录会保留，用户再次发来消息时，会话会重新出现。`});
+  }
+  function confirmDelete() {
+    const target = pendingDeletion;
+    pendingDeletion = null; deleteDialog.close();
+    if (!target || target.session !== read().sessionId) return toast('演示数据已变更，请重新操作。','error');
+    if (target.kind === 'library') return SupportLibrary.remove(target.id);
+    mutate(state => {
+      const item = state.conversations.find(row => row.id === target.id);
+      if (!item) return;
+      item.hiddenForAgent = true;
+      item.messages.forEach(message => { if (message.delivered) message.readByAgent = true; });
+    });
+    toast('会话已从客服列表中删除。');
+  }
+  function useLibraryItem(item) {
+    if (currentRole() !== 'agent' || !ui.active) { toast('请先选择要回复的用户。','error'); return false; }
+    if (ui.view === 'admin' && ui.adminPage === 'library') { ui.adminPage = 'chat'; ui.adminChat = true; render(); }
+    const input = document.querySelector('#message-input');
+    if (!input) return false;
+    if (item.type === 'phrase') {
+      const start = input.selectionStart, end = input.selectionEnd;
+      const text = input.value.slice(0,start) + item.text + input.value.slice(end);
+      if (text.length > 2000) { toast('消息最多 2000 字，请删减后再插入。','error'); return false; }
+      updateDraft({text}); input.value = text; input.focus(); input.setSelectionRange(start + item.text.length,start + item.text.length);
+    } else updateDraft({image:null,media:{type:item.type,source:item.source,poster:item.poster || null,name:item.title}});
+    toast(`${item.type === 'phrase' ? '短语已填入':'素材已添加'}，点击发送即可。`);
+    return true;
   }
   document.addEventListener('click',(event) => {
     const button = event.target.closest('button');
     if (!button) return;
     if (button.dataset.view) return changeView(button.dataset.view);
+    if (button.dataset.deleteConversation) return askDeleteConversation(button.dataset.deleteConversation);
     if (button.dataset.conversation) return openConversation(button.dataset.conversation);
     if (button.dataset.toastConversation) { openConversation(button.dataset.toastConversation); button.closest('.toast').remove(); return; }
     if (button.dataset.filter) {
@@ -413,26 +505,26 @@
       refreshScreen(); return;
     }
     if (button.dataset.retry) return beginSend(button.dataset.retry);
-    if (button.dataset.image) return previewImage(button.dataset.image);
-    if (button.dataset.quick) {
-      updateDraft({text:button.dataset.quick});
-      const input = document.querySelector('#message-input');
-      input.value = button.dataset.quick; input.focus();
-      ui.quick = false; document.querySelector('#quick-replies').hidden = true;
-      document.querySelector('[data-action="quick"]').setAttribute('aria-expanded','false'); return;
-    }
+    if (button.dataset.image) return previewMedia(button.dataset.image);
+    if (button.dataset.video) return previewMedia(button.dataset.video,'video');
     if (button.id === 'demo-toggle') {
       demoPanel.hidden = !demoPanel.hidden;
       button.setAttribute('aria-expanded',String(!demoPanel.hidden)); return;
     }
-    if (button.classList.contains('image-close')) { imageDialog.close(); return; }
+    if (button.classList.contains('image-close') && imageDialog.contains(button)) { imageDialog.close(); return; }
     switch (button.dataset.action) {
       case 'back': if (ui.view === 'customer') ui.customerPage = 'home'; else { ui.agentPage = 'list'; ui.adminChat = false; } render(); break;
       case 'open-customer-chat': ui.customerPage = 'chat'; render(); break;
       case 'sound': mutate((state) => { state.sound = !state.sound; }); if (model.sound) beep(); toast(model.sound ? '声音提醒已开启。':'声音提醒已关闭，未读消息仍会显示。'); break;
       case 'choose-image': imageInput.value = ''; imageInput.click(); break;
-      case 'remove-image': updateDraft({image:null}); break;
-      case 'quick': ui.quick = !ui.quick; document.querySelector('#quick-replies').hidden = !ui.quick; button.setAttribute('aria-expanded',String(ui.quick)); break;
+      case 'remove-image': updateDraft({image:null,media:null}); break;
+      case 'quick': SupportLibrary.openPicker('phrase'); break;
+      case 'open-library': SupportLibrary.openPicker('image'); break;
+      case 'manage-library': ui.adminPage = 'library'; render(); break;
+      case 'return-workbench': ui.adminPage = 'chat'; render(); break;
+      case 'cancel-delete': pendingDeletion = null; deleteDialog.close(); break;
+      case 'confirm-delete': confirmDelete(); break;
+      case 'close-video': videoDialog.close(); break;
       case 'scroll-bottom': { const feed = document.querySelector('#chat-feed'); feed.scrollTop = feed.scrollHeight; button.hidden = true; break; }
       case 'close-demo': closeDemo(); break;
       case 'incoming-user': simulateIncoming('customer'); break;
@@ -442,7 +534,7 @@
       case 'reset': closeDemo(); resetDialog.showModal(); break;
       case 'cancel-reset': resetDialog.close(); break;
       case 'confirm-reset': model = seed(); write(model); ui.active = CUSTOMER_ID; ui.search = ''; ui.filter = 'all'; ui.quick = false; ui.nextOutcome = 'success'; document.querySelector('#send-outcome').value = 'success'; resetDialog.close(); render(); toast('演示数据已重置。'); break;
-      case 'admin-home': ui.adminChat = false; render(); break;
+      case 'admin-home': ui.adminChat = false; ui.adminPage = 'chat'; render(); break;
       case 'context-menu': toast('当前原型展示在线客服模块。'); break;
     }
   });
@@ -458,6 +550,8 @@
   document.querySelector('#send-outcome').addEventListener('change',(event) => { ui.nextOutcome = event.target.value; toast(`已设置下一条消息：${event.target.selectedOptions[0].textContent}。`); closeDemo(); });
   document.addEventListener('pointerdown',(event) => { if (!demoPanel.hidden && !demoPanel.contains(event.target) && !event.target.closest('#demo-toggle')) closeDemo(); });
   imageDialog.addEventListener('click',(event) => { if (event.target === imageDialog) imageDialog.close(); });
+  videoDialog.addEventListener('close',() => { const video = videoDialog.querySelector('video'); video.pause(); video.removeAttribute('src'); video.load(); });
+  videoDialog.addEventListener('click',event => { if (event.target === videoDialog) videoDialog.close(); });
   imageInput.addEventListener('change',async () => {
     const file = imageInput.files?.[0];
     if (!file) return;
@@ -466,20 +560,11 @@
     const key = draftKey();
     const session = model.sessionId;
     try {
-      const url = URL.createObjectURL(file);
-      const image = new Image();
-      try {
-        image.src = url; await image.decode();
-        const scale = Math.min(1,1200 / Math.max(image.naturalWidth,image.naturalHeight));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1,Math.round(image.naturalWidth * scale)); canvas.height = Math.max(1,Math.round(image.naturalHeight * scale));
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.drawImage(image,0,0,canvas.width,canvas.height);
-        const source = canvas.toDataURL('image/jpeg',.8);
-        mutate((state) => { if (state.sessionId === session) state.drafts[key] = {...(state.drafts[key] || {text:''}),image:{source,name:file.name}}; },false);
-        if (draftKey() === key) updateComposer();
-        toast('图片已添加，点击发送即可。');
-      } finally { URL.revokeObjectURL(url); }
+      const source = await SupportMediaStore.save(file,'image');
+      if (read().sessionId !== session) return;
+      mutate((state) => { if (state.sessionId === session) state.drafts[key] = {...(state.drafts[key] || {text:''}),image:null,media:{type:'image',source,name:file.name}}; },false);
+      if (draftKey() === key) updateComposer();
+      toast('图片已添加，点击发送即可。');
     } catch (_) { toast('图片读取失败，请重新选择。','error'); }
   });
   window.addEventListener('storage',(event) => {
@@ -502,6 +587,13 @@
     const stale = latest.conversations.some((item) => item.messages.some((message) => message.status === 'sending' && Date.now() - message.pendingAt > 5000));
     if (stale) mutate((state) => { state.conversations.forEach((item) => item.messages.forEach((message) => { if (message.status === 'sending' && Date.now() - message.pendingAt > 5000) { message.status = 'uncertain'; message.error = '上次发送未确认，内容已保留，请重试。'; } })); });
   },2000);
+  SupportLibrary.mount({
+    icon, escape, uid, toast, mutate, preview:previewMedia, askDelete, use:useLibraryItem,
+    state:() => { model = read(); return model; },
+    isAdmin:() => ui.view === 'admin',
+    hasConversation:() => currentRole() === 'agent' && !!ui.active && !!conversation(),
+    renderManager:render,
+  });
   document.querySelectorAll('[data-icon]').forEach((element) => { element.outerHTML = icon(element.dataset.icon); });
   render();
 })();
