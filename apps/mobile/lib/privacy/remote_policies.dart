@@ -75,13 +75,28 @@ class PublishedPolicies {
     }
 
     return PublishedPolicies(
-      consentVersion: version,
-      privacy: doc(privacyItem),
+      // The installed app's new processing must be disclosed even when the server
+      // or a valid same-origin cache still returns an older published policy.
+      consentVersion: '$version|app-privacy:$policyVersion',
+      privacy: withCurrentAppDisclosure(doc(privacyItem)),
       terms: doc(termsItem),
-      privacyDate: requiredText(privacyItem['content']['effectiveDate'], 40),
+      privacyDate:
+          '${requiredText(privacyItem['content']['effectiveDate'], 40)}（本版本补充：$policyEffectiveDate）',
       termsDate: requiredText(termsItem['content']['effectiveDate'], 40),
     );
   }
+
+  static PolicyDocument withCurrentAppDisclosure(PolicyDocument document) =>
+      PolicyDocument(
+        title: document.title,
+        introduction: document.introduction,
+        sections: [
+          ...document.sections.where(
+            (section) => section.title != currentAppPrivacySupplement.title,
+          ),
+          currentAppPrivacySupplement,
+        ],
+      );
 }
 
 abstract interface class PolicySource {

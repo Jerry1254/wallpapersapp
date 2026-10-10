@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qingjing_wallpaper/privacy/remote_policies.dart';
+import 'package:qingjing_wallpaper/privacy/policies.dart';
 import 'package:qingjing_wallpaper/privacy/privacy_gate.dart';
 import 'catalog_test.dart' show FakeCatalog;
 import 'widget_test.dart' show noUpdates;
@@ -115,7 +116,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: PrivacyGate(
-          store: MemoryPrivacyConsentStore(accepted: 'privacy:1|terms:1'),
+          store: MemoryPrivacyConsentStore(accepted: current.consentVersion),
           policySource: FixedSource(current),
           builder: (context) => Scaffold(
             body: TextButton(
@@ -154,7 +155,9 @@ void main() {
       () => messenger.setMockMethodCallHandler(identityChannel, null),
     );
     final source = UpdatingSource(PublishedPolicies.parse(manifest()));
-    final store = MemoryPrivacyConsentStore(accepted: 'privacy:1|terms:1');
+    final store = MemoryPrivacyConsentStore(
+      accepted: source.current.consentVersion,
+    );
     final catalog = FakeCatalog();
     await tester.pumpWidget(
       QingjingApp(
@@ -184,7 +187,11 @@ void main() {
     await tester.tap(find.text('用户协议与隐私政策'));
     await tester.pumpAndSettle();
     expect(source.calls, 2);
-    expect(find.text('生效日期：2026年10月10日'), findsNWidgets(2));
+    expect(find.text('生效日期：2026年10月10日'), findsOneWidget);
+    expect(
+      find.text('生效日期：2026年10月10日（本版本补充：$policyEffectiveDate）'),
+      findsOneWidget,
+    );
     for (final title in ['远程隐私政策', '远程用户协议']) {
       await tester.tap(find.text(title));
       await tester.pumpAndSettle();
@@ -192,7 +199,10 @@ void main() {
       await tester.tap(find.byTooltip('返回'));
       await tester.pumpAndSettle();
     }
-    expect(await store.acceptedVersion(), 'privacy:1|terms:1');
+    expect(
+      await store.acceptedVersion(),
+      PublishedPolicies.parse(manifest()).consentVersion,
+    );
     await tester.tap(find.byTooltip('返回'));
     await tester.pumpAndSettle();
     source.current = PublishedPolicies.parse(
@@ -207,7 +217,9 @@ void main() {
   });
   testWidgets('重大发布先拦截业务，同意保存当前快照版本', (tester) async {
     final current = PublishedPolicies.parse(manifest(revision: 3, consent: 2));
-    final store = MemoryPrivacyConsentStore(accepted: 'privacy:1|terms:1');
+    final store = MemoryPrivacyConsentStore(
+      accepted: PublishedPolicies.parse(manifest()).consentVersion,
+    );
     var started = false;
     await tester.pumpWidget(
       MaterialApp(
@@ -230,7 +242,55 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('同意并继续'));
     await tester.pumpAndSettle();
-    expect(await store.acceptedVersion(), 'privacy:2|terms:1');
+    expect(
+      await store.acceptedVersion(),
+      'privacy:2|terms:1|app-privacy:$policyVersion',
+    );
     expect(started, isTrue);
+  });
+
+  testWidgets('服务端仍发布旧协议时先重新告知当前版本，旧同意不能启动业务', (tester) async {
+    final current = PublishedPolicies.parse(manifest());
+    expect(current.privacy.sections.last, currentAppPrivacySupplement);
+    final store = MemoryPrivacyConsentStore(accepted: 'privacy:1|terms:1');
+    var started = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PrivacyGate(
+          store: store,
+          policySource: FixedSource(current),
+          builder: (_) {
+            started = true;
+            return const Text('业务首页');
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(started, isFalse);
+    await tester.tap(find.text('《隐私政策》'));
+    await tester.pumpAndSettle();
+    expect(find.text(currentAppPrivacySupplement.title), findsOneWidget);
+    await tester.tap(find.byTooltip('返回'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('同意并继续'));
+    await tester.pumpAndSettle();
+    expect(await store.acceptedVersion(), current.consentVersion);
+    expect(started, isTrue);
+  });
+
+  test('已发布补充说明被规范化一次，缓存或远程不能删除本版本告知', () {
+    final root = jsonDecode(manifest()) as Map<String, dynamic>;
+    final items = root['items'] as List<dynamic>;
+    final sections = items.first['content']['sections'] as List<dynamic>;
+    sections.add({'title': currentAppPrivacySupplement.title, 'body': '旧补充'});
+    final current = PublishedPolicies.parse(jsonEncode(root));
+    expect(
+      current.privacy.sections.where(
+        (s) => s.title == currentAppPrivacySupplement.title,
+      ),
+      [currentAppPrivacySupplement],
+    );
+    expect(current.privacy.sections.first.body, '最新正文');
   });
 }

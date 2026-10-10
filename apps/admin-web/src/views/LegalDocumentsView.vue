@@ -46,7 +46,7 @@ onMounted(load);
 <template>
   <section class="page-shell">
     <header class="page-heading">
-      <div><h1>协议管理</h1><p>倾境 Android、iOS、鸿蒙与官网共用已发布内容；吉意继续使用原协议。</p></div>
+      <div><h1>协议管理</h1><p>倾境 Android、iOS、鸿蒙与官网读取已发布内容；App 同时展示当前版本补充说明，吉意使用随安装包更新的协议。</p></div>
       <ElButton :icon="Refresh" :loading="loading" :disabled="busy" @click="load">刷新</ElButton>
     </header>
     <AdminLoadNotice :error="loadError" :loading="loading" @retry="load" />

@@ -1,7 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { http } from '@kit.NetworkKit';
-import { PolicyDocument, POLICY_VERSION, POLICY_EFFECTIVE_DATE, PRIVACY_POLICY, USER_AGREEMENT } from './PolicyDocuments';
+import { PolicyDocument, PolicySection, POLICY_VERSION, POLICY_EFFECTIVE_DATE, PRIVACY_POLICY, USER_AGREEMENT, CURRENT_APP_PRIVACY_SUPPLEMENT } from './PolicyDocuments';
 
 interface LegalContent extends PolicyDocument { effectiveDate: string; }
 interface PublishedDocument { key: string; revision: number; consentRevision: number; content: LegalContent; }
@@ -37,10 +37,16 @@ export class PublishedPolicies {
     const version: string = 'privacy:' + privacy.consentRevision + '|terms:' + terms.consentRevision;
     if (manifest.consentVersion !== version) throw new Error('Inconsistent legal revision');
     const result: PublishedPolicies = new PublishedPolicies();
-    result.consentVersion = version;
-    result.privacy = privacy.content;
+    // An old publication or cached response cannot conceal this app's new data use.
+    result.consentVersion = version + '|app-privacy:' + POLICY_VERSION;
+    result.privacy = {
+      title: privacy.content.title,
+      introduction: privacy.content.introduction,
+      sections: privacy.content.sections.filter((section: PolicySection) =>
+        section.title !== CURRENT_APP_PRIVACY_SUPPLEMENT.title).concat([CURRENT_APP_PRIVACY_SUPPLEMENT])
+    };
     result.terms = terms.content;
-    result.privacyDate = privacy.content.effectiveDate;
+    result.privacyDate = privacy.content.effectiveDate + '（本版本补充：' + POLICY_EFFECTIVE_DATE + '）';
     result.termsDate = terms.content.effectiveDate;
     return result;
   }
