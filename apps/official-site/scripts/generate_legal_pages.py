@@ -35,7 +35,7 @@ def render_page(*, title: str, introduction: str, sections: list[tuple[str, str]
   <meta name="description" content="{description}">
   <link rel="canonical" href="{canonical}">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=20261010-download">
   <title>{title}｜倾境壁纸</title>
 </head>
 <body class="legal-page">
@@ -46,10 +46,11 @@ def render_page(*, title: str, introduction: str, sections: list[tuple[str, str]
     </a>
     <nav class="top-nav" aria-label="主要导航">
       <a href="/">产品</a>
+      <a href="/#download">App 下载</a>
       <a href="/privacy/"{' class="active"' if title == '隐私政策' else ''}>隐私政策</a>
       <a href="/terms/"{' class="active"' if title == '用户协议' else ''}>用户协议</a>
     </nav>
-    <a class="header-contact" href="mailto:qingjingwallpaper@126.com">联系我们</a>
+    <a class="header-contact header-download" href="/#download">App 下载 <span aria-hidden="true">↓</span></a>
   </header>
 
   <main class="legal-shell">
@@ -81,6 +82,7 @@ def render_page(*, title: str, introduction: str, sections: list[tuple[str, str]
   <footer class="site-footer">
     <div><strong>倾境壁纸</strong><span>让每一次点亮屏幕，都有喜欢的画面。</span></div>
     <div class="footer-links">
+      <a href="/#download">App 下载</a>
       <a href="/privacy/">隐私政策</a>
       <a href="/terms/">用户协议</a>
       <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">闽ICP备2026036761号-1</a>

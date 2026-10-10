@@ -7,8 +7,8 @@
   <meta name="description" content="倾境壁纸官方网站，提供手机静态壁纸、动态壁纸与 4D 壁纸。在官网发现喜欢的风格，前往倾境动态壁纸 App 查看、购买并使用数字壁纸。">
   <link rel="canonical" href="https://biguo66.top/">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/styles.css">
-  <script src="/showcase.js" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=20261010-download">
+  <script src="/showcase.js?v=20261010-download" defer></script>
   <title>倾境壁纸｜让屏幕成为你的风景</title>
 </head>
 <body class="home-page">
@@ -20,10 +20,11 @@
     <nav class="top-nav" aria-label="主要导航">
       <a class="active" href="#wallpapers">壁纸商店</a>
       <a href="#experience">使用流程</a>
+      <a href="#download">App 下载</a>
       <a href="/privacy/">隐私政策</a>
       <a href="/terms/">用户协议</a>
     </nav>
-    <a class="header-contact" href="mailto:qingjingwallpaper@126.com">联系我们</a>
+    <a class="header-contact header-download" href="#download">App 下载 <span aria-hidden="true">↓</span></a>
   </header>
 
   <main>
@@ -34,7 +35,7 @@
         <p class="hero-lead">静态壁纸、动态壁纸与 4D 壁纸，让日常多一点喜欢。发现心仪的风格，前往倾境动态壁纸 App 预览、购买并设置。</p>
         <div class="hero-actions">
           <a class="button button-primary" href="#wallpapers">挑选喜欢的壁纸 <span aria-hidden="true">↓</span></a>
-          <a class="button button-quiet" href="#experience">了解购买流程</a>
+          <a class="button button-quiet" href="#download">下载 App</a>
         </div>
         <div class="trust-row" aria-label="产品特点">
           <span><i></i>数字壁纸内容</span>
@@ -140,9 +141,29 @@
       <ol class="steps">
         <li><span>01</span><div><strong>发现</strong><p>按分类或关键词找到喜欢的壁纸。</p></div></li>
         <li><span>02</span><div><strong>预览</strong><p>在详情页查看真实画面和动态效果。</p></div></li>
-        <li><span>03</span><div><strong>购买</strong><p>在 App 内确认价格并购买，或使用有效兑换码获取权益。</p></div></li>
+        <li><span>03</span><div><strong>购买</strong><p>先<a class="step-download-link" href="#download">下载倾境动态壁纸 App <span aria-hidden="true">↗</span></a>，再预览喜欢的壁纸，确认价格并购买。</p></div></li>
         <li><span>04</span><div><strong>设置</strong><p>下载或保存后，按照教程完成系统设置。</p></div></li>
       </ol>
+    </section>
+
+    <section class="app-download" id="download" aria-labelledby="download-title">
+      <div class="download-copy">
+        <p class="eyebrow">QINGJING · ANDROID APP</p>
+        <h2 id="download-title">把喜欢的风景，<br>带进你的手机。</h2>
+        <p class="download-lead">下载倾境动态壁纸 App，预览壁纸、确认价格、完成购买，再按照教程设置。每次点亮屏幕，都有新的心情。</p>
+        <div class="download-meta"><span>Android 正式版</span><span>版本 1.0.1</span></div>
+        <a class="button button-primary android-download" href="/downloads/qingjing-wallpaper-1.0.1-10022-arm64.apk" download="qingjing-wallpaper-1.0.1-10022-arm64.apk">下载 Android App <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+        <p class="download-requirements">Android 8.0 及以上 · ARM64 · 18.5 MB</p>
+        <ol class="install-steps" aria-label="安卓安装流程"><li>下载安装包</li><li>按系统提示允许浏览器安装</li><li>打开 App，挑选并购买壁纸</li></ol>
+        <p class="download-help">如在微信中无法下载，请选择“在浏览器中打开”后下载。安装或购买遇到问题，可<a href="mailto:qingjingwallpaper@126.com">联系我们</a>。</p>
+      </div>
+      <div class="download-qr-panel">
+        <span class="qr-platform">ANDROID</span>
+        <img class="download-qr" src="/assets/android-download-1.0.1-10022.svg" alt="扫描二维码下载倾境动态壁纸 Android 正式版 1.0.1" width="220" height="220">
+        <h3>安卓手机扫码下载</h3>
+        <p>倾境动态壁纸 · 正式版 1.0.1</p>
+        <span class="qr-caption">手机浏览器打开，即可下载安装包</span>
+      </div>
     </section>
 
     <section class="privacy-feature">
@@ -173,6 +194,7 @@
   <footer class="site-footer">
     <div><strong>倾境壁纸</strong><span>让每一次点亮屏幕，都有喜欢的画面。</span></div>
     <div class="footer-links">
+      <a href="#download">App 下载</a>
       <a href="/privacy/">隐私政策</a>
       <a href="/terms/">用户协议</a>
       <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">闽ICP备2026036761号-1</a>
@@ -185,11 +207,12 @@
     <button class="dialog-close" type="button" aria-label="关闭购买提示"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
     <div class="dialog-product"><img id="purchase-cover" alt="" width="80" height="120"><div><p class="eyebrow">你喜欢的屏幕风景</p><h3 id="purchase-wallpaper"></h3><p id="purchase-price"></p></div></div>
     <h2 id="purchase-title">请前往 App 购买</h2>
-    <p class="dialog-description" id="purchase-description">打开「倾境动态壁纸」App，浏览喜欢的壁纸，确认设备适配情况和价格后完成购买。</p>
-    <ol class="dialog-steps"><li>打开倾境动态壁纸 App</li><li>选择壁纸，预览并确认价格</li><li>完成购买，下载并设置</li></ol>
+    <p class="dialog-description" id="purchase-description">下载安装「倾境动态壁纸」App，预览喜欢的壁纸，确认设备适配情况和实际价格后完成购买。</p>
+    <div class="dialog-app-download"><img src="/assets/android-download-1.0.1-10022.svg" alt="扫描二维码下载倾境动态壁纸安卓正式版" width="132" height="132"><div><strong>扫码下载安装</strong><p>Android 正式版 1.0.1<br>Android 8.0 及以上 · ARM64</p><a class="dialog-download-details" href="#download">查看下载与安装说明 <span aria-hidden="true">→</span></a></div></div>
     <p class="dialog-notice">当前商品为官网展示示例，实际商品与价格以 App 为准。</p>
-    <button class="button button-primary dialog-confirm" type="button">我知道了</button>
-    <a class="dialog-support" href="mailto:qingjingwallpaper@126.com">获取 App 或购买帮助 <span aria-hidden="true">↗</span></a>
+    <a class="button button-primary dialog-download android-download" href="/downloads/qingjing-wallpaper-1.0.1-10022-arm64.apk" download="qingjing-wallpaper-1.0.1-10022-arm64.apk">下载 Android App <span aria-hidden="true">↓</span></a>
+    <button class="dialog-confirm" type="button">已安装 App，我知道了</button>
+    <a class="dialog-support" href="mailto:qingjingwallpaper@126.com">安装或购买帮助 <span aria-hidden="true">↗</span></a>
   </dialog>
 </body>
 </html>

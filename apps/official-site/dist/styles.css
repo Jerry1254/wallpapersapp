@@ -89,6 +89,36 @@ a:focus-visible, button:focus-visible { outline: 3px solid var(--gold-deep); out
 .dialog-confirm { width: 100%; border: 0; }
 .dialog-support { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 44px; margin-top: 10px; color: #5d5a53; font-size: 12px; }
 .dialog-support:hover { color: var(--ink); text-decoration: underline; }
+.header-download { background: var(--cream); border-color: transparent; white-space: nowrap; }
+.header-download span { margin-left: 8px; }
+.step-download-link { color: #815100; font-weight: 700; text-decoration: underline; text-underline-offset: 4px; }
+.step-download-link:hover { color: var(--ink); }
+.app-download { width: min(1180px, calc(100% - 48px)); margin: 0 auto 120px; padding: 64px 72px; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(260px, .7fr); align-items: center; gap: 72px; border: 1px solid #eee4cc; border-radius: 40px; background: radial-gradient(circle at 95% 0, #ffe4a9, transparent 50%), #fffaf0; scroll-margin-top: 32px; }
+.download-copy h2 { margin: 0; font-size: clamp(36px, 4vw, 50px); line-height: 1.18; letter-spacing: -.055em; }
+.download-lead { max-width: 510px; margin: 22px 0; color: #5d5a53; font-size: 15px; line-height: 1.9; }
+.download-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 22px; }
+.download-meta span { padding: 8px 12px; border: 1px solid #e5dac1; border-radius: 999px; background: rgba(255,255,255,.7); font-size: 12px; font-weight: 650; }
+.download-requirements { margin: 16px 0 26px; color: #6b6861; font-size: 12px; line-height: 1.7; }
+.install-steps { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; counter-reset: install-step; }
+.install-steps li { display: flex; align-items: center; gap: 10px; font-size: 13px; line-height: 1.7; counter-increment: install-step; }
+.install-steps li::before { content: counter(install-step); display: grid; place-items: center; flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%; background: #fff; color: #8b5900; font-size: 11px; font-weight: 800; }
+.download-help { max-width: 470px; margin: 20px 0 0; color: #6b6861; font-size: 11px; line-height: 1.9; }
+.download-help a { color: #815100; text-decoration: underline; text-underline-offset: 3px; }
+.download-qr-panel { padding: 28px 24px; text-align: center; border: 1px solid #eee4cc; border-radius: 28px; background: #fff; box-shadow: 0 20px 60px rgba(150,110,30,.08); }
+.qr-platform { color: #815100; font-size: 11px; font-weight: 800; letter-spacing: .18em; }
+.download-qr { width: 220px; height: 220px; margin: 18px auto; }
+.download-qr-panel h3 { margin: 0; font-size: 19px; }
+.download-qr-panel > p { margin: 12px 0; color: #6b6861; font-size: 12px; }
+.qr-caption { color: #6b6861; font-size: 11px; line-height: 1.7; }
+.dialog-app-download { display: grid; grid-template-columns: 132px minmax(0,1fr); align-items: center; gap: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 18px; background: #fff; }
+.dialog-app-download > img { width: 132px; height: 132px; }
+.dialog-app-download strong { font-size: 15px; }
+.dialog-app-download p { margin: 10px 0; color: #6b6861; font-size: 11px; line-height: 1.9; }
+.dialog-download-details { display: inline-block; padding: 6px 0; color: #815100; font-size: 11px; font-weight: 650; line-height: 1.7; text-decoration: underline; text-underline-offset: 3px; }
+.dialog-download { width: 100%; }
+.purchase-dialog .dialog-confirm { min-height: 40px; margin-top: 12px; background: transparent; color: #5d5a53; font-size: 12px; }
+.purchase-dialog .dialog-confirm:hover { background: var(--soft); border-radius: 12px; }
+.purchase-dialog .dialog-support { margin-top: 0; }
 
 @media (max-width: 1100px) {
   .wallpaper-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -97,6 +127,9 @@ a:focus-visible, button:focus-visible { outline: 3px solid var(--gold-deep); out
   .home-page .floating-note { min-width: 155px; }
 }
 @media (max-width: 900px) {
+  .app-download { padding: 48px 36px; gap: 30px; grid-template-columns: minmax(0, 1fr) 270px; }
+  .download-qr-panel { padding: 24px 16px; }
+  .download-copy h2 { font-size: 36px; }
   .home-page .hero { grid-template-columns: 1.2fr .8fr; padding: 42px 32px; }
   .home-page .hero h1 { font-size: 56px; }
   .home-page .hero-visual { height: 390px; }
@@ -110,6 +143,15 @@ a:focus-visible, button:focus-visible { outline: 3px solid var(--gold-deep); out
   .shop-toolbar { align-items: flex-start; }
 }
 @media (max-width: 620px) {
+  .app-download { width: calc(100% - 32px); grid-template-columns: 1fr; margin-bottom: 76px; padding: 36px 24px; gap: 30px; border-radius: 28px; }
+  .download-copy h2 { font-size: clamp(29px, 7.8vw, 38px); }
+  .download-lead { font-size: 14px; }
+  .download-copy > .android-download { width: 100%; }
+  .download-requirements { font-size: 11px; }
+  .download-qr-panel { padding: 24px 14px; }
+  .dialog-app-download { grid-template-columns: 116px minmax(0,1fr); gap: 8px; padding: 8px; }
+  .dialog-app-download > img { width: 116px; height: 116px; }
+  .dialog-app-download strong { font-size: 13px; }
   .home-page .hero { grid-template-columns: 1fr; min-height: auto; padding: 42px 28px; }
   .home-page .hero h1 { font-size: clamp(48px, 13vw, 68px); }
   .home-page .hero-lead { margin-top: 22px; font-size: 15px; }

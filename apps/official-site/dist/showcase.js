@@ -7,6 +7,7 @@
   const filters = [...shop.querySelectorAll('[data-filter]')];
   const count = document.getElementById('shop-count');
   let purchaseButton;
+  let showDownload = false;
 
   filters.forEach(button => {
     button.addEventListener('click', () => {
@@ -41,6 +42,11 @@
   dialog.querySelectorAll('.dialog-close, .dialog-confirm').forEach(button => {
     button.addEventListener('click', () => dialog.close());
   });
+  dialog.querySelector('.dialog-download-details').addEventListener('click', event => {
+    event.preventDefault();
+    showDownload = true;
+    dialog.close();
+  });
   dialog.addEventListener('keydown', event => {
     if (event.key !== 'Tab') return;
     const controls = [...dialog.querySelectorAll('button, a[href]')];
@@ -66,6 +72,13 @@
   });
   dialog.addEventListener('close', () => {
     document.body.classList.remove('purchase-open');
-    purchaseButton?.focus({ preventScroll: true });
+    if (showDownload) {
+      showDownload = false;
+      location.hash = 'download';
+      document.getElementById('download').scrollIntoView();
+      document.querySelector('#download .android-download').focus({ preventScroll: true });
+    } else {
+      purchaseButton?.focus({ preventScroll: true });
+    }
   });
 })();
