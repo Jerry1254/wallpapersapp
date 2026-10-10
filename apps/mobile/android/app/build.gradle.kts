@@ -95,6 +95,14 @@ android {
             // Each online flavor receives its signer from the local packaging environment below.
         }
     }
+
+    // Flutter's default ABI filters also admit native libraries from other architectures.
+    if (providers.gradleProperty("target-platform").orNull == "android-arm64") {
+        buildTypes.configureEach {
+            ndk.abiFilters.clear()
+            ndk.abiFilters.add("arm64-v8a")
+        }
+    }
 }
 
 flutter {
