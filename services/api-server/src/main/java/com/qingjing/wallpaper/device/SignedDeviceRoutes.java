@@ -6,6 +6,7 @@ final class SignedDeviceRoutes {
     static boolean requiresSignature(String method, String uri) {
         return (method.equals("PUT") && uri.equals("/api/v1/device/encryption-key"))
                 || (method.equals("POST") && (uri.equals("/api/v1/device/redemptions")
+                || uri.equals("/api/v1/device/activity")
                 || uri.startsWith("/api/v1/device/ios/")
                 || uri.equals("/api/v1/device/security/reports")
                 || uri.equals("/api/v1/device/security/harmony/challenges")

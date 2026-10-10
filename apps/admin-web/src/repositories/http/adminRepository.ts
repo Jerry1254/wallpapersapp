@@ -834,6 +834,10 @@ export const adminRepository = {
     status?: DeviceStatus | '';
     publicId?: string;
     iosTestDevice?: boolean | '';
+    channel?: string;
+    search?: string;
+    activeToday?: boolean | '';
+    banned?: boolean | '';
   } = {}) {
     return (await apiRequest<ApiPage<DeviceSummary>>(`/admin/devices${queryString({
       page: input.page || 1,
@@ -841,7 +845,9 @@ export const adminRepository = {
       platform: input.platform,
       status: input.status,
       publicId: input.publicId?.trim(),
-      iosTestDevice: input.iosTestDevice
+      iosTestDevice: input.iosTestDevice,
+      channel: input.channel, search: input.search?.trim(),
+      activeToday: input.activeToday, banned: input.banned
     })}`)).data;
   },
 

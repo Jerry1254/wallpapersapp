@@ -24,6 +24,7 @@ import 'updates/app_update_gate.dart';
 import 'package:wallpaper_android/wallpaper_android.dart';
 import 'support/online_support.dart';
 import 'security/app_security.dart';
+import 'operations/device_activity.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -184,6 +185,7 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
+  DeviceActivityReporter? activity;
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -209,6 +211,9 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
+    if (widget.repository is HttpCatalogRepository) {
+      activity = DeviceActivityReporter.forSession(widget.sessions)..start();
+    }
     downloads.addListener(_downloadChanged);
     if (iosAcquisition != null) unawaited(iosAcquisition!.initialize());
     if (Platform.isAndroid) {
@@ -225,6 +230,7 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   void dispose() {
+    activity?.dispose();
     downloads.removeListener(_downloadChanged);
     unawaited(downloads.cancel().catchError((_) {}));
     downloads.dispose();

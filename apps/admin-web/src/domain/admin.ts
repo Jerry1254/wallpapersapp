@@ -244,6 +244,17 @@ export interface RedemptionSummary {
 }
 
 export interface DeviceSummary {
+  channel: import('@/repositories/http/operationsRepository').UserChannel;
+  lastActiveAt?: string | null;
+  appVersionName?: string | null;
+  appVersionCode?: string | null;
+  manufacturer?: string | null;
+  model?: string | null;
+  osVersion?: string | null;
+  note: string;
+  noteVersion: number;
+  bannedAt?: string | null;
+  banReason?: string | null;
   id: string;
   publicId: string;
   platform: DevicePlatform;

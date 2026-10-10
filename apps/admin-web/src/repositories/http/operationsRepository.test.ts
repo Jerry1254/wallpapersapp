@@ -1,0 +1,32 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import { setCsrfToken } from './apiClient';
+import { adminRepository } from './adminRepository';
+import { operationsRepository as api, userChannelLabels } from './operationsRepository';
+afterEach(() => vi.unstubAllGlobals());
+it('keeps all four app identities distinct and serializes false user filters', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [], page: {} }), { status: 200 }));
+  vi.stubGlobal('fetch', fetchMock);
+  await adminRepository.devices({ channel: 'ANDROID_OFFLINE', search: '  跟进  ', activeToday: false, banned: true });
+  const url = new URL(String(fetchMock.mock.calls[0]![0]), 'http://localhost');
+  expect(url.searchParams.get('channel')).toBe('ANDROID_OFFLINE');
+  expect(url.searchParams.get('search')).toBe('跟进');
+  expect(url.searchParams.get('activeToday')).toBe('false');
+  expect(url.searchParams.get('banned')).toBe('true');
+  expect(userChannelLabels.ANDROID_OFFLINE).toContain('吉意');
+  expect(userChannelLabels.ANDROID_ONLINE).toContain('倾境');
+  expect(userChannelLabels.IOS).toContain('iOS');
+  expect(userChannelLabels.HARMONYOS).toContain('鸿蒙');
+});
+it('uses versioned notes with administrator CSRF and paginates per-device purchases', async () => {
+  setCsrfToken('operations-csrf-test');
+  const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ note: '跟进', version: 4 }), { status: 200 })));
+  vi.stubGlobal('fetch', fetchMock);
+  await api.saveNote('291', '跟进', 3);
+  const init = fetchMock.mock.calls[0]![1] as RequestInit;
+  expect(new Headers(init.headers).get('X-CSRF-Token')).toBe('operations-csrf-test');
+  expect(JSON.parse(String(init.body))).toEqual({ note: '跟进', version: 3 });
+  await api.purchases('291', 2);
+  expect(fetchMock.mock.calls[1]![0]).toContain('/devices/291/purchases?page=2');
+  await api.overview(30, 'IOS');
+  expect(fetchMock.mock.calls[2]![0]).toContain('days=30&channel=IOS');
+});

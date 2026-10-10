@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.26.0
+  version: 2.27.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -64,6 +64,11 @@ tags:
     description: 自动规则、永久黑名单、管理员解除及测试白名单
   - name: Device Security
     description: 用户端最小恢复检查和本机环境信号
+
+  - name: Admin Operations
+    description: 用户设备管理与北京时间运营统计
+  - name: Device Operations
+    description: 隐私同意和安全验证后的前台使用采集
 
 paths:
   /public/legal-documents:
@@ -2570,7 +2575,7 @@ paths:
 
   /admin/devices:
     get:
-      tags: [Admin Redemption]
+      tags: [ Admin Redemption ]
       operationId: listAdminDevices
       summary: 查询匿名设备内部视图
       security:
@@ -2586,14 +2591,31 @@ paths:
           in: query
           schema:
             type: string
-            enum: [ACTIVE, REVIEW, DISABLED]
+            enum: [ ACTIVE, REVIEW, DISABLED ]
         - name: publicId
           in: query
           description: App 可复制给运营的当前安装 UUID
-          schema: {type: string, format: uuid}
+          schema: { type: string, format: uuid }
         - name: iosTestDevice
           in: query
-          schema: {type: boolean}
+          schema: { type: boolean }
+        - name: channel
+          in: query
+          schema:
+            $ref: "#/components/schemas/UserChannel"
+        - name: search
+          in: query
+          schema:
+            type: string
+            maxLength: 100
+        - name: activeToday
+          in: query
+          schema:
+            type: boolean
+        - name: banned
+          in: query
+          schema:
+            type: boolean
       responses:
         '200':
           description: 设备分页
@@ -5233,6 +5255,157 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalError"
+
+
+  /admin/operations/overview:
+    get:
+      tags:
+        - Admin Operations
+      operationId: getOperationsOverview
+      summary: 查看用户与每日运营数据
+      security:
+        - adminCookie: []
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            enum:
+              - 7
+              - 30
+            default: 7
+        - name: channel
+          in: query
+          schema:
+            $ref: "#/components/schemas/UserChannel"
+      responses:
+        "200":
+          description: 查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationsOverview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      description: 按安装身份去重，排除内部联调安装和 iOS 测试机。使用北京时间；每日活跃按设备及日期唯一事实统计，7/30 天按设备去重。旧版本成功认证的业务内容访问也计入，安全检查、创建会话和客服后台轮询不计入。历史未采集为 null；首日及不足周期仅覆盖已采集部分。下载统计为票据请求数，不表示下载或设置成功。
+
+
+  /device/activity:
+    post:
+      tags:
+        - Device Operations
+      operationId: recordDeviceActivity
+      summary: 记录前台使用与设备基本情况
+      security:
+        - deviceBearer: []
+      parameters:
+        - $ref: "#/components/parameters/RequestTimestamp"
+        - $ref: "#/components/parameters/RequestNonce"
+        - $ref: "#/components/parameters/RequestSignature"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceActivity"
+      responses:
+        "204":
+          description: 已记录；同设备同一天只计一次活跃
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      description: 隐私同意、安全验证通过并进入业务前台后提交，每分钟前台续报，后台暂停。使用服务端时间，不接受客户端统计日期或 App 归属。设备情况为客户端上报的展示信息，不用作安全凭据。执行设备签名、封禁及强制更新拦截。版本沿用 X-App-Version-Name / X-App-Version-Code 请求头，非法过长版本值忽略。
+
+
+  /admin/devices/{deviceId}/note:
+    put:
+      tags:
+        - Admin Operations
+      operationId: updateDeviceNote
+      summary: 编辑用户运营备注
+      security:
+        - adminCookie: []
+          adminCsrf: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserNoteUpdate"
+      responses:
+        "200":
+          description: 查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserNote"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /admin/devices/{deviceId}/purchases:
+    get:
+      tags:
+        - Admin Operations
+      operationId: listDevicePurchases
+      summary: 分页查询设备购买及关联恢复记录
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: 查询结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DevicePurchasePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 
 components:
   securitySchemes:
@@ -8035,18 +8208,7 @@ components:
 
     AdminDeviceSummary:
       type: object
-      required:
-        [
-          id,
-          publicId,
-          platform,
-          appInstallScope,
-          status,
-          iosTestDevice,
-          entitlementCount,
-          lastSeenAt,
-          createdAt
-        ]
+      required: [ id, publicId, platform, appInstallScope, status, iosTestDevice, entitlementCount, lastSeenAt, createdAt ]
       properties:
         id:
           $ref: '#/components/schemas/LongId'
@@ -8060,7 +8222,7 @@ components:
           maxLength: 64
         status:
           type: string
-          enum: [ACTIVE, REVIEW, DISABLED]
+          enum: [ ACTIVE, REVIEW, DISABLED ]
         iosTestDevice:
           type: boolean
         entitlementCount:
@@ -8071,6 +8233,46 @@ components:
           $ref: '#/components/schemas/Timestamp'
         createdAt:
           $ref: '#/components/schemas/Timestamp'
+        channel:
+          $ref: "#/components/schemas/UserChannel"
+        lastActiveAt:
+          type: string
+          format: date-time
+          nullable: true
+        appVersionName:
+          type: string
+          maxLength: 64
+          nullable: true
+        appVersionCode:
+          type: string
+          maxLength: 32
+          nullable: true
+        manufacturer:
+          type: string
+          maxLength: 64
+          nullable: true
+        model:
+          type: string
+          maxLength: 96
+          nullable: true
+        osVersion:
+          type: string
+          maxLength: 96
+          nullable: true
+        note:
+          type: string
+          maxLength: 500
+        noteVersion:
+          type: integer
+          format: int64
+          minimum: 0
+        bannedAt:
+          type: string
+          format: date-time
+          nullable: true
+        banReason:
+          type: string
+          nullable: true
 
     AdminDeviceDetail:
       allOf:
@@ -9288,3 +9490,241 @@ components:
           type: string
           format: date-time
       additionalProperties: false
+
+
+    UserChannel:
+      type: string
+      enum:
+        - ANDROID_ONLINE
+        - ANDROID_OFFLINE
+        - IOS
+        - HARMONYOS
+        - OTHER
+
+
+
+    DeviceActivity:
+      type: object
+      required: []
+      properties:
+        manufacturer:
+          type: string
+          nullable: true
+          maxLength: 64
+        model:
+          type: string
+          nullable: true
+          maxLength: 96
+        osVersion:
+          type: string
+          nullable: true
+          maxLength: 96
+
+
+
+    UserNoteUpdate:
+      type: object
+      required:
+        - note
+        - version
+      properties:
+        note:
+          type: string
+          maxLength: 500
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+
+
+
+    UserNote:
+      type: object
+      required:
+        - note
+        - version
+      properties:
+        note:
+          type: string
+          maxLength: 500
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+
+
+
+    OperationsDaily:
+      type: object
+      required:
+        - date
+        - newUsers
+        - activeUsers
+      properties:
+        date:
+          type: string
+          format: date
+        newUsers:
+          type: integer
+          format: int64
+          minimum: 0
+        activeUsers:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+          description: 采集开始前为 null；首日可能只覆盖部分时段
+
+
+
+    OperationsChannel:
+      type: object
+      required:
+        - channel
+        - totalUsers
+        - newUsersToday
+        - activeUsersToday
+      properties:
+        channel:
+          $ref: "#/components/schemas/UserChannel"
+        totalUsers: &a4
+          type: integer
+          format: int64
+          minimum: 0
+        newUsersToday: *a4
+        activeUsersToday: *a4
+
+
+
+    OperationsOverview:
+      type: object
+      required:
+        - timeZone
+        - today
+        - trackedSince
+        - generatedAt
+        - totalUsers
+        - newUsersToday
+        - activeUsersToday
+        - returningUsersToday
+        - activeUsers7Days
+        - activeUsers30Days
+        - bannedUsers
+        - redemptionsToday
+        - downloadRequestsToday
+        - trend
+        - channels
+      properties:
+        timeZone:
+          type: string
+          enum:
+            - Asia/Shanghai
+        today:
+          type: string
+          format: date
+        trackedSince:
+          $ref: "#/components/schemas/Timestamp"
+        generatedAt:
+          $ref: "#/components/schemas/Timestamp"
+        totalUsers: &a5
+          type: integer
+          format: int64
+          minimum: 0
+        newUsersToday: *a5
+        activeUsersToday: *a5
+        returningUsersToday: *a5
+        activeUsers7Days: *a5
+        activeUsers30Days: *a5
+        bannedUsers: *a5
+        redemptionsToday: *a5
+        downloadRequestsToday: *a5
+        trend:
+          type: array
+          items:
+            $ref: "#/components/schemas/OperationsDaily"
+        channels:
+          type: array
+          items:
+            $ref: "#/components/schemas/OperationsChannel"
+
+
+
+    DevicePurchase:
+      type: object
+      required:
+        - id
+        - kind
+        - wallpaperId
+        - wallpaperTitle
+        - productId
+        - transactionId
+        - environment
+        - status
+        - amount
+        - currency
+        - createdAt
+        - fulfilledAt
+        - revokedAt
+        - restored
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum:
+            - CREDIT_ORDER
+            - LEGACY_PURCHASE
+        wallpaperId:
+          $ref: "#/components/schemas/LongId"
+        wallpaperTitle:
+          type: string
+        productId:
+          type: string
+        transactionId:
+          type: string
+          nullable: true
+        environment:
+          type: string
+          enum:
+            - SANDBOX
+            - PRODUCTION
+            - XCODE
+        status:
+          type: string
+          enum:
+            - OPEN
+            - CANCELLED
+            - FULFILLED
+            - REFUNDED
+        amount:
+          type: number
+          nullable: true
+          description: 已保存的订单金额；旧版交易未采集金额为 null，不从当前商品价格推算
+        currency:
+          type: string
+          nullable: true
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        fulfilledAt: &a6
+          type: string
+          format: date-time
+          nullable: true
+        revokedAt: *a6
+        restored:
+          type: boolean
+          description: 此安装关联恢复的订单；旧版交易按购买早于安装时间判断
+
+
+
+    DevicePurchasePage:
+      type: object
+      required:
+        - items
+        - page
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DevicePurchase"
+        page:
+          $ref: "#/components/schemas/PageMetadata"

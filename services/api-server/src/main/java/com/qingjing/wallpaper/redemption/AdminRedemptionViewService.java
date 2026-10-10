@@ -121,7 +121,8 @@ public class AdminRedemptionViewService {
             DevicePlatform platform,
             DeviceStatus status,
             String publicId,
-            Boolean iosTestDevice) {
+            Boolean iosTestDevice, String channel, String search, Boolean activeToday, Boolean banned) {
+        com.qingjing.wallpaper.operations.OperationsService.requireChannel(channel);
         validatePage(page, pageSize);
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         List<Object> arguments = new ArrayList<>();
@@ -141,6 +142,23 @@ public class AdminRedemptionViewService {
             where.append(" AND COALESCE(ia.is_test_device,FALSE) = ?");
             arguments.add(iosTestDevice);
         }
+        if (channel != null && !channel.isBlank()) {
+            where.append(" AND (" + com.qingjing.wallpaper.operations.OperationsService.CHANNEL_SQL + ")=?");
+            arguments.add(channel);
+        }
+        if (search != null && !search.isBlank()) {
+            if (search.length()>100) throw new ApiException(HttpStatus.BAD_REQUEST,"VALIDATION_FAILED","Search too long");
+            where.append(" AND (CONVERT(d.public_id USING utf8mb4)=? OR CAST(d.id AS CHAR)=? OR LOCATE(?,d.operator_note)>0)");
+            arguments.add(search.strip());arguments.add(search.strip());arguments.add(search.strip());
+        }
+        if (activeToday != null) {
+            where.append(" AND EXISTS(SELECT 1 FROM device_activity_daily a WHERE a.device_id=d.id AND a.activity_date=DATE(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+08:00')))=?");
+            arguments.add(activeToday);
+        }
+        if (banned != null) {
+            where.append(" AND EXISTS(SELECT 1 FROM security_ban b WHERE b.subject_type='DEVICE' AND b.subject_value=CAST(d.id AS CHAR) AND b.released_at IS NULL)=?");
+            arguments.add(banned);
+        }
         Long total = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM anonymous_device d LEFT JOIN ios_installation_acquisition ia ON ia.device_id=d.id" + where,
                 Long.class,
@@ -148,7 +166,7 @@ public class AdminRedemptionViewService {
         arguments.add(pageSize);
         arguments.add((long) (page - 1) * pageSize);
         List<AdminDeviceSummary> items = jdbc.query(
-                deviceSelect() + where + " GROUP BY d.id ORDER BY d.last_seen_at DESC, d.id DESC LIMIT ? OFFSET ?",
+                deviceSelect() + where + " GROUP BY d.id ORDER BY COALESCE(d.last_active_at,d.last_seen_at) DESC, d.id DESC LIMIT ? OFFSET ?",
                 (resultSet, rowNumber) -> deviceSummaryRow(resultSet),
                 arguments.toArray());
         long totalItems = total == null ? 0 : total;
@@ -200,7 +218,9 @@ public class AdminRedemptionViewService {
         return new AdminDeviceDetail(
                 summary.id(), summary.publicId(), summary.platform(), summary.appInstallScope(), summary.status(),
                 summary.iosTestDevice(), summary.entitlementCount(), summary.lastSeenAt(), summary.createdAt(),
-                credentials, entitlements, iosAcquisition);
+                summary.channel(), summary.lastActiveAt(), summary.appVersionName(), summary.appVersionCode(),
+                summary.manufacturer(), summary.model(), summary.osVersion(), summary.note(), summary.noteVersion(),
+                summary.bannedAt(), summary.banReason(), credentials, entitlements, iosAcquisition);
     }
 
     private AdminDeviceSummary deviceSummary(long deviceId) {
@@ -293,12 +313,21 @@ public class AdminRedemptionViewService {
     private String deviceSelect() {
         return """
                 SELECT d.id, d.public_id, d.platform, d.app_install_scope, d.status, d.last_seen_at, d.created_at,
+                       d.last_active_at,d.app_version_name,d.app_version_code,
+                       COALESCE(d.device_manufacturer,cp.manufacturer) AS manufacturer,
+                       COALESCE(d.device_model,cp.model) AS model,
+                       COALESCE(d.device_os_version,cp.host_os_version) AS os_version,
+                       d.operator_note,d.operator_note_version,
+                       (SELECT MIN(b.banned_at) FROM security_ban b WHERE b.subject_type='DEVICE' AND b.subject_value=CAST(d.id AS CHAR) AND b.released_at IS NULL) AS banned_at,
+                       (SELECT b.reason FROM security_ban b WHERE b.subject_type='DEVICE' AND b.subject_value=CAST(d.id AS CHAR) AND b.released_at IS NULL LIMIT 1) AS ban_reason,
+                       %s AS app_channel,
                        COALESCE(ia.is_test_device,FALSE) AS ios_test_device,
                        COUNT(CASE WHEN de.status = 'ACTIVE' THEN 1 END) AS entitlement_count
                 FROM anonymous_device d
                 LEFT JOIN ios_installation_acquisition ia ON ia.device_id=d.id
                 LEFT JOIN device_entitlement de ON de.device_id = d.id
-                """;
+                LEFT JOIN device_capability_profile cp ON cp.device_id=d.id
+                """.formatted(com.qingjing.wallpaper.operations.OperationsService.CHANNEL_SQL);
     }
 
     private AdminDeviceSummary deviceSummaryRow(java.sql.ResultSet resultSet) throws java.sql.SQLException {
@@ -311,7 +340,11 @@ public class AdminRedemptionViewService {
                 resultSet.getBoolean("ios_test_device"),
                 resultSet.getLong("entitlement_count"),
                 timestamp(resultSet, "last_seen_at"),
-                timestamp(resultSet, "created_at"));
+                timestamp(resultSet, "created_at"),resultSet.getString("app_channel"),
+                timestamp(resultSet,"last_active_at"),resultSet.getString("app_version_name"),resultSet.getString("app_version_code"),
+                resultSet.getString("manufacturer"),resultSet.getString("model"),resultSet.getString("os_version"),
+                resultSet.getString("operator_note"),resultSet.getLong("operator_note_version"),
+                timestamp(resultSet,"banned_at"),resultSet.getString("ban_reason"));
     }
 
     private AdminIosDeviceAcquisition iosAcquisition(long deviceId) {

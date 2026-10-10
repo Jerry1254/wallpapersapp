@@ -17,6 +17,7 @@ public class DeviceWebConfiguration implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(interceptor).addPathPatterns(
                 "/api/v1/device/me/**",
+                "/api/v1/device/activity",
                 "/api/v1/device/security/**",
                 "/api/v1/device/support/**",
                 "/api/v1/device/encryption-key",

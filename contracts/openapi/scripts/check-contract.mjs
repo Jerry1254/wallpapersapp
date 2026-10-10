@@ -47,7 +47,11 @@ const expectedOperations = {
   '/admin/wallpapers': ['get', 'post'],
   '/admin/code-batches': ['get', 'post'],
   '/admin/redemptions': ['get'],
-  '/admin/devices': ['get']
+  '/admin/devices': ['get'],
+  '/admin/operations/overview': ['get'],
+  '/admin/devices/{deviceId}/note': ['put'],
+  '/admin/devices/{deviceId}/purchases': ['get'],
+  '/device/activity': ['post']
 };
 
 for (const [path, methods] of Object.entries(expectedOperations)) {
@@ -168,6 +172,7 @@ for (const [path, method] of [
 const sensitiveDeviceOperations = [
   document.paths['/device/encryption-key'].put,
   document.paths['/device/redemptions'].post,
+  document.paths['/device/activity'].post,
   document.paths['/device/security/harmony/challenges'].post,
   document.paths['/device/security/harmony/reports'].post,
   document.paths['/device/wallpapers/{wallpaperId}/download-tickets'].post,
@@ -388,3 +393,11 @@ for (const field of rebuildPlan.required) {
   assert.equal(rebuildPlan.properties[field].format, 'int64');
 }
 console.log('Preview watermark policy, cache revision, fail-closed cover and rebuild contract checks passed.');
+
+assert.deepEqual(document.components.schemas.UserChannel.enum,
+  ['ANDROID_ONLINE', 'ANDROID_OFFLINE', 'IOS', 'HARMONYOS', 'OTHER'], 'four customer App editions must remain distinguishable');
+assert.equal(document.components.schemas.OperationsDaily.properties.activeUsers.nullable, true,
+  'historic uncollected DAU must remain nullable');
+assert.deepEqual(document.components.schemas.OperationsOverview.properties.timeZone.enum, ['Asia/Shanghai']);
+assert.ok(document.paths['/admin/devices/{deviceId}/note'].put.security.some(requirement => requirement.adminCsrf),
+  'user note edits must require administrator CSRF');

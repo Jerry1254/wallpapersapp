@@ -36,10 +36,12 @@ public class DeviceDownloadController {
             @Valid @RequestBody CreateDownloadTicketRequest body,
             HttpServletRequest request) {
         DevicePrincipal principal = (DevicePrincipal) request.getAttribute(RequestAttributes.DEVICE_PRINCIPAL);
-        return ResponseEntity.status(201).body(tickets.create(
+        DownloadDescriptor descriptor = tickets.create(
                 principal,
                 Ids.parse(wallpaperId, "wallpaperId"),
-                body));
+                body);
+        request.setAttribute(RequestAttributes.DEVICE_DOWNLOAD_OUTCOME, descriptor);
+        return ResponseEntity.status(201).body(descriptor);
     }
 
     @GetMapping("/api/v1/delivery/files")

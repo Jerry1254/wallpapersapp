@@ -29,13 +29,14 @@ const mobile = ref(false);
 const items = [
   { path: '/support', label: '在线客服', icon: ChatDotRound },
   { path: '/dashboard', label: '工作台', icon: DataAnalysis },
+  { path: '/operations', label: '运营概览', icon: DataAnalysis },
   { path: '/categories', label: '分类管理', icon: CollectionTag },
   { path: '/wallpapers', label: '壁纸管理', icon: Picture },
   { path: '/legal-documents', label: '协议管理', icon: Document },
   { path: '/tutorials', label: '设置教程', icon: VideoPlay },
   { path: '/codes', label: '兑换码', icon: Key },
   { path: '/redemptions', label: '兑换记录', icon: List },
-  { path: '/devices', label: '设备权益', icon: Iphone },
+  { path: '/devices', label: '用户管理', icon: Iphone },
   { path: '/security', label: '安全风控', icon: Lock },
   { path: '/app-releases', label: 'App 版本管理', icon: Upload }
 ];

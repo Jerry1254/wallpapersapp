@@ -7,12 +7,14 @@ import { useRouter } from 'vue-router';
 import { statusLabels, wallpaperCapabilityLabels, type AdminDashboard, type Category, type Wallpaper } from '@/domain/admin';
 import { readableApiError } from '@/repositories/http/apiClient';
 import { adminRepository } from '@/repositories/http/adminRepository';
+import { operationsRepository, type OperationsOverview } from '@/repositories/http/operationsRepository';
 
 const router = useRouter();
 const loading = ref(true);
 const loadError = ref('');
 const wallpapers = ref<Wallpaper[]>([]);
 const categories = ref<Category[]>([]);
+const operations = ref<OperationsOverview>();
 const summary = ref<AdminDashboard>({
   publishedWallpaperCount: 0,
   activeDeviceCount: 0,
@@ -23,16 +25,17 @@ const summary = ref<AdminDashboard>({
 
 const stats = computed(() => [
   { label: '已发布壁纸', value: summary.value.publishedWallpaperCount, icon: Picture },
-  { label: '活跃设备', value: summary.value.activeDeviceCount, icon: Promotion },
+  { label: '正常设备', value: summary.value.activeDeviceCount, icon: Promotion },
   { label: '累计设备权益', value: summary.value.entitlementCount, icon: Key },
-  { label: '今日兑换', value: summary.value.redemptionCountToday, icon: TrendCharts }
+  { label: '今日成功兑换', value: operations.value?.redemptionsToday ?? 0, icon: TrendCharts }
 ]);
 
 const load = async () => {
   loading.value = true;
   loadError.value = '';
   try {
-    const [data, categoryItems] = await Promise.all([adminRepository.dashboard(), adminRepository.categories()]);
+    const [data, categoryItems, overview] = await Promise.all([adminRepository.dashboard(), adminRepository.categories(), operationsRepository.overview()]);
+    operations.value = overview;
     summary.value = data.summary;
     wallpapers.value = data.wallpapers;
     categories.value = categoryItems;
@@ -65,6 +68,12 @@ onMounted(load);
     </header>
     <AdminLoadNotice :error="loadError" :loading="loading" @retry="load" />
 
+    <section v-if="operations && !loadError" class="surface content-table">
+      <header class="panel-heading"><div><h2>用户与运营</h2><p>按设备身份统计 · 北京时间 · 今日使用人数已去重</p></div><ElButton text type="primary" @click="router.push('/operations')">查看运营概览</ElButton></header>
+      <div class="stat-grid" style="padding:0 20px 20px">
+        <article v-for="item in [{label:'累计用户',value:operations.totalUsers},{label:'今日新增',value:operations.newUsersToday},{label:'今日使用人数',value:operations.activeUsersToday},{label:'今日回访',value:operations.returningUsersToday}]" :key="item.label" class="surface stat-card"><span>{{ item.label }}</span><strong>{{ item.value.toLocaleString() }}</strong></article>
+      </div>
+    </section>
     <div v-if="!loadError" class="stat-grid">
       <article v-for="item in stats" :key="item.label" class="surface stat-card">
         <div class="stat-card__icon"><ElIcon :size="19"><component :is="item.icon" /></ElIcon></div>

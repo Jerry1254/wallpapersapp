@@ -25,6 +25,14 @@ public final class WallpaperIosPlugin: NSObject, FlutterPlugin {
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     do {
       switch call.method {
+      case "deviceInformation":
+        var system = utsname()
+        uname(&system)
+        let model = Mirror(reflecting: system.machine).children.reduce("") { value, element in
+          guard let byte = element.value as? Int8, byte != 0 else { return value }
+          return value + String(UnicodeScalar(UInt8(bitPattern: byte)))
+        }
+        result(["manufacturer": "Apple", "model": model, "osVersion": UIDevice.current.systemVersion])
       case "identity":
         result(try identity())
       case "sign":

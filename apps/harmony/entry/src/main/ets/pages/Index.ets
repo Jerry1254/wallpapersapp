@@ -13,6 +13,7 @@ import { CatalogApi } from '../network/CatalogApi';
 import { ApiRequestError } from '../network/JsonHttp';
 import { HarmonySecurity } from '../security/HarmonySecurity';
 import { HarmonyDeviceSession } from '../network/HarmonyDeviceSession';
+import { DeviceActivity } from '../operations/DeviceActivity';
 import { AppUpdateEvents, InstalledAppVersion } from '../update/AppUpdateEvents';
 import { AppRelease, AppUpdatePolicy, AppUpdateService } from '../update/AppUpdateService';
 import { PublishedPolicies, RemotePolicies } from '../privacy/RemotePolicies';
@@ -95,6 +96,7 @@ struct Index {
   @State securityBusy: boolean = false;
   private security: HarmonySecurity | null = null;
   private securitySessions: HarmonyDeviceSession | null = null;
+  private activity: DeviceActivity | null = null;
   @State updateStartupChecked: boolean = false;
   @State updateVisible: boolean = false;
   @State updateMandatory: boolean = false;
@@ -141,11 +143,13 @@ struct Index {
   onPageHide(): void {
     this.pageVisible = false;
     this.security?.setActive(false);
+    this.activity?.refresh();
     this.stopSupportPoll();
   }
 
   aboutToDisappear(): void {
     this.security?.dispose();
+    this.activity?.dispose();
     AppUpdateEvents.onRequired = null;
     this.pageVisible = false;
     this.stopSupportPoll();
@@ -245,6 +249,11 @@ struct Index {
       const sessions: HarmonyDeviceSession = this.securitySessions as HarmonyDeviceSession;
       this.api = new CatalogApi(sessions);
     }
+    if (this.activity === null) {
+      this.activity = new DeviceActivity(this.securitySessions as HarmonyDeviceSession,
+        () => this.consentAccepted && this.securityReady && !this.securityBlocked && this.supportActive && this.pageVisible && !this.updateMandatory);
+    }
+    this.activity.refresh();
     this.startInitialLoad();
     this.refreshSupportUnread();
   }
@@ -255,6 +264,7 @@ struct Index {
   }
 
   private onSupportLifecycle(): void {
+    this.activity?.refresh();
     this.security?.setActive(this.supportActive && this.pageVisible);
     this.stopSupportPoll();
     if (this.supportActive) {

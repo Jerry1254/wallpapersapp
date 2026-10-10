@@ -116,7 +116,10 @@ public final class AdminRedemptionDtos {
             boolean iosTestDevice,
             long entitlementCount,
             Instant lastSeenAt,
-            Instant createdAt) {
+            Instant createdAt,
+            String channel, Instant lastActiveAt, String appVersionName, String appVersionCode,
+            String manufacturer, String model, String osVersion,
+            String note, long noteVersion, Instant bannedAt, String banReason) {
     }
 
     public record AdminDeviceCredential(
@@ -146,6 +149,9 @@ public final class AdminRedemptionDtos {
             long entitlementCount,
             Instant lastSeenAt,
             Instant createdAt,
+            String channel, Instant lastActiveAt, String appVersionName, String appVersionCode,
+            String manufacturer, String model, String osVersion,
+            String note, long noteVersion, Instant bannedAt, String banReason,
             List<AdminDeviceCredential> credentials,
             List<AdminEntitlement> entitlements,
             AdminIosDeviceAcquisition iosAcquisition) {

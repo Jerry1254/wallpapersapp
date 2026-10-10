@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { Refresh, Plus } from '@element-plus/icons-vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import AdminLoadNotice from '@/components/AdminLoadNotice.vue';
 import { readableApiError } from '@/repositories/http/apiClient';
 import { securityRepository as api, securityTime, securityEventText, type SecurityPolicy, type SecurityRule, type SecurityBan, type SecurityWhitelist, type SecurityEvent } from '@/repositories/http/securityRepository';
 
-const tab = ref('rules'), policy = ref<SecurityPolicy>(), bans = ref<SecurityBan[]>([]), whitelist = ref<SecurityWhitelist[]>([]), events = ref<SecurityEvent[]>([]);
-const loading = ref(false), busy = ref(false), error = ref(''), search = ref(''), status = ref('ACTIVE'), page = ref(1), total = ref(0);
+const route = useRoute();
+const tab = ref(route.query.deviceId ? 'bans' : 'rules'), policy = ref<SecurityPolicy>(), bans = ref<SecurityBan[]>([]), whitelist = ref<SecurityWhitelist[]>([]), events = ref<SecurityEvent[]>([]);
+const loading = ref(false), busy = ref(false), error = ref(''), search = ref(String(route.query.deviceId || '')), status = ref('ACTIVE'), page = ref(1), total = ref(0);
 const banDialog = ref(false), whiteDialog = ref(false), releaseDialog = ref(false), selected = ref<SecurityBan>();
 const banForm = reactive({ device: '', ip: '', reason: '' });
 const whiteForm = reactive({ type: 'DEVICE', value: '', note: '' });
@@ -71,6 +73,7 @@ async function removeWhite(id: string) {
   await mutate(() => api.removeWhitelist(id), '白名单已移除'); await load();
 }
 function query() { page.value = 1; load(); }
+watch(() => route.query.deviceId, (id) => { if (id) { tab.value = 'bans'; search.value = String(id); query(); } });
 onMounted(load);
 </script>
 
