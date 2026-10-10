@@ -13,6 +13,9 @@ public final class RiskDtos {
     public record Policy(boolean enabled, long version, List<Rule> rules) {}
     public record State(boolean allowed, List<String> checks) {}
     public record Report(@NotNull @Size(max=4) Map<String, Signal> signals) {}
+    public record HarmonyChallenge(boolean allowed, List<String> checks, String nonce, int retryAfterSeconds) {}
+    public record HarmonyProof(@NotBlank @Pattern(regexp="[A-Za-z0-9+/]{43}=") String nonce,
+                               @NotBlank @Size(max=32768) String jws) {}
     public record PolicyUpdate(@NotNull Boolean enabled, @NotNull @Min(0) Long version) {}
     public record RuleUpdate(@NotNull Boolean enabled, @Min(1) @Max(100000) int threshold,
                              @Min(10) @Max(86400) int windowSeconds, @NotNull @Min(0) Long version) {}

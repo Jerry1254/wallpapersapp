@@ -8,6 +8,8 @@ final class SignedDeviceRoutes {
                 || (method.equals("POST") && (uri.equals("/api/v1/device/redemptions")
                 || uri.startsWith("/api/v1/device/ios/")
                 || uri.equals("/api/v1/device/security/reports")
+                || uri.equals("/api/v1/device/security/harmony/challenges")
+                || uri.equals("/api/v1/device/security/harmony/reports")
                 || (uri.startsWith("/api/v1/device/support/") && !uri.endsWith("/attachments"))
                 || (uri.startsWith("/api/v1/device/wallpapers/") && (uri.endsWith("/download-tickets") || uri.endsWith("/preview-tickets")))));
     }

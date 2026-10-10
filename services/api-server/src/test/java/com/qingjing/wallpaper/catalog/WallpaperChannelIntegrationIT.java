@@ -86,7 +86,7 @@ class WallpaperChannelIntegrationIT {
 
     @BeforeEach void setUp() {
         jdbc.update("DELETE FROM security_ban");
-        risk=new com.qingjing.wallpaper.risk.RiskService(jdbc,mock(com.qingjing.wallpaper.risk.RiskCounter.class),new com.qingjing.wallpaper.risk.ClientAddress(""),transactions);
+        risk=new com.qingjing.wallpaper.risk.RiskService(jdbc,mock(com.qingjing.wallpaper.risk.RiskCounter.class),new com.qingjing.wallpaper.risk.ClientAddress(""),transactions,mock(com.qingjing.wallpaper.risk.HarmonyAttestationVerifier.class));
         jdbc.update("UPDATE wallpaper SET offline_promotion_only=(id=11),access_type='FREE'");
         jdbc.update("UPDATE category SET icon_asset_id=id");
         jdbc.update("UPDATE anonymous_device SET status='ACTIVE',app_install_scope=? WHERE id=302",WallpaperChannelAccess.OFFLINE_SCOPE);

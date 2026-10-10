@@ -21,8 +21,8 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 public class RiskService {
     private record Definition(String title, String description, List<String> platforms) {}
     private static final Map<String,Definition> DEFINITIONS = Map.of(
-        "DEVELOPER_MODE",new Definition("开发者模式","线上及线下安卓：仅开启规则时读取系统开关，明确读到开启才封禁；部分系统会隐藏状态，隐藏或读取失败不封禁。iOS、鸿蒙尚未接入此检测。",List.of("ANDROID")),
-        "USB_DEBUGGING",new Definition("USB 调试","线上及线下安卓：仅开启规则时读取 USB 调试开关，明确读到开启才封禁；部分系统会隐藏状态，隐藏或读取失败不封禁。iOS、鸿蒙尚未接入此检测。",List.of("ANDROID")),
+        "DEVELOPER_MODE",new Definition("开发者模式","安卓仅明确读取到开启才封禁；鸿蒙 26+ 使用 SafetyDetect 并由服务器验签，约每 90 分钟检查一次。开关关闭时跳过检测；隐藏、失败、旧系统或额度耗尽不封禁；iOS 不支持。",List.of("ANDROID","HARMONYOS")),
+        "USB_DEBUGGING",new Definition("USB／无线调试","安卓仅明确读取到 USB 或无线调试开启才封禁，系统隐藏时不能保证检测；鸿蒙 26+ 由服务器验证 SafetyDetect 的 USB 和 Wi-Fi 位，任一开启即命中，约每 90 分钟检查一次。关闭规则跳过；失败、旧系统或额度耗尽不封禁；iOS 不支持。",List.of("ANDROID","HARMONYOS")),
         "ROOT_JAILBREAK",new Definition("Root／越狱","检查已知异常文件，仅在开关开启时运行；属于本机环境信号。",List.of("ANDROID","IOS")),
         "EMULATOR",new Definition("模拟器","检查本机模拟环境信号，仅在开关开启时运行。",List.of("ANDROID","IOS")),
         "REQUEST_FLOOD",new Definition("高频请求","同一设备或 IP 的业务请求超过窗口内阈值。",List.of("ALL")),
@@ -32,10 +32,13 @@ public class RiskService {
     private final JdbcTemplate jdbc;
     private final RiskCounter counters;
     private final ClientAddress address;
+    private final HarmonyAttestationVerifier harmony;
     private final TransactionTemplate transaction;
     private final TransactionTemplate banTransaction;
-    public RiskService(JdbcTemplate jdbc, RiskCounter counters, ClientAddress address, PlatformTransactionManager manager) {
+    public RiskService(JdbcTemplate jdbc, RiskCounter counters, ClientAddress address, PlatformTransactionManager manager,
+                       HarmonyAttestationVerifier harmony) {
         this.jdbc=jdbc; this.counters=counters; this.address=address;
+        this.harmony=harmony;
         transaction=new TransactionTemplate(manager);
         banTransaction=new TransactionTemplate(manager);
         banTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -44,8 +47,9 @@ public class RiskService {
         var p=jdbc.queryForMap("SELECT enabled,lock_version FROM security_policy WHERE id=1");
         var rules=jdbc.query("SELECT * FROM security_rule ORDER BY rule_key",(rs,n)-> {
             String key=rs.getString("rule_key"); var d=DEFINITIONS.get(key);
-            return new Rule(key,d.title(),d.description(),rs.getBoolean("enabled"),!d.platforms().isEmpty(),
-                d.platforms(),rs.getInt("threshold_value"),rs.getInt("window_seconds"),rs.getLong("lock_version"));
+            var platforms=d.platforms().stream().filter(platform->!platform.equals("HARMONYOS") || harmony.available()).toList();
+            return new Rule(key,d.title(),d.description(),rs.getBoolean("enabled"),!platforms.isEmpty(),
+                platforms,rs.getInt("threshold_value"),rs.getInt("window_seconds"),rs.getLong("lock_version"));
         });
         Object enabled=p.get("enabled");
         return new Policy(enabled instanceof Boolean b?b:((Number)enabled).intValue()==1,
@@ -77,7 +81,16 @@ public class RiskService {
             if(!Set.of("DEVELOPER_MODE","USB_DEBUGGING","ROOT_JAILBREAK","EMULATOR").contains(e.getKey()) || e.getValue()==null)
                 throw invalid("环境信号不符合要求");
         }
-        for(String key:s.checks()) if(body.signals().get(key)==Signal.RISK) {
+        // Harmony must use the separate Huawei-proof route. A signed installation request alone is insufficient.
+        if(device.platform()==com.qingjing.wallpaper.device.DeviceDtos.DevicePlatform.HARMONYOS) return s;
+        return applySignals(device,ip,s,body.signals());
+    }
+    State reportHarmonyVerified(DevicePrincipal device,String ip,Map<String,Signal> signals) {
+        requireAllowed(device.deviceId(),ip);
+        return applySignals(device,ip,state(device,ip),signals);
+    }
+    private State applySignals(DevicePrincipal device,String ip,State s,Map<String,Signal> signals) {
+        for(String key:s.checks()) if(signals.get(key)==Signal.RISK) {
             automaticBan(device.deviceId(),ip,key,"检测到"+DEFINITIONS.get(key).title());
             return state(device,ip);
         }

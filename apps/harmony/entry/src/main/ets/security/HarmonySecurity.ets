@@ -4,14 +4,14 @@ import { http } from '@kit.NetworkKit';
 import { HarmonyDeviceSession } from '../network/HarmonyDeviceSession';
 import { ApiRequestError, JsonHttp } from '../network/JsonHttp';
 import { SecurityEvents } from './SecurityEvents';
+import { HarmonyRiskFactors, HarmonyRiskState } from './HarmonyRiskFactors';
 
-interface SecurityState { allowed: boolean; checks: string[]; }
-interface SecurityReport { signals: Record<string, string>; }
 
 export class HarmonySecurity {
   private static readonly BASE: string = 'https://wallpaper.biguo66.top/api/v1';
   private context: common.UIAbilityContext;
   private sessions: HarmonyDeviceSession;
+  private factors: HarmonyRiskFactors;
   private changed: (blocked: boolean, ready: boolean, busy: boolean) => void;
   blocked: boolean = false;
   ready: boolean = false;
@@ -25,6 +25,7 @@ export class HarmonySecurity {
   constructor(context: common.UIAbilityContext, sessions: HarmonyDeviceSession,
     changed: (blocked: boolean, ready: boolean, busy: boolean) => void) {
     this.context = context; this.sessions = sessions; this.changed = changed;
+    this.factors = new HarmonyRiskFactors(context, sessions);
     SecurityEvents.onBlocked = () => this.markBlocked();
   }
   async start(): Promise<void> {
@@ -60,15 +61,15 @@ export class HarmonySecurity {
   private async performCheck(): Promise<void> {
     this.stop(); this.busy = true; this.emit(); const epoch: number = this.epoch;
     try {
-      let state: SecurityState = await this.readState();
+      let state: HarmonyRiskState = await this.readState();
       if (typeof state.allowed !== 'boolean' || !Array.isArray(state.checks)) throw new Error('Invalid state');
-      if (state.allowed && state.checks.length > 0) {
-        // No verified Harmony environment adapter is advertised by the backend yet.
-        const signals: Record<string, string> = {};
-        state.checks.forEach((key: string) => signals[key] = 'UNKNOWN');
-        const report: SecurityReport = { signals: signals };
-        state = await this.sessions.signedPost('/device/security/reports', report) as SecurityState;
-        if (typeof state.allowed !== 'boolean') throw new Error('Invalid report');
+      if (state.allowed) {
+        try {
+          const result: HarmonyRiskState | null = await this.factors.inspect(state.checks);
+          if (result !== null) state = result;
+        } catch (error) { /* Failed or unverifiable evidence is unknown; the server still checks existing bans. */ }
+        // Read again after the cloud query or failure so an administrator's concurrent ban is respected.
+        if (state.allowed) state = await this.readState();
       }
       if (!this.alive || epoch !== this.epoch) return;
       this.blocked = !state.allowed; this.ready = state.allowed; SecurityEvents.blocked = this.blocked;
@@ -81,12 +82,12 @@ export class HarmonySecurity {
       }
     }
   }
-  private async readState(): Promise<SecurityState> {
+  private async readState(): Promise<HarmonyRiskState> {
     for (let attempt: number = 0; attempt < 2; attempt++) {
       try {
         const token: string = await this.sessions.accessToken();
         return await JsonHttp.request(HarmonySecurity.BASE + '/device/security/state',
-          http.RequestMethod.GET, null, token) as SecurityState;
+          http.RequestMethod.GET, null, token) as HarmonyRiskState;
       } catch (error) {
         if (attempt === 0 && error instanceof ApiRequestError && error.status === 401) {
           this.sessions.invalidate();

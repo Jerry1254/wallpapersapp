@@ -36,7 +36,7 @@ class RiskIntegrationIT {
         jdbc.update("DELETE FROM security_ban");jdbc.update("DELETE FROM security_whitelist");
         jdbc.update("UPDATE security_policy SET enabled=TRUE,lock_version=0");
         jdbc.update("UPDATE security_rule SET enabled=FALSE,lock_version=0");
-        counter=mock(RiskCounter.class);risk=new RiskService(jdbc,counter,new ClientAddress(""),transactions);
+        counter=mock(RiskCounter.class);risk=new RiskService(jdbc,counter,new ClientAddress(""),transactions,mock(HarmonyAttestationVerifier.class));
     }
     @Test void bansBothIdentityAndWholeIpAndOnlyAdminReleaseRestoresAccess() {
         enable("ROOT_JAILBREAK",1);

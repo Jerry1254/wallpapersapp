@@ -29,7 +29,8 @@ class RiskMvcChainTest {
             return new DeviceAuthInterceptor(identity,limiter,risk,address);
         }
         @Bean RiskInterceptor guard(RiskService risk,ClientAddress address) { return new RiskInterceptor(risk,address); }
-        @Bean DeviceSecurityController security(RiskService risk,ClientAddress address) { return new DeviceSecurityController(risk,address); }
+        @Bean HarmonyRiskService harmony() { return mock(HarmonyRiskService.class); }
+        @Bean DeviceSecurityController security(RiskService risk,ClientAddress address,HarmonyRiskService harmony) { return new DeviceSecurityController(risk,address,harmony); }
         @Bean ProbeController probes() { return new ProbeController(); }
         @Bean ApiExceptionHandler errors() { return new ApiExceptionHandler(); }
     }
@@ -54,6 +55,12 @@ class RiskMvcChainTest {
             }
             mvc.perform(get("/api/v1/device/security/state").header("Authorization","Bearer test-token"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.allowed").value(false));
+            for (String path:List.of("harmony/challenges","harmony/reports")) {
+                mvc.perform(post("/api/v1/device/security/"+path).header("Authorization","Bearer test-token")
+                    .contentType("application/json").content("{}"))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("SIGNED_REQUEST_INVALID"));
+            }
+            verifyNoInteractions(context.getBean(HarmonyRiskService.class));
             mvc.perform(post("/api/v1/device/session-challenges")).andExpect(status().isOk());
             mvc.perform(get("/api/v1/admin/probe")).andExpect(status().isOk());
             clearInvocations(risk);reset(risk);

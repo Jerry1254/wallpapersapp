@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.25.0
+  version: 2.26.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -4817,6 +4817,76 @@ paths:
               $ref: "#/components/schemas/SecurityReport"
       description: 必须使用安装凭据正文签名；本机信号不等于硬件远程认证。UNKNOWN、不支持的平台及已关闭规则不触发封禁。命中规则永久封禁设备及当前可信来源
         IP，只能管理员解除。
+  /device/security/harmony/challenges:
+    post:
+      tags:
+        - Device Security
+      operationId: createHarmonyRiskChallenge
+      summary: 申请鸿蒙 SafetyDetect 单次检测挑战
+      security:
+        - deviceBearer: []
+      parameters:
+        - $ref: "#/components/parameters/RequestTimestamp"
+        - $ref: "#/components/parameters/RequestNonce"
+        - $ref: "#/components/parameters/RequestSignature"
+      responses:
+        "200":
+          description: 服务器当前状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HarmonyRiskChallenge"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      description: 仅鸿蒙安装凭据可调用，必须正文签名。规则关闭、已封禁或适配器关闭时不发放 nonce。nonce 为服务器随机 32 字节 Base64，绑定设备和当时请求的检测项，120 秒有效且只能使用一次；每设备至少间隔 60 秒、每天最多发放 20 次。正常检查间隔建议 90 分钟，额度耗尽不封禁。
+  /device/security/harmony/reports:
+    post:
+      tags:
+        - Device Security
+      operationId: reportHarmonyRiskProof
+      summary: 提交华为签名的鸿蒙风险凭证
+      security:
+        - deviceBearer: []
+      parameters:
+        - $ref: "#/components/parameters/RequestTimestamp"
+        - $ref: "#/components/parameters/RequestNonce"
+        - $ref: "#/components/parameters/RequestSignature"
+      responses:
+        "200":
+          description: 服务器当前状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecurityState"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HarmonyRiskProof"
+      description: 仅鸿蒙安装凭据可调用，必须正文签名。服务器校验 ES256、三层证书链和固定可信华为根、叶证书名称、App ID、nonce 与时间戳；原子消费 nonce 防止跨设备提交及重放。仅已请求且当前仍启用的成功风险因子才能永久封禁设备和当前可信来源 IP。失败或 UNKNOWN 不封禁；旧的普通 signals 路由不能触发鸿蒙封禁。
   /admin/security/policy:
     get:
       tags:
@@ -5563,9 +5633,41 @@ components:
               - USB_DEBUGGING
               - ROOT_JAILBREAK
               - EMULATOR
+    HarmonyRiskChallenge:
+      type: object
+      required: [allowed, checks, nonce, retryAfterSeconds]
+      properties:
+        allowed:
+          type: boolean
+        checks:
+          type: array
+          maxItems: 2
+          items:
+            type: string
+            enum: [DEVELOPER_MODE, USB_DEBUGGING]
+        nonce:
+          type: string
+          nullable: true
+          description: 32 字节随机数的 Base64，未发放挑战时为 null
+        retryAfterSeconds:
+          type: integer
+          minimum: 0
+          description: 距建议下次申请的秒数，额度不足时不调用华为服务
+    HarmonyRiskProof:
+      type: object
+      required: [nonce, jws]
+      properties:
+        nonce:
+          type: string
+          pattern: '^[A-Za-z0-9+/]{43}=$'
+        jws:
+          type: string
+          minLength: 1
+          maxLength: 32768
+          description: 原封不动的华为 SafetyDetect JWS，服务器验证后才能使用
     SecurityReport:
       type: object
-      description: 仅上报服务器请求的环境检测。安卓开发者模式与 USB 调试只有明确读取到系统值 1 时报告 RISK；系统值 0 可能被隐藏，缺失、隐藏或读取失败均报告 UNKNOWN。禁用规则、非适配平台和 UNKNOWN 不触发封禁。
+      description: 仅上报服务器请求的环境检测。安卓开发者模式或 USB／无线调试只有明确读取到对应系统值 1 时报告 RISK；系统值 0 可能被隐藏，缺失、隐藏或读取失败均报告 UNKNOWN。禁用规则、非适配平台和 UNKNOWN 不触发封禁。鸿蒙不信任此路由的客户端 signals，必须提交华为签名凭证。
       required:
         - signals
       properties:

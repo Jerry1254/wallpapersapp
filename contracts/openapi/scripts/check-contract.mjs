@@ -168,6 +168,8 @@ for (const [path, method] of [
 const sensitiveDeviceOperations = [
   document.paths['/device/encryption-key'].put,
   document.paths['/device/redemptions'].post,
+  document.paths['/device/security/harmony/challenges'].post,
+  document.paths['/device/security/harmony/reports'].post,
   document.paths['/device/wallpapers/{wallpaperId}/download-tickets'].post,
   document.paths['/device/wallpapers/{wallpaperId}/preview-tickets'].post
 ];

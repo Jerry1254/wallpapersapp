@@ -15,6 +15,10 @@ class SecurityBridge(context: Context, messenger: BinaryMessenger) {
         usbDebugging = { Settings.Global.getInt(context.contentResolver, Settings.Global.ADB_ENABLED, -1) },
         rooted = { listOf("/system/bin/su", "/system/xbin/su", "/sbin/su", "/data/adb/magisk").any { File(it).exists() } },
         emulator = { emulator() },
+        // AOSP's Wi-Fi debugging setting is not a public constant. Read its key without hidden-API reflection;
+        // inaccessible or redacted settings remain UNKNOWN in SecurityEnvironmentChecks.
+        wirelessDebugging = { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+            Settings.Global.getInt(context.contentResolver, "adb_wifi_enabled", -1) else -1 },
     )
     init {
         MethodChannel(messenger, "qingjing/security").setMethodCallHandler { call, result ->

@@ -45,7 +45,7 @@ management:
 info:
   app:
     name: ${spring.application.name}
-    contract-version: ${QJ_API_CONTRACT_VERSION:2.25.0}
+    contract-version: ${QJ_API_CONTRACT_VERSION:2.26.0}
     environment-id: ${QJ_ENVIRONMENT_ID:UNCONFIGURED}
     deployment-stage: ${QJ_DEPLOYMENT_STAGE:UNCONFIGURED}
     git-commit: ${QJ_DEPLOYMENT_GIT_COMMIT:unknown}
@@ -56,6 +56,10 @@ info:
 qingjing:
   risk:
     trusted-proxy-ips: ${QJ_RISK_TRUSTED_PROXY_IPS:}
+    harmony:
+      enabled: ${QJ_HARMONY_RISK_ENABLED:true}
+      app-id: ${QJ_HARMONY_RISK_APP_ID:6917617603491246393}
+      root-ca: ${QJ_HARMONY_RISK_ROOT_CA:classpath:huawei/Huawei_CBG_Root_CA_G2.pem}
   scheduling-enabled: ${QJ_SCHEDULING_ENABLED:true}
   delivery:
     ffprobe: ${QJ_FFPROBE:ffprobe}

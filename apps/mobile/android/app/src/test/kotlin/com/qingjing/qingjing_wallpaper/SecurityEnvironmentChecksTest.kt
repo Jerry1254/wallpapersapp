@@ -9,6 +9,7 @@ class SecurityEnvironmentChecksTest {
         val detector = SecurityEnvironmentChecks(
             { reads.add("developer"); 1 }, { reads.add("usb"); 1 },
             { reads.add("root"); true }, { reads.add("emulator"); true },
+            { reads.add("wifi"); 1 },
         )
         assertEquals(emptyMap<String, String>(), detector.check(emptyList()))
         assertEquals(mapOf("UNSUPPORTED" to "UNKNOWN"), detector.check(listOf("UNSUPPORTED")))
@@ -59,5 +60,21 @@ class SecurityEnvironmentChecksTest {
         val detector = SecurityEnvironmentChecks({ reads++; 1 }, { 0 }, { false }, { false })
         assertEquals(mapOf("DEVELOPER_MODE" to "RISK"), detector.check(listOf("DEVELOPER_MODE", "DEVELOPER_MODE")))
         assertEquals(1, reads)
+    }
+
+    @Test fun wirelessDebuggingIsRiskWithUsbOffAndDeveloperRuleDisabled() {
+        val detector = SecurityEnvironmentChecks(
+            { throw AssertionError("Developer rule must stay off") }, { 0 }, { false }, { false }, { 1 },
+        )
+        assertEquals(mapOf("USB_DEBUGGING" to "RISK"), detector.check(listOf("USB_DEBUGGING")))
+    }
+
+    @Test fun deniedTransportCannotHideTheOtherPositiveAndUnknownNeverBecomesRisk() {
+        val wifi = SecurityEnvironmentChecks({ 0 }, { throw SecurityException() }, { false }, { false }, { 1 })
+        val usb = SecurityEnvironmentChecks({ 0 }, { 1 }, { false }, { false }, { throw SecurityException() })
+        val unknown = SecurityEnvironmentChecks({ 0 }, { 0 }, { false }, { false }, { throw SecurityException() })
+        assertEquals("RISK", wifi.check(listOf("USB_DEBUGGING"))["USB_DEBUGGING"])
+        assertEquals("RISK", usb.check(listOf("USB_DEBUGGING"))["USB_DEBUGGING"])
+        assertEquals("UNKNOWN", unknown.check(listOf("USB_DEBUGGING"))["USB_DEBUGGING"])
     }
 }

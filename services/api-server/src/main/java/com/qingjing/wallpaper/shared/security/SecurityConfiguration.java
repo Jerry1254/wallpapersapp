@@ -5,6 +5,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Configuration;
 
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties({SecurityProperties.class, DeviceProperties.class})
+@EnableConfigurationProperties({SecurityProperties.class, DeviceProperties.class, com.qingjing.wallpaper.risk.HarmonyRiskProperties.class})
 public class SecurityConfiguration {
 }
