@@ -9,6 +9,8 @@ import java.util.*;
 import java.util.concurrent.*;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.*;
 import org.testcontainers.containers.MySQLContainer;
@@ -61,8 +63,55 @@ class RiskIntegrationIT {
         assertThat(risk.bans("","ALL",1,50).total()).isZero();
         enable("ROOT_JAILBREAK",1);
         assertThat(risk.report(USER,"203.0.113.9",new Report(Map.of("ROOT_JAILBREAK",Signal.UNKNOWN))).allowed()).isTrue();
-        var unsupported=rule("DEVELOPER_MODE");
-        assertThatThrownBy(()->risk.updateRule(unsupported.key(),new RuleUpdate(true,1,60,unsupported.version()))).isInstanceOf(ApiException.class);
+        risk.report(USER,"203.0.113.9",new Report(Map.of("DEVELOPER_MODE",Signal.RISK,"USB_DEBUGGING",Signal.RISK)));
+        assertThat(risk.bans("","ALL",1,50).total()).isZero();
+        enable("DEVELOPER_MODE",1);enable("USB_DEBUGGING",1);
+        assertThat(risk.report(USER,"203.0.113.9",new Report(Map.of("DEVELOPER_MODE",Signal.UNKNOWN,"USB_DEBUGGING",Signal.UNKNOWN))).allowed()).isTrue();
+        assertThat(risk.bans("","ALL",1,50).total()).isZero();
+        var p=risk.policy();risk.updatePolicy(new PolicyUpdate(false,p.version()));
+        assertThat(risk.state(USER,"203.0.113.9").checks()).isEmpty();
+        assertThat(risk.report(USER,"203.0.113.9",new Report(Map.of("DEVELOPER_MODE",Signal.RISK,"USB_DEBUGGING",Signal.RISK))).allowed()).isTrue();
+        assertThat(risk.bans("","ALL",1,50).total()).isZero();
+    }
+    @Test void developerAndUsbSwitchesAreAvailableIndependentlyAndOnlySentToAndroid() {
+        for(String key:List.of("DEVELOPER_MODE","USB_DEBUGGING")) {
+            assertThat(rule(key).available()).isTrue();
+            assertThat(rule(key).enabled()).isFalse();
+            assertThat(rule(key).platforms()).containsExactly("ANDROID");
+        }
+        enable("DEVELOPER_MODE",1);
+        assertThat(risk.state(USER,"203.0.113.9").checks()).containsExactly("DEVELOPER_MODE");
+        enable("USB_DEBUGGING",1);
+        assertThat(risk.state(USER,"203.0.113.9").checks()).containsExactly("DEVELOPER_MODE","USB_DEBUGGING");
+        for(var platform:List.of(DeviceDtos.DevicePlatform.IOS,DeviceDtos.DevicePlatform.HARMONYOS)) {
+            var device=new DevicePrincipal(291,UUID.randomUUID().toString(),platform,DeviceDtos.CredentialType.PLATFORM_PUBLIC_KEY);
+            assertThat(risk.state(device,"203.0.113.9").checks()).isEmpty();
+            assertThat(risk.report(device,"203.0.113.9",new Report(Map.of("DEVELOPER_MODE",Signal.RISK,"USB_DEBUGGING",Signal.RISK))).allowed()).isTrue();
+        }
+        var developer=rule("DEVELOPER_MODE");risk.updateRule(developer.key(),new RuleUpdate(false,1,60,developer.version()));
+        assertThat(risk.state(USER,"203.0.113.9").checks()).containsExactly("USB_DEBUGGING");
+        assertThat(risk.report(USER,"203.0.113.9",new Report(Map.of("DEVELOPER_MODE",Signal.RISK,"USB_DEBUGGING",Signal.UNKNOWN))).allowed()).isTrue();
+        assertThat(risk.bans("","ALL",1,50).total()).isZero();
+    }
+    @ParameterizedTest @ValueSource(strings={"DEVELOPER_MODE","USB_DEBUGGING"})
+    void developerOrUsbPositiveSignalPermanentlyBansDeviceAndWholeIp(String key) {
+        enable(key,1);
+        assertThat(risk.report(USER,"203.0.113.9",new Report(Map.of(key,Signal.RISK))).allowed()).isFalse();
+        var rows=risk.bans("","ACTIVE",1,50).items();
+        assertThat(rows).hasSize(2).allSatisfy(b->{
+            assertThat(b.ruleKey()).isEqualTo(key);assertThat(b.bannedAt()).isNotNull();assertThat(b.releasedAt()).isNull();
+        });
+        assertThat(risk.blocked(291L,"198.51.100.1")).isTrue();
+        assertThat(risk.blocked(327L,"203.0.113.9")).isTrue();
+        var rule=rule(key);risk.updateRule(key,new RuleUpdate(false,1,60,rule.version()));
+        assertThat(risk.state(USER,"203.0.113.9").allowed()).isFalse();
+        var policy=risk.policy();risk.updatePolicy(new PolicyUpdate(false,policy.version()));
+        assertThat(risk.state(USER,"203.0.113.9").allowed()).isFalse();
+        var ban=rows.get(0);risk.release(Long.parseLong(ban.id()),new ReleaseRequest(ban.version(),true,"管理员解除调试检测封禁"),1);
+        assertThat(risk.state(USER,"203.0.113.9").allowed()).isTrue();
+        assertThat(risk.bans("","RELEASED",1,50).items()).hasSize(2).allSatisfy(b->{
+            assertThat(b.releasedAt()).isNotNull();assertThat(b.releasedBy()).isEqualTo("risk-test");
+        });
     }
     @Test void thresholdBanCommitsBeforeRequestFailureAndDeviceWhitelistDoesNotUndoExistingBan() {
         enable("BULK_DOWNLOAD",2);when(counter.count(any(),anyString(),anyString())).thenReturn(3L);

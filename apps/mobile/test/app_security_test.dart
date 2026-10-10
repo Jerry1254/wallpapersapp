@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qingjing_wallpaper/device/device_session.dart';
 import 'package:qingjing_wallpaper/security/app_security.dart';
@@ -94,11 +95,11 @@ void main() {
       await controller.start();
       expect(controller.ready, true);
       expect(calls, 0);
-      transport.checks = ['ROOT_JAILBREAK'];
+      transport.checks = ['DEVELOPER_MODE', 'USB_DEBUGGING'];
       await controller.check();
       expect(calls, 1);
       expect(transport.report, {
-        'signals': {'ROOT_JAILBREAK': 'RISK'},
+        'signals': {'DEVELOPER_MODE': 'RISK', 'USB_DEBUGGING': 'RISK'},
       });
       expect(
         identity.payloads.last,
@@ -107,6 +108,46 @@ void main() {
       expect(controller.blocked, true);
       expect(store.value, true);
       controller.dispose();
+    },
+  );
+  test(
+    'native bridge preserves explicit risk and reports unavailable values as unknown',
+    () async {
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      MethodCall? actual;
+      messenger.setMockMethodCallHandler(NativeSecurityStore.channel, (
+        call,
+      ) async {
+        actual = call;
+        return {'DEVELOPER_MODE': 'RISK', 'USB_DEBUGGING': 'UNKNOWN'};
+      });
+      try {
+        expect(
+          await nativeEnvironmentChecks(['DEVELOPER_MODE', 'USB_DEBUGGING']),
+          {'DEVELOPER_MODE': 'RISK', 'USB_DEBUGGING': 'UNKNOWN'},
+        );
+        expect(actual!.method, 'checkEnvironment');
+        expect(actual!.arguments, ['DEVELOPER_MODE', 'USB_DEBUGGING']);
+        messenger.setMockMethodCallHandler(
+          NativeSecurityStore.channel,
+          (_) async => {'DEVELOPER_MODE': 'ENABLED'},
+        );
+        expect(
+          await nativeEnvironmentChecks(['DEVELOPER_MODE', 'USB_DEBUGGING']),
+          {'DEVELOPER_MODE': 'UNKNOWN', 'USB_DEBUGGING': 'UNKNOWN'},
+        );
+        messenger.setMockMethodCallHandler(
+          NativeSecurityStore.channel,
+          (_) async => throw PlatformException(code: 'READ_DENIED'),
+        );
+        expect(
+          await nativeEnvironmentChecks(['DEVELOPER_MODE', 'USB_DEBUGGING']),
+          {'DEVELOPER_MODE': 'UNKNOWN', 'USB_DEBUGGING': 'UNKNOWN'},
+        );
+      } finally {
+        messenger.setMockMethodCallHandler(NativeSecurityStore.channel, null);
+      }
     },
   );
   test(

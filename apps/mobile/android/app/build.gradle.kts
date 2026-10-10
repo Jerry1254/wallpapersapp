@@ -103,6 +103,7 @@ flutter {
 
 dependencies {
     implementation("androidx.core:core:1.13.1")
+    testImplementation("junit:junit:4.13.2")
 }
 
 // Test signing applies only to local artifacts, never to production.

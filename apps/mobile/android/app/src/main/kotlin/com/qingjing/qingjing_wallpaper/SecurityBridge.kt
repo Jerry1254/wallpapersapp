@@ -2,6 +2,7 @@ package com.qingjing.qingjing_wallpaper
 
 import android.content.Context
 import android.os.Build
+import android.provider.Settings
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
@@ -9,6 +10,12 @@ import java.io.File
 /** Local signals only, not hardware attestation. Checks are lazy and run only for enabled rules. */
 class SecurityBridge(context: Context, messenger: BinaryMessenger) {
     private val preferences = context.getSharedPreferences("qingjing_security", Context.MODE_PRIVATE)
+    private val environment = SecurityEnvironmentChecks(
+        developerMode = { Settings.Global.getInt(context.contentResolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, -1) },
+        usbDebugging = { Settings.Global.getInt(context.contentResolver, Settings.Global.ADB_ENABLED, -1) },
+        rooted = { listOf("/system/bin/su", "/system/xbin/su", "/sbin/su", "/data/adb/magisk").any { File(it).exists() } },
+        emulator = { emulator() },
+    )
     init {
         MethodChannel(messenger, "qingjing/security").setMethodCallHandler { call, result ->
             when (call.method) {
@@ -25,15 +32,8 @@ class SecurityBridge(context: Context, messenger: BinaryMessenger) {
                     else result.error("SAVE_FAILED", "Unable to save state", null)
                 }
                 "checkEnvironment" -> {
-                    val checks = (call.arguments as? List<*>)?.filterIsInstance<String>().orEmpty().take(4)
-                    result.success(checks.associateWith { key ->
-                        when (key) {
-                            "ROOT_JAILBREAK" -> if (listOf("/system/bin/su", "/system/xbin/su", "/sbin/su", "/data/adb/magisk").any { File(it).exists() }) "RISK" else "NORMAL"
-                            "EMULATOR" -> if (emulator()) "RISK" else "NORMAL"
-                            // Public Settings.Global values may be redacted to zero; zero cannot establish safety.
-                            else -> "UNKNOWN"
-                        }
-                    })
+                    val checks = (call.arguments as? List<*>)?.filterIsInstance<String>().orEmpty()
+                    result.success(environment.check(checks))
                 }
                 else -> result.notImplemented()
             }

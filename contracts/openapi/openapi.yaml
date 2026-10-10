@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: 倾境壁纸 API
-  version: 2.24.0
+  version: 2.25.0
   license:
     name: Proprietary
     url: https://github.com/Jerry1254/wallpapersapp
@@ -4885,6 +4885,7 @@ paths:
         - Admin Security
       operationId: updateAdminSecurityRule
       summary: 修改独立检测开关与阈值
+      description: 开发者模式与 USB 调试可独立启用，当前仅适配线上及线下安卓；不自动开启已有关闭的规则。关闭规则只停止新增检测，不解除已有封禁。
       security:
         - adminCookie: []
           adminCsrf: []
@@ -5493,6 +5494,7 @@ components:
 
     SecurityRule:
       type: object
+      description: available 表示存在可接入的平台检测，不保证所有该平台设备均公开系统状态。DEVELOPER_MODE、USB_DEBUGGING 当前仅支持 ANDROID；隐藏状态或读取失败按 UNKNOWN 处理，不封禁。
       required:
         - key
         - title
@@ -5563,6 +5565,7 @@ components:
               - EMULATOR
     SecurityReport:
       type: object
+      description: 仅上报服务器请求的环境检测。安卓开发者模式与 USB 调试只有明确读取到系统值 1 时报告 RISK；系统值 0 可能被隐藏，缺失、隐藏或读取失败均报告 UNKNOWN。禁用规则、非适配平台和 UNKNOWN 不触发封禁。
       required:
         - signals
       properties:

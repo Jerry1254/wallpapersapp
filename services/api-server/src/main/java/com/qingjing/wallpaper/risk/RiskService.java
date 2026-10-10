@@ -21,8 +21,8 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 public class RiskService {
     private record Definition(String title, String description, List<String> platforms) {}
     private static final Map<String,Definition> DEFINITIONS = Map.of(
-        "DEVELOPER_MODE",new Definition("开发者模式","系统接口受限，尚无已验证的检测适配，暂不可启用。",List.of()),
-        "USB_DEBUGGING",new Definition("USB 调试","系统接口受限，尚无已验证的检测适配，暂不可启用。",List.of()),
+        "DEVELOPER_MODE",new Definition("开发者模式","线上及线下安卓：仅开启规则时读取系统开关，明确读到开启才封禁；部分系统会隐藏状态，隐藏或读取失败不封禁。iOS、鸿蒙尚未接入此检测。",List.of("ANDROID")),
+        "USB_DEBUGGING",new Definition("USB 调试","线上及线下安卓：仅开启规则时读取 USB 调试开关，明确读到开启才封禁；部分系统会隐藏状态，隐藏或读取失败不封禁。iOS、鸿蒙尚未接入此检测。",List.of("ANDROID")),
         "ROOT_JAILBREAK",new Definition("Root／越狱","检查已知异常文件，仅在开关开启时运行；属于本机环境信号。",List.of("ANDROID","IOS")),
         "EMULATOR",new Definition("模拟器","检查本机模拟环境信号，仅在开关开启时运行。",List.of("ANDROID","IOS")),
         "REQUEST_FLOOD",new Definition("高频请求","同一设备或 IP 的业务请求超过窗口内阈值。",List.of("ALL")),
